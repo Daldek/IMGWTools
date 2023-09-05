@@ -3,13 +3,13 @@ import wget
 public_data_url = 'https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne'
 
 # these should be user's input. Currently fixed values for testing purpose
-data_type = 'dane_hydrologiczne'
-data_period_type = 'dobowe'  # optional: "dobowe", "miesieczne" or "polroczne_i_roczne"
-year = 1992
+data_type = 'dane_hydrologiczne'  # unchangeable for now
+data_period_type = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne": ')
+year = input('Range of years from 1951: ')
 if data_period_type == 'dobowe':
-    month = 10  # range 1-12
+    month = int(input('Numerical values from 1 to 12: '))  # range 1-12
 if data_period_type == 'polroczne_i_roczne':
-    data_variable = 'Q'  # optional: "H" or "T"
+    data_variable = input('Choose: "T", "Q" or "H": ')
 
 # join variables to address
 if data_period_type == 'dobowe':
