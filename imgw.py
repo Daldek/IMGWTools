@@ -1,14 +1,52 @@
 import wget
+import os
+import shutil
+
+def check_zip_file_presence(file_name):
+    current_path = os.getcwd()
+
+    status = os.path.isfile(current_path + '/temp/' + file_name)
+
+    if status is True:
+        print("This file has already been downloaded")
+    return status
 
 
 def compose_url_filename(data_type, data_period_type, year, month):
-    # works only for hydrological data
+    '''Function for creating a url
+
+    This function so far only works for hydrological data.
+    The task of this function is to compose the url to the file we are interested in.
+    This is done based on the information entered by user.
+
+    Parameters
+    ----------
+    data_type : str
+        Choice between hydrological and meteorological data (in preparation).
+    data_period_type : str
+        Daily, monthly, half-yearly and annual (these two are grouped together in the file).
+    year : int
+        Years from 1951 to 2022
+    month : int
+        Months by hydrological year with the 1st month being November 
+        and the 12th month being October. A value of 13 is given if only phenomena in 
+        a given year are to be collected
+
+    Returns
+    -------
+    str
+        Composed url for downloading the file
+    '''
 
     if data_period_type == 'dobowe':
         if month < 10:
-            month = f'0{month}'
-        url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/codz_{year}_{month}.zip'
-        f = f'codz_{year}_{month}.zip'
+            month = f'0{month}'  # the month number must always consist of 2 digits
+        if month == 13:
+            url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/zjaw_{year}.zip'
+            f = f'zjaw_{year}.zip'
+        else:
+            url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/codz_{year}_{month}.zip'
+            f = f'codz_{year}_{month}.zip'
     elif data_period_type == 'miesieczne':
         url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/mies_{year}.zip'
         f = f'mies_{year}.zip'
@@ -16,15 +54,42 @@ def compose_url_filename(data_type, data_period_type, year, month):
         url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/polr_{data_variable}_{year}.zip'
         f = f'polr_{data_variable}_{year}.zip'
     
-    print(url)
-    print(f)
+    print('URL address: ', url)
+    print('File name: ', f, '\n')
     return url, f
+
+
+def move_zips():
+    '''Function to move all downloaded files
+
+    The function does not take any arguments. All downloaded files will be automatically moved to 
+    a new "temp" folder after the task is completed in order to maintain order 
+
+    TODO: perhaps the destination folder should be named differently or be in a different
+    location (user's folder?). It would also be useful to have another function to check whether
+    a file already exists and whether it is necessary to download this data again
+    '''
+    # Move all downloaded zip files to a temp folder
+    # create a list of all zipped files
+    zip_files = [f for f in os.listdir() if '.zip' in f.lower()]
+
+    # create new folder if does not exist yet
+    try:
+        os.mkdir('temp')
+    except FileExistsError:
+        print('Such a folder already exists')
+
+    # move the files
+    for zip_file in zip_files:
+        new_path = 'temp/' + zip_file
+        shutil.move(zip_file, new_path)
+    return 1
 
 
 public_data_url = 'https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne'
 
-# these should be user's input. Currently fixed values for testing purpose
-data_type = 'dane_hydrologiczne'  # unchangeable for now
+# this should be user's input. Currently unchangeable for testing purpose
+data_type = 'dane_hydrologiczne'
 
 while True:
 # the while loop is used for error handling.
@@ -56,14 +121,14 @@ while True:
     # In the case of daily data, user must indicate the month of interest
     # Months numbered by hydrological year
     if data_period_type == 'dobowe':
-        month = input('Numerical values from 1 (November) to 12 (October): ')  # range 1-12
+        month = input('Numerical values from 1 (November) to 12 (October), 13 - phenomena: ')
         try:
             month = int(month)
         except ValueError:
             print('The value given is not an integer')
             break
         else:
-            if month < 1 or month > 12:
+            if month < 1 or month > 13:
                 print("Wrong input")
                 break
     else:
@@ -79,8 +144,13 @@ while True:
 
     # get data from IMGW
     url, f = compose_url_filename(data_type, data_period_type, year, month)
-    wget.download(url, f)
+    if check_zip_file_presence(f) is True:
+        pass
+    else:
+        wget.download(url, f)
 
-    continuation = input('\nEnter "q" to exit ')
+    continuation = input('\nEnter "q" to exit or press "Enter" to continue: ')
     if continuation == 'q':
         break
+
+move_zips()
