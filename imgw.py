@@ -12,7 +12,7 @@ def check_zip_file_presence(file_name):
     return status
 
 
-def compose_url_filename(data_type, interval, year, month):
+def compose_url_filename(public_data_url, data_type, interval, year, var):
     '''Function for creating a url
 
     This function so far only works for hydrological data.
@@ -27,10 +27,11 @@ def compose_url_filename(data_type, interval, year, month):
         Daily, monthly, half-yearly and annual (these two are grouped together in the file).
     year : int
         Years from 1951 to 2022
-    month : int
+    var : int
         Months by hydrological year with the 1st month being November 
         and the 12th month being October. A value of 13 is given if only phenomena in 
-        a given year are to be collected
+        a given year are to be collected. If polroczne_i_roczne has been choosen,
+        user can specify if their would like to get T, Q or H data.
 
     Returns
     -------
@@ -39,20 +40,23 @@ def compose_url_filename(data_type, interval, year, month):
     '''
 
     if interval == 'dobowe':
-        if month < 10:
-            month = f'0{month}'  # the month number must always consist of 2 digits
-        if month == 13:
+        if var < 10:
+            var = f'0{var}'  # the month number must always consist of 2 digits
+        if var == 13:
             url = f'{public_data_url}/{data_type}/{interval}/{year}/zjaw_{year}.zip'
             f = f'zjaw_{year}.zip'
-        else:
-            url = f'{public_data_url}/{data_type}/{interval}/{year}/codz_{year}_{month}.zip'
-            f = f'codz_{year}_{month}.zip'
+        else:  # I assume that 'else' is 11 or 12. This will be validated later
+            url = f'{public_data_url}/{data_type}/{interval}/{year}/codz_{year}_{var}.zip'
+            f = f'codz_{year}_{var}.zip'
     elif interval == 'miesieczne':
         url = f'{public_data_url}/{data_type}/{interval}/{year}/mies_{year}.zip'
         f = f'mies_{year}.zip'
     else:
-        url = f'{public_data_url}/{data_type}/{interval}/{year}/polr_{data_variable}_{year}.zip'
-        f = f'polr_{data_variable}_{year}.zip'
+        '''third option is 'polroczne_i_roczne'. Maybe this should another elif
+        and new 'else' should be created to quit script if the input's wrong?'''
+        var = var.upper()
+        url = f'{public_data_url}/{data_type}/{interval}/{year}/polr_{var}_{year}.zip'
+        f = f'polr_{var}_{year}.zip'
     
     print('URL address: ', url)
     print('File name: ', f, '\n')
@@ -79,6 +83,8 @@ def move_zips():
         os.mkdir('data/downloaded')
     except FileExistsError:
         print('The folder already exists')
+    else:
+        print('New folder has been created:\n' + os.getcwd + '/data/downloaded\n')
 
     # move the files
     for zip_file in zip_files:
@@ -117,7 +123,7 @@ while True:
 
     # First input
     # User selects whether they wants daily, monthly or (semi-)annual data
-    interval = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne": ')
+    interval = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne": ').lower()
     if interval not in ['dobowe', 'miesieczne', 'polroczne_i_roczne']:
         print('Wrong input')
         break
@@ -141,36 +147,32 @@ while True:
     # In the case of daily data, user must indicate the month of interest
     # Months numbered by hydrological year
     if interval == 'dobowe':
-        month = input('Numerical values from 1 (November) to 12 (October), 13 - phenomena: ')
+        var = input('Numerical values from 1 (November) to 12 (October), 13 - phenomena: ')
         try:
-            month = int(month)
+            var = int(var)
         except ValueError:
             print('The value given is not an integer')
             break
         else:
-            if month < 1 or month > 13:
+            if var < 1 or var > 13:
                 print("Wrong input")
                 break
-    else:
-        month = ''
-    
-    # Fourth input
-    # In the case of (semi)annual data, the user has to indicate which variable of interest
-    if interval == 'polroczne_i_roczne':
-        data_variable = input('Choose: "T" - temperature, "Q" - flow, "H" - depth: ')
-        if data_variable not in ['T', 'Q', 'H']:
+    elif interval == 'polroczne_i_roczne':
+        var = input('Choose: "T" - temperature, "Q" - flow, "H" - depth: ').lower()
+        if var not in ['t', 'q', 'h']:
             print('Wrong input')
-            break
+    else:
+        var = ''
 
     # get data from IMGW
-    url, f = compose_url_filename(data_type, interval, year, month)
+    url, f = compose_url_filename(public_data_url, data_type, interval, year, var)
     if check_zip_file_presence(f) is True:
         pass
     else:
         wget.download(url, f)
         downloaded_files.append(f)
 
-    continuation = input('\nEnter "q" to exit or press "Enter" to continue: ')
+    continuation = input('\nEnter "q" to quit or press "Enter" to continue: ').lower()
     if continuation == 'q':
         break
 
@@ -178,7 +180,7 @@ if downloaded_files:
     # move the newly downloaded files
     move_zips()
     # extract them
-    unzip_files = input('\nEnter "y" to extract all newly downloaded files: ')
+    unzip_files = input('\nEnter "y" to extract all newly downloaded files: ').lower()
     if unzip_files == 'y':
         # list comprehension instead of "for" loop
         [unzip_file(downloaded_file) for downloaded_file in downloaded_files]
