@@ -5,14 +5,14 @@ import shutil
 def check_zip_file_presence(file_name):
     current_path = os.getcwd()
 
-    status = os.path.isfile(current_path + '/temp/' + file_name)
+    status = os.path.isfile(current_path + '/data/downloaded/' + file_name)
 
     if status is True:
         print("This file has already been downloaded")
     return status
 
 
-def compose_url_filename(data_type, data_period_type, year, month):
+def compose_url_filename(data_type, interval, year, month):
     '''Function for creating a url
 
     This function so far only works for hydrological data.
@@ -23,7 +23,7 @@ def compose_url_filename(data_type, data_period_type, year, month):
     ----------
     data_type : str
         Choice between hydrological and meteorological data (in preparation).
-    data_period_type : str
+    interval : str
         Daily, monthly, half-yearly and annual (these two are grouped together in the file).
     year : int
         Years from 1951 to 2022
@@ -38,20 +38,20 @@ def compose_url_filename(data_type, data_period_type, year, month):
         Composed url for downloading the file
     '''
 
-    if data_period_type == 'dobowe':
+    if interval == 'dobowe':
         if month < 10:
             month = f'0{month}'  # the month number must always consist of 2 digits
         if month == 13:
-            url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/zjaw_{year}.zip'
+            url = f'{public_data_url}/{data_type}/{interval}/{year}/zjaw_{year}.zip'
             f = f'zjaw_{year}.zip'
         else:
-            url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/codz_{year}_{month}.zip'
+            url = f'{public_data_url}/{data_type}/{interval}/{year}/codz_{year}_{month}.zip'
             f = f'codz_{year}_{month}.zip'
-    elif data_period_type == 'miesieczne':
-        url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/mies_{year}.zip'
+    elif interval == 'miesieczne':
+        url = f'{public_data_url}/{data_type}/{interval}/{year}/mies_{year}.zip'
         f = f'mies_{year}.zip'
     else:
-        url = f'{public_data_url}/{data_type}/{data_period_type}/{year}/polr_{data_variable}_{year}.zip'
+        url = f'{public_data_url}/{data_type}/{interval}/{year}/polr_{data_variable}_{year}.zip'
         f = f'polr_{data_variable}_{year}.zip'
     
     print('URL address: ', url)
@@ -74,19 +74,39 @@ def move_zips():
     zip_files = [f for f in os.listdir() if '.zip' in f.lower()]
 
     # create new folder if does not exist yet
+    print('Creating a folder for downloaded files... ')
     try:
-        os.mkdir('temp')
+        os.mkdir('data/downloaded')
     except FileExistsError:
-        print('Such a folder already exists')
+        print('The folder already exists')
 
     # move the files
     for zip_file in zip_files:
-        new_path = 'temp/' + zip_file
+        new_path = 'data/downloaded/' + zip_file
         shutil.move(zip_file, new_path)
     return 1
 
 
+def unzip_file(file_name):
+    '''
+    TODO: extracting all newly downloaded files and placing them in the 'temp' folder.
+    These files should be temporary and deleted after the script has finished
+    executing in order not to duplicate information in different formats. Optionally,
+    zip files can be deleted instead so that they are not unzipped every time we 
+    want to analyse anything. Currently, data analysis is not possible, but is planned
+    '''
+
+    print('Creating a folder for unziped files... ')
+    try:
+        os.mkdir('data/downloaded/temp')
+    except FileExistsError:
+        print('The folder already exists')
+
+    shutil.unpack_archive('data/downloaded/' + file_name, 'data/downloaded/temp')
+    return 1
+
 public_data_url = 'https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne'
+downloaded_files = []
 
 # this should be user's input. Currently unchangeable for testing purpose
 data_type = 'dane_hydrologiczne'
@@ -97,8 +117,8 @@ while True:
 
     # First input
     # User selects whether they wants daily, monthly or (semi-)annual data
-    data_period_type = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne": ')
-    if data_period_type not in ['dobowe', 'miesieczne', 'polroczne_i_roczne']:
+    interval = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne": ')
+    if interval not in ['dobowe', 'miesieczne', 'polroczne_i_roczne']:
         print('Wrong input')
         break
     
@@ -120,7 +140,7 @@ while True:
     # Third input
     # In the case of daily data, user must indicate the month of interest
     # Months numbered by hydrological year
-    if data_period_type == 'dobowe':
+    if interval == 'dobowe':
         month = input('Numerical values from 1 (November) to 12 (October), 13 - phenomena: ')
         try:
             month = int(month)
@@ -136,21 +156,29 @@ while True:
     
     # Fourth input
     # In the case of (semi)annual data, the user has to indicate which variable of interest
-    if data_period_type == 'polroczne_i_roczne':
+    if interval == 'polroczne_i_roczne':
         data_variable = input('Choose: "T" - temperature, "Q" - flow, "H" - depth: ')
         if data_variable not in ['T', 'Q', 'H']:
             print('Wrong input')
             break
 
     # get data from IMGW
-    url, f = compose_url_filename(data_type, data_period_type, year, month)
+    url, f = compose_url_filename(data_type, interval, year, month)
     if check_zip_file_presence(f) is True:
         pass
     else:
         wget.download(url, f)
+        downloaded_files.append(f)
 
     continuation = input('\nEnter "q" to exit or press "Enter" to continue: ')
     if continuation == 'q':
         break
 
-move_zips()
+if downloaded_files:
+    # move the newly downloaded files
+    move_zips()
+    # extract them
+    unzip_files = input('\nEnter "y" to extract all newly downloaded files: ')
+    if unzip_files == 'y':
+        # list comprehension instead of "for" loop
+        [unzip_file(downloaded_file) for downloaded_file in downloaded_files]
