@@ -1,0 +1,24 @@
+Pliki ze średnimi i ekstremami miesięcznymi zawierają w kolejnych polach następujące informacje:
+
+Kod stacji
+Nazwa stacji
+Nazwa rzeki/jeziora
+Rok hydrologiczny
+Wskaźnik miesiąca w roku hydrologicznym
+Wskaźnik ekstremum
+Stan wody [cm]
+Przepływ [m^3/s]
+Temperatura wody [st. C]
+Miesiąc kalendarzowy
+
+
+Wskaźnik ekstremum może przyjmować następujące wartości:
+1 - minimum,
+2 - wartość średnia,
+3 - maksimum.
+
+
+
+Stan wody 9999 oznacza brak danych w bazie lub przerwy w obserwacjach w danym miesiącu i stąd brak możliwości obliczenia charakterystyk.
+Przepływ 99999.999 oznacza brak danych lub przerwy w obserwacjach w danym miesiącu i stąd brak możliwości obliczenia charakterystyk.
+Temperatura wody 99.9 oznacza brak danych lub przerwy w obserwacjach w danym miesiącu i stąd brak możliwości obliczenia charakterystyk.

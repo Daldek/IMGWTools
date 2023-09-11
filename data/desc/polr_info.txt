@@ -1,0 +1,26 @@
+Pliki z danymi o ekstremach i średnich półrocznych oraz średniej rocznej zawierają w kolejnych polach następujące informacje:
+
+Kod stacji
+Nazwa stacji
+Nazwa rzeki/jeziora
+Rok hydrologiczny
+Wskaźnik półrocza       (13 - zima, 14 - lato, 15 - rok)
+Rodzaj wielkości        (H - stan wody, Q - przepływ, T - temperatura wody)
+Wskaźnik ekstremum      (1 - minimum, 2 - średnia, 3 - maksimum)
+Stan wody [cm]/Przepływ [m^3/s]/Temperatura wody [st. C]
+  Data wystąpienia ekstremum od (data kalendarzowa):
+Rok
+Miesiąc
+Dzień
+Godzina
+Minuta
+  Data wystąpienia ekstremum do (data kalendarzowa):
+Rok
+Miesiąc
+Dzień
+Godzina
+Minuta
+
+
+
+Wartość stanu wody/przepływu/temperatury wody równa 99999.999 oznacza przerwy w obserwacjach w danym półroczu/roku i w związku z tym brak możliwości obliczenia charakterystyk.
