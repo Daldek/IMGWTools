@@ -1,0 +1,17 @@
+Pliki z danymi codziennymi zawierają w kolejnych polach następujące informacje:
+
+Kod stacji
+Nazwa stacji
+Nazwa rzeki/jeziora
+Rok hydrologiczny
+Wskaźnik miesiąca w roku hydrologicznym
+Dzień
+Stan wody [cm]
+Przepływ [m^3/s]
+Temperatura wody [st. C]
+Miesiąc kalendarzowy
+
+
+Stan wody 9999 oznacza brak danych w bazie.
+Przepływ 99999.999 oznacza, że przepływ w tym dniu nie był opracowywany.
+Temperatura 99.9 oznacza brak danych w bazie, która może wynikać np. z braku pomiarów temperatury na stacji.
