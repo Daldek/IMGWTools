@@ -2,13 +2,36 @@ import wget
 import os
 import shutil
 
-def check_zip_file_presence(file_name):
+
+def file_path(file_name):
+    if file_name[:4] == 'codz' or file_name[:4] == 'zjaw':
+        year = file_name[5:9]
+        interval = 'dobowe'
+    elif file_name[:4] == 'mies':
+        year = file_name[5:9]
+        interval = 'miesieczne'
+    else:
+        year = file_name[7:11]
+        interval = 'polr'
+    
     current_path = os.getcwd()
+    path = f'{current_path}\\data\\downloaded\\{interval}\\{year}\\{file_name}'
+    return path
 
-    status = os.path.isfile(current_path + '/data/downloaded/' + file_name)
 
-    if status is True:
+def check_zip_file_presence(file_name):
+    '''
+    TODO: newly downloaded files should be saved directly to
+    the destination folder, so we can skip 'status_1' 
+    '''
+    status_1 = os.path.isfile(file_path(file_name))  # main folder
+    status_2 = os.path.isfile(file_name)  # destination folder
+
+    if status_1 is True or status_2 is True:  # can I make it shorter?
         print("This file has already been downloaded")
+        status = True
+    else:
+        status = False
     return status
 
 
@@ -77,18 +100,13 @@ def move_zips():
     # create a list of all zipped files
     zip_files = [f for f in os.listdir() if '.zip' in f.lower()]
 
-    # create new folder if does not exist yet
-    print('Creating a folder for downloaded files... ')
-    try:
-        os.mkdir('data/downloaded')
-    except FileExistsError:
-        print('The folder already exists')
-    else:
-        print('New folder has been created:\n' + os.getcwd + '/data/downloaded\n')
-
     # move the files
     for zip_file in zip_files:
-        new_path = 'data/downloaded/' + zip_file
+        new_path = file_path(zip_file)
+        try:
+            os.makedirs(os.path.dirname(new_path))
+        except FileExistsError:
+            pass
         shutil.move(zip_file, new_path)
     return 1
 
@@ -102,14 +120,14 @@ def unzip_file(file_name):
     want to analyse anything. Currently, data analysis is not possible, but is planned
     '''
 
-    print('Creating a folder for unziped files... ')
     try:
         os.mkdir('data/downloaded/temp')
     except FileExistsError:
-        print('The folder already exists')
+        pass
 
-    shutil.unpack_archive('data/downloaded/' + file_name, 'data/downloaded/temp')
+    shutil.unpack_archive(file_path(file_name), 'data/downloaded/temp')
     return 1
+
 
 public_data_url = 'https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne'
 downloaded_files = []
