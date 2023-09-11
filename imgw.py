@@ -4,6 +4,22 @@ import shutil
 
 
 def file_path(file_name):
+    '''Function for creating the destination path of a downloaded file
+
+    In order to keep the file structure identical with IMGW, 
+    the function creates its destination path based on the file name 
+    and returns it as str
+
+    Parameters
+    ----------
+    file_name : str
+        Name of downloaded zip file
+    
+    Returns
+    -------
+    str
+        Composed destination path
+    '''
     if file_name[:4] == 'codz' or file_name[:4] == 'zjaw':
         year = file_name[5:9]
         interval = 'dobowe'
@@ -44,6 +60,8 @@ def compose_url_filename(public_data_url, data_type, interval, year, var):
 
     Parameters
     ----------
+    public_data_url : str
+        Address of the IMGW website with hydrological measurement and observation data
     data_type : str
         Choice between hydrological and meteorological data (in preparation).
     interval : str
@@ -60,6 +78,8 @@ def compose_url_filename(public_data_url, data_type, interval, year, var):
     -------
     str
         Composed url for downloading the file
+    str
+        file name
     '''
 
     if interval == 'dobowe':
