@@ -28,7 +28,7 @@ def file_path(file_name):
         interval = 'miesieczne'
     else:
         year = file_name[7:11]
-        interval = 'polr'
+        interval = 'polroczne_i_roczne'
     
     current_path = os.getcwd()
     path = f'{current_path}\\data\\downloaded\\{interval}\\{year}\\{file_name}'
@@ -133,19 +133,30 @@ def move_zips():
 
 def unzip_file(file_name):
     '''
-    TODO: extracting all newly downloaded files and placing them in the 'temp' folder.
-    These files should be temporary and deleted after the script has finished
+    TODO: These files should be temporary and deleted after the script has finished
     executing in order not to duplicate information in different formats. Optionally,
     zip files can be deleted instead so that they are not unzipped every time we 
     want to analyse anything. Currently, data analysis is not possible, but is planned
     '''
+    
+    zip_file_path = file_path(file_name)
+    dir_path = os.path.dirname(zip_file_path)  # needed?
+    shutil.unpack_archive(file_path(file_name), dir_path)
+    return 1
 
-    try:
-        os.mkdir('data/downloaded/temp')
-    except FileExistsError:
-        pass
 
-    shutil.unpack_archive(file_path(file_name), 'data/downloaded/temp')
+def get_last_30yrs(public_data_url, data_type, var, downloads_list):
+    # Downloading 'polroczne_i_roczne' data for last 30 years
+    start_year = 2023 - 30
+    stop_year = 2023
+    interval = 'polroczne_i_roczne'
+    for year in range(start_year, stop_year):
+        url, f = compose_url_filename(public_data_url, data_type, interval, year, var)
+        if check_zip_file_presence(f) is True:
+            pass
+        else:
+            wget.download(url, f)
+        downloads_list.append(f)
     return 1
 
 
@@ -161,10 +172,16 @@ while True:
 
     # First input
     # User selects whether they wants daily, monthly or (semi-)annual data
-    interval = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne": ').lower()
-    if interval not in ['dobowe', 'miesieczne', 'polroczne_i_roczne']:
+    interval = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne" or\
+                      press "Enter" to get "polroczne_i_roczne" from last 30 yrs: ').lower()
+    if interval == '':
+        print('Semi-annual and annual data for the last 30 years will be pulled')
+        break
+    elif interval not in ['dobowe', 'miesieczne', 'polroczne_i_roczne']:
         print('Wrong input')
         break
+    else:
+        pass
     
     # Second input
     # The year range was limited to the years 1951-2022 due to the availability of data
@@ -213,6 +230,9 @@ while True:
     continuation = input('\nEnter "q" to quit or press "Enter" to continue: ').lower()
     if continuation == 'q':
         break
+
+if interval == '':
+    get_last_30yrs(public_data_url, data_type, 'Q', downloaded_files)
 
 if downloaded_files:
     # move the newly downloaded files
