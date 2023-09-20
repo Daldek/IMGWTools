@@ -1,8 +1,71 @@
 import os
 import csv
-import statistics
+import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+
+def station_data_to_dict(csv_path, station_id):
+    '''function that writes data from a csv file for a desired station to a dictionary
+
+    Parameters
+    ----------
+    csv_path : str
+        Path of the analyzed csv file 
+    station_id : int
+        IMGW station id
+
+    Returns
+    -------
+    dict
+        Dict filled with data
+    '''
+
+    # dict structure. Keys without values
+    station_dict = {
+        'id' : int(station_id),
+        'year' : None,
+        'variable' : None,
+        'winter_min' : None,
+        'winter_mean': None,
+        'winter_max' : None,
+        'summer_min' : None,
+        'summer_mean': None,
+        'summer_max' : None,
+        'year_mean' : None
+    }
+
+    with open(csv_path, 'r', encoding='utf-8', errors='ignore') as csv_f:
+            reader = csv.reader(csv_f)
+            for row in reader:
+                id = int(row[0].replace(' ', ''))
+                if station_id == id:
+                    station_dict['year'] = row[3]
+                    station_dict['variable'] = row[5]
+                    if int(row[4]) == 13:
+                        if int(row[6]) == 1:
+                            station_dict['winter_min'] = float(row[7])
+                        elif int(row[6]) == 2:
+                            station_dict['winter_mean'] = float(row[7])
+                        elif int(row[6]) == 3:
+                            station_dict['winter_max'] = float(row[7])
+                        else:
+                            pass
+                    elif int(row[4]) == 14:
+                        if int(row[6]) == 1:
+                            station_dict['summer_min'] = float(row[7])
+                        elif int(row[6]) == 2:
+                            station_dict['summer_mean'] = float(row[7])
+                        elif int(row[6]) == 3:
+                            station_dict['summer_max'] = float(row[7])
+                        else:
+                            pass
+                    elif int(row[4]) == 15:
+                        station_dict['year_mean'] = float(row[7])
+                    else:
+                        pass
+    return station_dict
+
 
 def analyse_last_30yrs(station_id, param):
     '''Use previously downloaded data to analyse last 30 years
@@ -33,48 +96,45 @@ def analyse_last_30yrs(station_id, param):
     stop_year = 2023
     interval = 'polroczne_i_roczne'
     current_path = os.getcwd()
-    param_dict = {}
+    list_of_dicts = []
     for year in range(start_year, stop_year):
         file_name = f'polr_{param}_{year}'
         path = f'{current_path}\\data\\downloaded\\{interval}\\{year}\\{file_name}.csv'
-        with open(path, 'r', encoding='utf-8', errors='ignore') as csv_f:
-            reader = csv.reader(csv_f)
-            for row in reader:
-                id = int(row[0].replace(' ', ''))
-                perdiod = int(row[4])
-                if station_id == id and perdiod == 15:
-                    param_dict[year] = float(row[7])
-                    break
-    basic_stats(list(param_dict))
-    return param_dict
+        list_of_dicts.append(station_data_to_dict(path, station_id))
+    return list_of_dicts
 
 
 def basic_stats(input_list):
-    '''Calculate the most basic statistics of the data string
+    '''Calculate the most basic statistics for a choosen station
 
-    The function analyzes a list containing floating-point 
-    numbers, then gives its length, maximum, mean, minimum 
-    values and standard deviation
+    The function analyzes a Panda's data frame to get min, mean and max
+    values for given dataset (period) and number of measurements.
 
     Parameters
     ----------
     input_list : list
-        List with numeric values
-    '''
-    list_len = len(input_list)
-    max_value = max(input_list)
-    mean_value = statistics.mean(input_list)
-    min_value = min(input_list)
-    std_dev = statistics.pstdev(input_list)
+        List of dicts
 
-    print(f'Quantity: {list_len}; max: {max_value}; mean: {mean_value:.2f};\
-          min: {min_value}; standard deviation: {std_dev:.2f}')
-    return 1
+    Returns
+    -------
+    df
+        Pandas' dataframe
+    '''
+    df = pd.DataFrame(input_list)
+    list_len = df.shape[0]
+    max_value = df[['winter_max', 'summer_max']].max().max()
+    mean_value = df['year_mean'][0]
+    min_value = df[['winter_min', 'summer_min']].min().min()
+
+    print(f'Quantity: {list_len}; max: {max_value};\
+          mean: {mean_value:.2f}; min: {min_value}')
+    print(df.describe())
+    return df
 
 
 # plot data
-measurements_by_year = analyse_last_30yrs(149180020, 'Q')  # random gauge station
-sns.barplot(x = list(measurements_by_year.keys()),
-            y = list(measurements_by_year.values()))
+df = basic_stats(analyse_last_30yrs(149180020, 'Q'))
+sns.barplot(x = list(df['year']),
+            y = list(df['year_mean']))
 plt.xticks(rotation=90, horizontalalignment='center')
 plt.show()
