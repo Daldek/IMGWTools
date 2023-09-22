@@ -145,12 +145,11 @@ def unzip_file(file_name):
     return 1
 
 
-def get_last_30yrs(public_data_url, data_type, var, downloads_list):
+def get_period(start_year, end_year, public_data_url, data_type, var, downloads_list):
     # Downloading 'polroczne_i_roczne' data for last 30 years
-    start_year = 2023 - 30
-    stop_year = 2023
+    end_year += 1
     interval = 'polroczne_i_roczne'
-    for year in range(start_year, stop_year):
+    for year in range(start_year, end_year):
         url, f = compose_url_filename(public_data_url, data_type, interval, year, var)
         if check_zip_file_presence(f) is True:
             pass
@@ -172,8 +171,8 @@ while True:
 
     # First input
     # User selects whether they wants daily, monthly or (semi-)annual data
-    interval = input('Choose: "dobowe", "miesieczne" or "polroczne_i_roczne" or\
-                      press "Enter" to get "polroczne_i_roczne" from last 30 yrs: ').lower()
+    interval = input(f'Choose: "dobowe", "miesieczne" or "polroczne_i_roczne" or\n'
+                     f'press "Enter" to get "polroczne_i_roczne" from last 30 yrs: ').lower()
     if interval == '':
         print('Semi-annual and annual data for the last 30 years will be pulled')
         break
@@ -232,13 +231,16 @@ while True:
         break
 
 if interval == '':
-    get_last_30yrs(public_data_url, data_type, 'Q', downloaded_files)
+    start = 2022-30
+    end = 2022
+    get_period(start, end, public_data_url, data_type, 'Q', downloaded_files)
 
 if downloaded_files:
     # move the newly downloaded files
     move_zips()
     # extract them
-    unzip_files = input('\nEnter "y" to extract all newly downloaded files: ').lower()
+    unzip_files = input(f'\nEnter "y" to extract all newly downloaded files or\n'
+                        f'press "Enter" to quit ').lower()
     if unzip_files == 'y':
         # list comprehension instead of "for" loop
         [unzip_file(downloaded_file) for downloaded_file in downloaded_files]
