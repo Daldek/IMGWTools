@@ -1,5 +1,6 @@
 import os
 import csv
+from statistics import mean
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -67,7 +68,7 @@ def station_data_to_dict(csv_path, station_id):
     return station_dict
 
 
-def analyse_last_30yrs(station_id, param):
+def analyse_period(start_year, end_year, station_id, param):
     '''Use previously downloaded data to analyse last 30 years
     for a choosen gauge station
 
@@ -92,19 +93,17 @@ def analyse_last_30yrs(station_id, param):
         Dict with information about the flow (value) in a given year (key)
     '''
 
-    start_year = 2023 - 30
-    stop_year = 2023
     interval = 'polroczne_i_roczne'
     current_path = os.getcwd()
     list_of_dicts = []
-    for year in range(start_year, stop_year):
+    for year in range(start_year, end_year):
         file_name = f'polr_{param}_{year}'
         path = f'{current_path}\\data\\downloaded\\{interval}\\{year}\\{file_name}.csv'
         list_of_dicts.append(station_data_to_dict(path, station_id))
     return list_of_dicts
 
 
-def basic_stats(input_list):
+def basic_stats(input_list, param):
     '''Calculate the most basic statistics for a choosen station
 
     The function analyzes a Panda's data frame to get min, mean and max
@@ -122,18 +121,35 @@ def basic_stats(input_list):
     '''
     df = pd.DataFrame(input_list)
     list_len = df.shape[0]
-    max_value = df[['winter_max', 'summer_max']].max().max()
-    mean_value = df['year_mean'][0]
-    min_value = df[['winter_min', 'summer_min']].min().min()
-
-    print(f'Quantity: {list_len}; max: {max_value};\
-          mean: {mean_value:.2f}; min: {min_value}')
-    print(df.describe())
+    
+    if param == 'Q':
+        WWQ = df[['winter_max', 'summer_max']].max().max()
+        SWQ = mean(list(df['winter_max']) + list(df['summer_max']))
+        NWQ = df[['winter_max', 'summer_max']].min().min()
+        WSQ = df['year_mean'].max()
+        SSQ = df['year_mean'][0]
+        NSQ = df['year_mean'].min()
+        WNQ = df[['winter_min', 'summer_min']].max().max()
+        SNQ = mean(list(df['winter_min']) + list(df['summer_min']))
+        NNQ = df[['winter_min', 'summer_min']].min().min()
+        print(f'Number of observations: {list_len}\n'
+              f'WWQ: {WWQ}\t SWQ: {SWQ:.2f}\t NWQ: {NWQ}\n'
+              f'WSQ: {WSQ}\t SSQ: {SSQ:.2f}\t NSQ: {NSQ}\n'
+              f'WNQ: {WNQ}\t SNQ: {SNQ:.2f}\t NNQ: {NNQ}\n')
+    else:
+        max_value = df[['winter_max', 'summer_max']].max().max()
+        mean_value = df['year_mean'][0]
+        min_value = df[['winter_min', 'summer_min']].min().min()
+        print(f'Quantity: {list_len}; max: {max_value};\
+              mean: {mean_value:.2f}; min: {min_value}')
+    print(df.describe().round(2).drop('id', axis='columns'))
     return df
 
 
 # plot data
-df = basic_stats(analyse_last_30yrs(149180020, 'Q'))
+start = 2022-30
+end = 2022
+df = basic_stats(analyse_period(start, end, 149180020, 'Q'), 'Q')
 sns.barplot(x = list(df['year']),
             y = list(df['year_mean']))
 plt.xticks(rotation=90, horizontalalignment='center')
