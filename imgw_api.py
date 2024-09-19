@@ -53,7 +53,7 @@ class IMGWAPI:
             int: Returns 1 upon successful save.
         """
         with open(
-            r"./data/downloaded/imgw_api_response.json", "w", encoding="utf-8"
+            r"../data/downloaded/imgw_api_response.json", "w", encoding="utf-8"
         ) as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
         return 1
@@ -153,5 +153,36 @@ class METEO(IMGWAPI):
             list: A list of dictionaries containing the meteorological data from the API.
         """
         self.url += f"/id/{self.station_id}"
+        self.data = self.get_data(self.url)
+        return self.data
+
+
+class WARNINGS(IMGWAPI):
+    """
+    A class to interact with the IMGW API to fetch warnings.
+    """
+
+    def __init__(self, warning_type=None, data_format="json"):
+        """
+        Initializes the WARNINGS instance with the specified parameters.
+
+        Args:
+            warning_type (str): warning type (hydro or meteo)
+            data_format (str): Format of the data (default is 'json').
+        """
+        super().__init__()
+        self.url = f"{self.base_url}warnings"
+        self.warning_type = warning_type
+        self.data_format = data_format
+        self.data = None
+
+    def get_warnings(self):
+        """
+        Fetches warnings from the IMGW API.
+
+        Returns:
+            list: A list of dictionaries containing the warnings from the API.
+        """
+        self.url += f"{self.warning_type}"
         self.data = self.get_data(self.url)
         return self.data
