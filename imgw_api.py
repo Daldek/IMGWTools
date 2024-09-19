@@ -70,7 +70,6 @@ class HYDRO(IMGWAPI):
 
         Args:
             station_id (str): ID of the station.
-            station_name (str): Name of the station.
             data_format (str): Format of the data (default is 'json').
         """
         super().__init__()
@@ -87,5 +86,41 @@ class HYDRO(IMGWAPI):
             list: A list of dictionaries containing the hydrological data from the API.
         """
         self.url += f"/id/{self.station_id}"
+        self.data = self.get_data(self.url)
+        return self.data
+
+
+class SYNOP(IMGWAPI):
+    """
+    A class to interact with the IMGW API to fetch synoptic data.
+    """
+
+    def __init__(self, station_id=None, station_name=None, data_format="json"):
+        """
+        Initializes the SYNOP instance with the specified parameters.
+
+        Args:
+            station_id (str): ID of the station.
+            station_name (str): Name of the station.
+            data_format (str): Format of the data (default is 'json').
+        """
+        super().__init__()
+        self.url = f"{self.base_url}synop"
+        self.station_id = station_id
+        self.station_name = station_name
+        self.data_format = data_format
+        self.data = None
+
+    def get_synop_data(self):
+        """
+        Fetches hydrological data from the IMGW API.
+
+        Returns:
+            list: A list of dictionaries containing the hydrological data from the API.
+        """
+        if self.station_id is not None:
+            self.url += f"/id/{self.station_id}"
+        else:
+            self.url += f"/station/{self.station_name}"
         self.data = self.get_data(self.url)
         return self.data
