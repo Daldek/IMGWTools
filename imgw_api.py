@@ -113,14 +113,45 @@ class SYNOP(IMGWAPI):
 
     def get_synop_data(self):
         """
-        Fetches hydrological data from the IMGW API.
+        Fetches synoptic data from the IMGW API.
 
         Returns:
-            list: A list of dictionaries containing the hydrological data from the API.
+            list: A list of dictionaries containing the synoptic data from the API.
         """
         if self.station_id is not None:
             self.url += f"/id/{self.station_id}"
         else:
             self.url += f"/station/{self.station_name}"
+        self.data = self.get_data(self.url)
+        return self.data
+
+
+class METEO(IMGWAPI):
+    """
+    A class to interact with the IMGW API to fetch meteorological data.
+    """
+
+    def __init__(self, station_id=None, data_format="json"):
+        """
+        Initializes the METEO instance with the specified parameters.
+
+        Args:
+            station_id (str): ID of the station.
+            data_format (str): Format of the data (default is 'json').
+        """
+        super().__init__()
+        self.url = f"{self.base_url}meteo"
+        self.station_id = station_id
+        self.data_format = data_format
+        self.data = None
+
+    def get_meteo_data(self):
+        """
+        Fetches meteorological data from the IMGW API.
+
+        Returns:
+            list: A list of dictionaries containing the meteorological data from the API.
+        """
+        self.url += f"/id/{self.station_id}"
         self.data = self.get_data(self.url)
         return self.data
