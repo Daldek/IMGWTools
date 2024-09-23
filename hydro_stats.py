@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import csv
-from scipy.stats import lognorm, genextreme
+from scipy.stats import lognorm, genextreme, pearson3
 from statistics import mean
 import pandas as pd
 import seaborn as sns
@@ -302,4 +302,42 @@ class GenExtremeAnalysis(ExceedanceAnalysis):
             self.return_flows,
             color="red",
             label="Prawdopodobieństwo teoretyczne (rozkład GEV)",
+        )
+
+
+class PearsonIIIAnalysis(ExceedanceAnalysis):
+    def __init__(self, df):
+        """
+        Inicjalizuje obiekt PearsonIIIAnalysis z danymi.
+
+        Parametry:
+        df (DataFrame): DataFrame zawierający kolumnę 'year_max' z maksymalnymi wartościami przepływu dla każdego roku.
+        """
+        super().__init__(df)
+        self.shape, self.loc, self.scale = pearson3.fit(self.df_ymax["year_max"])
+        self.return_flows = self.calculate_return_flows(self.probabilities)
+
+    def calculate_return_flows(self, probabilities):
+        """
+        Oblicza przepływy powrotne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu Pearsona typu III.
+
+        Parametry:
+        probabilities (list): Lista prawdopodobieństw.
+
+        Zwraca:
+        return_flows (ndarray): Tablica przepływów powrotnych.
+        """
+        return_flows = pearson3.ppf(
+            [1 - p for p in probabilities], self.shape, self.loc, self.scale
+        )
+        return return_flows
+
+    def plot(self):
+        """
+        Tworzy wykres porównujący empiryczne prawdopodobieństwo z teoretycznym rozkładem Pearsona typu III.
+        """
+        super().plot(
+            self.return_flows,
+            color="red",
+            label="Prawdopodobieństwo teoretyczne (rozkład Pearsona typu III)",
         )
