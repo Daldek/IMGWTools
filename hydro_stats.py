@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 import csv
-from scipy.stats import lognorm, genextreme, pearson3
+from scipy.stats import kstest, lognorm, genextreme, pearson3
 from statistics import mean
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -192,6 +193,25 @@ class ExceedanceAnalysis:
             0.001,
         ]
 
+    def kolmogorov_smirnov_test(self, empirical_data, theoretical_cdf):
+        """
+        Przeprowadza test Kołmogorowa-Smirnowa dla danych empirycznych i teoretycznej dystrybuanty.
+
+        :param empirical_data: Lista lub tablica z danymi empirycznymi.
+        :param theoretical_cdf: Funkcja dystrybuanty teoretycznej.
+        :return: Statystyka testu i p-wartość.
+        """
+        # Sortowanie danych empirycznych
+        empirical_data = np.sort(empirical_data)
+
+        # Obliczanie wartości dystrybuanty teoretycznej dla danych empirycznych
+        theoretical_values = theoretical_cdf(empirical_data)
+
+        # Przeprowadzanie testu Kołmogorowa-Smirnowa
+        ks_statistic, p_value = kstest(empirical_data, theoretical_cdf)
+
+        return ks_statistic, p_value
+
     def plot(self, return_flows, color, label):
         """
         Tworzy wykres porównujący empiryczne prawdopodobieństwo z teoretycznym rozkładem.
@@ -256,6 +276,16 @@ class LogNormalAnalysis(ExceedanceAnalysis):
         )
         return return_flows
 
+    def test_ks(self):
+        """
+        Przeprowadza test Kołmogorowa-Smirnowa dla danych empirycznych i teoretycznego rozkładu log-normalnego.
+        """
+        ks_statistic, p_value = self.kolmogorov_smirnov_test(
+            self.df_ymax["year_max"], lognorm(self.shape, self.loc, self.scale).cdf
+        )
+        print(f"Statystyka testu KS: {ks_statistic}, p-wartość: {p_value}")
+        return ks_statistic, p_value
+
     def plot(self):
         """
         Tworzy wykres porównujący empiryczne prawdopodobieństwo z teoretycznym rozkładem log-normalnym.
@@ -270,6 +300,8 @@ class LogNormalAnalysis(ExceedanceAnalysis):
 class GenExtremeAnalysis(ExceedanceAnalysis):
     def __init__(self, df):
         """
+        Rozkład GEV jest znany również jako rozkład Gumbela, który jest szczególnym przypadkiem rozkładu Fishera-Tippetta dla λ = 0 i β = 1.
+
         Inicjalizuje obiekt GenExtremeAnalysis z danymi.
 
         Parametry:
@@ -293,6 +325,16 @@ class GenExtremeAnalysis(ExceedanceAnalysis):
             [1 - p for p in probabilities], self.shape, loc=self.loc, scale=self.scale
         )
         return return_flows
+
+    def test_ks(self):
+        """
+        Przeprowadza test Kołmogorowa-Smirnowa dla danych empirycznych i teoretycznego rozkładu log-normalnego.
+        """
+        ks_statistic, p_value = self.kolmogorov_smirnov_test(
+            self.df_ymax["year_max"], genextreme(self.shape, self.loc, self.scale).cdf
+        )
+        print(f"Statystyka testu KS: {ks_statistic}, p-wartość: {p_value}")
+        return ks_statistic, p_value
 
     def plot(self):
         """
@@ -331,6 +373,16 @@ class PearsonIIIAnalysis(ExceedanceAnalysis):
             [1 - p for p in probabilities], self.shape, self.loc, self.scale
         )
         return return_flows
+
+    def test_ks(self):
+        """
+        Przeprowadza test Kołmogorowa-Smirnowa dla danych empirycznych i teoretycznego rozkładu log-normalnego.
+        """
+        ks_statistic, p_value = self.kolmogorov_smirnov_test(
+            self.df_ymax["year_max"], pearson3(self.shape, self.loc, self.scale).cdf
+        )
+        print(f"Statystyka testu KS: {ks_statistic}, p-wartość: {p_value}")
+        return ks_statistic, p_value
 
     def plot(self):
         """
