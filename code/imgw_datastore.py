@@ -1,5 +1,6 @@
 import wget
 import os
+from pathlib import Path
 import shutil
 
 
@@ -20,7 +21,7 @@ class DataDownloader:
             year = file_name[7:11]
             interval = "polroczne_i_roczne"
 
-        current_path = os.getcwd()
+        current_path = Path.cwd().parent
         path = f"{current_path}\\data\\downloaded\\{interval}\\{year}\\{file_name}"
         return path
 
