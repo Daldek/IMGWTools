@@ -230,7 +230,7 @@ class ExceedanceAnalysis:
             x=100 * (1 - df_sorted["EmpiricalProbability"]),
             y=df_sorted["year_max"],
             color=color,
-            label="Empiryczne prawdopodobieństwo",
+            label="Prawdopodobieństwo empiryczne",
         )
         sns.lineplot(
             x=probabilities_percent,
