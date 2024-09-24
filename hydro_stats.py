@@ -170,7 +170,7 @@ class StationData:
 class ExceedanceAnalysis:
     def __init__(self, df):
         """
-        Inicjalizuje obiekt BaseAnalysis z danymi.
+        Inicjalizuje obiekt ExceedanceAnalysis z danymi.
 
         Parametry:
         df (DataFrame): DataFrame zawierający kolumnę 'year_max' z maksymalnymi wartościami przepływu dla każdego roku.
@@ -263,7 +263,7 @@ class LogNormalAnalysis(ExceedanceAnalysis):
 
     def calculate_return_flows(self, probabilities):
         """
-        Oblicza przepływy powrotne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu log-normalnego.
+        Oblicza przepływy prawdopodobne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu log-normalnego.
 
         Parametry:
         probabilities (list): Lista prawdopodobieństw.
@@ -288,7 +288,7 @@ class LogNormalAnalysis(ExceedanceAnalysis):
 
     def plot(self):
         """
-        Tworzy wykres porównujący empiryczne prawdopodobieństwo z teoretycznym rozkładem log-normalnym.
+        Tworzy wykres porównujący prawdopodobieństwo empiryczne z teoretycznym rozkładem log-normalnym.
         """
         super().plot(
             self.return_flows,
@@ -300,7 +300,9 @@ class LogNormalAnalysis(ExceedanceAnalysis):
 class GenExtremeAnalysis(ExceedanceAnalysis):
     def __init__(self, df):
         """
-        Rozkład GEV jest znany również jako rozkład Gumbela, który jest szczególnym przypadkiem rozkładu Fishera-Tippetta dla λ = 0 i β = 1.
+        Rozkład GEV jest znany również jako rozkład Fishera-Tippetta.
+        Rozkład Gumbela (typ I) jest jego szczególnym przypadkiem dla λ = 0 i β = 1.
+        Rozkład Weibulla (typ III) jest kolejnym szczególnym przypadkiem dla λ = 1.
 
         Inicjalizuje obiekt GenExtremeAnalysis z danymi.
 
@@ -313,7 +315,7 @@ class GenExtremeAnalysis(ExceedanceAnalysis):
 
     def calculate_return_flows(self, probabilities):
         """
-        Oblicza przepływy powrotne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu GEV.
+        Oblicza przepływy prawdopodobne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu GEV.
 
         Parametry:
         probabilities (list): Lista prawdopodobieństw.
@@ -338,7 +340,7 @@ class GenExtremeAnalysis(ExceedanceAnalysis):
 
     def plot(self):
         """
-        Tworzy wykres porównujący empiryczne prawdopodobieństwo z teoretycznym rozkładem GEV.
+        Tworzy wykres porównujący prawdopodobieństwo empiryczne z teoretycznym rozkładem GEV.
         """
         super().plot(
             self.return_flows,
@@ -361,7 +363,7 @@ class PearsonIIIAnalysis(ExceedanceAnalysis):
 
     def calculate_return_flows(self, probabilities):
         """
-        Oblicza przepływy powrotne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu Pearsona typu III.
+        Oblicza przepływy prawdopodobne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu Pearsona typu III.
 
         Parametry:
         probabilities (list): Lista prawdopodobieństw.
@@ -386,10 +388,140 @@ class PearsonIIIAnalysis(ExceedanceAnalysis):
 
     def plot(self):
         """
-        Tworzy wykres porównujący empiryczne prawdopodobieństwo z teoretycznym rozkładem Pearsona typu III.
+        Tworzy wykres porównujący prawdopodobieństwo empiryczne z teoretycznym rozkładem Pearsona typu III.
         """
         super().plot(
             self.return_flows,
             color="red",
             label="Prawdopodobieństwo teoretyczne (rozkład Pearsona typu III)",
+        )
+
+
+class NonExceedanceAnalysis:
+    def __init__(self, df):
+        """
+        Inicjalizuje obiekt NonexceedanceAnalysis z danymi.
+
+        Parametry:
+        df (DataFrame): DataFrame zawierający kolumnę 'year_min' z minimalnymi wartościami przepływu dla każdego roku.
+        """
+        self.df = df
+        self.df_ymin = df[["year_min"]].copy()
+        self.probabilities = [
+            0.99,
+            0.95,
+            0.9,
+            0.8,
+            0.5,
+            0.2,
+            0.1,
+            0.05,
+            0.02,
+            0.01,
+            0.005,
+            0.002,
+            0.001,
+        ]
+
+    def kolmogorov_smirnov_test(self, empirical_data, theoretical_cdf):
+        """
+        Przeprowadza test Kołmogorowa-Smirnowa dla danych empirycznych i teoretycznej dystrybuanty.
+
+        :param empirical_data: Lista lub tablica z danymi empirycznymi.
+        :param theoretical_cdf: Funkcja dystrybuanty teoretycznej.
+        :return: Statystyka testu i p-wartość.
+        """
+        # Sortowanie danych empirycznych
+        empirical_data = np.sort(empirical_data)
+
+        # Obliczanie wartości dystrybuanty teoretycznej dla danych empirycznych
+        theoretical_values = theoretical_cdf(empirical_data)
+
+        # Przeprowadzanie testu Kołmogorowa-Smirnowa
+        ks_statistic, p_value = kstest(empirical_data, theoretical_cdf)
+
+        return ks_statistic, p_value
+
+    def plot(self, return_flows, color, label):
+        """
+        Tworzy wykres porównujący prawdopodobieństwo empiryczne z rozkładem teoretycznym.
+
+        Parametry:
+        return_flows (ndarray): Tablica przepływów prawdopodobnych.
+        color (str): Kolor punktów empirycznych.
+        label (str): Etykieta dla teoretycznego rozkładu.
+        """
+        df_sorted = self.df_ymin.sort_values(by="year_min", ascending=False)
+        df_sorted["EmpiricalProbability"] = df_sorted.rank(ascending=False) / (
+            len(df_sorted) + 1
+        )
+        probabilities_percent = [p * 100 for p in self.probabilities]
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(
+            x=100 * (1 - df_sorted["EmpiricalProbability"]),
+            y=df_sorted["year_min"],
+            color=color,
+            label="Prawdopodobieństwo empiryczne",
+        )
+        sns.lineplot(
+            x=probabilities_percent,
+            y=return_flows,
+            marker="o",
+            label=label,
+        )
+        plt.xscale("log")
+        plt.gca().invert_xaxis()
+        plt.xticks([0.1, 1, 10, 100], [0.1, 1, 10, 100])
+        plt.grid(True, which="both", ls="--")
+        plt.xlabel("Prawdopodobieństwo [%]")
+        plt.ylabel("Przepływ")
+        plt.title("Prawdopodobieństwo nieosiągnięcia przepływu")
+        plt.legend()
+        plt.show()
+
+
+class FisherTippettAnalysis(NonExceedanceAnalysis):
+    def __init__(self, df):
+        """
+        Inicjalizuje obiekt FisherTippettNonexceedanceAnalysis z danymi.
+
+        Parametry:
+        df (DataFrame): DataFrame zawierający kolumnę 'year_min' z minimalnymi wartościami przepływu dla każdego roku.
+        """
+        super().__init__(df)
+        self.shape, self.loc, self.scale = genextreme.fit(self.df_ymin)
+        self.return_flows = self.calculate_return_flows(self.probabilities)
+
+    def calculate_return_flows(self, probabilities):
+        """
+        Oblicza przepływy prawdopodobne dla zadanych prawdopodobieństw na podstawie dopasowanego rozkładu Fishera-Tippetta.
+
+        Parametry:
+        probabilities (list): Lista prawdopodobieństw.
+
+        Zwraca:
+        return_flows (ndarray): Tablica przepływów powrotnych.
+        """
+        return_flows = genextreme.ppf(probabilities, self.shape, self.loc, self.scale)
+        return return_flows
+
+    def test_ks(self):
+        """
+        Przeprowadza test Kołmogorowa-Smirnowa dla danych empirycznych i teoretycznego rozkładu Fishera-Tippetta.
+        """
+        ks_statistic, p_value = self.kolmogorov_smirnov_test(
+            self.df_ymin["year_min"], genextreme(self.shape, self.loc, self.scale).cdf
+        )
+        print(f"Statystyka testu KS: {ks_statistic}, p-wartość: {p_value}")
+        return ks_statistic, p_value
+
+    def plot(self):
+        """
+        Tworzy wykres porównujący prawdopodobieństwo empiryczne z teoretycznym rozkładem Fishera-Tippetta.
+        """
+        super().plot(
+            self.return_flows,
+            color="blue",
+            label="Prawdopodobieństwo teoretyczne (rozkład Fishera-Tippetta)",
         )
