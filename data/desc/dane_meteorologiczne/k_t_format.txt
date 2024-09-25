@@ -1,0 +1,26 @@
+
+Kod stacji                                                              9
+Nazwa stacji                                                           30
+Rok                                                                     4
+Miesi¹c                                                                 2
+Dzieñ                                                                   2
+Godzina                                                                 2
+Temperatura powietrza [°C]                                              6/1
+Status pomiaru TEMP                                                     1
+Temperatura termometru zwil¿onego [°C]                                  6/1
+Status pomiaru TTZW                                                     1
+WskaŸnik lodu [L/W]                                                     1
+WskaŸnik wentylacji [W/N]                                               1
+Wilgotnoœæ wzglêdna [%]                                                 5
+Status pomiaru WLGW                                                     1
+Kod kierunku wiatru [kod]                                               3
+Status pomiaru DKDK                                                     1
+Prêdkoœæ wiatru [m/s]                                                   5
+Status pomiaru FWR                                                      1
+Zachmurzenie ogólne [0-10 do dn.31.12.1988/oktanty od dn.01.01.1989]    5
+Status pomiaru ZOGK                                                     1
+Widzialnoœæ [kod]                                                       5
+Status pomiaru WID                                                      1
+
+Status "8" brak pomiaru
+

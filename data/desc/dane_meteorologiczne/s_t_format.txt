@@ -1,0 +1,131 @@
+
+Kod stacji                                               9
+Nazwa stacji                                            30
+Rok                                                      4
+Miesi¹c                                                  2
+Dzieñ                                                    2
+Godzina                                                  2
+Wysokoœæ podstawy chmur CL CM szyfrowana [kod]           1
+Status pomiaru HPOD                                      1
+Wysokoœæ podstawy ni¿szej  [m]                           7
+Status pomiaru HPON                                      1
+Wysokoœæ podstawy wy¿szej [m]                            7
+Status pomiaru HPOW                                      1
+Wysokoœæ podstawy tekstowy [opis]                       10
+Pomiar przyrzadem 1 (ni¿sza) [P]                         1
+Pomiar przyrzadem 2 (wy¿sza) [P]                         1
+Widzialnoœæ  [kod]                                       5
+Status pomiaru WID                                       1
+Widzialnoœæ operatora [m]                                7
+Status pomiaru WIDO                                      1
+Widzialnoœæ automat [m]                                  7
+Status pomiaru WIDA                                      1
+Zachmurzenie ogólne [oktanty]                            3
+Status pomiaru NOG                                       1
+Kierunek wiatru  [°]                                     5
+Status pomiaru KRWR                                      1
+Prêdkoœæ wiatru  [m/s]                                   5
+Status pomiaru FWR                                       1
+Poryw wiatru  [m/s]                                      5
+Status pomiaru PORW                                      1
+Temperatura powietrza [°C]                               6/1
+Status pomiaru TEMP                                      1
+Temperatura termometru zwil¿onego [°C]                   6/1
+Status pomiaru TTZW                                      1
+WskaŸnik wentylacji [W/N]                                1
+WskaŸnik lodu       [L/W]                                1
+Ciœnienie pary wodnej [hPa]                              6/1
+Status pomiaru CPW                                       1
+Wilgotnoœæ wzglêdna [%]                                  5
+Status pomiaru WLGW                                      1
+Temperatura punktu rosy [°C]                             6/1
+Status pomiaru TPTR                                      1
+Ciœnienie na pozimie stacji [hPa]                        8/1
+Status pomiaru PPPS                                      1
+Ciœnienie na pozimie morza [hPa]                         8/1
+Status pomiaru PPPM                                      1
+Charakterystyka tendencji [kod]                          3
+Wartoœæ tendencji [wartoœæ]                              6/1
+Status pomiaru APP                                       1
+Opad za 6 godzin [mm]                                    8/1
+Status pomiaru WO6G                                      1
+Rodzaj opadu za 6 godzin [kod]                           3
+Status pomiaru ROPT                                      1
+Pogoda bie¿¹ca [kod]                                     2
+Pogoda ubieg³a [kod]                                     1
+Zachmurzenie niskie [oktanty]                            1
+Status pomiaru CLCM                                      1
+Chmury CL [kod]                                          1
+Status pomiaru CHCL                                      1
+Chmury CL tekstem                                       40
+Chmury CM [kod]                                          1
+Status pomiaru CHCM                                      1
+Chmury CM tekstem                                       20
+Chmury CH [kod]                                          1
+Status pomiaru CHCH                                      1
+Chmury CH tekstem                                       20
+Stan gruntu [kod]                                        5
+Status pomiaru SGRN                                      1
+Niedosyt wilgotnoœci [hPa}                               6/1
+Status pomiaru DEFI                                      1
+Us³onecznienie                                           6/1
+Status pomiaru USLN                                      1
+Wyst¹pienie rosy [0/1]                                   1
+Status pomiaru ROSW                                      1
+Poryw maksymalny za okres WW [m/s]                       5
+Status pomiaru PORK                                      1
+Godzina wyst¹pienia porywu                               2
+Minuta wyst¹pienia porywu                                2
+Temperatura gruntu -5 [°C]                               6/1
+Status pomiaru TG05                                      1
+Temperatura gruntu -10 [°C]                              6/1
+Status pomiaru TG10                                      1
+Temperatura gruntu -20 [°C]                              6/1
+Status pomiaru TG20                                      1
+Temperatura gruntu -50 [°C]                              6/1
+Status pomiaru TG50                                      1
+Temperatura gruntu -100 [°C]                             6/1
+Status pomiaru TG100                                     1
+Temperatura minimalna za 12 godzin  [°C]                 6/1
+Status pomiaru TMIN                                      1
+Temperatura maksymalna za 12 godzin [°C]                 6/1
+Status pomiaru TMAX                                      1
+Temperatura minimalna przy gruncie za 12 godzin [°C]     6/1
+Status pomiaru TGMI                                      1
+Równowa¿nik wodny œniegu [mm/cm]                         6/1
+Status pomiaru RWSN                                      1
+Wysokoœæ pokrywy œnie¿nej [cm]                           5
+Status pomiaru PKSN                                      1
+Wysokoœæ œwie¿o spad³ego œniegu  [cm]                    5
+Status pomiaru HSS                                       1
+Wysokoœæ œniegu na poletku [cm]                          5
+Status pomiaru GRSN                                      1
+Gatunek œniegu  [kod]                                    1
+Ukszta³towanie pokrywy [kod]                             1
+Wysokoœæ próbki [cm]                                     5
+Status pomiaru HPRO                                      1
+Zapas wody w œniegu [mm]                                 5
+Status pomiaru CIPR                                      1
+
+Status "8" brak pomiaru
+Status "9" brak zjawiska
+
+Dla pola "Wysokoœæ pokrywy œnie¿nej" (PKSN) stosuje siê wartoœci kodowane:
+997 - mniejsza od 0.5 cm
+998 - nieci¹g³a
+999 - niemo¿liwa do pomiaru
+
+Dla pola "Rodzaj opadu za 6 godzin" stosuje siê wartoœci kodowane
+5     -    rosa, szron, szadŸ, mg³a
+6     -    deszcz, m¿awka
+7     -    œnieg z deszczem, œnieg, py³ diamentowy, 
+  krupy œnie¿ne, œnieg ziarnisty
+8     -    grad, krupy lodowe, ziarna lodowe
+9     -    œnieg z deszczem, œnieg, ziarna lodowe,
+  grad, œnieg ziarnisty, krupy œnie¿ne 
+
+Dla pola "Us³onecznienie" (USLN) do marca 2015 pomiar jest zapisany na koniec godziny czasu miejsowego s³onecznego (zapis na godzinê 12:00 to okres 11-12).
+Po tej dacie us³onecznienie godzinowe zapisywane jest wed³ug miejscowego czasu s³onecznego na pocz¹tek godziny (np zapis na godzinê 12:00 to okres 12-13).
+
+Dla pola stan gruntu koduje siê klucze od 0-9 dla gruntu bez lodu "E" i klucze 10-19 dla gruntu z lodem "E'" (jedynka z przodu oznacza grunt z lodem E' druga liczba to numer klucza)
+Zapas wody w œniegu [mm] bywa³ w przesz³oœci opisywany jako ‘Ciê¿ar próbki [g]

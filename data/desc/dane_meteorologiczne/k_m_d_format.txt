@@ -1,0 +1,32 @@
+
+Kod stacji                                         9
+Nazwa stacji                                      30
+Rok                                                4
+Miesi¹c                                            2
+Absolutna temperatura maksymalna [°C]              5/1
+Status pomiaru TMAX                                1
+Œrednia temperatura maksymalna [°C]                6/1
+Status pomiaru TMXS                                1
+Absolutna temperatura minimalna [°C]               5/1
+Status pomiaru TMIN                                1
+Œrednia temperatura minimalna  [°C]                6/1
+Status pomiaru TMNS                                1
+Œrednia temperatura miesiêczna  [°C]               6/1
+Status pomiaru STM                                 1
+Minimalna temperatura przy gruncie [°C]            5/1
+Status pomiaru TMNG                                1
+Miesieczna suma opadów  [mm]                       7/1
+Status pomiaru SUMM                                1
+Maksymalna dobowa suma opadów [mm]                 6/1
+Status pomiaru OPMX                                1
+Pierwszy dzieñ wystapienia opadu maksymalnego      2
+Ostatni dzieñ wyst¹pienia opadu maksymalnego       2
+Maksymalna wysokoœæ pokrywy œnie¿nej [cm]          4
+Status pomiaru PKSN                                1
+Liczba dni z pokryw¹ œnie¿n¹                       3
+Liczba dni z opadem deszczu                        3
+Liczba dni z opadem œniegu                         3
+
+Status "8" brak pomiaru
+Status "9" brak zjawiska
+Wartoœæ "0" w kolumnie "Maksymalna wysokoœæ pokrywy œnie¿nej", je¿eli nie jest doprecyzowana wartoœci¹ kolumny status, oznacza, ¿e pokrywa nie wystêpowa³a w danym miesi¹cu lub nie mo¿na ustaliæ wartoœci maksymalnej

@@ -1,0 +1,24 @@
+
+Kod stacji                         9
+Nazwa stacji                      30
+Rok                                4
+Miesi¹c                            2
+Dzieñ                              2
+Suma dobowa opadów [mm]            8/1
+Status pomiaru SMDB                1
+Rodzaj opadu       [S/W/ ]         1
+Wysokoœæ pokrywy œnie¿nej [cm]     5
+Status pomiaru PKSN                1
+Wysokoœæ œwie¿ospa³ego œniegu [cm] 5
+Status pomiaru HSS                 1
+Gatunek œniegu  [kod]              1
+Status pomiaru GATS                1
+Rodzaj pokrywy œnie¿nej [kod]      5
+Status pomiaru RPSN                1
+
+Status "8" brak pomiaru
+Status "9" brak zjawiska
+Brak zjawiska to równie¿ brak dnia w istniej¹cym miesi¹cu.
+
+Je¿eli suma dobowa opadu jest bezpoœrednio poprzedzona dniem/dniami z brakiem pomiaru i policzona jest wartoœæ sumy miesiêcznej opadu
+ to wartoœæ sumy dobowej jest opadem zbiorczym za dni w których opad nie by³ mierzony.

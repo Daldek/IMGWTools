@@ -1,0 +1,15 @@
+
+Kod stacji                                       9
+Nazwa stacji                                    30
+Rok                                              4
+Miesi¹c                                          2
+Œrednia miesiêczna temperatura [°C]              5/1
+Status pomiaru TEMP                              1
+Œrednia miesiêczna wilgotnoœæ wzglêdna [%]       8/1
+Status pomiaru WLGS                              1
+Œrednia miesiêczna prêdkoœæ wiatru [m/s]         6/1
+Status pomiaru FWS                               1
+Œrednie miesiêczne zachmurzenie ogólne [oktanty] 6/1
+Status pomiaru NOS                               1
+   
+Status "8" brak pomiaru
