@@ -105,9 +105,7 @@ class StationData:
         list_of_dicts = []
         for year in range(start_year, end_year):
             file_name = f"polr_{param}_{year}"
-            path = (
-                f"{current_path}\\data\\downloaded\\{interval}\\{year}\\{file_name}.csv"
-            )
+            path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{interval}\\{year}\\{file_name}.csv"
             # list_of_dicts.append(station_data_to_dict(path, station_id))
             self.data.append(self.station_data_to_dict(path))
         return list_of_dicts
