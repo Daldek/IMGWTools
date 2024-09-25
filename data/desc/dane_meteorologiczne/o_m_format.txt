@@ -1,0 +1,18 @@
+
+Kod stacji                                        9
+Nazwa stacji                                     30
+Rok                                               4
+Miesi¹c                                           2
+Miesiêczna suma opadów [mm]                       8/1
+Status pomiaru SUMM                               1
+Liczba dni z opadem œniegu                        5
+Status pomiaru LDS                                1
+Opad maksymalny [mm]                              8/1
+Status pomiaru MAXO                               1
+Dzieñ pierwszy wyst¹pienia opadu maksymalnego     2
+Dzieñ ostatni wyst¹pienia opadu maksymalnego      2
+Liczba dni z pokryw¹ œnie¿n¹                      5
+Status pomiaru LDPS                               1
+
+Status "8" brak pomiaru
+Status "9" brak zjawiska

@@ -1,0 +1,65 @@
+
+Kod stacji                                        9
+Nazwa stacji                                     30
+Rok                                               4
+Miesi¹c                                           2
+Absolutna temperatura maksymalna [°C]             5/1
+Status pomiaru TMAX                               1
+Œrednia temperatura maksymalna [°C]               6/1
+Status pomiaru TMXS                               1
+Absolutna temperatura minimalna [°C]              5/1
+Status pomiaru TMIN                               1
+Œrednia temperatura minimalna [°C]                6/1
+Status pomiaru TMNS                               1
+Œrednia temperatura miesiêczna [°C]               6/1
+Status pomiaru STM                                1
+Minimalna temperatura przy gruncie [°C]           5/1
+Status pomiaru TMNG                               1
+Miesiêczna suma opadów [mm]                       7/1
+Status pomiaru SUMM                               1
+Maksymalna dobowa suma opadów  [mm]               6/1
+Status pomiaru OPMX                               1
+Pierwszy dzieñ wyst¹pienia opadu maksymalnego     2
+Ostatni dzieñ wyst¹pienia opadu maksymalnego      2
+Miesiêczna suma us³onecznienia  [godziny]         7/1
+Status pomiaru SUUS                               1
+Maksymalna wysokoœæ pokrywy œnie¿nej [cm]         4
+Status pomiaru PKSN                               1
+Liczba dni z pokryw¹ œnie¿n¹                      3
+Status pomiaru PSDN                               1
+Liczba dni z opadem deszczu                       3
+Status pomiaru DESD                               1
+Liczba dni z opadem œniegu                        3
+Status pomiaru SNID                               1
+Liczba dni z opadem deszczu ze œniegiem           3
+Status pomiaru DSND                               1
+Liczba dni z gradem                               3
+Status pomiaru GRDD                               1
+Liczba dni z mg³¹                                 3
+Status pomiaru MGLD                               1
+Liczba dni z zamgleniem                           3
+Status pomiaru ZAMD                               1
+Liczba dni z sadzi¹                               3
+Status pomiaru SADD                               1
+Liczba dni z go³oledzi¹                           3
+Status pomiaru GOLD                               1
+Liczba dni z zamieci¹ œnie¿n¹ nisk¹               3
+Status pomiaru ZAND                               1
+Liczba dni z zamieci¹ œnie¿n¹ wysok¹              3
+Status pomiaru ZAWD                               1
+Liczba dni ze zmêtnieniem                         3
+Status pomiaru ZMED                               1
+Liczba dni z wiatrem >= 10m/s                     3
+Status pomiaru W10D                               1
+Liczba dni z wiatrem >15m/s                       3
+Status pomiaru W15D                               1
+Liczba dni z burz¹                                3
+Status pomiaru BURD                               1
+Liczba dni z ros¹                                 3
+Status pomiaru ROSD                               1
+Liczba dni ze szronem                             3
+Status pomiaru SZRD                               1
+
+Status "8" brak pomiaru
+Status "9" brak zjawiska
+Dla agregacji typu "Liczba dni z" status "9" oznacza brak pomiaru zjawisk na stacji.
