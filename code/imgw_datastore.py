@@ -31,14 +31,14 @@ class DataDownloader:
         elif self.data_type == "dane_meteorologiczne":
             year = file_name[:4]
             if file_name[-5] == "k":
-                meteo_data_subtype = "klimat"
+                self.meteo_data_subtype = "klimat"
             elif file_name[-5] == "o":
-                meteo_data_subtype = "opad"
+                self.meteo_data_subtype = "opad"
             else:
-                meteo_data_subtype = "synop"
+                self.meteo_data_subtype = "synop"
             # current_path = Path.cwd().parent
             # local_path = f"{current_path}\\data\\downloaded\\meteo\\{self.meteo_data_interval}\\{meteo_data_subtype}\\{year}\\{file_name}"
-            path = f"/{self.data_type}/{self.meteo_data_interval}/{meteo_data_subtype}/{year}/{file_name}"
+            path = f"/{self.data_type}/{self.meteo_data_interval}/{self.meteo_data_subtype}/{year}/{file_name}"
         return path
 
     def local_file_path(self, file_name):
@@ -92,14 +92,14 @@ class DataDownloader:
             if interval == "dobowe":
                 var = format_var(var)
                 f_name = f"{year}_{var}_{self.meteo_data_subtype[0]}.zip"
-                url = f"{self.public_data_url}/{self.data_type}/{interval}/{self.meteo_data_subtype}/{year}/{f_name}"
+                url = f"{self.public_data_url}/{self.data_type}/{self.meteo_data_interval}/{self.meteo_data_subtype}/{year}/{f_name}"
             elif interval == "miesieczne":
                 f_name = f"{year}_m_{self.meteo_data_subtype[0]}.zip"
-                url = f"{self.public_data_url}/{self.data_type}/{interval}/{self.meteo_data_subtype}/{year}/{f_name}"
+                url = f"{self.public_data_url}/{self.data_type}/{self.meteo_data_interval}/{self.meteo_data_subtype}/{year}/{f_name}"
             elif interval == "terminowe":
                 var = format_var(var)
                 f_name = f"{year}_{var}_{self.meteo_data_subtype[0]}.zip"
-                url = f"{self.public_data_url}/{self.data_type}/{interval}/{self.meteo_data_subtype}/{year}/{f_name}"
+                url = f"{self.public_data_url}/{self.data_type}/{self.meteo_data_interval}/{self.meteo_data_subtype}/{year}/{f_name}"
             else:
                 raise ValueError(
                     "Invalid interval. Choose from 'dobowe', 'miesieczne', or 'terminowe'."
