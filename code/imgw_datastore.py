@@ -5,7 +5,23 @@ import shutil
 
 
 class DataDownloader:
+    """
+    Klasa służąca do pobierania i zarządzania danymi z publicznych zasobów IMGW.
+
+    Obsługuje dane hydrologiczne i meteorologiczne, umożliwiając pobieranie danych w różnych interwałach, takich jak
+    dobowe, miesięczne oraz półroczne/roczne (razem). Klasa zarządza również lokalnym zapisem pobranych plików, sprawdza,
+    czy pliki są już obecne, przenosi oraz rozpakowuje dane.
+    """
+
     def __init__(self, data_type, meteo_data_subtype=None, meteo_data_interval=None):
+        """
+        Inicjalizuje instancję klasy DataDownloader dla określonego typu danych (hydrologiczne lub meteorologiczne),
+        z opcjonalnymi parametrami podtypu i interwału dla danych meteorologicznych.
+
+        :param data_type: Typ danych do pobrania (dane_hydrologiczne lub dane_meteorologiczne).
+        :param meteo_data_subtype: Podtyp danych meteorologicznych (np. klimat, opad, synop).
+        :param meteo_data_interval: Interwał danych meteorologicznych (dobowe, miesięczne, terminowe).
+        """
         self.public_data_url = (
             r"https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
         )
@@ -15,6 +31,13 @@ class DataDownloader:
         self.downloaded_files = []
 
     def file_path(self, file_name):
+        """
+        Zwraca odpowiednią ścieżkę zdalną dla podanego pliku w zależności od typu danych (hydrologiczne lub meteorologiczne)
+        oraz na podstawie nazw plików.
+
+        :param file_name: Nazwa pliku, dla którego ma być wygenerowana ścieżka.
+        :return: Ścieżka do pliku na serwerze zdalnym.
+        """
         if self.data_type == "dane_hydrologiczne":
             if file_name[:4] == "codz" or file_name[:4] == "zjaw":
                 year = file_name[5:9]
@@ -25,8 +48,6 @@ class DataDownloader:
             else:
                 year = file_name[7:11]
                 interval = "polroczne_i_roczne"
-            current_path = Path.cwd().parent
-            # path = f"{current_path}\\data\\downloaded\\{self.data_type}\\{interval}\\{year}\\{file_name}"
             path = f"/{self.data_type}/{interval}/{year}/{file_name}"
         elif self.data_type == "dane_meteorologiczne":
             year = file_name[:4]
@@ -36,18 +57,30 @@ class DataDownloader:
                 self.meteo_data_subtype = "opad"
             else:
                 self.meteo_data_subtype = "synop"
-            # current_path = Path.cwd().parent
-            # local_path = f"{current_path}\\data\\downloaded\\meteo\\{self.meteo_data_interval}\\{meteo_data_subtype}\\{year}\\{file_name}"
             path = f"/{self.data_type}/{self.meteo_data_interval}/{self.meteo_data_subtype}/{year}/{file_name}"
+        else:
+            path = None
         return path
 
     def local_file_path(self, file_name):
+        """
+        Generuje lokalną ścieżkę pliku na podstawie bieżącego katalogu roboczego, typu danych oraz wygenerowanej zdalnej ścieżki pliku.
+
+        :param file_name: Nazwa pliku, dla którego ma być wygenerowana lokalna ścieżka.
+        :return: Lokalna ścieżka do pliku.
+        """
         current_path = Path.cwd().parent
         local_path = f"{current_path}\\data\\downloaded"
         local_file_path = local_path + self.file_path(file_name).replace("/", "\\")
         return local_file_path
 
     def check_zip_file_presence(self, file_name):
+        """
+        Sprawdza, czy dany plik ZIP już istnieje w lokalnym systemie plików, aby uniknąć ponownego pobierania.
+
+        :param file_name: Nazwa pliku ZIP do sprawdzenia.
+        :return: True, jeśli plik istnieje, False w przeciwnym wypadku.
+        """
         status = any(
             [os.path.isfile(self.local_file_path(file_name)), os.path.isfile(file_name)]
         )
@@ -57,6 +90,16 @@ class DataDownloader:
         return status
 
     def compose_url_filename(self, interval, year, var):
+        """
+        Komponuje adres URL i nazwę pliku dla danych hydrologicznych lub meteorologicznych na podstawie wybranego interwału,
+        roku i zmiennej.
+
+        :param interval: Interwał danych (dobowe, miesięczne, polroczne_i_roczne, terminowe).
+        :param year: Rok, dla którego mają być pobrane dane.
+        :param var: Zmienna określająca szczegóły pobieranych danych (np. miesiąc, rodzaj danych).
+        :return: Adres URL do pliku oraz nazwa pliku.
+        """
+
         def format_var(var):
             return f"0{var}" if var < 10 else str(var)
 
@@ -108,6 +151,11 @@ class DataDownloader:
             return url, f_name
 
     def move_zips(self):
+        """
+        Przenosi wszystkie pliki ZIP z katalogu roboczego do odpowiedniego katalogu lokalnego na podstawie zdefiniowanej ścieżki lokalnej.
+
+        :return: 1, gdy operacja przeniesienia zakończy się powodzeniem.
+        """
         zip_files = [f for f in os.listdir() if ".zip" in f.lower()]
 
         for zip_file in zip_files:
@@ -120,12 +168,26 @@ class DataDownloader:
         return 1
 
     def unzip_file(self, file_name):
+        """
+        Rozpakowuje dany plik ZIP do odpowiedniego katalogu lokalnego.
+
+        :param file_name: Nazwa pliku ZIP do rozpakowania.
+        :return: 1, gdy operacja rozpakowywania zakończy się powodzeniem.
+        """
         zip_file_path = self.local_file_path(file_name)
         dir_path = os.path.dirname(zip_file_path)
         shutil.unpack_archive(self.local_file_path(file_name), dir_path)
         return 1
 
     def get_period(self, start_year, end_year, var):
+        """
+        Pobiera dane dla podanego okresu, od start_year do end_year, dla określonej zmiennej.
+
+        :param start_year: Początkowy rok danych do pobrania.
+        :param end_year: Końcowy rok danych do pobrania.
+        :param var: Zmienna określająca rodzaj danych (np. temperatura, przepływ, głębokość).
+        :return: 1, gdy operacja zakończy się powodzeniem.
+        """
         end_year += 1
         interval = "polroczne_i_roczne"
         for year in range(start_year, end_year):
@@ -136,12 +198,18 @@ class DataDownloader:
         return 1
 
     def download_data(self):
+        """
+        Główna metoda uruchamiana przez użytkownika, służąca do pobierania danych hydrologicznych lub meteorologicznych.
+
+        Zawiera interfejs wiersza poleceń, który pozwala użytkownikowi wybrać interwał danych, rok oraz inne szczegóły.
+        Obsługuje również pobieranie danych za ostatnie 30 lat lub całego zakresu danych od 1951 roku.
+        """
         if self.data_type == "dane_hydrologiczne":
             while True:
                 interval = input(
-                    f'Choose: "dobowe", "miesieczne" or "polroczne_i_roczne" or\n'
-                    f'type "all" to get "polroczne_i_roczne" from 1951 to 2023 or\n'
-                    f'press "Enter" to get "polroczne_i_roczne" from last 30 yrs: '
+                    'Choose: "dobowe", "miesieczne" or "polroczne_i_roczne" or\n'
+                    'type "all" to get "polroczne_i_roczne" from 1951 to 2023 or\n'
+                    'press "Enter" to get "polroczne_i_roczne" from last 30 yrs: '
                 ).lower()
                 if interval == "":
                     print(
@@ -201,14 +269,18 @@ class DataDownloader:
                 start = 2023 - 30
                 end = 2023
                 self.get_period(start, end, "Q")
+                self.get_period(start, end, "H")
+                self.get_period(start, end, "T")
             elif interval == "all":
                 self.get_period(1951, 2023, "Q")
+                self.get_period(1951, 2023, "H")
+                self.get_period(1951, 2023, "T")
 
             if self.downloaded_files:
                 self.move_zips()
                 unzip_files = input(
-                    f'\nEnter "y" to extract all newly downloaded files or\n'
-                    f'press "Enter" to quit '
+                    '\nEnter "y" to extract all newly downloaded files or\n'
+                    'press "Enter" to quit '
                 ).lower()
                 if unzip_files == "y":
                     [
@@ -219,7 +291,7 @@ class DataDownloader:
         elif self.data_type == "dane_meteorologiczne":
             while True:
                 self.meteo_data_interval = input(
-                    f'Choose: "dobowe", "miesieczne" or "terminowe".'
+                    'Choose: "dobowe", "miesieczne" or "terminowe".'
                 ).lower()
 
                 year = input("Desired (hydrological) year from 2001 to 2023: ")
@@ -258,8 +330,8 @@ class DataDownloader:
             if self.downloaded_files:
                 self.move_zips()
                 unzip_files = input(
-                    f'\nEnter "y" to extract all newly downloaded files or\n'
-                    f'press "Enter" to quit '
+                    '\nEnter "y" to extract all newly downloaded files or\n'
+                    'press "Enter" to quit '
                 ).lower()
                 if unzip_files == "y":
                     [
