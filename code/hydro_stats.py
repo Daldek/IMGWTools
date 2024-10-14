@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 import csv
-from scipy.stats import kstest, lognorm, genextreme, pearson3
 from statistics import mean
+from scipy.stats import kstest, lognorm, genextreme, pearson3
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 
 
 class StationData:
-    def __init__(self, station_id):
+    def __init__(self, station_id, parameter):
         self.station_id = station_id
-        self.data = []
+        self.parameter = parameter
+        self._data = []
 
     def station_data_to_dict(self, csv_path):
         """function that writes data from a csv file for a desired station to a dictionary
@@ -32,9 +33,9 @@ class StationData:
 
         # dict structure. Keys without values
         station_dict = {
-            "id": int(self.station_id),
+            "station_id": int(self.station_id),
             "year": None,
-            "variable": None,
+            # "variable": None,
             "winter_min": None,
             "winter_mean": None,
             "winter_max": None,
@@ -47,10 +48,10 @@ class StationData:
         with open(csv_path, "r", encoding="utf-8", errors="ignore") as csv_f:
             reader = csv.reader(csv_f)
             for row in reader:
-                id = int(row[0].replace(" ", ""))
-                if self.station_id == id:
+                station_id = int(row[0].replace(" ", ""))
+                if self.station_id == station_id:
                     station_dict["year"] = row[3]
-                    station_dict["variable"] = row[5]
+                    # station_dict["variable"] = row[5]
                     if int(row[4]) == 13:
                         if int(row[6]) == 1:
                             station_dict["winter_min"] = float(row[7])
@@ -75,9 +76,9 @@ class StationData:
                         pass
         return station_dict
 
-    def analyse_period(self, start_year, end_year, param):
-        """Use previously downloaded data to analyse last 30 years
-        for a choosen gauge station
+    def station_data_to_df(self, start_year=1951, end_year=2023):
+        """Use previously downloaded data to analyse chosen period
+        for a gauge station
 
         This function analyses previously downloaded files which have been saved
         to the default location and extracted from zip to csv. The functions goes
@@ -96,21 +97,21 @@ class StationData:
 
         Returns
         -------
-        dict
-            Dict with information about the flow (value) in a given year (key)
+        df
+            Pandas' dataframe with choosen variable for the given period
         """
 
         interval = "polroczne_i_roczne"
         current_path = Path(os.getcwd()).parent
         list_of_dicts = []
         for year in range(start_year, end_year):
-            file_name = f"polr_{param}_{year}"
+            file_name = f"polr_{self.parameter}_{year}"
             path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{interval}\\{year}\\{file_name}.csv"
-            # list_of_dicts.append(station_data_to_dict(path, station_id))
-            self.data.append(self.station_data_to_dict(path))
-        return list_of_dicts
+            list_of_dicts.append(self.station_data_to_dict(path))
+            self._data = pd.DataFrame(list_of_dicts).dropna().reset_index(drop=True)
+        return self._data
 
-    def basic_stats(self, param):
+    def basic_stats(self):
         """Calculate the most basic statistics for the choosen station
 
         The function analyzes a Panda's data frame to get min, mean and max
@@ -126,43 +127,92 @@ class StationData:
         df
             Pandas' dataframe
         """
-        df = pd.DataFrame(self.data).dropna().reset_index(drop=True)
-        df["year_max"] = df[["winter_max", "summer_max"]].max(axis=1)
-        df["year_min"] = df[["winter_min", "summer_min"]].min(axis=1)
+        # df = pd.DataFrame(self._data).dropna().reset_index(drop=True)
+        self._data["year_max"] = self._data[["winter_max", "summer_max"]].max(axis=1)
+        self._data["year_min"] = self._data[["winter_min", "summer_min"]].min(axis=1)
         # print(df)
-        list_len = df.shape[0]
+        list_len = self._data.shape[0]
 
-        if param == "Q":
-            WWQ = df[["winter_max", "summer_max"]].max().max()
-            SWQ = mean(list(df["winter_max"]) + list(df["summer_max"]))
-            NWQ = df[["winter_max", "summer_max"]].min().min()
-            WSQ = df["year_mean"].max()
-            SSQ = df["year_mean"].mean()
-            NSQ = df["year_mean"].min()
-            WNQ = df[["winter_min", "summer_min"]].max().max()
-            SNQ = mean(list(df["winter_min"]) + list(df["summer_min"]))
-            NNQ = df[["winter_min", "summer_min"]].min().min()
+        if self.parameter in ["Q", "H"]:
+            wwx = self._data[["winter_max", "summer_max"]].max().max()
+            swx = mean(list(self._data["winter_max"]) + list(self._data["summer_max"]))
+            nwx = self._data[["winter_max", "summer_max"]].min().min()
+            wsx = self._data["year_mean"].max()
+            ssx = self._data["year_mean"].mean()
+            nsx = self._data["year_mean"].min()
+            wnx = self._data[["winter_min", "summer_min"]].max().max()
+            snx = mean(list(self._data["winter_min"]) + list(self._data["summer_min"]))
+            nnx = self._data[["winter_min", "summer_min"]].min().min()
             print(
                 f"\nNumber of observations: {list_len}\n"
-                f"WWQ: {WWQ}\t SWQ: {SWQ:.2f}\t NWQ: {NWQ}\n"
-                f"WSQ: {WSQ}\t SSQ: {SSQ:.2f}\t NSQ: {NSQ}\n"
-                f"WNQ: {WNQ}\t SNQ: {SNQ:.2f}\t NNQ: {NNQ}\n"
+                f"WW{self.parameter}: {wwx}\t SW{self.parameter}: {swx:.2f}\t NW{self.parameter}: {nwx}\n"
+                f"WS{self.parameter}: {wsx}\t SS{self.parameter}: {ssx:.2f}\t NS{self.parameter}: {nsx}\n"
+                f"WN{self.parameter}: {wnx}\t SN{self.parameter}: {snx:.2f}\t NN{self.parameter}: {nnx}\n"
             )
         else:
-            max_value = df[["winter_max", "summer_max"]].max().max()
-            mean_value = df["year_mean"][0]
-            min_value = df[["winter_min", "summer_min"]].min().min()
+            max_value = self._data[["winter_max", "summer_max"]].max().max()
+            mean_value = self._data["year_mean"][0]
+            min_value = self._data[["winter_min", "summer_min"]].min().min()
             print(
                 f"Quantity: {list_len}; max: {max_value};\
                 mean: {mean_value:.2f}; min: {min_value}"
             )
         print(
-            df.describe()
+            self._data.describe()
             .round(3)
-            .drop("id", axis="columns")
+            .drop("station_id", axis="columns")
             .drop("count", axis="index")
         )
-        return df
+        return self._data
+
+    def plt_annual_data(self):
+        """Print a line graph for maximum, average and minimum values
+        for the selected period
+
+        Returns:
+            int: confirmation of execution
+        """
+        plt.figure(figsize=(20, 10))
+        sns.lineplot(
+            data=self._data,
+            x="year",
+            y="year_min",
+            label=f"Annual min {self.parameter}",
+            color="blue",
+        )
+        sns.lineplot(
+            data=self._data,
+            x="year",
+            y="year_mean",
+            label=f"Annual mean {self.parameter}",
+            color="green",
+        )
+        sns.lineplot(
+            data=self._data,
+            x="year",
+            y="year_max",
+            label=f"Annual max {self.parameter}",
+            color="red",
+        )
+        plt.xlabel("Year")
+        plt.ylabel(f"{self.parameter}")
+        plt.xticks(rotation=90, horizontalalignment="center")
+        plt.ylim(0)
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+        return 1
+
+    def plt_histogram(self, column="year_max", bins=10):
+        """Print a histogram for the selected df's column.
+        Default column is 'year_max' and bo. of bins is 10.
+
+        Returns:
+            int: confirmation of execution
+        """
+        plt.hist(self._data[column], bins=bins, color="blue", edgecolor="black")
+        plt.show()
+        return 1
 
 
 class ExceedanceAnalysis:
