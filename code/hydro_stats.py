@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 
 
 class StationData:
-    def __init__(self, station_id, parameter):
+    def __init__(self, station_id, interval="polroczne_i_roczne", parameter=None):
+        self.interval = interval
         self.station_id = station_id
         self.parameter = parameter
         self._data = []
@@ -22,59 +23,162 @@ class StationData:
         ----------
         csv_path : str
             Path of the analyzed csv file
-        station_id : int
-            IMGW station id
 
         Returns
         -------
-        dict
-            Dict filled with data
+        Union[dict, List[dict]]
+            A dictionary filled with data or a list of dictionaries
         """
 
-        # dict structure. Keys without values
-        station_dict = {
-            "station_id": int(self.station_id),
-            "year": None,
-            # "variable": None,
-            "winter_min": None,
-            "winter_mean": None,
-            "winter_max": None,
-            "summer_min": None,
-            "summer_mean": None,
-            "summer_max": None,
-            "year_mean": None,
-        }
+        if self.interval == "dobowe":
+            station_dict_list = []
+            with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as csv_f:
+                # read first line to determine the separator
+                first_line = csv_f.readline().strip()
+                if "," in first_line:
+                    separator = ","
+                elif ";" in first_line:
+                    separator = ";"
+                else:
+                    raise ValueError("No matching separator found in CSV file.")
+                # Move file pointer to the beginning
+                csv_f.seek(0)
+                reader = csv.reader(csv_f, delimiter=separator)
+                for row in reader:
+                    station_id = int(row[0].replace(" ", ""))
+                    if self.station_id == station_id:
+                        station_dict = {
+                            "station_id": int(self.station_id),
+                            "year": int(row[3]),
+                            "month": int(row[4]),
+                            "day": int(row[5]),
+                            "H": float(row[6]),
+                            "Q": float(row[7]),
+                            "T": float(row[8]),
+                        }
+                        station_dict_list.append(station_dict)
+            return station_dict_list
+        elif self.interval == "miesieczne":
+            station_dict_list = []
+            with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as csv_f:
+                # read first line to determine the separator
+                first_line = csv_f.readline().strip()
+                if "," in first_line:
+                    separator = ","
+                elif ";" in first_line:
+                    separator = ";"
+                else:
+                    raise ValueError("No matching separator found in CSV file.")
+                # Move file pointer to the beginning
+                csv_f.seek(0)
+                reader = csv.reader(csv_f, delimiter=separator)
+                for row in reader:
+                    station_id = int(row[0].strip())
+                    if self.station_id == station_id:
+                        station_dict = {
+                            "station_id": int(self.station_id),
+                            "year": int(row[3]),
+                            "month": int(row[4]),
+                        }
+                        if int(row[5]) == 1:
+                            station_dict["H_min"] = float(row[6])
+                            station_dict["Q_min"] = float(row[7])
+                            station_dict["T_min"] = float(row[8])
+                        elif int(row[5]) == 2:
+                            station_dict["H_mean"] = float(row[6])
+                            station_dict["Q_mean"] = float(row[7])
+                            station_dict["T_mean"] = float(row[8])
+                        elif int(row[5]) == 3:
+                            station_dict["H_max"] = float(row[6])
+                            station_dict["Q_max"] = float(row[7])
+                            station_dict["T_max"] = float(row[8])
+                        else:
+                            pass
+                        station_dict_list.append(station_dict)
+            return station_dict_list
+        elif self.interval == "polroczne_i_roczne":
+            station_dict = {
+                "station_id": int(self.station_id),
+                "year": None,
+                "winter_min": None,
+                "winter_mean": None,
+                "winter_max": None,
+                "summer_min": None,
+                "summer_mean": None,
+                "summer_max": None,
+                "year_mean": None,
+            }
 
-        with open(csv_path, "r", encoding="utf-8", errors="ignore") as csv_f:
-            reader = csv.reader(csv_f)
-            for row in reader:
-                station_id = int(row[0].replace(" ", ""))
-                if self.station_id == station_id:
-                    station_dict["year"] = row[3]
-                    # station_dict["variable"] = row[5]
-                    if int(row[4]) == 13:
-                        if int(row[6]) == 1:
-                            station_dict["winter_min"] = float(row[7])
-                        elif int(row[6]) == 2:
-                            station_dict["winter_mean"] = float(row[7])
-                        elif int(row[6]) == 3:
-                            station_dict["winter_max"] = float(row[7])
+            with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as csv_f:
+                # read first line to determine the separator
+                first_line = csv_f.readline().replace(" ", "")
+                if "," in first_line:
+                    separator = ","
+                elif ";" in first_line:
+                    separator = ";"
+                else:
+                    raise ValueError("No matching separator found in CSV file.")
+
+                # Flag to check if year column is present
+                row = first_line.split(separator)
+                is_year_column_present = row[5].strip().isdigit()
+
+                # Move file pointer to the beginning
+                csv_f.seek(0)
+                reader = csv.reader(csv_f, delimiter=separator)
+                for row in reader:
+                    station_id = int(row[0].replace(" ", ""))
+                    if self.station_id == station_id:
+                        if not is_year_column_present:
+                            station_dict["year"] = int(row[3])
+                            if int(row[4]) == 13:
+                                if int(row[6]) == 1:
+                                    station_dict["winter_min"] = float(row[7])
+                                elif int(row[6]) == 2:
+                                    station_dict["winter_mean"] = float(row[7])
+                                elif int(row[6]) == 3:
+                                    station_dict["winter_max"] = float(row[7])
+                                else:
+                                    pass
+                            elif int(row[4]) == 14:
+                                if int(row[6]) == 1:
+                                    station_dict["summer_min"] = float(row[7])
+                                elif int(row[6]) == 2:
+                                    station_dict["summer_mean"] = float(row[7])
+                                elif int(row[6]) == 3:
+                                    station_dict["summer_max"] = float(row[7])
+                                else:
+                                    pass
+                            elif int(row[4]) == 15:
+                                station_dict["year_mean"] = float(row[7])
+                            else:
+                                pass
                         else:
-                            pass
-                    elif int(row[4]) == 14:
-                        if int(row[6]) == 1:
-                            station_dict["summer_min"] = float(row[7])
-                        elif int(row[6]) == 2:
-                            station_dict["summer_mean"] = float(row[7])
-                        elif int(row[6]) == 3:
-                            station_dict["summer_max"] = float(row[7])
-                        else:
-                            pass
-                    elif int(row[4]) == 15:
-                        station_dict["year_mean"] = float(row[7])
-                    else:
-                        pass
-        return station_dict
+                            if int(row[3]) == 13:
+                                if int(row[5]) == 1:
+                                    station_dict["winter_min"] = float(row[6])
+                                elif int(row[5]) == 2:
+                                    station_dict["winter_mean"] = float(row[6])
+                                elif int(row[5]) == 3:
+                                    station_dict["winter_max"] = float(row[6])
+                                else:
+                                    pass
+                            elif int(row[3]) == 14:
+                                if int(row[5]) == 1:
+                                    station_dict["summer_min"] = float(row[6])
+                                elif int(row[5]) == 2:
+                                    station_dict["summer_mean"] = float(row[6])
+                                elif int(row[5]) == 3:
+                                    station_dict["summer_max"] = float(row[6])
+                                else:
+                                    pass
+                            elif int(row[3]) == 15:
+                                station_dict["year_mean"] = float(row[6])
+                            else:
+                                pass
+            return station_dict
+        else:
+            return None
 
     def station_data_to_df(self, start_year=1951, end_year=2023):
         """Use previously downloaded data to analyse chosen period
@@ -90,25 +194,67 @@ class StationData:
 
         Parameters
         ----------
-        station_id : int
-            IMGW station id
-        param : str
-            The parameter we want to analyze
+        start_year : int
+            First year taken for analysis
+        end_year : int
+            Last year taken for analysis
 
         Returns
         -------
         df
-            Pandas' dataframe with choosen variable for the given period
+            Pandas' dataframe for the given period
         """
 
-        interval = "polroczne_i_roczne"
         current_path = Path(os.getcwd()).parent
         list_of_dicts = []
-        for year in range(start_year, end_year):
-            file_name = f"polr_{self.parameter}_{year}"
-            path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{interval}\\{year}\\{file_name}.csv"
-            list_of_dicts.append(self.station_data_to_dict(path))
-            self._data = pd.DataFrame(list_of_dicts).dropna().reset_index(drop=True)
+        for year in range(start_year, end_year + 1):
+            if self.interval == "dobowe":
+                for month in range(1, 13):
+                    if month < 10:
+                        file_name = f"codz_{year}_0{month}"
+
+                    else:
+                        file_name = f"codz_{year}_{month}"
+
+                    path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
+                    try:
+                        dicts = self.station_data_to_dict(path)
+                        list_of_dicts.append(dicts)
+                    except FileNotFoundError:
+                        print(f"Missing data for: {year}-{month}")
+                self._data = (
+                    pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
+                    .dropna()
+                    .reset_index(drop=True)
+                )
+
+            elif self.interval == "miesieczne":
+                file_name = f"mies_{year}"
+                path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
+                list_of_dicts.append(self.station_data_to_dict(path))
+                df = pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
+                self._data = df.groupby(by=["year", "month"]).agg(
+                    {
+                        "H_min": "first",
+                        "Q_min": "first",
+                        "T_min": "first",
+                        "H_mean": "first",
+                        "Q_mean": "first",
+                        "T_mean": "first",
+                        "H_max": "first",
+                        "Q_max": "first",
+                        "T_max": "first",
+                    }
+                )
+
+            elif self.interval == "polroczne_i_roczne":
+                file_name = f"polr_{self.parameter}_{year}"
+                path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
+                list_of_dicts.append(self.station_data_to_dict(path))
+                self._data = pd.DataFrame(list_of_dicts).dropna().reset_index(drop=True)
+
+            else:
+                pass
         return self._data
 
     def basic_stats(self):
@@ -117,59 +263,73 @@ class StationData:
         The function analyzes a Panda's data frame to get min, mean and max
         values for given dataset (period) and number of measurements.
 
-        Parameters
-        ----------
-        input_list : list
-            List of dicts
+        TODO: dobowe and miesieczne
 
         Returns
         -------
         df
             Pandas' dataframe
         """
-        # df = pd.DataFrame(self._data).dropna().reset_index(drop=True)
-        self._data["year_max"] = self._data[["winter_max", "summer_max"]].max(axis=1)
-        self._data["year_min"] = self._data[["winter_min", "summer_min"]].min(axis=1)
-        # print(df)
-        list_len = self._data.shape[0]
+        if self.interval == "dobowe":
+            pass
 
-        if self.parameter in ["Q", "H"]:
-            wwx = self._data[["winter_max", "summer_max"]].max().max()
-            swx = mean(list(self._data["winter_max"]) + list(self._data["summer_max"]))
-            nwx = self._data[["winter_max", "summer_max"]].min().min()
-            wsx = self._data["year_mean"].max()
-            ssx = self._data["year_mean"].mean()
-            nsx = self._data["year_mean"].min()
-            wnx = self._data[["winter_min", "summer_min"]].max().max()
-            snx = mean(list(self._data["winter_min"]) + list(self._data["summer_min"]))
-            nnx = self._data[["winter_min", "summer_min"]].min().min()
-            print(
-                f"\nNumber of observations: {list_len}\n"
-                f"WW{self.parameter}: {wwx}\t SW{self.parameter}: {swx:.2f}\t NW{self.parameter}: {nwx}\n"
-                f"WS{self.parameter}: {wsx}\t SS{self.parameter}: {ssx:.2f}\t NS{self.parameter}: {nsx}\n"
-                f"WN{self.parameter}: {wnx}\t SN{self.parameter}: {snx:.2f}\t NN{self.parameter}: {nnx}\n"
+        elif self.interval == "miesieczne":
+            pass
+
+        elif self.interval == "polroczne_i_roczne":
+            self._data["year_max"] = self._data[["winter_max", "summer_max"]].max(
+                axis=1
             )
-        else:
-            max_value = self._data[["winter_max", "summer_max"]].max().max()
-            mean_value = self._data["year_mean"][0]
-            min_value = self._data[["winter_min", "summer_min"]].min().min()
-            print(
-                f"Quantity: {list_len}; max: {max_value};\
-                mean: {mean_value:.2f}; min: {min_value}"
+            self._data["year_min"] = self._data[["winter_min", "summer_min"]].min(
+                axis=1
             )
-        print(
-            self._data.describe()
-            .round(3)
-            .drop("station_id", axis="columns")
-            .drop("count", axis="index")
-        )
-        return self._data
+            list_len = self._data.shape[0]
+
+            if self.parameter in ["Q", "H"]:
+                wwx = self._data[["winter_max", "summer_max"]].max().max()
+                swx = mean(
+                    list(self._data["winter_max"]) + list(self._data["summer_max"])
+                )
+                nwx = self._data[["winter_max", "summer_max"]].min().min()
+                wsx = self._data["year_mean"].max()
+                ssx = self._data["year_mean"].mean()
+                nsx = self._data["year_mean"].min()
+                wnx = self._data[["winter_min", "summer_min"]].max().max()
+                snx = mean(
+                    list(self._data["winter_min"]) + list(self._data["summer_min"])
+                )
+                nnx = self._data[["winter_min", "summer_min"]].min().min()
+                print(
+                    f"\nNumber of observations: {list_len}\n"
+                    f"WW{self.parameter}: {wwx}\t SW{self.parameter}: {swx:.2f}\t NW{self.parameter}: {nwx}\n"
+                    f"WS{self.parameter}: {wsx}\t SS{self.parameter}: {ssx:.2f}\t NS{self.parameter}: {nsx}\n"
+                    f"WN{self.parameter}: {wnx}\t SN{self.parameter}: {snx:.2f}\t NN{self.parameter}: {nnx}\n"
+                )
+
+            else:
+                max_value = self._data[["winter_max", "summer_max"]].max().max()
+                mean_value = self._data["year_mean"][0]
+                min_value = self._data[["winter_min", "summer_min"]].min().min()
+                print(
+                    f"Quantity: {list_len}; max: {max_value};\
+                    mean: {mean_value:.2f}; min: {min_value}"
+                )
+            print(
+                self._data.describe()
+                .round(3)
+                .drop("station_id", axis="columns")
+                .drop("count", axis="index")
+            )
+            return wwx, swx, nwx, wsx, ssx, nsx, wnx, snx, nnx
 
     def plt_annual_data(self):
         """Print a line graph for maximum, average and minimum values
         for the selected period
 
+        TODO: dobowe and miesieczne.
+
         Returns:
+        -------
             int: confirmation of execution
         """
         plt.figure(figsize=(20, 10))
@@ -207,7 +367,13 @@ class StationData:
         """Print a histogram for the selected df's column.
         Default column is 'year_max' and bo. of bins is 10.
 
+        Parameters
+        ----------
+        column : str
+            Column selected for analysis
+
         Returns:
+        ----------
             int: confirmation of execution
         """
         plt.hist(self._data[column], bins=bins, color="blue", edgecolor="black")
