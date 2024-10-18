@@ -89,7 +89,7 @@ class DataDownloader:
             print("This file has already been downloaded")
         return status
 
-    def compose_url_filename(self, interval, year, var):
+    def compose_url_filename(self, interval, year, var=None):
         """
         Komponuje adres URL i nazwę pliku dla danych hydrologicznych lub meteorologicznych na podstawie wybranego interwału,
         roku i zmiennej.
@@ -110,13 +110,18 @@ class DataDownloader:
 
         if self.data_type == "dane_hydrologiczne":
             if interval == "dobowe":
-                var = format_var(var)
+                if var is not None:
+                    var = format_var(var)
                 if var == "13":
                     url = f"{self.public_data_url}/{self.data_type}/{interval}/{year}/zjaw_{year}.zip"
                     f_name = f"zjaw_{year}.zip"
                 else:
-                    url = f"{self.public_data_url}/{self.data_type}/{interval}/{year}/codz_{year}_{var}.zip"
-                    f_name = f"codz_{year}_{var}.zip"
+                    if year == 2023:
+                        url = f"{self.public_data_url}/{self.data_type}/{interval}/{year}/codz_{year}.zip"
+                        f_name = f"codz_{year}.zip"
+                    else:
+                        url = f"{self.public_data_url}/{self.data_type}/{interval}/{year}/codz_{year}_{var}.zip"
+                        f_name = f"codz_{year}_{var}.zip"
             elif interval == "miesieczne":
                 url = f"{self.public_data_url}/{self.data_type}/{interval}/{year}/mies_{year}.zip"
                 f_name = f"mies_{year}.zip"

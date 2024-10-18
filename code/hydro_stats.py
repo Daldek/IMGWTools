@@ -209,24 +209,38 @@ class StationData:
         list_of_dicts = []
         for year in range(start_year, end_year + 1):
             if self.interval == "dobowe":
-                for month in range(1, 13):
-                    if month < 10:
-                        file_name = f"codz_{year}_0{month}"
-
-                    else:
-                        file_name = f"codz_{year}_{month}"
-
+                if year == 2023:
+                    file_name = f"codz_{year}"
                     path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
                     try:
                         dicts = self.station_data_to_dict(path)
                         list_of_dicts.append(dicts)
                     except FileNotFoundError:
-                        print(f"Missing data for: {year}-{month}")
-                self._data = (
-                    pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
-                    .dropna()
-                    .reset_index(drop=True)
-                )
+                        print(f"Missing data for: {year}")
+                    self._data = (
+                        pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
+                        .dropna()
+                        .reset_index(drop=True)
+                    )
+                else:
+                    for month in range(1, 13):
+                        if month < 10:
+                            file_name = f"codz_{year}_0{month}"
+
+                        else:
+                            file_name = f"codz_{year}_{month}"
+
+                        path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
+                        try:
+                            dicts = self.station_data_to_dict(path)
+                            list_of_dicts.append(dicts)
+                        except FileNotFoundError:
+                            print(f"Missing data for: {year}-{month}")
+                    self._data = (
+                        pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
+                        .dropna()
+                        .reset_index(drop=True)
+                    )
 
             elif self.interval == "miesieczne":
                 file_name = f"mies_{year}"
