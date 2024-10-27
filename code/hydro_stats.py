@@ -305,6 +305,13 @@ class StationData:
                 pass
         return self._data
 
+    def calculate_hydrological_days(self):
+        """Calculate the day of the hydrological year."""
+        if isinstance(self._data, pd.DataFrame) and not self._data.empty:
+            self._data["day_of_hydrological_year"] = (
+                self._data.groupby("year").cumcount() + 1
+            )
+
     def basic_stats(self):
         """Calculate the most basic statistics for the choosen station
 
@@ -395,7 +402,44 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_annual_data(self):
+    def plt_daily_flows(self, qlim=None):
+        """Create a visualization of flows for each year, displayed one below the other.
+
+        Returns:
+        -------
+            int: confirmation of execution
+        """
+        if qlim is None:
+            qlim = self._data["Q"].max()
+        self.calculate_hydrological_days()
+        years = self._data["year"].unique()
+        num_years = len(years)
+
+        fig, axs = plt.subplots(
+            num_years, 1, figsize=(20, 1.5 * num_years), sharex=True
+        )
+
+        for i, year in enumerate(years):
+            yearly_data = self._data[self._data["year"] == year]
+            sns.lineplot(
+                data=yearly_data,
+                x="day_of_hydrological_year",
+                y="Q",
+                ax=axs[i],
+            )
+            axs[i].set_title(f"{year}")
+            axs[i].set_ylabel("Flow m3*s-1")
+            axs[i].set_ylim(bottom=0, top=qlim)
+            axs[i].set_xticks(range(30, 366, 30))
+            axs[i].set_xticklabels(range(30, 366, 30))
+
+        plt.xlabel("Date")
+        plt.xlim(left=0, right=367)
+        plt.tight_layout()
+        plt.show()
+        return 1
+
+    def plt_multi_year(self):
         """Print a line graph for maximum, average and minimum values
         for the selected period
 
