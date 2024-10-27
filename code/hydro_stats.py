@@ -47,16 +47,28 @@ class StationData:
                 for row in reader:
                     station_id = int(row[0].replace(" ", ""))
                     if self.station_id == station_id:
-                        station_dict = {
-                            "station_id": int(self.station_id),
-                            "year": int(row[3]),
-                            "month": int(row[4]),
-                            "day": int(row[5]),
-                            "H": float(row[6]),
-                            "Q": float(row[7]),
-                            "T": float(row[8]),
-                        }
-                        station_dict_list.append(station_dict)
+                        if int(row[3]) == 2023:
+                            station_dict = {
+                                "station_id": int(self.station_id),
+                                "year": int(row[3]),
+                                "month": int(row[4]),
+                                "day": int(row[5]),
+                                "H": float(row[7]),
+                                "Q": float(row[6]),
+                                "T": float(row[8]),
+                            }
+                            station_dict_list.append(station_dict)
+                        else:
+                            station_dict = {
+                                "station_id": int(self.station_id),
+                                "year": int(row[3]),
+                                "month": int(row[4]),
+                                "day": int(row[5]),
+                                "H": float(row[6]),
+                                "Q": float(row[7]),
+                                "T": float(row[8]),
+                            }
+                            station_dict_list.append(station_dict)
             return station_dict_list
         elif self.interval == "miesieczne":
             station_dict_list = []
@@ -75,26 +87,48 @@ class StationData:
                 for row in reader:
                     station_id = int(row[0].strip())
                     if self.station_id == station_id:
-                        station_dict = {
-                            "station_id": int(self.station_id),
-                            "year": int(row[3]),
-                            "month": int(row[4]),
-                        }
-                        if int(row[5]) == 1:
-                            station_dict["H_min"] = float(row[6])
-                            station_dict["Q_min"] = float(row[7])
-                            station_dict["T_min"] = float(row[8])
-                        elif int(row[5]) == 2:
-                            station_dict["H_mean"] = float(row[6])
-                            station_dict["Q_mean"] = float(row[7])
-                            station_dict["T_mean"] = float(row[8])
-                        elif int(row[5]) == 3:
-                            station_dict["H_max"] = float(row[6])
-                            station_dict["Q_max"] = float(row[7])
-                            station_dict["T_max"] = float(row[8])
+                        if int(row[3]) == 2023:
+                            station_dict = {
+                                "station_id": int(self.station_id),
+                                "year": int(row[3]),
+                                "month": int(row[4]),
+                            }
+                            if int(row[5]) == 1:
+                                station_dict["H_min"] = float(row[7])
+                                station_dict["Q_min"] = float(row[6])
+                                station_dict["T_min"] = float(row[8])
+                            elif int(row[5]) == 2:
+                                station_dict["H_mean"] = float(row[7])
+                                station_dict["Q_mean"] = float(row[6])
+                                station_dict["T_mean"] = float(row[8])
+                            elif int(row[5]) == 3:
+                                station_dict["H_max"] = float(row[7])
+                                station_dict["Q_max"] = float(row[6])
+                                station_dict["T_max"] = float(row[8])
+                            else:
+                                pass
+                            station_dict_list.append(station_dict)
                         else:
-                            pass
-                        station_dict_list.append(station_dict)
+                            station_dict = {
+                                "station_id": int(self.station_id),
+                                "year": int(row[3]),
+                                "month": int(row[4]),
+                            }
+                            if int(row[5]) == 1:
+                                station_dict["H_min"] = float(row[6])
+                                station_dict["Q_min"] = float(row[7])
+                                station_dict["T_min"] = float(row[8])
+                            elif int(row[5]) == 2:
+                                station_dict["H_mean"] = float(row[6])
+                                station_dict["Q_mean"] = float(row[7])
+                                station_dict["T_mean"] = float(row[8])
+                            elif int(row[5]) == 3:
+                                station_dict["H_max"] = float(row[6])
+                                station_dict["Q_max"] = float(row[7])
+                                station_dict["T_max"] = float(row[8])
+                            else:
+                                pass
+                            station_dict_list.append(station_dict)
             return station_dict_list
         elif self.interval == "polroczne_i_roczne":
             station_dict = {
@@ -335,6 +369,31 @@ class StationData:
                 .drop("count", axis="index")
             )
             return wwx, swx, nwx, wsx, ssx, nsx, wnx, snx, nnx
+
+    def plt_rating_curve(self):
+        """Print a point graph for each Q and H pair in a dataframe
+
+        Returns:
+        -------
+            int: confirmation of execution
+        """
+        plt.figure(figsize=(20, 10))
+        sns.scatterplot(
+            data=self._data,
+            x="Q",
+            y="H",
+            hue="year",
+            palette="viridis",
+        )
+        plt.title("Rating curve")
+        plt.xlabel("Q m3*s-1")
+        plt.xlabel("H cm")
+        plt.xlim(left=0)
+        plt.ylim(bottom=0)
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+        return 1
 
     def plt_annual_data(self):
         """Print a line graph for maximum, average and minimum values
