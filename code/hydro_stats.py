@@ -495,6 +495,51 @@ class StationData:
         plt.show()
         return 1
 
+    def plt_daily_flows_stats(self, qlim=None):
+        """Print a line graph for maximum, mean, median and minimum values
+        for the selected period
+
+        Returns:
+        -------
+            int: confirmation of execution
+        """
+        # calculate the upper limit for the Y axis
+        if qlim is None:
+            qlim = self._data["Q"].max()
+        
+        # Calculate daily statistics and hydrological days
+        daily_stats = self.calculate_daily_statistics()
+        self.calculate_hydrological_days()
+
+        # Define plot size and colors for each line
+        plt.figure(figsize=(20, 10))
+        flow_stats = {
+            "Max Flow [m³/s]": "red",
+            "Median Flow [m³/s]": "orange",
+            "Mean Flow [m³/s]": "black",
+            "Min Flow [m³/s]": "blue",
+        }
+
+        # Loop through flow statistics to generate lines
+        for stat, color in flow_stats.items():
+            sns.lineplot(
+                data=daily_stats,
+                x="day_of_hydrological_year",
+                y=stat,
+                color=color,
+                label=stat,
+            )
+
+        plt.xlabel("Days of hydrological year")
+        plt.ylabel("Q [m³/s]")
+        plt.xlim(left=0, right=367)
+        plt.ylim(bottom=0, top=qlim)
+        plt.xticks(range(30, 366, 30))
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+        return 1
+
     def plt_multi_year(self):
         """Print a line graph for maximum, average and minimum values
         for the selected period
