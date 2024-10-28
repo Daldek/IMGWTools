@@ -134,7 +134,6 @@ class DataDownloader:
                     "Invalid interval. Choose from 'dobowe', 'miesieczne', or 'polroczne_i_roczne'."
                 )
             print_info(url, f_name)
-            return url, f_name
 
         elif self.data_type == "dane_meteorologiczne":
             if interval == "dobowe":
@@ -153,7 +152,7 @@ class DataDownloader:
                     "Invalid interval. Choose from 'dobowe', 'miesieczne', or 'terminowe'."
                 )
             print_info(url, f_name)
-            return url, f_name
+        return url, f_name
 
     def move_zips(self):
         """

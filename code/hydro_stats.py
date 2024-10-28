@@ -16,6 +16,10 @@ class StationData:
         self.parameter = parameter
         self._data = []
 
+    def _is_leap_year(self, year):
+        """Check if a year is a leap year."""
+        return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+
     def station_data_to_dict(self, csv_path):
         """function that writes data from a csv file for a desired station to a dictionary
 
@@ -242,22 +246,31 @@ class StationData:
         current_path = Path(os.getcwd()).parent
         list_of_dicts = []
         for year in range(start_year, end_year + 1):
+            extra_row = None
             if self.interval == "dobowe":
+                is_leap = self._is_leap_year(year)
                 if year == 2023:
                     file_name = f"codz_{year}"
                     path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
                     try:
                         dicts = self.station_data_to_dict(path)
+                        extra_row = {
+                            "station_id": int(self.station_id),
+                            "year": year,
+                            "month": 4,
+                            "day": 29,
+                            "H": np.nan,
+                            "Q": np.nan,
+                            "T": np.nan,
+                        }
+                        dicts.insert(120, extra_row)
                         list_of_dicts.append(dicts)
+
                     except FileNotFoundError:
                         print(f"Missing data for: {year}")
-                    self._data = (
-                        pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
-                        .dropna()
-                        .reset_index(drop=True)
-                    )
                 else:
                     for month in range(1, 13):
+                        list_of_daily_dicts = []
                         if month < 10:
                             file_name = f"codz_{year}_0{month}"
 
@@ -267,14 +280,26 @@ class StationData:
                         path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
                         try:
                             dicts = self.station_data_to_dict(path)
-                            list_of_dicts.append(dicts)
+                            list_of_daily_dicts.append(dicts)
                         except FileNotFoundError:
                             print(f"Missing data for: {year}-{month}")
-                    self._data = (
-                        pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
-                        .dropna()
-                        .reset_index(drop=True)
-                    )
+                        if not is_leap and month == 4:
+                            extra_row = {
+                                "station_id": int(self.station_id),
+                                "year": year,
+                                "month": 4,
+                                "day": 29,
+                                "H": np.nan,
+                                "Q": np.nan,
+                                "T": np.nan,
+                            }
+                            list_of_daily_dicts[-1].append(extra_row)
+                        list_of_dicts.extend(list_of_daily_dicts)
+                self._data = (
+                    pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
+                    # .dropna()
+                    .reset_index(drop=True)
+                )
 
             elif self.interval == "miesieczne":
                 file_name = f"mies_{year}"
@@ -306,11 +331,17 @@ class StationData:
         return self._data
 
     def calculate_hydrological_days(self):
-        """Calculate the day of the hydrological year."""
+        """Calculate the day of the hydrological year.
+
+        Returns:
+        -------
+            int: confirmation of execution
+        """
         if isinstance(self._data, pd.DataFrame) and not self._data.empty:
             self._data["day_of_hydrological_year"] = (
                 self._data.groupby("year").cumcount() + 1
             )
+        return 1
 
     def basic_stats(self):
         """Calculate the most basic statistics for the choosen station
@@ -376,6 +407,31 @@ class StationData:
                 .drop("count", axis="index")
             )
             return wwx, swx, nwx, wsx, ssx, nsx, wnx, snx, nnx
+
+    def calculate_daily_statistics(self):
+        """Calculate statistics for each day of the hydrological year."""
+        self.calculate_hydrological_days()
+
+        # Grupowanie danych według dnia roku hydrologicznego
+        stats = (
+            self._data.groupby("day_of_hydrological_year")["Q"]
+            .agg(["mean", "median", "max", "min", "count"])
+            .reset_index()
+        )
+
+        # Zmiana nazw kolumn na bardziej opisowe
+        stats.rename(
+            columns={
+                "mean": "Mean Flow [m³/s]",
+                "median": "Median Flow [m³/s]",
+                "max": "Max Flow [m³/s]",
+                "min": "Min Flow [m³/s]",
+                "count": "Count",
+            },
+            inplace=True,
+        )
+
+        return stats
 
     def plt_rating_curve(self):
         """Print a point graph for each Q and H pair in a dataframe
