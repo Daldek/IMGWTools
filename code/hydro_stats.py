@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import csv
 from statistics import mean
+from scipy import stats
 from scipy.stats import kstest, lognorm, genextreme, pearson3
 import numpy as np
 import pandas as pd
@@ -413,14 +414,14 @@ class StationData:
         self.calculate_hydrological_days()
 
         # Grupowanie danych według dnia roku hydrologicznego
-        stats = (
+        daily_stats = (
             self._data.groupby("day_of_hydrological_year")["Q"]
             .agg(["mean", "median", "max", "min", "count"])
             .reset_index()
         )
 
         # Zmiana nazw kolumn na bardziej opisowe
-        stats.rename(
+        daily_stats.rename(
             columns={
                 "mean": "Mean Flow [m³/s]",
                 "median": "Median Flow [m³/s]",
@@ -430,8 +431,54 @@ class StationData:
             },
             inplace=True,
         )
+        return daily_stats
 
-        return stats
+    def calculate_monthly_statistics(self, phenomenon="Q", kind="mean"):
+        """Calculate statistics for each month of the hydrological year."""
+
+        # kopiowanie df
+        df = self._data[[f"{phenomenon}_{kind}"]].copy()
+
+        # Grupowanie danych według miesiąca roku hydrologicznego
+        monthly_stats = (
+            df.groupby("month")
+            .agg(
+                {
+                    f"{phenomenon}_{kind}": ["mean", "median", "std", "count"],
+                }
+            )
+            .reset_index()
+        )
+
+        # Spłaszczenie zagnieżdżonych nazw kolumn
+        monthly_stats.columns = [
+            "_".join(col).strip() if col[1] else col[0]
+            for col in monthly_stats.columns.values
+        ]
+
+        # Dodanie przedziałów ufności dla `f"{var}_mean_mean"` - średniej z przepływów średnich
+        confidence_level = 0.95
+        z_score = stats.norm.ppf(
+            (1 + confidence_level) / 2
+        )  # wartość krytyczna dla poziomu ufności 95%
+
+        # Obliczanie marginesu błędu i dodanie przedziałów ufności
+        monthly_stats["CI Lower [m³/s]"] = monthly_stats[f"{phenomenon}_{kind}_mean"] - (
+            z_score
+            * monthly_stats[f"{phenomenon}_{kind}_std"]
+            / np.sqrt(monthly_stats[f"{phenomenon}_{kind}_count"])
+        )
+        monthly_stats["CI Upper [m³/s]"] = monthly_stats[f"{phenomenon}_{kind}_mean"] + (
+            z_score
+            * monthly_stats[f"{phenomenon}_{kind}_std"]
+            / np.sqrt(monthly_stats[f"{phenomenon}_{kind}_count"])
+        )
+
+        # Przycinanie dolnych przedziałów ufności, aby były nieujemne
+        monthly_stats["CI Lower [m³/s]"] = monthly_stats["CI Lower [m³/s]"].clip(
+            lower=0
+        )
+        return monthly_stats
 
     def plt_rating_curve(self):
         """Print a point graph for each Q and H pair in a dataframe
@@ -499,6 +546,11 @@ class StationData:
         """Print a line graph for maximum, mean, median and minimum values
         for the selected period
 
+        Parameters:
+        -----------
+        qlim : float, optional
+            Upper limit for the Y axis. If not specified, it is set to the maximum flow value Q.
+
         Returns:
         -------
             int: confirmation of execution
@@ -506,7 +558,7 @@ class StationData:
         # calculate the upper limit for the Y axis
         if qlim is None:
             qlim = self._data["Q"].max()
-        
+
         # Calculate daily statistics and hydrological days
         daily_stats = self.calculate_daily_statistics()
         self.calculate_hydrological_days()
@@ -535,6 +587,53 @@ class StationData:
         plt.xlim(left=0, right=367)
         plt.ylim(bottom=0, top=qlim)
         plt.xticks(range(30, 366, 30))
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+        return 1
+
+    def plt_confidence_interval(self):
+        """Generates a graph of flows with confidence intervals.
+
+        Parameters:
+        -----------
+        qlim : float, optional
+            Upper limit for the Y axis. If not specified, it is set to the maximum flow value Q.
+
+        Returns:
+        -------
+            int: confirmation of execution
+        """
+        # Obliczanie dziennych statystyk
+        monthly_stats = self.calculate_monthly_statistics()
+
+        # Definiowanie rozmiaru wykresu
+        plt.figure(figsize=(20, 10))
+
+        # Tworzenie wykresu średnich przepływów
+        plt.plot(
+            monthly_stats["month"],
+            monthly_stats["Q_mean_mean"],
+            color="black",
+            label="Flow [m³/s]",
+        )
+
+        # Dodanie przedziałów ufności dla średniego przepływu
+        plt.fill_between(
+            monthly_stats["month"],
+            monthly_stats["CI Lower [m³/s]"],
+            monthly_stats["CI Upper [m³/s]"],
+            color="gray",
+            alpha=0.3,
+            label="95% Confidence Interval",
+        )
+
+        # Dostosowanie etykiet i ograniczeń osi
+        plt.xlabel("Month")
+        plt.ylabel("Q [m³/s]")
+        plt.xlim(left=1, right=12)
+        plt.ylim(bottom=0)
+        plt.xticks(range(1, 13))
         plt.grid(True)
         plt.legend()
         plt.show()
