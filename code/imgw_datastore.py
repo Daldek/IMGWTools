@@ -345,3 +345,38 @@ class DataDownloader:
             # downloading data not yet supported
         else:
             print("Wrong data type!")
+
+    def download_daily_hydro(self, start_year=1951, end_year=2023):
+        hydro_data_interval = "dobowe"
+        downloaded_files = []
+
+        for year in range(start_year, end_year + 1):
+            for month in range(1, 13):
+                url, f = self.compose_url_filename(hydro_data_interval, year, month)
+                if not self.check_zip_file_presence(f):
+                    wget.download(url, f)
+                    downloaded_files.append(f)
+        self.move_zips()
+        [
+            self.unzip_file(downloaded_file)
+            for downloaded_file in downloaded_files
+            if downloaded_files
+        ]
+        return 1
+
+    def download_monthly_hydro(self, start_year=1951, end_year=2023):
+        hydro_data_interval = "miesieczne"
+        downloaded_files = []
+
+        for year in range(start_year, end_year + 1):
+            url, f = self.compose_url_filename(hydro_data_interval, year)
+            if not self.check_zip_file_presence(f):
+                wget.download(url, f)
+                downloaded_files.append(f)
+        self.move_zips()
+        [
+            self.unzip_file(downloaded_file)
+            for downloaded_file in downloaded_files
+            if downloaded_files
+        ]
+        return 1
