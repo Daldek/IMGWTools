@@ -463,12 +463,16 @@ class StationData:
         )  # wartość krytyczna dla poziomu ufności 95%
 
         # Obliczanie marginesu błędu i dodanie przedziałów ufności
-        monthly_stats["CI Lower [m³/s]"] = monthly_stats[f"{phenomenon}_{kind}_mean"] - (
+        monthly_stats["CI Lower [m³/s]"] = monthly_stats[
+            f"{phenomenon}_{kind}_mean"
+        ] - (
             z_score
             * monthly_stats[f"{phenomenon}_{kind}_std"]
             / np.sqrt(monthly_stats[f"{phenomenon}_{kind}_count"])
         )
-        monthly_stats["CI Upper [m³/s]"] = monthly_stats[f"{phenomenon}_{kind}_mean"] + (
+        monthly_stats["CI Upper [m³/s]"] = monthly_stats[
+            f"{phenomenon}_{kind}_mean"
+        ] + (
             z_score
             * monthly_stats[f"{phenomenon}_{kind}_std"]
             / np.sqrt(monthly_stats[f"{phenomenon}_{kind}_count"])
@@ -480,26 +484,44 @@ class StationData:
         )
         return monthly_stats
 
-    def plt_rating_curve(self):
+    def plt_rating_curve(self, year=None, season=None, qlim=None, hlim=None):
         """Print a point graph for each Q and H pair in a dataframe
 
         Returns:
         -------
             int: confirmation of execution
         """
+        if year is not None:
+            df = self._data[self._data["year"] == year].copy()
+        else:
+            df = self._data.copy()
+
+        if season == "winter":
+            df = df[df["month"] <= 6].copy()
+        elif season == "summer":
+            df = df[df["month"] > 6].copy()
+        elif season == "all":
+            df.loc[:, "season"] = df["month"].apply(
+                lambda x: "Półrocze zimowe" if x <= 6 else "Półrocze letnie"
+            )
+        else:
+            df = df.copy()
+            df.loc[:, "season"] = "viridis"
+
         plt.figure(figsize=(20, 10))
         sns.scatterplot(
-            data=self._data,
+            data=df,
             x="Q",
             y="H",
-            hue="year",
-            palette="viridis",
+            hue="season" if season == "all" else "year",
+            palette=None if season == "all" else "viridis",
+            legend="full",
         )
         plt.title("Rating curve")
-        plt.xlabel("Q m3*s-1")
         plt.xlabel("H cm")
-        plt.xlim(left=0)
-        plt.ylim(bottom=0)
+        plt.ylabel("Q m³s⁻¹")
+        plt.xlim(right=hlim)
+        plt.ylim(top=qlim)
         plt.grid(True)
         plt.legend()
         plt.show()
