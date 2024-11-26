@@ -1,3 +1,19 @@
+"""
+Module: hydro_stats
+
+Description: 
+This module is used for statistical analysis of hydrological data
+ 
+TODO:
+- Translation of documentation into English
+- Harmonisation of nomenclature
+- Improvements to the StationData class (described further)
+- Moving extreme flow calculations to new module
+ 
+Author:
+Piotr de Bever
+"""
+
 import os
 from pathlib import Path
 import csv
@@ -11,11 +27,20 @@ import matplotlib.pyplot as plt
 
 
 class StationData:
+    """Class for analysing public hydrological data downloaded from the IMGW service
+
+    TODO:
+    - Calculation of the low water sequence volumes
+    - Removal of outliers from the flow rating curve and estimation of its function
+    - Delimitation of water zones (low, medium, high)
+    """
+
     def __init__(self, station_id, interval="polroczne_i_roczne", parameter=None):
         self.interval = interval
         self.station_id = station_id
         self.parameter = parameter
         self._data = []
+        self._h = None
 
     def _is_leap_year(self, year):
         """Check if a year is a leap year."""
@@ -75,7 +100,7 @@ class StationData:
                             }
                             station_dict_list.append(station_dict)
             return station_dict_list
-        elif self.interval == "miesieczne":
+        if self.interval == "miesieczne":
             station_dict_list = []
             with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as csv_f:
                 # read first line to determine the separator
@@ -135,7 +160,7 @@ class StationData:
                                 pass
                             station_dict_list.append(station_dict)
             return station_dict_list
-        elif self.interval == "polroczne_i_roczne":
+        if self.interval == "polroczne_i_roczne":
             station_dict = {
                 "station_id": int(self.station_id),
                 "year": None,
@@ -216,10 +241,8 @@ class StationData:
                             else:
                                 pass
             return station_dict
-        else:
-            return None
 
-    def station_data_to_df(self, start_year=1951, end_year=2023):
+    def station_data_to_df(self, period=None):
         """Use previously downloaded data to analyse chosen period
         for a gauge station
 
@@ -231,28 +254,30 @@ class StationData:
         flow for the year, it adds it to a dictionary, where key is year,
         and value's flow.
 
+        TODO: obsługa brakujących danych
+
         Parameters
         ----------
-        start_year : int
-            First year taken for analysis
-        end_year : int
-            Last year taken for analysis
+        perdiod : list
+            Range of years taken for analysis
 
         Returns
         -------
         df
             Pandas' dataframe for the given period
         """
-
+        if isinstance(period, int):
+            period = [period, period]
         current_path = Path(os.getcwd()).parent
         list_of_dicts = []
-        for year in range(start_year, end_year + 1):
+        for year in range(period[0], period[1] + 1):
             extra_row = None
             if self.interval == "dobowe":
                 is_leap = self._is_leap_year(year)
                 if year == 2023:
                     file_name = f"codz_{year}"
                     path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
+                    print(path)
                     try:
                         dicts = self.station_data_to_dict(path)
                         extra_row = {
@@ -344,13 +369,13 @@ class StationData:
             )
         return 1
 
-    def basic_stats(self):
+    def characteristic_values(self, parameter=None):
         """Calculate the most basic statistics for the choosen station
 
         The function analyzes a Panda's data frame to get min, mean and max
         values for given dataset (period) and number of measurements.
 
-        TODO: dobowe and miesieczne
+        TODO: miesieczne
 
         Returns
         -------
@@ -358,10 +383,46 @@ class StationData:
             Pandas' dataframe
         """
         if self.interval == "dobowe":
-            pass
+            self.parameter = parameter
+            # Group data by year and calculate max, mean, and min for the chosen parameter
+            df = (
+                self._data.groupby("year")
+                .agg({self.parameter: ["max", "mean", "median", "min"]})
+                .reset_index()
+            )
+
+            # Rename columns for clarity
+            df.columns = [
+                "Year",
+                f"W{self.parameter}",
+                f"S{self.parameter}",
+                f"Z{self.parameter}",
+                f"N{self.parameter}",
+            ]
+
+            #
+            wwx = df[f"W{self.parameter}"].max()
+            swx = df[f"W{self.parameter}"].mean()
+            zwx = df[f"W{self.parameter}"].median()
+            nwx = df[f"W{self.parameter}"].min()
+            wsx = df[f"S{self.parameter}"].max()
+            ssx = df[f"S{self.parameter}"].mean()
+            zsx = df[f"S{self.parameter}"].median()
+            nsx = df[f"S{self.parameter}"].min()
+            wnx = df[f"N{self.parameter}"].max()
+            snx = df[f"N{self.parameter}"].mean()
+            znx = df[f"N{self.parameter}"].median()
+            nnx = df[f"N{self.parameter}"].min()
+
+            # Print characteristics
+            print(
+                f"WW{self.parameter}: {wwx:.2f}\t SW{self.parameter}: {swx:.2f}\t ZW{self.parameter}: {zwx:.2f}\t NW{self.parameter}: {nwx:.2f}\n"
+                f"WS{self.parameter}: {wsx:.2f}\t SS{self.parameter}: {ssx:.2f}\t ZS{self.parameter}: {zsx:.2f}\t NS{self.parameter}: {nsx:.2f}\n"
+                f"WN{self.parameter}: {wnx:.2f}\t SN{self.parameter}: {snx:.2f}\t ZN{self.parameter}: {znx:.2f}\t NN{self.parameter}: {nnx:.2f}\n"
+            )
 
         elif self.interval == "miesieczne":
-            pass
+            return None
 
         elif self.interval == "polroczne_i_roczne":
             self._data["year_max"] = self._data[["winter_max", "summer_max"]].max(
@@ -377,20 +438,23 @@ class StationData:
                 swx = mean(
                     list(self._data["winter_max"]) + list(self._data["summer_max"])
                 )
+                zwx = self._data[["winter_max", "summer_max"]].median().median()
                 nwx = self._data[["winter_max", "summer_max"]].min().min()
                 wsx = self._data["year_mean"].max()
                 ssx = self._data["year_mean"].mean()
+                zsx = self._data["year_mean"].median()
                 nsx = self._data["year_mean"].min()
                 wnx = self._data[["winter_min", "summer_min"]].max().max()
                 snx = mean(
                     list(self._data["winter_min"]) + list(self._data["summer_min"])
                 )
+                znx = self._data[["winter_min", "summer_min"]].median().median()
                 nnx = self._data[["winter_min", "summer_min"]].min().min()
+                # Print characteristics
                 print(
-                    f"\nNumber of observations: {list_len}\n"
-                    f"WW{self.parameter}: {wwx}\t SW{self.parameter}: {swx:.2f}\t NW{self.parameter}: {nwx}\n"
-                    f"WS{self.parameter}: {wsx}\t SS{self.parameter}: {ssx:.2f}\t NS{self.parameter}: {nsx}\n"
-                    f"WN{self.parameter}: {wnx}\t SN{self.parameter}: {snx:.2f}\t NN{self.parameter}: {nnx}\n"
+                    f"WW{self.parameter}: {wwx:.2f}\t SW{self.parameter}: {swx:.2f}\t ZW{self.parameter}: {zwx:.2f}\t NW{self.parameter}: {nwx:.2f}\n"
+                    f"WS{self.parameter}: {wsx:.2f}\t SS{self.parameter}: {ssx:.2f}\t ZS{self.parameter}: {zsx:.2f}\t NS{self.parameter}: {nsx:.2f}\n"
+                    f"WN{self.parameter}: {wnx:.2f}\t SN{self.parameter}: {snx:.2f}\t ZN{self.parameter}: {znx:.2f}\t NN{self.parameter}: {nnx:.2f}\n"
                 )
 
             else:
@@ -407,7 +471,74 @@ class StationData:
                 .drop("station_id", axis="columns")
                 .drop("count", axis="index")
             )
-            return wwx, swx, nwx, wsx, ssx, nsx, wnx, snx, nnx
+            # return wwx, swx, nwx, wsx, ssx, nsx, wnx, snx, nnx
+        else:
+            return None
+        return wwx, swx, zwx, nwx, wsx, ssx, zsx, nsx, wnx, snx, znx, nnx
+
+    def calculate_water_levels_frequency(self):
+        """
+        Calculate the frequency of water levels in specified intervals and group them by month.
+
+        This method calculates hydrological days, groups water level data ('H') into specified intervals,
+        counts occurrences of 'H' within these intervals for each month, and updates the class attribute
+        with the results in a DataFrame.
+
+        TODO: Allowing the selection of a single year for analysis
+        """
+        # Calculate hydrological days
+        self.calculate_hydrological_days()
+
+        # Copy data
+        df = self._data[
+            ["station_id", "year", "month", "day", "H", "day_of_hydrological_year"]
+        ].copy()
+
+        # Define bins based on the minimum and maximum values of 'H'
+        min_h = np.floor(df["H"].min() / 10) * 10
+        max_h = np.ceil(df["H"].max() / 10) * 10
+        bins = range(int(min_h), int(max_h) + 10, 10)
+        labels = [(i, i + 10) for i in bins[:-1]]
+
+        # Add column with intervals
+        df["H_interval"] = pd.cut(df["H"], bins=bins, labels=labels, right=False)
+
+        # Create an empty list to store results
+        results = []
+
+        # Group data and count occurrences of 'H' in each interval and month
+        for lower, upper in labels[::-1]:  # Reverse the order of intervals
+            row = {"From": lower, "To": upper, "Middle": (lower + upper) * 0.5}
+            total_count = 0
+            for month in range(1, 13):
+                count = df[
+                    (df["H_interval"] == (lower, upper)) & (df["month"] == month)
+                ].shape[0]
+                row[month] = count
+                total_count += count
+            row["Number of observations"] = total_count
+            results.append(row)
+
+        # Create DataFrame from results
+        grouped_df = pd.DataFrame(results)
+
+        # Calculate stats
+        df_length = len(df)
+        grouped_df["Incidance [%]"] = (
+            grouped_df["Number of observations"] / df_length
+        ) * 100
+        grouped_df["Cumulative incidance [%]"] = grouped_df["Incidance [%]"].cumsum()
+        grouped_df["Cumulative frequency including higher"] = grouped_df[
+            "Number of observations"
+        ].cumsum()
+        grouped_df["Cumulative frequency including lower"] = df_length - grouped_df[
+            "Cumulative frequency including higher"
+        ].shift(1, fill_value=0)
+        grouped_df.loc[0, "Cumulative frequency including lower"] = df_length
+
+        # Update the class attribute
+        self._h = grouped_df
+        return self._h
 
     def calculate_daily_statistics(self):
         """Calculate statistics for each day of the hydrological year."""
@@ -416,16 +547,16 @@ class StationData:
         # Grupowanie danych według dnia roku hydrologicznego
         daily_stats = (
             self._data.groupby("day_of_hydrological_year")["Q"]
-            .agg(["mean", "median", "max", "min", "count"])
+            .agg(["max", "mean", "median", "min", "count"])
             .reset_index()
         )
 
         # Zmiana nazw kolumn na bardziej opisowe
         daily_stats.rename(
             columns={
+                "max": "Max Flow [m³/s]",
                 "mean": "Mean Flow [m³/s]",
                 "median": "Median Flow [m³/s]",
-                "max": "Max Flow [m³/s]",
                 "min": "Min Flow [m³/s]",
                 "count": "Count",
             },
@@ -444,7 +575,14 @@ class StationData:
             df.groupby("month")
             .agg(
                 {
-                    f"{phenomenon}_{kind}": ["mean", "median", "std", "count"],
+                    f"{phenomenon}_{kind}": [
+                        "max",
+                        "mean",
+                        "median",
+                        "min",
+                        "std",
+                        "count",
+                    ],
                 }
             )
             .reset_index()
@@ -484,6 +622,81 @@ class StationData:
         )
         return monthly_stats
 
+    def find_low_sequences(self, year, flow_threshold, min_length=5, max_gap=4):
+        """Znajduje ciągi wartości Q mniejszych niż zadany próg przez co najmniej określoną liczbę dni,
+        uwzględniając maksymalną dozwoloną przerwę między ciągami.
+
+        Parameters:
+        -----------
+        year : int
+            Rok, dla którego mają zostać znalezione sekwencje.
+        flow_threshold :
+            float Wartość progowa przepływu Q.
+        min_length : int, optional
+            Minimalna długość ciągu (domyślnie 5 dni).
+        max_gap : int, optional
+            Maksymalna dozwolona przerwa między ciągami (domyślnie 4 dni).
+
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame zawierający połączone sekwencje spełniające warunki.
+        """
+
+        df_year = self._data[self._data["year"] == year]
+        sequences = []
+        current_sequence = []
+
+        for index, row in df_year.iterrows():
+            if row["Q"] < flow_threshold:
+                current_sequence.append(row)
+            else:
+                if len(current_sequence) >= min_length:
+                    sequences.append(current_sequence)
+                current_sequence = []
+
+        # Dodaj ostatnią sekwencję, jeśli spełnia kryterium długości
+        if len(current_sequence) >= min_length:
+            sequences.append(current_sequence)
+
+        # Łączenie sekwencji, jeśli przerwa między nimi jest mniejsza niż max_gap dni
+        merged_sequences = []
+        previous_end_day = -1
+
+        for sequence in sequences:
+            start_day = sequence[0]["day_of_hydrological_year"]
+            if previous_end_day != -1 and (start_day - previous_end_day) < max_gap:
+                merged_sequences[-1].extend(sequence)
+            else:
+                merged_sequences.append(sequence)
+            previous_end_day = sequence[-1]["day_of_hydrological_year"]
+
+        # Sprawdzenie, czy są jakiekolwiek sekwencje
+        if not merged_sequences:
+            print("Brak niżówek w danym roku hydrologicznym.")
+            return pd.DataFrame()
+
+        # Wyświetlanie dat początku i końca sekwencji
+        for i, sequence in enumerate(merged_sequences):
+            start_date = sequence[0][["year", "month", "day"]]
+            end_date = sequence[-1][["year", "month", "day"]]
+            print(
+                f"Sequence {i+1} starts on {start_date['year']}-{start_date['month']}-{start_date['day']}"
+            )
+            print(
+                f"Sequence {i+1} ends on {end_date['year']}-{end_date['month']}-{end_date['day']}"
+            )
+
+        # Dodanie identyfikatorów do sekwencji i konwersja na DataFrame
+        merged_sequences_df = pd.DataFrame(
+            [
+                dict(row, sequence_id=i + 1)
+                for i, seq in enumerate(merged_sequences)
+                for row in seq
+            ]
+        )
+        return merged_sequences_df
+
     def plt_rating_curve(self, year=None, season=None, qlim=None, hlim=None):
         """Print a point graph for each Q and H pair in a dataframe
 
@@ -516,6 +729,8 @@ class StationData:
             hue="season" if season == "all" else "year",
             palette=None if season == "all" else "viridis",
             legend="full",
+            s=120,
+            alpha=0.85,
         )
         plt.title("Rating curve")
         plt.xlabel("H cm")
@@ -564,7 +779,7 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_daily_flows_stats(self, qlim=None):
+    def plt_daily_flows_characteristics(self, qlim=None):
         """Print a line graph for maximum, mean, median and minimum values
         for the selected period
 
@@ -589,8 +804,8 @@ class StationData:
         plt.figure(figsize=(20, 10))
         flow_stats = {
             "Max Flow [m³/s]": "red",
-            "Median Flow [m³/s]": "orange",
             "Mean Flow [m³/s]": "black",
+            "Median Flow [m³/s]": "orange",
             "Min Flow [m³/s]": "blue",
         }
 
@@ -614,8 +829,10 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_confidence_interval(self):
+    def plt_confidence_interval(self, phenomenon="Q", kind="mean"):
         """Generates a graph of flows with confidence intervals.
+
+        TODO: dzienne i roczne, inne charakterystyki
 
         Parameters:
         -----------
@@ -626,18 +843,41 @@ class StationData:
         -------
             int: confirmation of execution
         """
-        # Obliczanie dziennych statystyk
-        monthly_stats = self.calculate_monthly_statistics()
+        # Obliczanie miesięcznych statystyk
+        monthly_stats = self.calculate_monthly_statistics(
+            phenomenon=phenomenon, kind=kind
+        )
 
         # Definiowanie rozmiaru wykresu
         plt.figure(figsize=(20, 10))
 
-        # Tworzenie wykresu średnich przepływów
+        # Tworzenie wykresu przepływów
         plt.plot(
             monthly_stats["month"],
-            monthly_stats["Q_mean_mean"],
+            monthly_stats[f"{phenomenon}_{kind}_max"],
+            color="red",
+            label=f"{phenomenon}_{kind}_max",
+        )
+
+        plt.plot(
+            monthly_stats["month"],
+            monthly_stats[f"{phenomenon}_{kind}_mean"],
             color="black",
-            label="Flow [m³/s]",
+            label=f"{phenomenon}_{kind}_mean",
+        )
+
+        plt.plot(
+            monthly_stats["month"],
+            monthly_stats[f"{phenomenon}_{kind}_median"],
+            color="orange",
+            label=f"{phenomenon}_{kind}_median",
+        )
+
+        plt.plot(
+            monthly_stats["month"],
+            monthly_stats[f"{phenomenon}_{kind}_min"],
+            color="blue",
+            label=f"{phenomenon}_{kind}_min",
         )
 
         # Dodanie przedziałów ufności dla średniego przepływu
@@ -652,7 +892,7 @@ class StationData:
 
         # Dostosowanie etykiet i ograniczeń osi
         plt.xlabel("Month")
-        plt.ylabel("Q [m³/s]")
+        plt.ylabel(f"{phenomenon}")
         plt.xlim(left=1, right=12)
         plt.ylim(bottom=0)
         plt.xticks(range(1, 13))
@@ -661,7 +901,7 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_multi_year(self):
+    def plt_multi_year_characteristics(self):
         """Print a line graph for maximum, average and minimum values
         for the selected period
 
@@ -676,21 +916,21 @@ class StationData:
             data=self._data,
             x="year",
             y="year_min",
-            label=f"Annual min {self.parameter}",
+            label=f"N{self.parameter}",
             color="blue",
         )
         sns.lineplot(
             data=self._data,
             x="year",
             y="year_mean",
-            label=f"Annual mean {self.parameter}",
-            color="green",
+            label=f"S{self.parameter}",
+            color="orange",
         )
         sns.lineplot(
             data=self._data,
             x="year",
             y="year_max",
-            label=f"Annual max {self.parameter}",
+            label=f"W{self.parameter}",
             color="red",
         )
         plt.xlabel("Year")
@@ -704,7 +944,7 @@ class StationData:
 
     def plt_histogram(self, column="year_max", bins=10):
         """Print a histogram for the selected df's column.
-        Default column is 'year_max' and bo. of bins is 10.
+        Default column is 'year_max' and no. of bins is 10.
 
         Parameters
         ----------
@@ -716,6 +956,116 @@ class StationData:
             int: confirmation of execution
         """
         plt.hist(self._data[column], bins=bins, color="blue", edgecolor="black")
+        plt.show()
+        return 1
+
+    def plt_water_level_frequency(self):
+        """Plot the water levels using seaborn and matplotlib.
+        This method creates a line plot for 'Cumulative Total' vs 'Middle'
+        and a line plot for 'Total Count' vs 'Middle'."""
+
+        # Plotting data
+        plt.figure(figsize=(14, 8))
+
+        # Line plot for 'Cumulative frequency including higher' vs 'Middle'
+        sns.lineplot(
+            data=self._h,
+            x="Cumulative frequency including higher",
+            y="Middle",
+            marker="o",
+            label="Middle",
+        )
+
+        # Line plot for 'Number of observations' vs 'Middle'
+        plt.plot(
+            self._h["Number of observations"],
+            self._h["Middle"],
+            linestyle="-",
+            color="orange",
+            label="Total Count",
+        )
+
+        # Adding labels and title
+        plt.xlabel("Cumulative Total / Total Count")
+        plt.ylabel("Middle")
+        plt.title(
+            "Average Lower Bound and Upper Bound Values and Total Count vs Cumulative Total"
+        )
+        plt.xlim(left=0)
+        plt.ylim(bottom=(self._h["From"].min()) - 10)
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+        return 1
+
+    def plot_low_sequences(self, year, flow_threshold, min_length=5, max_gap=4):
+        """Wykresy danych Q dla podanego roku z wyróżnionymi sekwencjami,
+        gdzie wartości Q są mniejsze niż zadany próg.
+
+        Parameters:
+        -----------
+        year : int
+            Rok, dla którego mają zostać wygenerowane wykresy.
+        flow_threshold : float
+            Wartość progowa przepływu Q.
+        min_length : int, optional
+            Minimalna długość ciągu (domyślnie 5 dni).
+        max_gap : int, optional
+            Maksymalna dozwolona przerwa między ciągami (domyślnie 4 dni).
+
+        Returns:
+        ----------
+            int: confirmation of execution
+
+        TODO: Set the default threshold as SNQ
+        """
+
+        df_year = self._data[self._data["year"] == year]
+        sequences_df = self.find_low_sequences(
+            year, flow_threshold, min_length, max_gap
+        )
+
+        if sequences_df.empty:
+            return
+
+        plt.figure(figsize=(20, 10))
+
+        # Wykres oryginalnych danych Q
+        plt.plot(
+            df_year["day_of_hydrological_year"],
+            df_year["Q"],
+            label="Original Q Data",
+            color="blue",
+        )
+
+        # Zakreskowanie sekwencji na czerwono, uwzględniając identyfikatory sekwencji
+        for sequence_id in sequences_df["sequence_id"].unique():
+            sequence_df = sequences_df[sequences_df["sequence_id"] == sequence_id]
+            plt.fill_between(
+                sequence_df["day_of_hydrological_year"],
+                sequence_df["Q"],
+                color="red",
+                alpha=0.3,
+                hatch="/",
+            )
+
+        # Pozioma linia q_threshold
+        plt.axhline(
+            y=flow_threshold,
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            label=f"flow_threshold = {flow_threshold}",
+        )
+
+        plt.xlabel("Day")
+        plt.ylabel("Q (m³/s)")
+        plt.title(f"Sequences of Q < {flow_threshold} in {year}")
+        plt.xlim(left=0, right=367)
+        plt.ylim(bottom=0)
+        plt.xticks(range(30, 366, 30))
+        plt.legend()
+        plt.grid(True)
         plt.show()
         return 1
 
