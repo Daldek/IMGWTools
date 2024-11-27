@@ -622,6 +622,66 @@ class StationData:
         )
         return monthly_stats
 
+    def rybczynski_method(self, x_selected, y_selected):
+        """
+        This method calculates the parameters of a linear function based on the Rybczyński method.
+        It determines the slope and intercept of the line that fits the extreme values of 'Middle'
+        and 'Cumulative frequency including higher'. It then calculates a new intercept for a
+        selected point and generates a new line with the same slope passing through the selected point.
+
+        Parameters:
+        x_selected (float): The x-coordinate of the selected point.
+        y_selected (float): The y-coordinate of the selected point.
+
+        Returns:
+        tuple: A tuple containing the slope (a), original intercept (b), new intercept (b_new),
+            start and end values of x and y, x and y values for the original line,
+            y values for the new line, and the selected x and y coordinates.
+        """
+        # Extreme values of 'Middle' and corresponding 'Cumulative frequency including higher'
+        x_start = self._h[
+            "Cumulative frequency including higher"
+        ].min()  # Start of the line (smallest X value)
+        x_end = self._h[
+            "Cumulative frequency including higher"
+        ].max()  # End of the line (largest X value)
+        y_start = self._h[
+            "Middle"
+        ].max()  # Largest 'Middle' value (at the start of the plot)
+        y_end = self._h[
+            "Middle"
+        ].min()  # Smallest 'Middle' value (at the end of the plot)
+
+        # Determine the parameters of the linear function (y = ax + b)
+        a = (y_end - y_start) / (x_end - x_start)  # Slope
+        b = y_start - a * x_start  # Intercept with the Y-axis
+
+        # Calculate the new intercept b_new for the selected point
+        x_selected = 66
+        y_selected = 145
+        b_new = y_selected - a * x_selected  # New intercept with the Y-axis
+
+        # New line with the same slope passing through the selected point
+        y_new_line = a * self._h["Cumulative frequency including higher"] + b_new
+
+        x_vals = [x_start, x_end]
+        y_vals = [a * x + b for x in x_vals]
+
+        return (
+            a,
+            b,
+            b_new,
+            x_start,
+            x_end,
+            y_start,
+            y_end,
+            x_vals,
+            y_vals,
+            y_new_line,
+            x_selected,
+            y_selected,
+        )
+
     def find_low_sequences(self, year, flow_threshold, min_length=5, max_gap=4):
         """Znajduje ciągi wartości Q mniejszych niż zadany próg przez co najmniej określoną liczbę dni,
         uwzględniając maksymalną dozwoloną przerwę między ciągami.
@@ -733,8 +793,8 @@ class StationData:
             alpha=0.85,
         )
         plt.title("Rating curve")
-        plt.xlabel("H cm")
-        plt.ylabel("Q m³s⁻¹")
+        plt.xlabel("Q m³s⁻¹")
+        plt.ylabel("H cm")
         plt.xlim(right=hlim)
         plt.ylim(top=qlim)
         plt.grid(True)
@@ -959,11 +1019,20 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_water_level_frequency(self):
-        """Plot the water levels using seaborn and matplotlib.
+    def plt_water_level_frequency(self, method=None, x_selected=None, y_selected=None):
+        """
+        Plot the water levels using seaborn and matplotlib.
         This method creates a line plot for 'Cumulative Total' vs 'Middle'
-        and a line plot for 'Total Count' vs 'Middle'."""
+        and a line plot for 'Total Count' vs 'Middle'.
 
+        Parameters:
+        method (str, optional): The method to use for plotting. Defaults to None.
+        x_selected (float, optional): The x-coordinate of the selected point. Defaults to None.
+        y_selected (float, optional): The y-coordinate of the selected point. Defaults to None.
+
+        Returns:
+        int: confirmation of code execution
+        """
         # Plotting data
         plt.figure(figsize=(14, 8))
 
@@ -973,7 +1042,8 @@ class StationData:
             x="Cumulative frequency including higher",
             y="Middle",
             marker="o",
-            label="Middle",
+            color="red",
+            label="Krzywa sum czasów trwania stanów wód wraz z wyższymi",
         )
 
         # Line plot for 'Number of observations' vs 'Middle'
@@ -981,19 +1051,111 @@ class StationData:
             self._h["Number of observations"],
             self._h["Middle"],
             linestyle="-",
-            color="orange",
-            label="Total Count",
+            color="blue",
+            label="Krzywa częstości",
         )
 
-        # Adding labels and title
-        plt.xlabel("Cumulative Total / Total Count")
-        plt.ylabel("Middle")
-        plt.title(
-            "Average Lower Bound and Upper Bound Values and Total Count vs Cumulative Total"
-        )
-        plt.xlim(left=0)
-        plt.ylim(bottom=(self._h["From"].min()) - 10)
-        plt.legend()
+        if method == "rybczynski":
+            (
+                a,
+                b,
+                b_new,
+                x_start,
+                x_end,
+                y_start,
+                y_end,
+                x_vals,
+                y_vals,
+                y_new_line,
+                x_selected,
+                y_selected,
+            ) = self.rybczynski_method(x_selected, y_selected)
+
+            # Adding the line connecting the extreme values of 'Middle'
+            x_vals = [x_start, x_end]
+            y_vals = [a * x + b for x in x_vals]
+            plt.plot(
+                x_vals,
+                y_vals,
+                linestyle="--",
+                color="grey",
+            )
+
+            # New line with the same slope passing through the selected point
+            plt.plot(
+                self._h["Cumulative frequency including higher"],
+                y_new_line,
+                linestyle="--",
+                color="grey",
+                # label=f"Nowa linia przechodząca przez punkt ({x_selected}, {y_selected})",
+            )
+
+            # Adding horizontal lines
+            max_obs_index = self._h[
+                "Number of observations"
+            ].idxmax()  # Index of the maximum observation
+
+            # NTW - stan najdłużej trwający (the longest-lasting state)
+            ntw = self._h.loc[max_obs_index, "Middle"]  # Corresponding 'Middle' value
+
+            plt.axhline(
+                y=y_selected - 10,  # y-position of the horizontal line
+                color="red",
+                linestyle="--",
+                label=f"Górna granica strefy wody średniej: {y_selected:.0f} cm",
+            )
+
+            plt.axhline(
+                y=ntw,  # y-position of the horizontal line
+                color="blue",
+                linestyle="--",
+                label=f"Dolna granica strefy wody średniej: {ntw:.0f} cm",
+            )
+
+            # Fill the area below the horizontal lines
+            plt.fill_between(
+                self._h["Cumulative frequency including higher"],
+                y_selected - 10,
+                y_start,
+                color="red",
+                alpha=0.1,
+                label="Strefa stanów wody wysokiej",
+            )
+
+            plt.fill_between(
+                self._h["Cumulative frequency including higher"],
+                ntw,
+                y_selected - 10,
+                color="green",
+                alpha=0.1,
+                label="Strefa stanów wody średniej",
+            )
+            min_y_plot = (self._h["From"].min()) - 10
+            plt.fill_between(
+                self._h["Cumulative frequency including higher"],
+                min_y_plot,
+                ntw,
+                color="blue",
+                alpha=0.1,
+                label="Strefa stanów wody niskiej",
+            )
+            plt.title(
+                "Wykres krzywej częstości i podział sumy czasów trwania"
+                "stanów wody na strefy metodą Rybczyńskiego"
+            )
+        else:
+            x_end = self._h[
+                "Cumulative frequency including higher"
+            ].max()  # największa wartość X
+            min_y_plot = (self._h["From"].min()) - 10
+            plt.title("Wykres krzywej częstości i sumy czasów trwania stanów wody")
+
+        # Adding labels
+        plt.xlabel("Czas [dni]")
+        plt.ylabel("H [cm]")
+        plt.xlim(left=0, right=x_end + 1)
+        plt.ylim(bottom=min_y_plot)
+        plt.legend(loc="upper right")
         plt.grid(True)
         plt.show()
         return 1
