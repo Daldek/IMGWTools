@@ -35,18 +35,23 @@ class StationData:
     - Delimitation of water zones (low, medium, high)
     """
 
-    def __init__(self, station_id, interval="polroczne_i_roczne", parameter=None):
+    def __init__(
+        self, station_id, interval="polroczne_i_roczne", period=None, parameter=None
+    ):
         self.interval = interval
         self.station_id = station_id
+        self.period = period
         self.parameter = parameter
         self._data = []
         self._h = None
+
+        self._station_data_to_df()  # automatic method call
 
     def _is_leap_year(self, year):
         """Check if a year is a leap year."""
         return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
 
-    def station_data_to_dict(self, csv_path):
+    def _station_data_to_dict(self, csv_path):
         """function that writes data from a csv file for a desired station to a dictionary
 
         Parameters
@@ -242,7 +247,7 @@ class StationData:
                                 pass
             return station_dict
 
-    def station_data_to_df(self, period=None):
+    def _station_data_to_df(self):
         """Use previously downloaded data to analyse chosen period
         for a gauge station
 
@@ -256,18 +261,15 @@ class StationData:
 
         TODO: obsługa brakujących danych
 
-        Parameters
-        ----------
-        perdiod : list
-            Range of years taken for analysis
-
         Returns
         -------
         df
             Pandas' dataframe for the given period
         """
-        if isinstance(period, int):
-            period = [period, period]
+        if isinstance(self.period, int):
+            period = [self.period, self.period]
+        else:
+            period = self.period
         current_path = Path(os.getcwd()).parent
         list_of_dicts = []
         for year in range(period[0], period[1] + 1):
@@ -279,7 +281,7 @@ class StationData:
                     path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
                     print(path)
                     try:
-                        dicts = self.station_data_to_dict(path)
+                        dicts = self._station_data_to_dict(path)
                         extra_row = {
                             "station_id": int(self.station_id),
                             "year": year,
@@ -305,7 +307,7 @@ class StationData:
 
                         path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
                         try:
-                            dicts = self.station_data_to_dict(path)
+                            dicts = self._station_data_to_dict(path)
                             list_of_daily_dicts.append(dicts)
                         except FileNotFoundError:
                             print(f"Missing data for: {year}-{month}")
@@ -330,7 +332,7 @@ class StationData:
             elif self.interval == "miesieczne":
                 file_name = f"mies_{year}"
                 path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
-                list_of_dicts.append(self.station_data_to_dict(path))
+                list_of_dicts.append(self._station_data_to_dict(path))
                 df = pd.DataFrame(list(np.concatenate(list_of_dicts).flat))
                 self._data = df.groupby(by=["year", "month"]).agg(
                     {
@@ -349,12 +351,12 @@ class StationData:
             elif self.interval == "polroczne_i_roczne":
                 file_name = f"polr_{self.parameter}_{year}"
                 path = f"{current_path}\\data\\downloaded\\dane_hydrologiczne\\{self.interval}\\{year}\\{file_name}.csv"
-                list_of_dicts.append(self.station_data_to_dict(path))
+                list_of_dicts.append(self._station_data_to_dict(path))
                 self._data = pd.DataFrame(list_of_dicts).dropna().reset_index(drop=True)
 
             else:
                 pass
-        return self._data
+        return 1
 
     def calculate_hydrological_days(self):
         """Calculate the day of the hydrological year.
@@ -540,13 +542,13 @@ class StationData:
         self._h = grouped_df
         return self._h
 
-    def calculate_daily_statistics(self):
+    def calculate_daily_statistics(self, parameter):
         """Calculate statistics for each day of the hydrological year."""
         self.calculate_hydrological_days()
 
         # Grupowanie danych według dnia roku hydrologicznego
         daily_stats = (
-            self._data.groupby("day_of_hydrological_year")["Q"]
+            self._data.groupby("day_of_hydrological_year")[parameter]
             .agg(["max", "mean", "median", "min", "count"])
             .reset_index()
         )
@@ -554,10 +556,10 @@ class StationData:
         # Zmiana nazw kolumn na bardziej opisowe
         daily_stats.rename(
             columns={
-                "max": "Max Flow [m³/s]",
-                "mean": "Mean Flow [m³/s]",
-                "median": "Median Flow [m³/s]",
-                "min": "Min Flow [m³/s]",
+                "max": f"Max {parameter}",
+                "mean": f"Mean {parameter}",
+                "median": f"Median {parameter}",
+                "min": f"Min {parameter}",
                 "count": "Count",
             },
             inplace=True,
@@ -839,7 +841,7 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_daily_flows_characteristics(self, qlim=None):
+    def plt_daily_characteristics(self, parameter, qlim=None):
         """Print a line graph for maximum, mean, median and minimum values
         for the selected period
 
@@ -854,19 +856,18 @@ class StationData:
         """
         # calculate the upper limit for the Y axis
         if qlim is None:
-            qlim = self._data["Q"].max()
+            qlim = self._data[parameter].max()
 
-        # Calculate daily statistics and hydrological days
-        daily_stats = self.calculate_daily_statistics()
-        self.calculate_hydrological_days()
+        # Calculate daily statistics
+        daily_stats = self.calculate_daily_statistics(parameter)
 
         # Define plot size and colors for each line
         plt.figure(figsize=(20, 10))
         flow_stats = {
-            "Max Flow [m³/s]": "red",
-            "Mean Flow [m³/s]": "black",
-            "Median Flow [m³/s]": "orange",
-            "Min Flow [m³/s]": "blue",
+            f"Max {parameter}": "red",
+            f"Mean {parameter}": "black",
+            f"Median {parameter}": "orange",
+            f"Min {parameter}": "blue",
         }
 
         # Loop through flow statistics to generate lines
@@ -880,7 +881,7 @@ class StationData:
             )
 
         plt.xlabel("Days of hydrological year")
-        plt.ylabel("Q [m³/s]")
+        plt.ylabel(parameter)
         plt.xlim(left=0, right=367)
         plt.ylim(bottom=0, top=qlim)
         plt.xticks(range(30, 366, 30))
