@@ -19,6 +19,7 @@ from pathlib import Path
 import csv
 from statistics import mean
 from scipy import stats
+from scipy.optimize import curve_fit
 from scipy.stats import kstest, lognorm, genextreme, pearson3
 import numpy as np
 import pandas as pd
@@ -624,6 +625,61 @@ class StationData:
         )
         return monthly_stats
 
+    def filter_data_by_year_seasons(self, period, season="all"):
+        """Filter data by year or range of years and period if provided
+        Parameters:
+        -----------
+        period : int, list, optional
+            A single year or a list of two years representing the period for analysis.
+            If not provided, all years will be used.
+        season : str, optional
+            A season filter ("winter", "summer", "all") to restrict the data to a specific season.
+
+        Returns:
+        --------
+        df
+            Pandas' dataframe for the given period and season
+        """
+        if period is not None:
+            if isinstance(period, list):
+                if len(period) == 1:
+                    # If period is a single element list, select the specific year
+                    df = self._data[self._data["year"] == period[0]].copy()
+                elif len(period) == 2:
+                    # If period is a two-element list, select data within the range of years
+                    df = self._data[
+                        (self._data["year"] >= period[0])
+                        & (self._data["year"] <= period[1])
+                    ].copy()
+                else:
+                    raise ValueError(
+                        "If 'period' is a list, it must have one or two elements."
+                    )
+            else:
+                # If period is a single year (not a list), filter by that year
+                df = self._data[self._data["year"] == period].copy()
+        else:
+            df = self._data.copy()
+
+        # Filter by season if specified
+        if season == "winter":
+            df = df[df["month"] <= 6].copy()
+        elif season == "summer":
+            df = df[df["month"] > 6].copy()
+        elif season == "all":
+            df.loc[:, "season"] = df["month"].apply(
+                lambda x: "Półrocze zimowe" if x <= 6 else "Półrocze letnie"
+            )
+        else:
+            df = df.copy()
+            df.loc[:, "season"] = "viridis"
+        return df
+
+    @staticmethod
+    def power_func(b, a, c):
+        """Define the power function for regression"""
+        return a * (b**c)
+
     def rybczynski_method(self, x_selected, y_selected):
         """
         This method calculates the parameters of a linear function based on the Rybczyński method.
@@ -659,8 +715,6 @@ class StationData:
         b = y_start - a * x_start  # Intercept with the Y-axis
 
         # Calculate the new intercept b_new for the selected point
-        x_selected = 66
-        y_selected = 145
         b_new = y_selected - a * x_selected  # New intercept with the Y-axis
 
         # New line with the same slope passing through the selected point
@@ -759,33 +813,90 @@ class StationData:
         )
         return merged_sequences_df
 
-    def plt_rating_curve(self, year=None, season=None, qlim=None, hlim=None):
-        """Print a point graph for each Q and H pair in a dataframe
+    def plt_rating_curve(
+        self,
+        period,
+        season="all",
+        plt_reg=False,
+        qlim=None,
+        hlim=None,
+        clean=False,
+        # bp=None,
+        std_range=2,
+    ):
+        """Plot a graph showing each Q and H pair in a dataframe.
+
+        Parameters:
+        -----------
+            period : int, list, optional
+                A single year or a list of two years representing the period for analysis.
+                If not provided, all years will be used.
+            season : str, optional
+                A season filter ("winter", "summer", "all") to restrict the data to a specific season.
+            qlim : float, optional
+                The upper limit for the Q axis.
+            hlim : float, optional
+                The upper limit for the H axis.
+            clean : bool, optional
+                If True, removes missing values and applies outlier filtering.
+            bp : float, optional
+                The breakpoint value for Q to divide the data into two parts for regression.
+                If None, the median value of Q is used.
+            std_range : float, optional
+                The number of standard deviations used to identify and filter out outliers.
 
         Returns:
-        -------
-            int: confirmation of execution
+        --------
+            int
+                Confirmation of execution.
         """
-        if year is not None:
-            df = self._data[self._data["year"] == year].copy()
-        else:
-            df = self._data.copy()
+        df = self.filter_data_by_year_seasons(period, season)
+        df_filtered = pd.DataFrame()  # create empty df for plotting purpose
 
-        if season == "winter":
-            df = df[df["month"] <= 6].copy()
-        elif season == "summer":
-            df = df[df["month"] > 6].copy()
-        elif season == "all":
-            df.loc[:, "season"] = df["month"].apply(
-                lambda x: "Półrocze zimowe" if x <= 6 else "Półrocze letnie"
-            )
-        else:
-            df = df.copy()
-            df.loc[:, "season"] = "viridis"
+        # Remove missing values (NaN)
+        df = df.dropna(subset=["Q", "H"])
 
+        # # Identify the breakpoint for Q (default is the median value) ----> H maybe?
+        # if bp is None:
+        #     bp = df["Q"].median()
+
+        # # Split the data into two parts based on Q
+        # df1 = df[df["Q"] <= bp].copy()
+        # df2 = df[df["Q"] > bp].copy()
+
+        # Fit the power regression model for both parts of the data
+        # popt1, _ = curve_fit(power_func, df1["Q"], df1["H"])
+        # popt2, _ = curve_fit(power_func, df2["Q"], df2["H"])
+
+        popt, _ = curve_fit(self.power_func, df["Q"], df["H"])
+        if clean:
+            # Make predictions for H based on the regression models
+            # df1.loc[df1.index, "H_pred"] = power_func(df1["Q"], *popt1)
+            # df2.loc[df2.index, "H_pred"] = power_func(df2["Q"], *popt2)
+            df.loc[df.index, "H_pred"] = self.power_func(df["Q"], *popt)
+
+            # Calculate residuals
+            # residuals1 = np.abs(df1["H"] - df1["H_pred"])
+            # residuals2 = np.abs(df2["H"] - df2["H_pred"])
+            residuals = np.abs(df["H"] - df["H_pred"])
+
+            # Set the threshold for identifying outliers based on standard deviations
+            # threshold1 = std_range * np.std(residuals1)
+            # threshold2 = std_range * np.std(residuals2)
+            threshold = std_range * np.std(residuals)
+
+            # Filter out outliers based on the calculated thresholds
+            # df1_filtered = df1[residuals1 < threshold1]
+            # df2_filtered = df2[residuals2 < threshold2]
+            df_filtered = df[residuals < threshold]
+
+            # Combine the filtered data
+            # df_filtered = pd.concat([df1_filtered, df2_filtered])
+
+        # Plot the data
         plt.figure(figsize=(20, 10))
         sns.scatterplot(
-            data=df,
+            data=df_filtered if clean else df,
             x="Q",
             y="H",
             hue="season" if season == "all" else "year",
@@ -793,11 +904,63 @@ class StationData:
             legend="full",
             s=120,
             alpha=0.85,
+            zorder=2 if (plt_reg and clean) else 1,
         )
+        if plt_reg:
+            if clean:
+                # Regression lines for cleaned data
+                # Q1_range = np.linspace(
+                #     df1_filtered["Q"].min(), df1_filtered["Q"].max(), 100
+                # )
+                # Q2_range = np.linspace(
+                #     df2_filtered["Q"].min(), df2_filtered["Q"].max(), 100
+                # )
+
+                # plt.plot(
+                #     Q1_range,
+                #     power_func(Q1_range, *popt1),
+                #     color="red",
+                #     label="Regresja dla Q ≤ bp",
+                # )
+                # plt.plot(
+                #     Q2_range,
+                #     power_func(Q2_range, *popt2),
+                #     color="green",
+                #     label="Regresja dla Q > bp",
+                # )
+                q_range = np.linspace(
+                    df_filtered["Q"].min(), df_filtered["Q"].max(), 100
+                )
+                sns.scatterplot(
+                    data=df,
+                    x="Q",
+                    y="H",
+                    hue="season" if season == "all" else "year",
+                    palette=None if season == "all" else "viridis",
+                    legend=False,
+                    s=50,
+                    alpha=0.30,
+                    zorder=1,
+                )
+                plt.plot(
+                    q_range,
+                    self.power_func(q_range, *popt),
+                    color="red",
+                    label="Krzywa regresji",
+                )
+            else:
+                q_range = np.linspace(df["Q"].min(), df["Q"].max(), 100)
+                plt.plot(
+                    q_range,
+                    self.power_func(q_range, *popt),
+                    color="green",
+                    label="Krzywa regresji",
+                )
+        # Plot title and labels and display it
         plt.title("Rating curve")
         plt.xlabel("Q m³s⁻¹")
         plt.ylabel("H cm")
-        plt.xlim(right=hlim)
+        plt.xlim(left=0, right=hlim)
         plt.ylim(top=qlim)
         plt.grid(True)
         plt.legend()
@@ -1189,7 +1352,7 @@ class StationData:
         )
 
         if sequences_df.empty:
-            return
+            return None
 
         plt.figure(figsize=(20, 10))
 
