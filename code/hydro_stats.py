@@ -803,13 +803,26 @@ class StationData:
                 f"Sequence {i+1} ends on {end_date['year']}-{end_date['month']}-{end_date['day']}"
             )
 
-        # Dodanie identyfikatorów do sekwencji i konwersja na DataFrame
+        # Dodanie identyfikatorów do sekwencji, obliczenie objętości różnicy dla każdego dnia
         merged_sequences_df = pd.DataFrame(
             [
-                dict(row, sequence_id=i + 1)
+                dict(
+                    row,
+                    sequence_id=i + 1,
+                    # Obliczenie różnicy: Qprogowe - Q
+                    difference=flow_threshold - row["Q"],
+                    # Obliczenie objętości: (Qprogowe - Q) * 86400
+                    volume=(flow_threshold - row["Q"]) * 86400,
+                )
                 for i, seq in enumerate(merged_sequences)
                 for row in seq
             ]
+        )
+
+        # Obliczenie przyrostu wartości 'volume' dla każdego 'sequence_id'
+        # Metoda cumsum() sumuje wartości 'volume' od początku każdej sekwencji
+        merged_sequences_df["cumulative_volume_mln_m3"] = (
+            merged_sequences_df.groupby("sequence_id")["volume"].cumsum() / 1e6
         )
         return merged_sequences_df
 
@@ -1183,7 +1196,9 @@ class StationData:
         plt.show()
         return 1
 
-    def plt_water_level_frequency(self, method=None, x_selected=None, y_selected=None):
+    def plt_water_level_frequency(
+        self, method=None, modal_flow=None, x_selected=None, y_selected=None
+    ):
         """
         Plot the water levels using seaborn and matplotlib.
         This method creates a line plot for 'Cumulative Total' vs 'Middle'
@@ -1191,6 +1206,7 @@ class StationData:
 
         Parameters:
         method (str, optional): The method to use for plotting. Defaults to None.
+        modal_flow (bool, optional): If True, adds a vertical line at the modal flow. Defaults to False.
         x_selected (float, optional): The x-coordinate of the selected point. Defaults to None.
         y_selected (float, optional): The y-coordinate of the selected point. Defaults to None.
 
@@ -1218,6 +1234,23 @@ class StationData:
             color="blue",
             label="Krzywa częstości",
         )
+
+        if modal_flow:
+            # Identify modal flow and its corresponding 'Middle' value
+            max_obs_index = self._h["Number of observations"].idxmax()
+            modal_value = self._h.loc[max_obs_index, "Number of observations"]
+            modal_middle = self._h.loc[max_obs_index, "Middle"]
+
+            # Add vertical line for modal flow
+            plt.axvline(
+                x=modal_value,
+                ymin=0,
+                ymax=(modal_middle - (self._h["From"].min() - 10))
+                / ((self._h["To"].max()) - (self._h["From"].min() - 10)),
+                color="purple",
+                linestyle="--",
+                label=f"Stan modalny (NTW = {modal_value} dni)",
+            )
 
         if method == "rybczynski":
             (
@@ -1263,7 +1296,7 @@ class StationData:
             ntw = self._h.loc[max_obs_index, "Middle"]  # Corresponding 'Middle' value
 
             plt.axhline(
-                y=y_selected - 10,  # y-position of the horizontal line
+                y=y_selected,  # y-position of the horizontal line
                 color="red",
                 linestyle="--",
                 label=f"Górna granica strefy wody średniej: {y_selected:.0f} cm",
@@ -1279,7 +1312,7 @@ class StationData:
             # Fill the area below the horizontal lines
             plt.fill_between(
                 self._h["Cumulative frequency including higher"],
-                y_selected - 10,
+                y_selected,
                 y_start,
                 color="red",
                 alpha=0.1,
@@ -1289,7 +1322,7 @@ class StationData:
             plt.fill_between(
                 self._h["Cumulative frequency including higher"],
                 ntw,
-                y_selected - 10,
+                y_selected,
                 color="green",
                 alpha=0.1,
                 label="Strefa stanów wody średniej",
@@ -1304,7 +1337,7 @@ class StationData:
                 label="Strefa stanów wody niskiej",
             )
             plt.title(
-                "Wykres krzywej częstości i podział sumy czasów trwania"
+                "Wykres krzywej częstości i podział sumy czasów trwania "
                 "stanów wody na strefy metodą Rybczyńskiego"
             )
         else:
@@ -1314,11 +1347,12 @@ class StationData:
             min_y_plot = (self._h["From"].min()) - 10
             plt.title("Wykres krzywej częstości i sumy czasów trwania stanów wody")
 
+        max_y_plot = self._h["To"].max()
         # Adding labels
         plt.xlabel("Czas [dni]")
         plt.ylabel("H [cm]")
         plt.xlim(left=0, right=x_end + 1)
-        plt.ylim(bottom=min_y_plot)
+        plt.ylim(top=max_y_plot, bottom=min_y_plot)
         plt.legend(loc="upper right")
         plt.grid(True)
         plt.show()
