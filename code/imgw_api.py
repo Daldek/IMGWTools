@@ -186,3 +186,71 @@ class WARNINGS(IMGWAPI):
         self.url += f"{self.warning_type}"
         self.data = self.get_data(self.url)
         return self.data
+
+
+class PMAXTPAPI:
+    """
+    A class to interact with the PMAXTP IMGW's API to fetch theoretical precipitation data
+    """
+
+    def __init__(self, method=None, data_type=None, lon=None, lat=None):
+        """
+        Initializes the PMAXTPAPI instalce with the base URL.
+        """
+        self.base_url = "https://powietrze.imgw.pl/tpmax-api/point/"
+        self.method = method
+        self.data_type = data_type
+        self.lon = lon
+        self.lat = lat
+        self.response = None
+        self.data = None
+
+    def establish_connection(self, url):
+        """
+        Establishes a connection to the PMAXTP IMGW API and retrieves data.
+
+        Args:
+            url (str): The URL to fetch data from.
+
+        Returns:
+            int: Returns 1 upon successful connection
+        """
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+            }
+
+        self.response = requests.get(url, timeout=10, headers=headers)
+        status_code = self.response.status_code
+        print(f"Status code: {status_code}")
+        return status_code
+
+    def get_data(self):
+        """
+        Fetches data from the IMGW API and converts it to JSON.
+
+        Args:
+            url (str): The URL to fetch data from.
+
+        Returns:
+            list: A dictionary containing the data from the API.
+        """
+        url = f"{self.base_url}{self.method}/{self.data_type}/{self.lat}/{self.lon}"
+        self.establish_connection(url)
+        self.data = self.response.json()
+        return 1
+
+    def save_json_to_file(self):
+        """
+        Saves the fetched data to a JSON file.
+
+        Args:
+            data (list): The data to save.
+
+        Returns:
+            int: Returns 1 upon successful save.
+        """
+        with open(
+            r"../data/downloaded/pmaxtp_imgw_api_response.json", "w", encoding="utf-8"
+        ) as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=4)
+        return 1
