@@ -1,4 +1,6 @@
 __pycache__/
+/venv/
 /temp/
 /data/downloaded/
 hello-world.py
+*.txt
