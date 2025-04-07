@@ -103,7 +103,7 @@ Odpowiadając na kolejne pytania, możliwe jest pobranie danych z ostatnich 30 l
   - `hydro_stats.py` - Klasy do obliczania podstawowych statystyk hydrologicznych i wizaulizacji danych.
   - `imgw_api.py` - Klasy do obsługi API IMGW.
   - `imgw_datastore.py` - Klasa służąca do pobierania i zarządzania danymi z publicznych zasobów IMGW.
-  - `imgw_spatial.py` - Klasy do wizualizacji lokalizacji wybranej lokalizcji na mapie Polski.
+  - `imgw_spatial.py` - Klasy do wizualizacji lokalizacji wybranej lokalizacji na mapie Polski.
   - `meteo_stats.py` -Klasy do obliczania podstawowych statystyk meteorologiczne i wizaulizacji danych.
   - `pmaxtp_gui.py` - Interfejs graficzny do pobierania danych PMAXTP.
 - `data/` - Wszystko to co niezbędne do zrozumienia danych i pracy na nich.
