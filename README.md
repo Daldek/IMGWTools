@@ -100,7 +100,7 @@ Odpowiadając na kolejne pytania, możliwe jest pobranie danych z ostatnich 30 l
 
 ## Struktura katalogów
 - `code/` - Główne moduły aplikacji:
-  - `hydro_stats.py` - Klasy do obliczania podstawowych statystyk hydrologicznych i wizaulizacji danych.
+  - `hydro_stats.py` - Klasy do obliczania podstawowych statystyk hydrologicznych i wizualizacji danych.
   - `imgw_api.py` - Klasy do obsługi API IMGW.
   - `imgw_datastore.py` - Klasa służąca do pobierania i zarządzania danymi z publicznych zasobów IMGW.
   - `imgw_spatial.py` - Klasy do wizualizacji lokalizacji wybranej lokalizacji na mapie Polski.
