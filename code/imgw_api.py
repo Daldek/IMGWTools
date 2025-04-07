@@ -193,17 +193,32 @@ class PMAXTPAPI:
     A class to interact with the PMAXTP IMGW's API to fetch theoretical precipitation data
     """
 
-    def __init__(self, method=None, data_type=None, lon=None, lat=None):
+    def __init__(self, method=None, lon=None, lat=None):
         """
-        Initializes the PMAXTPAPI instalce with the base URL.
+        Initializes the PMAXTPAPI instance with the base URL.
         """
         self.base_url = "https://powietrze.imgw.pl/tpmax-api/point/"
         self.method = method
-        self.data_type = data_type
-        self.lon = lon
-        self.lat = lat
+        self.lon = self.format_coordinate(lon)  # Formatowanie długości geograficznej
+        self.lat = self.format_coordinate(lat)  # Formatowanie szerokości geograficznej
         self.response = None
         self.data = None
+
+    @staticmethod
+    def format_coordinate(value):
+        """
+        Formats the coordinate to ensure it has 4 decimal places.
+
+        Args:
+            value (str or float): The coordinate value to format.
+
+        Returns:
+            str: The formatted coordinate as a string with 4 decimal places.
+        """
+        try:
+            return f"{float(value):.4f}"
+        except ValueError:
+            raise ValueError(f"Nieprawidłowa wartość współrzędnej: {value}")
 
     def establish_connection(self, url):
         """
@@ -215,11 +230,7 @@ class PMAXTPAPI:
         Returns:
             int: Returns 1 upon successful connection
         """
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-            }
-
-        self.response = requests.get(url, timeout=10, headers=headers)
+        self.response = requests.get(url, timeout=10)
         status_code = self.response.status_code
         print(f"Status code: {status_code}")
         return status_code
@@ -234,12 +245,12 @@ class PMAXTPAPI:
         Returns:
             list: A dictionary containing the data from the API.
         """
-        url = f"{self.base_url}{self.method}/{self.data_type}/{self.lat}/{self.lon}"
+        url = f"{self.base_url}{self.method[0]}/KS/{self.lat}/{self.lon}"
         self.establish_connection(url)
         self.data = self.response.json()
         return 1
 
-    def save_json_to_file(self):
+    def save_json_to_file(self, output_location=None):
         """
         Saves the fetched data to a JSON file.
 
@@ -249,8 +260,12 @@ class PMAXTPAPI:
         Returns:
             int: Returns 1 upon successful save.
         """
-        with open(
-            r"../data/downloaded/pmaxtp_imgw_api_response.json", "w", encoding="utf-8"
-        ) as f:
+        if output_location is None:
+            output_file = f"../data/downloaded/{self.method}_imgw_api_response.json"
+        else:
+            output_file = f"{output_location}/{self.method}_imgw_api_response.json"
+
+        # Save the data to a JSON file
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=4)
         return 1
