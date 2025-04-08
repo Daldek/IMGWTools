@@ -83,24 +83,18 @@
         categories.forEach(category => {
         if (!data.data[category]) return;
 
-        const rawKeys = Object.keys(data.data[category][Object.keys(data.data[category])[0]]).map(parseFloat);
-
-        // Oddzielamy wartości poniżej 1 od wartości >= 1
-        const shortTimes = rawKeys.filter(key => key < 1).sort((a, b) => a - b);
-        const longTimes = rawKeys.filter(key => key >= 1).sort((a, b) => a - b);
-
-        // Tworzymy ostateczną listę nagłówków
-        const sortedKeys = ["Czas trwania opadu (minuty)", ...shortTimes.map(String), ...longTimes.map(String)];
+        const firstEntry = Object.values(data.data[category])[0]; // Pierwszy obiekt w kategorii
+        const keysOrder = Object.keys(firstEntry); // Klucze w ich naturalnej kolejności
 
         const sheetData = Object.entries(data.data[category]).map(([time, values]) => {
           const rowData = { "Czas trwania opadu (minuty)": time };
-          sortedKeys.slice(1).forEach(key => {
-            rowData[key] = values[key];
+          keysOrder.forEach(key => {
+            rowData[key] = values[key] ?? ""; // Uzupełniam dane bez zmian w kolejności
           });
           return rowData;
         });
 
-        const worksheet = XLSX.utils.json_to_sheet(sheetData, { header: sortedKeys });
+        const worksheet = XLSX.utils.json_to_sheet(sheetData);
         // Dodanie pustego wiersza przed regulaminem
         XLSX.utils.sheet_add_aoa(worksheet, [[""]], { origin: -1 });
         XLSX.utils.sheet_add_aoa(worksheet, regulationText, { origin: -1 });
