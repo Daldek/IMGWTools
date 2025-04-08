@@ -80,26 +80,35 @@
         ];
 
         const categories = ["ks", "rb", "sg"];
+        const sheetNames = {
+          ks: "Kwantyle opadu maksymalnego",
+          rb: "Błąd estymacji",
+          sg: "GórnaGranicaPrzedziałuUfności"
+        };
         categories.forEach(category => {
-        if (!data.data[category]) return;
+          if (!data.data[category]) return;
 
-        const firstEntry = Object.values(data.data[category])[0]; // Pierwszy obiekt w kategorii
-        const keysOrder = Object.keys(firstEntry); // Klucze w ich naturalnej kolejności
+          const firstEntry = Object.values(data.data[category])[0];
+          const keysOrder = Object.keys(firstEntry).map(key => `${key}%`); // Dodanie "%" do nagłówków
+          const orderedKeys = ["Czas trwania opadu (minuty)", ...keysOrder];
 
-        const sheetData = Object.entries(data.data[category]).map(([time, values]) => {
-          const rowData = { "Czas trwania opadu (minuty)": time };
-          keysOrder.forEach(key => {
-            rowData[key] = values[key] ?? ""; // Uzupełniam dane bez zmian w kolejności
+          const sheetData = Object.entries(data.data[category]).map(([time, values]) => {
+            const rowData = { "Czas trwania opadu (minuty)": time };
+            keysOrder.forEach(key => {
+              const originalKey = key.slice(0, -1); // Usunięcie "%" przed dopasowaniem wartości
+              rowData[key] = values[originalKey] ?? "";
+            });
+            return rowData;
           });
-          return rowData;
-        });
 
-        const worksheet = XLSX.utils.json_to_sheet(sheetData);
-        // Dodanie pustego wiersza przed regulaminem
-        XLSX.utils.sheet_add_aoa(worksheet, [[""]], { origin: -1 });
-        XLSX.utils.sheet_add_aoa(worksheet, regulationText, { origin: -1 });
-        XLSX.utils.book_append_sheet(workbook, worksheet, category.toUpperCase());
-      });
+          const worksheet = XLSX.utils.json_to_sheet(sheetData, { header: orderedKeys });
+          
+          // Dodanie pustego wiersza przed regulaminem
+          XLSX.utils.sheet_add_aoa(worksheet, [[""]], { origin: -1 });
+          XLSX.utils.sheet_add_aoa(worksheet, regulationText, { origin: -1 });
+          
+          XLSX.utils.book_append_sheet(workbook, worksheet, sheetNames[category]);
+        });
 
         const fileName = `pmaxtp_${method}_${formatCoordinate(lat)}_${formatCoordinate(lon)}.xlsx`;
         XLSX.writeFile(workbook, fileName);
