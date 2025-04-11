@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>PMAXTP - Pobieranie danych</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .container {
+      background-color: white;
+      padding: 2rem 3rem;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      max-width: 400px;
+      width: 100%;
+    }
+
+    h2 {
+      margin-top: 0;
+      color: #333;
+      text-align: center;
+    }
+
+    label {
+      display: block;
+      margin-top: 1rem;
+      color: #555;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.5rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    button {
+      background-color: #007BFF;
+      color: white;
+      border: none;
+      margin-top: 1.5rem;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .footer {
+      margin-top: 2rem;
+      font-size: 0.8rem;
+      color: #999;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>PMAXTP – Pobierz dane z IMGW</h2>
+    <form id="api-form">
+      <label for="method">Metoda:</label>
+      <select id="method" required>
+        <option value="P">POT</option>
+        <option value="A">AMP</option>
+      </select>
+
+      <label for="lat">Szerokość geograficzna (lat):</label>
+      <input type="number" id="lat" step="0.0001" required>
+
+      <label for="lon">Długość geograficzna (lon):</label>
+      <input type="number" id="lon" step="0.0001" required>
+
+      <label for="duration">Czas trwania deszczu (minuty):</label>
+      <input type="number" id="duration" required>
+
+      <label for="probability">Prawdopodobieństwo (%):</label>
+      <input type="number" id="probability" required>
+
+      <label for="r">Wartość r:</label>
+      <input type="number" id="r" step="0.01" required>
+
+      <label for="s">Wartość s:</label>
+      <input type="number" id="s" step="0.01" required>
+
+      <button type="submit">Pobierz i zapisz XLSX</button>
+    </form>
+    <div class="footer">
+      <p style="text-align: justify;">
+        Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy, 
+        dane pochodzą ze strony https://klimat.imgw.pl/opady-maksymalne
+        <br><br>
+        "Modele probabilistyczne opadów maksymalnych o określonym czasie trwania i prawdopodobieństwie przewyższenia – Projekt PMAXTP” 
+        pod redakcją Bogdana Ozga-Zielińskiego, Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy, Warszawa 2022
+      </p>
+    </div>
+  </div>
+
+  <script>
+    function formatCoordinate(value) {
+      return parseFloat(value).toFixed(4);
+    }
+
+    function validateCoordinates(lat, lon) {
+      if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        alert("Podano niepoprawne współrzędne geograficzne.");
+        return false;
+      }
+      return true;
+    }
+
+    function buildPmaxtpUrl(method, lat, lon) {
+      const baseUrl = "https://powietrze.imgw.pl/tpmax-api/point";
+      return `${baseUrl}/${method}/KS/${formatCoordinate(lat)}/${formatCoordinate(lon)}`;
+    }
+
+    async function fetchData(url) {
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Błąd pobierania danych: ${response.status}`);
+        }
+        return await response.json();
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        alert('Błąd pobierania danych.');
+        return null;
+      }
+    }
+
+    function createExcelFile(valueToMultiply, fileName, r, s) {
+      const maxTime = 24; // max time in hours
+      const tableData = Array.from({ length: maxTime + 1 }, (_, i) => ({
+        'Czas': i,
+        't/tc': i / maxTime,
+        'Opad skumulowany': `=ROZKŁ.BETA(B${i + 2}, ${r}, ${s}, 1) * ${valueToMultiply}`,
+        'Intensywność': i === 0 ? '' : `=C${i + 2} - C${i + 1}`
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(tableData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+      XLSX.writeFile(workbook, fileName);
+    }
+
+    document.getElementById("api-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const method = document.getElementById("method").value;
+      const lat = parseFloat(document.getElementById("lat").value);
+      const lon = parseFloat(document.getElementById("lon").value);
+      const duration = document.getElementById("duration").value;
+      const probability = document.getElementById("probability").value;
+      const r = parseFloat(document.getElementById("r").value);
+      const s = parseFloat(document.getElementById("s").value);
+
+      if (!validateCoordinates(lat, lon)) return;
+
+      const url = buildPmaxtpUrl(method, lat, lon);
+      console.log("Zapytanie do:", url);
+
+      const data = await fetchData(url);
+      if (data && data.data.ks && data.data.ks[duration] && data.data.ks[duration][probability]) {
+        const valueToMultiply = data.data.ks[duration][probability];
+        createExcelFile(valueToMultiply, 'output.xlsx', r, s);
+        alert('Dane zostały pobrane i zapisane do pliku output.xlsx.');
+      } else {
+        alert('Brak danych do zapisania.');
+      }
+    });
+  </script>
+</body>
+</html>
