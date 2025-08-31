@@ -11,9 +11,9 @@ class IMGWAPI:
         """
         Initializes the IMGWAPI instance with the base URL.
         """
-        self.base_url = "https://danepubliczne.imgw.pl/api/data/"
+        self.public_base_url = r"https://danepubliczne.imgw.pl/api/data/"
 
-    def establish_connection(self, url):
+    def establish_connection(self, url, headers=False):
         """
         Establishes a connection to the IMGW API and retrieves data.
 
@@ -23,11 +23,17 @@ class IMGWAPI:
         Returns:
             Response object: The response from the API.
         """
-        r = requests.get(url)
+        if headers:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            r = requests.get(url, headers=headers)
+        else:
+            r = requests.get(url)
         print("Status code:", r.status_code)
         return r
 
-    def get_data(self, url):
+    def get_data(self, url, headers=False):
         """
         Fetches data from the IMGW API and converts it to JSON.
 
@@ -37,7 +43,10 @@ class IMGWAPI:
         Returns:
             list: A list of dictionaries containing the data from the API.
         """
-        r = self.establish_connection(url)
+        if headers:
+            r = self.establish_connection(url, headers=headers)
+        else:
+            r = self.establish_connection(url)
         api_data = r.json()
         return api_data
 
@@ -73,7 +82,7 @@ class HYDRO(IMGWAPI):
             data_format (str): Format of the data (default is 'json').
         """
         super().__init__()
-        self.url = f"{self.base_url}hydro2"
+        self.url = f"{self.public_base_url}hydro2"
         self.station_id = station_id
         self.data_format = data_format
         self.data = None
@@ -105,7 +114,7 @@ class SYNOP(IMGWAPI):
             data_format (str): Format of the data (default is 'json').
         """
         super().__init__()
-        self.url = f"{self.base_url}synop"
+        self.url = f"{self.public_base_url}synop"
         self.station_id = station_id
         self.station_name = station_name
         self.data_format = data_format
@@ -140,7 +149,7 @@ class METEO(IMGWAPI):
             data_format (str): Format of the data (default is 'json').
         """
         super().__init__()
-        self.url = f"{self.base_url}meteo"
+        self.url = f"{self.public_base_url}meteo"
         self.station_id = station_id
         self.data_format = data_format
         self.data = None
@@ -171,7 +180,7 @@ class WARNINGS(IMGWAPI):
             data_format (str): Format of the data (default is 'json').
         """
         super().__init__()
-        self.url = f"{self.base_url}warnings"
+        self.url = f"{self.public_base_url}warnings"
         self.warning_type = warning_type
         self.data_format = data_format
         self.data = None
@@ -197,7 +206,7 @@ class PMAXTPAPI:
         """
         Initializes the PMAXTPAPI instance with the base URL.
         """
-        self.base_url = "https://powietrze.imgw.pl/tpmax-api/point/"
+        self.tpmax_base_url = "https://powietrze.imgw.pl/tpmax-api/point/"
         self.method = method
         self.lon = self.format_coordinate(lon)  # Formatowanie długości geograficznej
         self.lat = self.format_coordinate(lat)  # Formatowanie szerokości geograficznej
@@ -245,7 +254,7 @@ class PMAXTPAPI:
         Returns:
             list: A dictionary containing the data from the API.
         """
-        url = f"{self.base_url}{self.method[0]}/KS/{self.lat}/{self.lon}"
+        url = f"{self.tpmax_base_url}{self.method[0]}/KS/{self.lat}/{self.lon}"
         self.establish_connection(url)
         self.data = self.response.json()
         return 1
@@ -269,3 +278,32 @@ class PMAXTPAPI:
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=4)
         return 1
+
+
+class HYDROBACKAPI(IMGWAPI):
+    """
+    A class to interact with the IMGW API to fetch hydrological data from the backend API.
+    """
+
+    def __init__(self, station_id=None):
+        """
+        Initializes the HYDROBACKAPI instance with the specified parameters.
+
+        Args:
+            station_id (str): ID of the station..
+        """
+        super().__init__()
+        self.backend_base_url = r"https://hydro-back.imgw.pl/"
+        self.station_id = station_id
+        self.data = None
+
+    def get_station_data(self):
+        """
+        Fetches hydrological data from the backend IMGW API.
+
+        Returns:
+            list: A list of dictionaries containing the hydrological data from the API.
+        """
+        url = f"{self.backend_base_url}station/hydro/status?id={self.station_id}"
+        self.data = self.get_data(url, headers=True)
+        return self.data
