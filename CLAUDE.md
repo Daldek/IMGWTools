@@ -125,9 +125,16 @@ No data is stored on our server - only metadata (station lists) from local CSV f
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/methods` | GET | List available PMAXTP methods |
+| `/methods` | GET | List available PMAXTP methods (POT, AMP) |
 | `/url` | POST | Generate PMAXTP URL |
 | `/data` | POST | Fetch PMAXTP data |
+
+**PMAXTP response data:**
+- `ks` - Kwantyle opadu maksymalnego [mm]
+- `sg` - Górne granice przedziału ufności [mm]
+- `rb` - Błędy estymacji kwantyli [mm]
+
+**Web GUI exports:** CSV, XLSX (4 arkusze), JSON
 
 ### System
 

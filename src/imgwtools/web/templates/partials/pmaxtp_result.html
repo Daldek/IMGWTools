@@ -5,30 +5,262 @@
 
     <dl>
         <dt>Metoda</dt>
-        <dd>{{ method }}</dd>
+        <dd>{{ method }} ({{ "Peak Over Threshold" if method == "POT" else "Annual Max Precipitation" }})</dd>
 
-        <dt>Lokalizacja</dt>
+        <dt>Lokalizacja zapytania</dt>
         <dd>{{ latitude }}°N, {{ longitude }}°E</dd>
 
-        <dt>URL API</dt>
-        <dd><a href="{{ url }}" target="_blank">{{ url }}</a></dd>
+        {% if data.point %}
+        <dt>Lokalizacja danych (siatka)</dt>
+        <dd>{{ "%.4f"|format(data.point.dataLat) }}°N, {{ "%.4f"|format(data.point.dataLon) }}°E</dd>
+        {% endif %}
     </dl>
 
-    <h4>Dane odpowiedzi</h4>
-    <pre><code>{{ data | tojson(indent=2) }}</code></pre>
+    {% set durations = [5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440] %}
+    {% set probabilities = [0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99] %}
+
+    {% if data.data and data.data.ks %}
+    <!-- Kwantyle opadu maksymalnego -->
+    <h4>Kwantyle opadu maksymalnego [mm]</h4>
+    <p><small>Wiersze: czas trwania [min], Kolumny: prawdopodobieństwo przewyższenia [%]</small></p>
+
+    <div style="overflow-x: auto;">
+        <table class="pmaxtp-table" id="table-ks">
+            <thead>
+                <tr>
+                    <th>t [min]</th>
+                    {% for p in probabilities %}
+                    <th>p={{ p }}%</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for dur in durations %}
+                {% if data.data.ks[dur|string] is defined %}
+                <tr>
+                    <td><strong>{{ dur }}</strong></td>
+                    {% for p in probabilities %}
+                    {% set val = data.data.ks[dur|string][p|string] %}
+                    <td>{{ "%.2f"|format(val) if val is defined and val is not none else '-' }}</td>
+                    {% endfor %}
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if data.data and data.data.sg %}
+    <!-- Górne granice przedziału ufności -->
+    <h4>Górne granice przedziału ufności [mm]</h4>
+    <p><small>Wiersze: czas trwania [min], Kolumny: prawdopodobieństwo przewyższenia [%]</small></p>
+
+    <div style="overflow-x: auto;">
+        <table class="pmaxtp-table" id="table-sg">
+            <thead>
+                <tr>
+                    <th>t [min]</th>
+                    {% for p in probabilities %}
+                    <th>p={{ p }}%</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for dur in durations %}
+                {% if data.data.sg[dur|string] is defined %}
+                <tr>
+                    <td><strong>{{ dur }}</strong></td>
+                    {% for p in probabilities %}
+                    {% set val = data.data.sg[dur|string][p|string] %}
+                    <td>{{ "%.2f"|format(val) if val is defined and val is not none else '-' }}</td>
+                    {% endfor %}
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if data.data and data.data.rb %}
+    <!-- Błędy estymacji kwantyli -->
+    <h4>Błędy estymacji kwantyli [mm]</h4>
+    <p><small>Wiersze: czas trwania [min], Kolumny: prawdopodobieństwo przewyższenia [%]</small></p>
+
+    <div style="overflow-x: auto;">
+        <table class="pmaxtp-table" id="table-rb">
+            <thead>
+                <tr>
+                    <th>t [min]</th>
+                    {% for p in probabilities %}
+                    <th>p={{ p }}%</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for dur in durations %}
+                {% if data.data.rb[dur|string] is defined %}
+                <tr>
+                    <td><strong>{{ dur }}</strong></td>
+                    {% for p in probabilities %}
+                    {% set val = data.data.rb[dur|string][p|string] %}
+                    <td>{{ "%.2f"|format(val) if val is defined and val is not none else '-' }}</td>
+                    {% endfor %}
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 
     <footer>
-        <button class="secondary outline" onclick="copyPmaxtpData()">
-            Kopiuj dane JSON
-        </button>
-        <button class="secondary outline" onclick="downloadPmaxtpData()">
-            Pobierz jako JSON
-        </button>
+        <div class="download-actions">
+            <button class="secondary outline" onclick="downloadPmaxtpCSV()">
+                Pobierz CSV
+            </button>
+            <button class="secondary outline" onclick="downloadPmaxtpXLSX()">
+                Pobierz XLSX
+            </button>
+            <button class="secondary outline" onclick="downloadPmaxtpData()">
+                Pobierz JSON
+            </button>
+            <button class="secondary outline" onclick="copyPmaxtpData()">
+                Kopiuj JSON
+            </button>
+        </div>
     </footer>
 </article>
 
+<!-- SheetJS for XLSX export -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
 <script>
     const pmaxtpData = {{ data | tojson }};
+    const pmaxtpMethod = "{{ method }}";
+    const pmaxtpLat = {{ latitude }};
+    const pmaxtpLon = {{ longitude }};
+
+    // Configuration matching IMGW format
+    const durations = [5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440];
+    const probabilities = [0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99];
+
+    // Format number to 2 decimal places
+    function formatNum(val) {
+        if (val === undefined || val === null) return '';
+        return Number(val).toFixed(2);
+    }
+
+    function getTableData(dataKey, title) {
+        const dataset = pmaxtpData.data?.[dataKey] || {};
+        const rows = [];
+
+        // Title row
+        rows.push([title]);
+        rows.push(['']);
+
+        // Header row
+        const header = ['Czas trwania [min]'];
+        probabilities.forEach(p => header.push(`p=${p}%`));
+        rows.push(header);
+
+        // Data rows
+        durations.forEach(dur => {
+            if (dataset[dur]) {
+                const row = [dur];
+                probabilities.forEach(p => {
+                    const val = dataset[dur][p];
+                    row.push(val !== undefined ? formatNum(val) : '');
+                });
+                rows.push(row);
+            }
+        });
+
+        rows.push(['']);
+        return rows;
+    }
+
+    function getMetadataRows() {
+        const point = pmaxtpData.point || {};
+        return [
+            ['IMGW PMAXTP - Opady maksymalne prawdopodobne'],
+            [''],
+            ['Metoda:', pmaxtpMethod === 'POT' ? 'Peak Over Threshold (POT)' : 'Annual Max Precipitation (AMP)'],
+            ['Lokalizacja zapytania:', `${pmaxtpLat}°N, ${pmaxtpLon}°E`],
+            ['Lokalizacja danych (siatka):', point.dataLat ? `${point.dataLat.toFixed(4)}°N, ${point.dataLon.toFixed(4)}°E` : '-'],
+            [''],
+        ];
+    }
+
+    function getAllData() {
+        const metadata = getMetadataRows();
+        const ksData = getTableData('ks', 'Kwantyle opadu maksymalnego [mm]');
+        const sgData = getTableData('sg', 'Górne granice przedziału ufności [mm]');
+        const rbData = getTableData('rb', 'Błędy estymacji kwantyli [mm]');
+
+        return [...metadata, ...ksData, ...sgData, ...rbData];
+    }
+
+    function downloadPmaxtpCSV() {
+        const allRows = getAllData();
+
+        // Convert to CSV
+        const csv = allRows.map(row =>
+            row.map(cell => {
+                const str = String(cell);
+                if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            }).join(',')
+        ).join('\n');
+
+        // Add BOM for Excel UTF-8 compatibility
+        const bom = '\uFEFF';
+        const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `pmaxtp_${pmaxtpMethod}_${pmaxtpLat}_${pmaxtpLon}.csv`;
+        a.click();
+    }
+
+    function downloadPmaxtpXLSX() {
+        if (typeof XLSX === 'undefined') {
+            alert('Biblioteka XLSX nie została załadowana. Użyj eksportu CSV.');
+            return;
+        }
+
+        const wb = XLSX.utils.book_new();
+
+        // Sheet 1: All data combined
+        const allData = getAllData();
+        const wsAll = XLSX.utils.aoa_to_sheet(allData);
+        const colWidths = [{ wch: 20 }];
+        probabilities.forEach(() => colWidths.push({ wch: 10 }));
+        wsAll['!cols'] = colWidths;
+        XLSX.utils.book_append_sheet(wb, wsAll, 'PMAXTP');
+
+        // Sheet 2: Kwantyle (ks)
+        const ksSheet = [...getMetadataRows(), ...getTableData('ks', 'Kwantyle opadu maksymalnego [mm]')];
+        const wsKs = XLSX.utils.aoa_to_sheet(ksSheet);
+        wsKs['!cols'] = colWidths;
+        XLSX.utils.book_append_sheet(wb, wsKs, 'Kwantyle');
+
+        // Sheet 3: Górne granice (sg)
+        const sgSheet = [...getMetadataRows(), ...getTableData('sg', 'Górne granice przedziału ufności [mm]')];
+        const wsSg = XLSX.utils.aoa_to_sheet(sgSheet);
+        wsSg['!cols'] = colWidths;
+        XLSX.utils.book_append_sheet(wb, wsSg, 'Górne granice');
+
+        // Sheet 4: Błędy (rb)
+        const rbSheet = [...getMetadataRows(), ...getTableData('rb', 'Błędy estymacji kwantyli [mm]')];
+        const wsRb = XLSX.utils.aoa_to_sheet(rbSheet);
+        wsRb['!cols'] = colWidths;
+        XLSX.utils.book_append_sheet(wb, wsRb, 'Błędy estymacji');
+
+        XLSX.writeFile(wb, `pmaxtp_${pmaxtpMethod}_${pmaxtpLat}_${pmaxtpLon}.xlsx`);
+    }
 
     function copyPmaxtpData() {
         navigator.clipboard.writeText(JSON.stringify(pmaxtpData, null, 2)).then(() => {
@@ -40,7 +272,33 @@
         const blob = new Blob([JSON.stringify(pmaxtpData, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'pmaxtp_{{ method }}_{{ latitude }}_{{ longitude }}.json';
+        a.download = `pmaxtp_${pmaxtpMethod}_${pmaxtpLat}_${pmaxtpLon}.json`;
         a.click();
     }
 </script>
+
+<style>
+    .pmaxtp-table {
+        font-size: 0.8em;
+        white-space: nowrap;
+        margin-bottom: 2rem;
+    }
+    .pmaxtp-table th,
+    .pmaxtp-table td {
+        text-align: right;
+        padding: 0.25rem 0.4rem;
+        font-variant-numeric: tabular-nums;
+    }
+    .pmaxtp-table th:first-child,
+    .pmaxtp-table td:first-child {
+        text-align: left;
+        position: sticky;
+        left: 0;
+        background: var(--background-color);
+    }
+    .download-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+</style>
