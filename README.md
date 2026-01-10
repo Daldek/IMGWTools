@@ -1,126 +1,157 @@
-# IMGWTools - Narzędzie do pobierania i analizy danych IMGW
+# IMGWTools - Narzędzie do pobierania danych IMGW
 
-Kod napisany w celu ułatwienia pobierania danych publicznych z bazy Instytutu Meteorologii i Gospodarki Wodnej (IMGW-PIB) z wykorzystaniem Pythona. Dane pochodzą z serwisu [IMGW Dane Publiczne](https://danepubliczne.imgw.pl/).
+Narzędzie do pobierania danych publicznych z Instytutu Meteorologii i Gospodarki Wodnej (IMGW-PIB). Dane pochodzą z serwisu [IMGW Dane Publiczne](https://danepubliczne.imgw.pl/).
 
-Możliwe jest również pobieranie danych z modeli probabilistycznych opadów maksymalnych o określonym czasie trwania i prawdopodobieństwie - projekt PMAXTP, które są udostępniane w serwisie [IMGW Klimat](https://klimat.imgw.pl/opady-maksymalne/).
+Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAXTP) z serwisu [IMGW Klimat](https://klimat.imgw.pl/opady-maksymalne/).
 
 ---
 
 ## Funkcjonalności
 
-1. **Pobieranie danych pomiarowo-obserwacyjnych oraz ostrzeżeń**:
-   - Aktualne dane meteorologiczne, hydrologiczne oraz ostrzeżenia przez [API](https://danepubliczne.imgw.pl/pl/apiinfo).
-   - Historyczne dane meteorologiczne oraz hydrologiczne dla wybranego okresu i interwału (dobowe, miesięczne, półroczne i roczne).
+1. **Trzy interfejsy dostępu**:
+   - **CLI** - narzędzie linii poleceń do pobierania danych
+   - **REST API** - FastAPI z dokumentacją OpenAPI/Swagger
+   - **Web GUI** - interfejs webowy z mapą interaktywną
 
-2. **Modele probabilistyczne opadów maksymalnych (PMAXTP)**:
-   - Pobieranie opadów maksymalnych prawdopodobnych dla określonych czasów trwania i prawdopodobieństw.
+2. **Pobieranie danych**:
+   - Aktualne dane meteorologiczne i hydrologiczne przez API IMGW
+   - Historyczne dane archiwalne (ZIP/CSV)
+   - Ostrzeżenia hydrologiczne i meteorologiczne
+   - Dane PMAXTP (opady maksymalne prawdopodobne)
 
-3. **Analiza hydrologiczna**:
-   - Obliczanie podstawowych statystyk hydrologicznych dla wybranych posterunków wodowskazowych (np. przepływy charakterystyczne II°).
-   - Wyznaczanie krzywej prawdopodobieństwa przewyższenia przepływu dla rozkładów:
-     - Logarytmiczno-normalnego.
-     - GEV (Generalized Extreme Value).
-     - Pearson typu III.
-   - Wyznaczanie krzywej prawdopodobieństwa nieosiągnięcia przepływu dla rozkładu Fishera-Tippeta (GEV).
-
-4. **Wizualizacja danych**:
-   - Roczne przepływy maksymalne, średnie i minimalne dla wybranych posterunków wodowskazowych.
-   - Sieć pomiarowo-obserwacyjna IMGW.
-
-5. **Interfejs graficzny (GUI)**:
-   - Prosty interfejs graficzny do pobierania danych PMAXTP w formacie JSON.
-
----
-
-## Wymagania
-
-- Python 3.12 lub nowszy.
-- Zainstalowane biblioteki:
-  - `requests`
-  - `seaborn`
-  - `pandas`
-  - `numpy`
-  - `scipy`
-  - `pyshp`
-  - `pyproj`
-
-Aby zainstalować wymagane biblioteki, użyj:
-```bash
-pip install -r requirements.txt
-```
+3. **Kluczowa zasada**:
+   - Dane NIE są przechowywane na serwerze
+   - Generowane są bezpośrednie linki do serwerów IMGW
 
 ---
 
 ## Instalacja
-1. Sklonuj repozytorium:
+
 ```bash
-git clone https://github.com/TwojeRepozytorium/IMGWTools.git
+# Klonowanie repozytorium
+git clone https://github.com/Daldek/IMGWTools.git
 cd IMGWTools
-```
-2. Zainstaluj wymagane biblioteki:
-```bash
-pip install -r requirements.txt
+
+# Utworzenie środowiska wirtualnego
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Instalacja pakietu
+pip install -e ".[dev]"
 ```
 
 ---
 
 ## Szybki start
-Pobieranie danych PMAXTP przez GUI:
-1. Uruchom interfejs graficzny:
+
+### CLI
+
 ```bash
-python code/pmaxtp_gui.py
-```
-2. Wprowadź parametry:
-    - Metoda. Annual Max Precipitation (AMP) lub Peak Over Threshold (POT).
-    - Długość geograficzna.
-    - Szerokość geograficzna.
-    - Ścieżka folderu do zapisu pliku.
-3. Kliknij przycisk **Pobierz dane**. Dane zostaną zapisane do pliku JSON.
+# Uruchom serwer API
+imgw server --reload
 
-Pobieranie najnowszych danych pomiarowo-obserwacyjnychych przez API.
-Przykład pobierania danych hydrologicznych:
-```python
-from code.imgw_api import HYDRO
-hydro = HYDRO(station_id="150160180")
-data = hydro.get_hydro_data()
-print(data)
+# Pobierz dane hydrologiczne
+imgw fetch hydro -i dobowe -y 2023
+
+# Pobierz dane meteorologiczne
+imgw fetch meteo -i miesieczne -s synop -y 2020-2023
+
+# Pobierz aktualne dane z API
+imgw fetch current hydro
+
+# Pobierz dane PMAXTP
+imgw fetch pmaxtp --lat 52.23 --lon 21.01
+
+# Lista stacji
+imgw list stations --type hydro
 ```
 
-Pobieranie historycznych danych plikowych.
-Przykład pobierania danych hydrologicznych:
-```python
-from code.imgw_datastore import *
-data_type = "dane_hydrologiczne"
-downloader = DataDownloader(data_type)
-downloader.download_data()
+### REST API
+
+Po uruchomieniu serwera (`imgw server`):
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+Przykłady:
+```bash
+# Aktualne dane hydrologiczne
+curl http://localhost:8000/api/v1/hydro/current
+
+# Generuj URL do pobrania danych
+curl "http://localhost:8000/api/v1/download/url?data_type=hydro&interval=dobowe&year=2023"
 ```
-Odpowiadając na kolejne pytania, możliwe jest pobranie danych z ostatnich 30 lat lub wybranego okresu oraz dla wybranego interwału czasowego.
+
+### Web GUI
+
+Po uruchomieniu serwera dostępne pod http://localhost:8000:
+- `/` - Dashboard
+- `/download` - Formularze pobierania danych
+- `/stations` - Lista stacji
+- `/map` - Mapa interaktywna
 
 ---
 
-## Struktura katalogów
-- `code/` - Główne moduły aplikacji:
-  - `hydro_stats.py` - Klasy do obliczania podstawowych statystyk hydrologicznych i wizualizacji danych.
-  - `imgw_api.py` - Klasy do obsługi API IMGW.
-  - `imgw_datastore.py` - Klasa służąca do pobierania i zarządzania danymi z publicznych zasobów IMGW.
-  - `imgw_spatial.py` - Klasy do wizualizacji lokalizacji wybranej lokalizacji na mapie Polski.
-  - `meteo_stats.py` - Klasy do obliczania podstawowych statystyk meteorologiczne i wizualizacji danych.
-  - `pmaxtp_gui.py` - Interfejs graficzny do pobierania danych PMAXTP.
-- `data/` - Wszystko to co niezbędne do zrozumienia danych i pracy na nich.
-  - `desc/` - Opis strutury danych.
-  - `downloaded/` - Zapisane pliki.
-- `Notebooks/` - Notebooki Jupyter z przykładami użycia.
-- `LICENSE` - Licencja.
-- `README.md` - Dokumentacja projektu.
+## Struktura danych IMGW
+
+### Dane hydrologiczne (1951-obecnie)
+- `dobowe`: pliki miesięczne (przed 2023) lub roczne (od 2023)
+- `miesieczne`: pliki roczne
+- `polroczne_i_roczne`: pliki roczne z parametrami T, Q, H
+
+### Dane meteorologiczne (1951-obecnie)
+- **1951-2000**: foldery 5-letnie, pliki roczne
+- **2001+**: foldery roczne, pliki miesięczne
+- Podtypy: klimat, opad, synop
 
 ---
+
+## Struktura projektu
+
+```
+src/imgwtools/
+├── api/          # REST API (FastAPI)
+├── cli/          # Narzędzie CLI (Typer)
+├── core/         # Logika biznesowa
+│   └── url_builder.py  # Generowanie URL-i
+├── web/          # Web GUI (HTMX + Jinja2)
+└── config.py     # Konfiguracja
+
+data/             # Metadane (listy stacji, opisy formatów)
+docker/           # Konfiguracja Docker
+tests/            # Testy
+```
+
+---
+
+## Docker
+
+```bash
+cd docker
+docker-compose up -d
+```
+
+---
+
+## Dokumentacja
+
+- `CLAUDE.md` - Instrukcje dla Claude Code
+- `ARCHITECTURE.md` - Architektura systemu
+- `PRD.md` - Wymagania produktu
+
+---
+
 ## Problemy i wsparcie
-Jeśli napotkasz problemy, zgłoś je w sekcji [Issues](https://github.com/Daldek/IMGWTools/issues).
+
+Zgłoś problemy w sekcji [Issues](https://github.com/Daldek/IMGWTools/issues).
 
 ---
+
 ## Licencja
-Projekt jest udostępniony na liencji MIT. Szczegóły znajdziesz w pliku ``License``.
+
+Projekt udostępniony na licencji MIT. Szczegóły w pliku `LICENSE`.
 
 ---
-## Autorzy
-- [Piotr de Bever](https://www.linkedin.com/in/piotr-de-bever/) [@LinkedIn](https://www.linkedin.com/in/piotr-de-bever/)
+
+## Autor
+
+- [Piotr de Bever](https://www.linkedin.com/in/piotr-de-bever/)
