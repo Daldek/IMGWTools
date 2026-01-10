@@ -10,6 +10,10 @@
 {% endif %}
 
 {% if urls %}
+{# Check if any item has month or param #}
+{% set has_month = urls | selectattr('month', 'defined') | selectattr('month') | list | length > 0 %}
+{% set has_param = urls | selectattr('param', 'defined') | selectattr('param') | list | length > 0 %}
+
 <article>
     <header>
         <h3>Wygenerowane linki ({{ count }})</h3>
@@ -32,10 +36,10 @@
         <thead>
             <tr>
                 <th>Rok</th>
-                {% if urls[0].month is defined and urls[0].month %}
+                {% if has_month %}
                 <th>Miesiąc</th>
                 {% endif %}
-                {% if urls[0].param is defined and urls[0].param %}
+                {% if has_param %}
                 <th>Parametr</th>
                 {% endif %}
                 <th>Plik</th>
@@ -46,11 +50,11 @@
             {% for item in urls %}
             <tr>
                 <td>{{ item.year }}</td>
-                {% if item.month is defined and item.month %}
-                <td>{{ item.month }}</td>
+                {% if has_month %}
+                <td>{{ item.month if item.month else '-' }}</td>
                 {% endif %}
-                {% if item.param is defined and item.param %}
-                <td>{{ item.param }}</td>
+                {% if has_param %}
+                <td>{{ item.param if item.param else '-' }}</td>
                 {% endif %}
                 <td>
                     <code>{{ item.filename }}</code>
