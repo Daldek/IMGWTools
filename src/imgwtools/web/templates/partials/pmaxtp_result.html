@@ -1,0 +1,46 @@
+<article>
+    <header>
+        <h3>Wyniki PMAXTP</h3>
+    </header>
+
+    <dl>
+        <dt>Metoda</dt>
+        <dd>{{ method }}</dd>
+
+        <dt>Lokalizacja</dt>
+        <dd>{{ latitude }}°N, {{ longitude }}°E</dd>
+
+        <dt>URL API</dt>
+        <dd><a href="{{ url }}" target="_blank">{{ url }}</a></dd>
+    </dl>
+
+    <h4>Dane odpowiedzi</h4>
+    <pre><code>{{ data | tojson(indent=2) }}</code></pre>
+
+    <footer>
+        <button class="secondary outline" onclick="copyPmaxtpData()">
+            Kopiuj dane JSON
+        </button>
+        <button class="secondary outline" onclick="downloadPmaxtpData()">
+            Pobierz jako JSON
+        </button>
+    </footer>
+</article>
+
+<script>
+    const pmaxtpData = {{ data | tojson }};
+
+    function copyPmaxtpData() {
+        navigator.clipboard.writeText(JSON.stringify(pmaxtpData, null, 2)).then(() => {
+            alert('Skopiowano dane do schowka!');
+        });
+    }
+
+    function downloadPmaxtpData() {
+        const blob = new Blob([JSON.stringify(pmaxtpData, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'pmaxtp_{{ method }}_{{ latitude }}_{{ longitude }}.json';
+        a.click();
+    }
+</script>

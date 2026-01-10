@@ -1,0 +1,101 @@
+{% if errors %}
+<article class="error">
+    <header>Wystąpiły błędy</header>
+    <ul>
+        {% for error in errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+    </ul>
+</article>
+{% endif %}
+
+{% if urls %}
+<article>
+    <header>
+        <h3>Wygenerowane linki ({{ count }})</h3>
+    </header>
+
+    <p>
+        <small>Kliknij w link, aby pobrać plik bezpośrednio z serwera IMGW.</small>
+    </p>
+
+    <div class="download-actions">
+        <button class="secondary outline" onclick="copyAllLinks()">
+            Kopiuj wszystkie linki
+        </button>
+        <button class="secondary outline" onclick="downloadWgetScript()">
+            Pobierz skrypt wget
+        </button>
+    </div>
+
+    <table class="download-table">
+        <thead>
+            <tr>
+                <th>Rok</th>
+                {% if urls[0].month is defined and urls[0].month %}
+                <th>Miesiąc</th>
+                {% endif %}
+                {% if urls[0].param is defined and urls[0].param %}
+                <th>Parametr</th>
+                {% endif %}
+                <th>Plik</th>
+                <th>Akcja</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in urls %}
+            <tr>
+                <td>{{ item.year }}</td>
+                {% if item.month is defined and item.month %}
+                <td>{{ item.month }}</td>
+                {% endif %}
+                {% if item.param is defined and item.param %}
+                <td>{{ item.param }}</td>
+                {% endif %}
+                <td>
+                    <code>{{ item.filename }}</code>
+                </td>
+                <td>
+                    <a href="{{ item.url }}" target="_blank" role="button" class="outline">
+                        Pobierz
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <textarea id="all-links" style="display: none;">{% for item in urls %}{{ item.url }}
+{% endfor %}</textarea>
+
+    <script>
+        function copyAllLinks() {
+            const textarea = document.getElementById('all-links');
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                alert('Skopiowano ' + {{ count }} + ' linków do schowka!');
+            });
+        }
+
+        function downloadWgetScript() {
+            const links = document.getElementById('all-links').value.trim().split('\n');
+            let script = '#!/bin/bash\n# IMGWTools - wget download script\n\n';
+            script += 'mkdir -p imgw_data\ncd imgw_data\n\n';
+            links.forEach(url => {
+                script += 'wget -c "' + url + '"\n';
+            });
+
+            const blob = new Blob([script], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'download_imgw.sh';
+            a.click();
+        }
+    </script>
+</article>
+{% else %}
+{% if not errors %}
+<article>
+    <p>Brak wyników dla wybranych parametrów.</p>
+</article>
+{% endif %}
+{% endif %}

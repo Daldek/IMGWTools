@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <h1>IMGWTools</h1>
+    <p>Narzędzie do pobierania danych z Instytutu Meteorologii i Gospodarki Wodnej</p>
+</header>
+
+<section>
+    <h2>Wybierz typ danych</h2>
+    <div class="grid">
+        <article>
+            <header>
+                <h3>Dane hydrologiczne</h3>
+            </header>
+            <p>Pobierz dane o stanach wody, przepływach i temperaturze wody z polskich rzek.</p>
+            <ul>
+                <li>Dane dobowe</li>
+                <li>Dane miesięczne</li>
+                <li>Dane półroczne i roczne</li>
+            </ul>
+            <footer>
+                <a href="/download/hydro" role="button">Pobierz dane hydrologiczne</a>
+            </footer>
+        </article>
+
+        <article>
+            <header>
+                <h3>Dane meteorologiczne</h3>
+            </header>
+            <p>Pobierz dane klimatyczne, opadowe i synoptyczne ze stacji IMGW.</p>
+            <ul>
+                <li>Dane dobowe</li>
+                <li>Dane miesięczne</li>
+                <li>Dane terminowe (godzinowe)</li>
+            </ul>
+            <footer>
+                <a href="/download/meteo" role="button">Pobierz dane meteorologiczne</a>
+            </footer>
+        </article>
+
+        <article>
+            <header>
+                <h3>Opady maksymalne (PMAXTP)</h3>
+            </header>
+            <p>Pobierz dane o maksymalnych opadach dla zadanej lokalizacji.</p>
+            <ul>
+                <li>Metoda POT (Peak Over Threshold)</li>
+                <li>Metoda AMP (Annual Max Precipitation)</li>
+            </ul>
+            <footer>
+                <a href="/download/pmaxtp" role="button">Pobierz dane PMAXTP</a>
+            </footer>
+        </article>
+    </div>
+</section>
+
+<section>
+    <h2>Dodatkowe narzędzia</h2>
+    <div class="grid">
+        <article>
+            <header>
+                <h3>Lista stacji</h3>
+            </header>
+            <p>Przeglądaj listę stacji hydrologicznych i meteorologicznych IMGW.</p>
+            <footer>
+                <a href="/stations" role="button" class="secondary">Przeglądaj stacje</a>
+            </footer>
+        </article>
+
+        <article>
+            <header>
+                <h3>Mapa stacji</h3>
+            </header>
+            <p>Interaktywna mapa z lokalizacjami stacji pomiarowych.</p>
+            <footer>
+                <a href="/map" role="button" class="secondary">Otwórz mapę</a>
+            </footer>
+        </article>
+
+        <article>
+            <header>
+                <h3>REST API</h3>
+            </header>
+            <p>Dokumentacja API dla programistów i automatyzacji.</p>
+            <footer>
+                <a href="/docs" role="button" class="secondary" target="_blank">Dokumentacja API</a>
+            </footer>
+        </article>
+    </div>
+</section>
+
+<section>
+    <h2>O projekcie</h2>
+    <p>
+        IMGWTools to narzędzie ułatwiające dostęp do publicznych danych IMGW-PIB.
+        Wszystkie dane są pobierane bezpośrednio z serwerów IMGW - ta aplikacja
+        jedynie generuje odpowiednie linki do pobrania.
+    </p>
+    <p>
+        <strong>Źródło danych:</strong>
+        <a href="https://danepubliczne.imgw.pl" target="_blank">danepubliczne.imgw.pl</a>
+    </p>
+</section>
+{% endblock %}

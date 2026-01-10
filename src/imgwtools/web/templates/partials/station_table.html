@@ -1,0 +1,65 @@
+<article>
+    <header>
+        <h3>
+            {% if data_type == 'hydro' %}Stacje hydrologiczne{% else %}Stacje meteorologiczne{% endif %}
+            <small>({{ count }} wyników)</small>
+        </h3>
+    </header>
+
+    {% if stations %}
+    <figure>
+        <table role="grid">
+            <thead>
+                <tr>
+                    <th>ID stacji</th>
+                    <th>Nazwa</th>
+                    {% if data_type == 'hydro' %}
+                    <th>Rzeka</th>
+                    <th>Współrzędne</th>
+                    {% endif %}
+                    <th>Akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for station in stations %}
+                <tr>
+                    <td><code>{{ station.id }}</code></td>
+                    <td>{{ station.name }}</td>
+                    {% if data_type == 'hydro' %}
+                    <td>{{ station.river or '-' }}</td>
+                    <td>
+                        {% if station.lat and station.lon %}
+                        {{ "%.4f"|format(station.lat) }}, {{ "%.4f"|format(station.lon) }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                    <td>
+                        <button class="outline secondary" onclick="copyStationId('{{ station.id }}')">
+                            Kopiuj ID
+                        </button>
+                        {% if station.lat and station.lon %}
+                        <a href="/map?lat={{ station.lat }}&lon={{ station.lon }}&station={{ station.id }}"
+                           class="outline secondary" role="button">
+                            Mapa
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </figure>
+    {% else %}
+    <p>Brak stacji spełniających kryteria wyszukiwania.</p>
+    {% endif %}
+</article>
+
+<script>
+    function copyStationId(id) {
+        navigator.clipboard.writeText(id).then(() => {
+            alert('Skopiowano ID stacji: ' + id);
+        });
+    }
+</script>
