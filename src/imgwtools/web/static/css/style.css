@@ -1,0 +1,195 @@
+/* IMGWTools Custom Styles */
+
+/* Root variables override for Pico CSS */
+:root {
+    --pico-font-family-sans-serif: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Navigation improvements */
+nav {
+    margin-bottom: 1rem;
+}
+
+nav ul li a {
+    padding: 0.5rem 1rem;
+}
+
+/* Article cards */
+article {
+    margin-bottom: 1.5rem;
+}
+
+article header h3 {
+    margin-bottom: 0.5rem;
+}
+
+/* Grid layout improvements */
+.grid {
+    gap: 1.5rem;
+}
+
+/* Download table styling */
+.download-table {
+    font-size: 0.9rem;
+}
+
+.download-table code {
+    font-size: 0.85em;
+    background: var(--pico-code-background-color);
+    padding: 0.125rem 0.375rem;
+    border-radius: var(--pico-border-radius);
+}
+
+.download-table td {
+    vertical-align: middle;
+}
+
+.download-table a[role="button"] {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+}
+
+/* Download actions */
+.download-actions {
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.download-actions button {
+    flex: 0 0 auto;
+}
+
+/* Error styling */
+article.error {
+    border-left: 4px solid var(--pico-del-color);
+}
+
+article.error header {
+    color: var(--pico-del-color);
+}
+
+/* Loading indicator */
+.htmx-indicator {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+
+.htmx-indicator > div {
+    background: var(--pico-background-color);
+    padding: 2rem 3rem;
+    border-radius: var(--pico-border-radius);
+    box-shadow: var(--pico-box-shadow);
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: flex;
+}
+
+/* Station marker for map */
+.station-marker {
+    background: transparent;
+    border: none;
+}
+
+/* Form improvements */
+form label {
+    margin-bottom: 0.5rem;
+}
+
+form label small {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--pico-muted-color);
+}
+
+/* Code blocks in results */
+pre code {
+    display: block;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+/* Footer styling */
+footer.container {
+    margin-top: 3rem;
+    padding-bottom: 2rem;
+}
+
+footer.container p {
+    text-align: center;
+    color: var(--pico-muted-color);
+}
+
+/* Details/Summary styling */
+details {
+    margin-bottom: 0.5rem;
+}
+
+details summary {
+    cursor: pointer;
+    font-weight: 500;
+}
+
+details[open] summary {
+    margin-bottom: 0.5rem;
+}
+
+/* Table responsive wrapper */
+figure {
+    margin: 0;
+    overflow-x: auto;
+}
+
+/* Button group */
+td button,
+td a[role="button"] {
+    margin-right: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+}
+
+/* Header styling */
+header hgroup {
+    margin-bottom: 1.5rem;
+}
+
+header hgroup h1 {
+    margin-bottom: 0.25rem;
+}
+
+header hgroup p {
+    color: var(--pico-muted-color);
+    margin-bottom: 0;
+}
+
+/* Search input */
+input[type="search"] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 0.75rem center;
+    padding-left: 2.25rem;
+}
+
+/* Print styles */
+@media print {
+    nav, footer, .download-actions, button {
+        display: none !important;
+    }
+
+    article {
+        break-inside: avoid;
+    }
+}

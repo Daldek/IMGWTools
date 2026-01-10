@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <hgroup>
+        <h1>Opady maksymalne (PMAXTP)</h1>
+        <p>Pobierz dane o maksymalnych opadach dla zadanej lokalizacji</p>
+    </hgroup>
+</header>
+
+<article>
+    <form hx-post="/download/pmaxtp/generate"
+          hx-target="#results"
+          hx-indicator="#loading-indicator">
+
+        <label>
+            Metoda obliczeniowa
+            <select name="method" required>
+                {% for value, label in methods %}
+                <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <div class="grid">
+            <label>
+                Szerokość geograficzna (°N)
+                <input type="number" name="latitude" step="0.0001" min="49.0" max="55.0"
+                       value="52.2297" required placeholder="np. 52.2297">
+                <small>Zakres: 49.0 - 55.0 (Polska)</small>
+            </label>
+
+            <label>
+                Długość geograficzna (°E)
+                <input type="number" name="longitude" step="0.0001" min="14.0" max="24.5"
+                       value="21.0122" required placeholder="np. 21.0122">
+                <small>Zakres: 14.0 - 24.5 (Polska)</small>
+            </label>
+        </div>
+
+        <button type="submit">Pobierz dane PMAXTP</button>
+    </form>
+</article>
+
+<section id="results">
+    <!-- HTMX will load results here -->
+</section>
+
+<article>
+    <header>
+        <h3>Informacje o metodach</h3>
+    </header>
+    <details>
+        <summary>POT - Peak Over Threshold</summary>
+        <p>
+            Metoda wartości szczytowych powyżej progu. Analizuje wszystkie zdarzenia
+            opadowe przekraczające określony próg, niezależnie od roku wystąpienia.
+        </p>
+        <p>Zalecana dla analiz częstotliwości zdarzeń ekstremalnych.</p>
+    </details>
+
+    <details>
+        <summary>AMP - Annual Max Precipitation</summary>
+        <p>
+            Metoda rocznych wartości maksymalnych. Analizuje tylko najwyższe wartości
+            opadów w każdym roku z serii pomiarowej.
+        </p>
+        <p>Stosowana w tradycyjnych analizach hydrologicznych.</p>
+    </details>
+</article>
+
+<article>
+    <header>
+        <h3>Przykładowe lokalizacje</h3>
+    </header>
+    <table>
+        <thead>
+            <tr>
+                <th>Miasto</th>
+                <th>Szerokość (°N)</th>
+                <th>Długość (°E)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Warszawa</td>
+                <td>52.2297</td>
+                <td>21.0122</td>
+            </tr>
+            <tr>
+                <td>Kraków</td>
+                <td>50.0647</td>
+                <td>19.9450</td>
+            </tr>
+            <tr>
+                <td>Gdańsk</td>
+                <td>54.3520</td>
+                <td>18.6466</td>
+            </tr>
+            <tr>
+                <td>Wrocław</td>
+                <td>51.1079</td>
+                <td>17.0385</td>
+            </tr>
+            <tr>
+                <td>Poznań</td>
+                <td>52.4064</td>
+                <td>16.9252</td>
+            </tr>
+        </tbody>
+    </table>
+</article>
+{% endblock %}

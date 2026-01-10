@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block head %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="anonymous">
+<style>
+    #map {
+        height: 70vh;
+        width: 100%;
+        border-radius: var(--pico-border-radius);
+    }
+    .station-popup {
+        min-width: 200px;
+    }
+    .station-popup h4 {
+        margin: 0 0 0.5rem 0;
+    }
+    .station-popup dl {
+        margin: 0;
+    }
+    .station-popup dt {
+        font-weight: bold;
+    }
+    .station-popup dd {
+        margin: 0 0 0.25rem 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header>
+    <hgroup>
+        <h1>Mapa stacji</h1>
+        <p>Interaktywna mapa stacji hydrologicznych IMGW</p>
+    </hgroup>
+</header>
+
+<article>
+    <div id="map"></div>
+    <footer>
+        <small>
+            Dane pobierane z API IMGW w czasie rzeczywistym.
+            Kliknij w marker, aby zobaczyć szczegóły stacji.
+        </small>
+    </footer>
+</article>
+
+<article>
+    <header>
+        <h3>Legenda</h3>
+    </header>
+    <p>
+        <span style="color: #2196F3;">●</span> Stacja hydrologiczna
+    </p>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"></script>
+
+<script>
+    // Initialize map centered on Poland
+    const map = L.map('map').setView([52.0, 19.0], 6);
+
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Custom marker icon
+    const stationIcon = L.divIcon({
+        className: 'station-marker',
+        html: '<svg width="24" height="24" viewBox="0 0 24 24" fill="#2196F3"><circle cx="12" cy="12" r="8" stroke="white" stroke-width="2"/></svg>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -12]
+    });
+
+    // Load stations from API
+    async function loadStations() {
+        try {
+            const response = await fetch('/map/stations');
+            const data = await response.json();
+
+            if (data.error) {
+                console.error('Error loading stations:', data.error);
+                return;
+            }
+
+            data.stations.forEach(station => {
+                const marker = L.marker([station.lat, station.lon], { icon: stationIcon })
+                    .addTo(map);
+
+                const popupContent = `
+                    <div class="station-popup">
+                        <h4>${station.name}</h4>
+                        <dl>
+                            <dt>ID stacji</dt>
+                            <dd><code>${station.id}</code></dd>
+                            <dt>Rzeka</dt>
+                            <dd>${station.river || '-'}</dd>
+                            ${station.water_level ? `<dt>Stan wody</dt><dd>${station.water_level} cm</dd>` : ''}
+                            <dt>Współrzędne</dt>
+                            <dd>${station.lat.toFixed(4)}, ${station.lon.toFixed(4)}</dd>
+                        </dl>
+                        <button onclick="navigator.clipboard.writeText('${station.id}')" style="margin-top: 0.5rem;">
+                            Kopiuj ID
+                        </button>
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent);
+            });
+
+            console.log(`Loaded ${data.stations.length} stations`);
+
+        } catch (error) {
+            console.error('Failed to load stations:', error);
+        }
+    }
+
+    // Check URL parameters for specific location
+    const urlParams = new URLSearchParams(window.location.search);
+    const lat = urlParams.get('lat');
+    const lon = urlParams.get('lon');
+    if (lat && lon) {
+        map.setView([parseFloat(lat), parseFloat(lon)], 12);
+    }
+
+    // Load stations on page load
+    loadStations();
+</script>
+{% endblock %}
