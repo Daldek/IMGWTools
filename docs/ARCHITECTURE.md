@@ -33,7 +33,7 @@ System consists of three main components:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         IMGW Public API                          │
-│              (danepubliczne.imgw.pl, hydro.imgw.pl)              │
+│    (danepubliczne.imgw.pl, hydro.imgw.pl, hydro-back.imgw.pl)   │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │ HTTP requests
