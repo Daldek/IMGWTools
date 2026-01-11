@@ -321,30 +321,50 @@ async def hydro_stations_partial(
     search: Optional[str] = Query(None),
     limit: int = Query(50),
 ):
-    """Hydrological stations list (HTMX partial)."""
-    # Fetch from IMGW API
-    url = build_api_url("hydro2")
+    """
+    Hydrological stations list (HTMX partial).
+
+    Fetches station data from IMGW CSV file (CP1250 encoding).
+    CSV format: ID, name, river (hydro_id), code
+    Links to station pages: https://hydro.imgw.pl/#/station/hydro/{id}
+    """
+    csv_url = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne/lista_stacji_hydro.csv"
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=30.0)
+            response = await client.get(csv_url, timeout=30.0)
             response.raise_for_status()
-            data = response.json()
+            content = response.content.decode("cp1250")
+
+        import csv
+        import io
+        import re
 
         stations = []
-        for item in data:
-            station = {
-                "id": item.get("id_stacji", ""),
-                "name": item.get("nazwa_stacji", ""),
-                "river": item.get("rzeka", ""),
-                "lat": item.get("lat"),
-                "lon": item.get("lon"),
-            }
-            if search:
-                if search.lower() in station["name"].lower() or search.lower() in station.get("river", "").lower():
+        reader = csv.reader(io.StringIO(content))
+        for row in reader:
+            if len(row) >= 3:
+                river_raw = row[2].strip('"')
+                # Extract river name and hydro ID from "Odra (1)" format
+                match = re.match(r'^(.+?)\s*\((\d+)\)$', river_raw)
+                if match:
+                    river_name = match.group(1).strip()
+                    river_id = match.group(2)
+                else:
+                    river_name = river_raw
+                    river_id = None
+
+                station = {
+                    "id": row[0].strip().strip('"'),
+                    "name": row[1].strip('"'),
+                    "river": river_name,
+                    "river_id": river_id,
+                }
+                if search:
+                    if search.lower() in station["name"].lower() or search.lower() in station["river"].lower():
+                        stations.append(station)
+                else:
                     stations.append(station)
-            else:
-                stations.append(station)
 
         stations = stations[:limit]
 
@@ -374,26 +394,37 @@ async def meteo_stations_partial(
     search: Optional[str] = Query(None),
     limit: int = Query(50),
 ):
-    """Meteorological stations list (HTMX partial)."""
-    url = build_api_url("synop")
+    """
+    Meteorological stations list (HTMX partial).
+
+    Fetches station data from IMGW CSV file (CP1250 encoding).
+    CSV format: ID, name, code
+    Links to station pages: https://hydro.imgw.pl/#/station/meteo/{id}
+    """
+    csv_url = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_meteorologiczne/wykaz_stacji.csv"
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=30.0)
+            response = await client.get(csv_url, timeout=30.0)
             response.raise_for_status()
-            data = response.json()
+            content = response.content.decode("cp1250")
+
+        import csv
+        import io
 
         stations = []
-        for item in data:
-            station = {
-                "id": item.get("id_stacji", ""),
-                "name": item.get("stacja", ""),
-            }
-            if search:
-                if search.lower() in station["name"].lower():
+        reader = csv.reader(io.StringIO(content))
+        for row in reader:
+            if len(row) >= 2:
+                station = {
+                    "id": row[0].strip('"'),
+                    "name": row[1].strip('"'),
+                }
+                if search:
+                    if search.lower() in station["name"].lower():
+                        stations.append(station)
+                else:
                     stations.append(station)
-            else:
-                stations.append(station)
 
         stations = stations[:limit]
 
@@ -429,10 +460,15 @@ async def map_page(request: Request):
     )
 
 
-@router.get("/map/stations", response_class=HTMLResponse)
+@router.get("/map/stations")
 async def map_stations_data(request: Request):
-    """Get stations data for map (JSON-like response for Leaflet)."""
-    url = build_api_url("hydro2")
+    """
+    Get hydro stations data for map (JSON response for Leaflet).
+
+    Fetches real-time data from IMGW API: https://danepubliczne.imgw.pl/api/data/hydro
+    Returns station ID, name, river, coordinates (lat/lon), and current water level.
+    """
+    url = build_api_url("hydro")
 
     try:
         async with httpx.AsyncClient() as client:
@@ -445,7 +481,7 @@ async def map_stations_data(request: Request):
             if item.get("lat") and item.get("lon"):
                 stations.append({
                     "id": item.get("id_stacji", ""),
-                    "name": item.get("nazwa_stacji", ""),
+                    "name": item.get("stacja", ""),
                     "river": item.get("rzeka", ""),
                     "lat": float(item["lat"]),
                     "lon": float(item["lon"]),

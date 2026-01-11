@@ -72,15 +72,6 @@
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
-    // Custom marker icon
-    const stationIcon = L.divIcon({
-        className: 'station-marker',
-        html: '<svg width="24" height="24" viewBox="0 0 24 24" fill="#2196F3"><circle cx="12" cy="12" r="8" stroke="white" stroke-width="2"/></svg>',
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-        popupAnchor: [0, -12]
-    });
-
     // Load stations from API
     async function loadStations() {
         try {
@@ -93,8 +84,14 @@
             }
 
             data.stations.forEach(station => {
-                const marker = L.marker([station.lat, station.lon], { icon: stationIcon })
-                    .addTo(map);
+                const marker = L.circleMarker([station.lat, station.lon], {
+                    radius: 8,
+                    fillColor: '#2196F3',
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map);
 
                 const popupContent = `
                     <div class="station-popup">

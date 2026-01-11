@@ -86,8 +86,10 @@ curl "http://localhost:8000/api/v1/download/url?data_type=hydro&interval=dobowe&
 Po uruchomieniu serwera dostępne pod http://localhost:8000:
 - `/` - Dashboard
 - `/download` - Formularze pobierania danych
-- `/stations` - Lista stacji
-- `/map` - Mapa interaktywna
+- `/stations` - Lista stacji (dane pobierane z CSV IMGW)
+- `/map` - Mapa interaktywna (dane z API IMGW)
+
+Każda stacja ma link do oficjalnej strony IMGW: `https://hydro.imgw.pl/#/station/{type}/{id}`
 
 ---
 
@@ -102,6 +104,11 @@ Po uruchomieniu serwera dostępne pod http://localhost:8000:
 - **1951-2000**: foldery 5-letnie, pliki roczne
 - **2001+**: foldery roczne, pliki miesięczne
 - Podtypy: klimat, opad, synop
+
+### Źródła danych stacji
+- **Lista stacji hydro**: CSV z `danepubliczne.imgw.pl` (kodowanie CP1250)
+- **Lista stacji meteo**: CSV z `danepubliczne.imgw.pl` (kodowanie CP1250)
+- **Współrzędne dla mapy**: API `danepubliczne.imgw.pl/api/data/hydro`
 
 ---
 
