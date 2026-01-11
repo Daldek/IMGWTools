@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <h1>Pobieranie danych</h1>
+    <p>Wybierz typ danych do pobrania</p>
+</header>
+
+<div class="grid">
+    <article>
+        <header>
+            <h3>Dane hydrologiczne</h3>
+        </header>
+        <p>Stany wody, przepływy, temperatura wody</p>
+        <footer>
+            <a href="/download/hydro" role="button">Wybierz</a>
+        </footer>
+    </article>
+
+    <article>
+        <header>
+            <h3>Dane meteorologiczne</h3>
+        </header>
+        <p>Klimat, opad, dane synoptyczne</p>
+        <footer>
+            <a href="/download/meteo" role="button">Wybierz</a>
+        </footer>
+    </article>
+
+    <article>
+        <header>
+            <h3>Opady maksymalne (PMAXTP)</h3>
+        </header>
+        <p>Dane dla zadanej lokalizacji</p>
+        <footer>
+            <a href="/download/pmaxtp" role="button">Wybierz</a>
+        </footer>
+    </article>
+</div>
+{% endblock %}

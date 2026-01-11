@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <hgroup>
+        <h1>Dane meteorologiczne</h1>
+        <p>Generator linków do pobrania danych meteorologicznych IMGW</p>
+    </hgroup>
+</header>
+
+<article>
+    <form hx-post="/download/meteo/generate"
+          hx-target="#results"
+          hx-indicator="#loading-indicator">
+
+        <div class="grid">
+            <label>
+                Interwał czasowy
+                <select name="interval" required>
+                    {% for value, label in intervals %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                Typ danych
+                <select name="subtype" required>
+                    {% for value, label in subtypes %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+
+        <div class="grid">
+            <label>
+                Rok początkowy
+                <input type="number" name="start_year" min="1951" max="2025" value="2023" required>
+            </label>
+
+            <label>
+                Rok końcowy
+                <input type="number" name="end_year" min="1951" max="2025" value="2023" required>
+            </label>
+        </div>
+
+        <button type="submit">Generuj linki do pobrania</button>
+    </form>
+</article>
+
+<section id="results">
+    <!-- HTMX will load results here -->
+</section>
+
+<article>
+    <header>
+        <h3>Informacje o typach danych</h3>
+    </header>
+    <details>
+        <summary>Klimat</summary>
+        <p>Dane klimatyczne ze stacji synoptycznych i klimatologicznych:</p>
+        <ul>
+            <li>Temperatura powietrza (średnia, min, max)</li>
+            <li>Wilgotność względna</li>
+            <li>Prędkość i kierunek wiatru</li>
+            <li>Zachmurzenie</li>
+            <li>Suma opadów</li>
+        </ul>
+    </details>
+
+    <details>
+        <summary>Opad</summary>
+        <p>Dane opadowe ze stacji opadowych:</p>
+        <ul>
+            <li>Suma dobowa opadu</li>
+            <li>Rodzaj opadu</li>
+            <li>Wysokość pokrywy śnieżnej</li>
+        </ul>
+    </details>
+
+    <details>
+        <summary>Synop</summary>
+        <p>Pełne dane synoptyczne ze stacji synoptycznych:</p>
+        <ul>
+            <li>Wszystkie parametry meteorologiczne</li>
+            <li>Dane w rozdzielczości terminowej (co 3h) lub dobowej</li>
+        </ul>
+    </details>
+</article>
+{% endblock %}

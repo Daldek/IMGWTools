@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: imgwtools-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../data:/app/data:ro
+      - api_keys:/app/keys
+    environment:
+      - IMGW_ENV=production
+      - IMGW_HOST=0.0.0.0
+      - IMGW_PORT=8000
+      - IMGW_LOG_LEVEL=INFO
+      - IMGW_API_KEYS_FILE=/app/keys/api_keys.json
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:alpine
+    container_name: imgwtools-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  api_keys:
+    driver: local
