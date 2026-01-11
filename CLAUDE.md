@@ -89,7 +89,25 @@ User → CLI/API/Web → URL Builder → IMGW Servers → User's computer
                    (generates links only)
 ```
 
-No data is stored on our server - only metadata (station lists) from local CSV files.
+No data is stored on our server - station lists are fetched directly from IMGW.
+
+## External Data Sources
+
+### Station Lists (CSV)
+- **Hydro stations**: `https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne/lista_stacji_hydro.csv`
+  - Format: `ID, nazwa, rzeka (id_cieku), kod`
+  - Encoding: CP1250
+- **Meteo stations**: `https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_meteorologiczne/wykaz_stacji.csv`
+  - Format: `ID, nazwa, kod`
+  - Encoding: CP1250
+
+### Real-time API
+- **Hydro data**: `https://danepubliczne.imgw.pl/api/data/hydro` (includes lat/lon for map)
+- **Synop data**: `https://danepubliczne.imgw.pl/api/data/synop`
+
+### Station Pages
+- **Hydro**: `https://hydro.imgw.pl/#/station/hydro/{station_id}`
+- **Meteo**: `https://hydro.imgw.pl/#/station/meteo/{station_id}`
 
 ## API Endpoints
 
@@ -152,8 +170,11 @@ No data is stored on our server - only metadata (station lists) from local CSV f
 | `/download/hydro` | Hydro download form |
 | `/download/meteo` | Meteo download form |
 | `/download/pmaxtp` | PMAXTP download form |
-| `/stations` | Stations list page |
-| `/map` | Interactive map with stations |
+| `/stations` | Stations list page (data from IMGW CSV) |
+| `/stations/hydro` | Hydro stations partial (HTMX) |
+| `/stations/meteo` | Meteo stations partial (HTMX) |
+| `/map` | Interactive map with stations (Leaflet) |
+| `/map/stations` | JSON endpoint for map markers (from IMGW API) |
 
 ## CLI Commands
 

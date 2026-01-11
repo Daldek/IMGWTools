@@ -15,7 +15,7 @@
                     <th>Nazwa</th>
                     {% if data_type == 'hydro' %}
                     <th>Rzeka</th>
-                    <th>Współrzędne</th>
+                    <th>ID cieku</th>
                     {% endif %}
                     <th>Akcje</th>
                 </tr>
@@ -27,22 +27,21 @@
                     <td>{{ station.name }}</td>
                     {% if data_type == 'hydro' %}
                     <td>{{ station.river or '-' }}</td>
-                    <td>
-                        {% if station.lat and station.lon %}
-                        {{ "%.4f"|format(station.lat) }}, {{ "%.4f"|format(station.lon) }}
-                        {% else %}
-                        -
-                        {% endif %}
-                    </td>
+                    <td><code>{{ station.river_id or '-' }}</code></td>
                     {% endif %}
                     <td>
                         <button class="outline secondary" onclick="copyStationId('{{ station.id }}')">
                             Kopiuj ID
                         </button>
-                        {% if station.lat and station.lon %}
-                        <a href="/map?lat={{ station.lat }}&lon={{ station.lon }}&station={{ station.id }}"
-                           class="outline secondary" role="button">
-                            Mapa
+                        {% if data_type == 'meteo' %}
+                        <a href="https://hydro.imgw.pl/#/station/meteo/{{ station.id }}"
+                           class="outline secondary" role="button" target="_blank">
+                            Stacja IMGW
+                        </a>
+                        {% elif data_type == 'hydro' %}
+                        <a href="https://hydro.imgw.pl/#/station/hydro/{{ station.id }}"
+                           class="outline secondary" role="button" target="_blank">
+                            Stacja IMGW
                         </a>
                         {% endif %}
                     </td>
