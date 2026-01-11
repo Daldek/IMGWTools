@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Data directory
     data_dir: Path = Path("./data")
 
+    # Database settings (SQLite cache for hydro data)
+    db_enabled: bool = False
+    db_path: Path = Path("./data/imgw_hydro.db")
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
