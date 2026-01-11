@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <hgroup>
+        <h1>Lista stacji</h1>
+        <p>Przeglądaj stacje hydrologiczne i meteorologiczne IMGW</p>
+    </hgroup>
+</header>
+
+<article>
+    <div class="grid">
+        <label>
+            Typ stacji
+            <select id="station-type" onchange="loadStations()">
+                <option value="hydro">Stacje hydrologiczne</option>
+                <option value="meteo">Stacje meteorologiczne</option>
+            </select>
+        </label>
+
+        <label>
+            Szukaj
+            <input type="search" id="station-search"
+                   placeholder="Wpisz nazwę stacji lub rzeki..."
+                   onkeyup="debounceSearch()">
+        </label>
+
+        <label>
+            Limit wyników
+            <select id="station-limit" onchange="loadStations()">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+            </select>
+        </label>
+    </div>
+</article>
+
+<section id="stations-results" hx-indicator="#loading-indicator">
+    <!-- HTMX will load results here -->
+    <div aria-busy="true">Ładowanie stacji...</div>
+</section>
+
+<script>
+    let searchTimeout;
+
+    function debounceSearch() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(loadStations, 300);
+    }
+
+    function loadStations() {
+        const type = document.getElementById('station-type').value;
+        const search = document.getElementById('station-search').value;
+        const limit = document.getElementById('station-limit').value;
+
+        let url = '/stations/' + type + '?limit=' + limit;
+        if (search) {
+            url += '&search=' + encodeURIComponent(search);
+        }
+
+        htmx.ajax('GET', url, {target: '#stations-results'});
+    }
+
+    // Load initial data
+    document.addEventListener('DOMContentLoaded', loadStations);
+</script>
+{% endblock %}
