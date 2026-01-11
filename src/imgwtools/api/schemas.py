@@ -170,3 +170,38 @@ class HealthCheck(BaseModel):
 
     status: str = "ok"
     version: str = "1.0.0"
+
+
+# Cached hydro data schemas
+class HydroDailyDataPoint(BaseModel):
+    """Single daily measurement from cache."""
+
+    date: str = Field(..., description="Measurement date (YYYY-MM-DD)")
+    water_level_cm: Optional[float] = Field(None, description="Water level in cm")
+    flow_m3s: Optional[float] = Field(None, description="Discharge in m3/s")
+    water_temp_c: Optional[float] = Field(None, description="Water temperature in Celsius")
+
+
+class HydroMonthlyDataPoint(BaseModel):
+    """Single monthly measurement from cache."""
+
+    year: int
+    month: int
+    extremum: str = Field(..., description="'min', 'mean', or 'max'")
+    water_level_cm: Optional[float] = None
+    flow_m3s: Optional[float] = None
+    water_temp_c: Optional[float] = None
+
+
+class HydroDataResponse(BaseModel):
+    """Response with cached hydrological data."""
+
+    station_id: str
+    station_name: Optional[str] = None
+    river: Optional[str] = None
+    interval: str
+    start_year: int
+    end_year: int
+    data: list[HydroDailyDataPoint | HydroMonthlyDataPoint]
+    count: int
+    source: str = Field(..., description="'cache' or 'imgw'")

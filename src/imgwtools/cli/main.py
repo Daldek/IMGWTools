@@ -11,7 +11,7 @@ Usage:
 import typer
 from rich.console import Console
 
-from imgwtools.cli import fetch, list_cmd, admin
+from imgwtools.cli import fetch, list_cmd, admin, db
 
 # Create main app
 app = typer.Typer(
@@ -27,6 +27,7 @@ console = Console()
 app.add_typer(fetch.app, name="fetch", help="Pobieranie danych")
 app.add_typer(list_cmd.app, name="list", help="Listowanie stacji i zbiorow danych")
 app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
+app.add_typer(db.app, name="db", help="Zarzadzanie baza danych cache")
 
 
 @app.command()

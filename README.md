@@ -20,8 +20,13 @@ Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAX
    - Dane PMAXTP (opady maksymalne prawdopodobne)
 
 3. **Kluczowa zasada**:
-   - Dane NIE są przechowywane na serwerze
+   - Dane NIE są przechowywane na serwerze (domyślnie)
    - Generowane są bezpośrednie linki do serwerów IMGW
+
+4. **Opcjonalne cache'owanie** (dane hydrologiczne):
+   - SQLite database dla danych historycznych
+   - Lazy loading - dane pobierane przy pierwszym zapytaniu
+   - Włączane przez `IMGW_DB_ENABLED=true`
 
 ---
 
@@ -64,6 +69,12 @@ imgw fetch pmaxtp --lat 52.23 --lon 21.01
 
 # Lista stacji
 imgw list stations --type hydro
+
+# Cache danych (wymaga IMGW_DB_ENABLED=true)
+imgw db init                                   # Inicjalizacja bazy
+imgw db stations --refresh                     # Pobranie listy stacji
+imgw db cache --years 2020-2023 -i dobowe      # Cache danych dobowych
+imgw db query -s 149180020 -y 2023 -i dobowe   # Zapytanie o dane
 ```
 
 ### REST API
@@ -120,10 +131,14 @@ src/imgwtools/
 ├── cli/          # Narzędzie CLI (Typer)
 ├── core/         # Logika biznesowa
 │   └── url_builder.py  # Generowanie URL-i
+├── db/           # Cache SQLite (opcjonalny)
+│   ├── cache_manager.py  # Lazy loading
+│   ├── repository.py     # Warstwa dostępu do danych
+│   └── parsers.py        # Parsery CSV z ZIP
 ├── web/          # Web GUI (HTMX + Jinja2)
 └── config.py     # Konfiguracja
 
-data/             # Metadane (listy stacji, opisy formatów)
+data/             # Metadane + baza SQLite (gdy włączona)
 docker/           # Konfiguracja Docker
 tests/            # Testy
 ```
@@ -136,6 +151,57 @@ tests/            # Testy
 cd docker
 docker-compose up -d
 ```
+
+---
+
+## Cache bazy danych (opcjonalny)
+
+Dla częstych zapytań o dane historyczne można włączyć lokalną bazę SQLite.
+
+### Konfiguracja
+
+```bash
+# W pliku .env lub zmiennych środowiskowych
+IMGW_DB_ENABLED=true
+IMGW_DB_PATH=./data/imgw_hydro.db  # domyślna ścieżka
+```
+
+### Użycie
+
+```bash
+# Inicjalizacja bazy
+imgw db init
+
+# Pobranie listy stacji (1300+ stacji)
+imgw db stations --refresh
+
+# Cache danych dla zakresu lat
+imgw db cache --years 2020-2023 --interval dobowe
+
+# Zapytanie o dane dla stacji
+imgw db query --station 149180020 --years 2020-2023 --interval dobowe
+
+# Export do CSV
+imgw db query --station 149180020 --years 2023 --output dane.csv
+
+# Status bazy (rozmiar, liczba rekordów)
+imgw db status
+
+# Optymalizacja bazy
+imgw db vacuum
+```
+
+### Obsługiwane interwały
+
+| Interwał | Opis | Parametry |
+|----------|------|-----------|
+| `dobowe` | Dane dzienne | - |
+| `miesieczne` | Dane miesięczne (min/mean/max) | - |
+| `polroczne` | Dane półroczne/roczne | `--param H/Q/T` |
+
+### Lazy loading
+
+Dane są automatycznie pobierane z IMGW przy pierwszym zapytaniu i cache'owane lokalnie. Kolejne zapytania korzystają z cache.
 
 ---
 

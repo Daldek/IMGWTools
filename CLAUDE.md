@@ -9,7 +9,9 @@ IMGWTools is a Python tool for downloading public data from IMGW (Polish Institu
 - **REST API** - FastAPI-based API for generating download URLs
 - **Web GUI** - HTMX + Jinja2 web interface
 
-**Key principle:** Data is NEVER stored on the server. The service generates direct links to IMGW servers, and users download data directly from IMGW.
+**Key principle:** Data is NEVER stored on the server by default. The service generates direct links to IMGW servers, and users download data directly from IMGW.
+
+**Optional feature:** SQLite database caching for hydrological data. When enabled (`IMGW_DB_ENABLED=true`), data is cached locally using lazy loading for efficient repeated queries.
 
 ## Commands
 
@@ -42,6 +44,15 @@ imgw admin create --name "User1"               # Create API key
 imgw admin revoke <key_id>                     # Revoke API key
 imgw admin delete <key_id>                     # Delete API key
 imgw admin stats                               # Show API key statistics
+
+# Database commands (requires IMGW_DB_ENABLED=true)
+imgw db init                                   # Initialize database
+imgw db status                                 # Show database status
+imgw db stations --refresh                     # Fetch stations from IMGW
+imgw db cache --years 2020-2023 -i dobowe      # Pre-cache daily data
+imgw db query -s 149180020 -y 2023 -i dobowe   # Query cached data
+imgw db clear                                  # Clear all cached data
+imgw db vacuum                                 # Optimize database
 ```
 
 ## Architecture
@@ -60,7 +71,15 @@ src/imgwtools/
 │   ├── main.py           # Entry point (imgw command)
 │   ├── fetch.py          # Download commands (hydro, meteo, current, pmaxtp, warnings)
 │   ├── list_cmd.py       # Listing commands (stations, datasets, intervals)
-│   └── admin.py          # API key management (keys, create, revoke, delete, stats)
+│   ├── admin.py          # API key management (keys, create, revoke, delete, stats)
+│   └── db.py             # Database management commands
+├── db/                   # SQLite cache for hydro data (optional)
+│   ├── connection.py     # SQLite connection manager
+│   ├── schema.py         # DDL and migrations
+│   ├── models.py         # Pydantic models for records
+│   ├── repository.py     # Data access layer
+│   ├── cache_manager.py  # Lazy loading logic
+│   └── parsers.py        # CSV parsing from ZIP files
 ├── core/                 # Core logic
 │   ├── url_builder.py    # URL generation (key module!)
 │   ├── imgw_api.py       # Legacy IMGW API classes
@@ -120,6 +139,7 @@ No data is stored on our server - station lists are fetched directly from IMGW.
 | `/current` | GET | Current hydro data from IMGW API |
 | `/download-url` | POST | Generate single download URL |
 | `/download-urls` | POST | Generate multiple download URLs |
+| `/data` | GET | Get cached data (requires DB enabled) |
 
 ### Meteorological Data (`/api/v1/meteo`)
 
@@ -213,6 +233,20 @@ No data is stored on our server - station lists are fetched directly from IMGW.
 | `admin delete <id>` | Delete API key (`--force`) |
 | `admin stats` | Show usage statistics |
 
+### Database Commands (`imgw db`)
+
+Requires `IMGW_DB_ENABLED=true` environment variable.
+
+| Command | Description |
+|---------|-------------|
+| `db init` | Initialize database (create tables) |
+| `db status` | Show database status (size, records, cached years) |
+| `db stations` | List cached stations (`--search`, `--refresh`) |
+| `db cache` | Pre-cache data (`--years 2020-2023`, `--interval dobowe/miesieczne/polroczne`) |
+| `db query` | Query cached data (`--station`, `--years`, `--interval`, `--output`) |
+| `db clear` | Clear cached data (`--interval`, `--force`) |
+| `db vacuum` | Optimize database (reclaim space) |
+
 ## IMGW Data Structure
 
 ### Hydrological data (1951-2024+)
@@ -265,3 +299,50 @@ Klucze API w pliku JSON (`api_keys.json`). Naglowek: `X-API-Key: <token>`
 
 ### API versioning
 Wszystkie endpointy pod `/api/v1/...`
+
+---
+
+## Database Cache (Optional)
+
+SQLite-based cache for hydrological data. Disabled by default.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IMGW_DB_ENABLED` | `false` | Enable database caching |
+| `IMGW_DB_PATH` | `./data/imgw_hydro.db` | Database file path |
+
+### Database Schema
+
+```sql
+-- Stations
+hydro_stations (station_code, station_name, river_name, latitude, longitude, updated_at)
+
+-- Cache tracking
+cached_ranges (interval, year, month, param, source_file, cached_at, record_count)
+
+-- Data tables
+hydro_daily (station_code, hydro_year, hydro_month, day, water_level_cm, flow_m3s, water_temp_c, measurement_date)
+hydro_monthly (station_code, hydro_year, hydro_month, extremum, water_level_cm, flow_m3s, water_temp_c)
+hydro_semi_annual (station_code, hydro_year, period, param, extremum, value, extremum_start_date, extremum_end_date)
+```
+
+### Lazy Loading Flow
+
+```
+Query: station X, years 2020-2023
+    │
+    ├─ Check cached_ranges for each year
+    │   ├─ Not cached → Download ZIP → Parse CSV → INSERT → Mark cached
+    │   └─ Cached → Skip download
+    │
+    └─ SELECT from database → Return results
+```
+
+### IMGW CSV Format Notes
+
+- **Encoding**: CP1250 (Polish Windows encoding)
+- **Delimiter**: Semicolon (`;`)
+- **Missing data codes**: `9999` (water level), `99999.999` (flow), `99.9` (temperature)
+- **Hydrological year**: November 1 - October 31 (month 1 = November)
