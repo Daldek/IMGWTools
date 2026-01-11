@@ -121,8 +121,13 @@ No data is stored on our server - station lists are fetched directly from IMGW.
   - Encoding: CP1250
 
 ### Real-time API
-- **Hydro data**: `https://danepubliczne.imgw.pl/api/data/hydro` (includes lat/lon for map)
+- **Hydro data**: `https://danepubliczne.imgw.pl/api/data/hydro`
 - **Synop data**: `https://danepubliczne.imgw.pl/api/data/synop`
+
+### Map Stations API
+- **Hydro stations with coordinates**: `https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=false`
+  - Requires headers: `User-Agent`, `Referer: https://hydro.imgw.pl/`
+  - Returns: 900+ stations with lat/lon and water state (alarm, warning, high, medium, low, etc.)
 
 ### Station Pages
 - **Hydro**: `https://hydro.imgw.pl/#/station/hydro/{station_id}`
@@ -193,8 +198,8 @@ No data is stored on our server - station lists are fetched directly from IMGW.
 | `/stations` | Stations list page (data from IMGW CSV) |
 | `/stations/hydro` | Hydro stations partial (HTMX) |
 | `/stations/meteo` | Meteo stations partial (HTMX) |
-| `/map` | Interactive map with stations (Leaflet) |
-| `/map/stations` | JSON endpoint for map markers (from IMGW API) |
+| `/map` | Interactive map with stations (Leaflet, color-coded by water state) |
+| `/map/stations` | JSON endpoint for map markers (from hydro-back.imgw.pl, includes water state) |
 
 ## CLI Commands
 
@@ -346,3 +351,15 @@ Query: station X, years 2020-2023
 - **Delimiter**: Semicolon (`;`)
 - **Missing data codes**: `9999` (water level), `99999.999` (flow), `99.9` (temperature)
 - **Hydrological year**: November 1 - October 31 (month 1 = November)
+
+---
+
+## Additional Documentation
+
+Detailed project documentation is available in the `docs/` folder:
+
+| File | Description |
+|------|-------------|
+| `docs/ARCHITECTURE.md` | Detailed system architecture and component diagrams |
+| `docs/PRD.md` | Product Requirements Document - project goals and requirements |
+| `docs/RULES.md` | Development rules and conventions |

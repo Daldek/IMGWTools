@@ -169,7 +169,8 @@ The following are explicitly out of scope for this project:
 - Raster processing
 - Stream data processing
 - User authentication/accounts
-- Data storage/caching
+
+**Note:** Optional SQLite caching for hydrological data has been implemented (`IMGW_DB_ENABLED=true`).
 
 ---
 

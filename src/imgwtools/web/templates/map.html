@@ -12,7 +12,7 @@
         border-radius: var(--pico-border-radius);
     }
     .station-popup {
-        min-width: 200px;
+        min-width: 220px;
     }
     .station-popup h4 {
         margin: 0 0 0.5rem 0;
@@ -26,6 +26,52 @@
     .station-popup dd {
         margin: 0 0 0.25rem 0;
     }
+    .state-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: bold;
+        color: white;
+    }
+    .state-alarm { background-color: #f44336; }
+    .state-warning { background-color: #ff9800; }
+    .state-low, .state-below { background-color: #ffc107; color: #333; }
+    .state-normal { background-color: #4caf50; }
+    .state-unknown { background-color: #2196f3; }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+    .legend-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 2px solid white;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    #stats-bar {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+    .stat-item {
+        padding: 0.5rem 1rem;
+        border-radius: var(--pico-border-radius);
+        background: var(--pico-card-background-color);
+        border: 1px solid var(--pico-muted-border-color);
+    }
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+    .stat-label {
+        font-size: 0.85rem;
+        opacity: 0.8;
+    }
 </style>
 {% endblock %}
 
@@ -36,6 +82,25 @@
         <p>Interaktywna mapa stacji hydrologicznych IMGW</p>
     </hgroup>
 </header>
+
+<div id="stats-bar">
+    <div class="stat-item">
+        <div class="stat-value" id="stat-total">-</div>
+        <div class="stat-label">Stacji</div>
+    </div>
+    <div class="stat-item" style="border-left: 4px solid #f44336;">
+        <div class="stat-value" id="stat-alarm">-</div>
+        <div class="stat-label">Alarm</div>
+    </div>
+    <div class="stat-item" style="border-left: 4px solid #ff9800;">
+        <div class="stat-value" id="stat-warning">-</div>
+        <div class="stat-label">Ostrzeżenie</div>
+    </div>
+    <div class="stat-item" style="border-left: 4px solid #ffc107;">
+        <div class="stat-value" id="stat-below">-</div>
+        <div class="stat-label">Niski stan</div>
+    </div>
+</div>
 
 <article>
     <div id="map"></div>
@@ -49,11 +114,32 @@
 
 <article>
     <header>
-        <h3>Legenda</h3>
+        <h3>Legenda stanów wody</h3>
     </header>
-    <p>
-        <span style="color: #2196F3;">●</span> Stacja hydrologiczna
-    </p>
+    <div class="legend-item">
+        <div class="legend-dot" style="background-color: #f44336;"></div>
+        <span>Alarm powodziowy</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-dot" style="background-color: #ff9800;"></div>
+        <span>Ostrzeżenie / Wysoki</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-dot" style="background-color: #ff5722;"></div>
+        <span>Stan wysoki</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-dot" style="background-color: #4caf50;"></div>
+        <span>Stan średni / normalny</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-dot" style="background-color: #ffc107;"></div>
+        <span>Stan niski / poniżej normy</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-dot" style="background-color: #2196f3;"></div>
+        <span>Brak danych o stanie</span>
+    </div>
 </article>
 {% endblock %}
 
@@ -72,6 +158,51 @@
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
+    // Color mapping for water states
+    const stateColors = {
+        'alarm': '#f44336',
+        'warning': '#ff9800',
+        'high': '#ff5722',
+        'highOutdated': '#ff5722',
+        'medium': '#4caf50',
+        'mediumOutdated': '#4caf50',
+        'low': '#ffc107',
+        'lowOutdated': '#ffc107',
+        'below': '#ffc107',
+        'normal': '#4caf50',
+        'normalOutdated': '#4caf50',
+        'no-water-state-data': '#2196f3',
+        'no-char-states': '#2196f3',
+        'unknown': '#2196f3'
+    };
+
+    // State labels in Polish
+    const stateLabels = {
+        'alarm': 'Alarm',
+        'warning': 'Ostrzeżenie',
+        'high': 'Wysoki',
+        'highOutdated': 'Wysoki (nieaktualny)',
+        'medium': 'Średni',
+        'mediumOutdated': 'Średni (nieaktualny)',
+        'low': 'Niski',
+        'lowOutdated': 'Niski (nieaktualny)',
+        'below': 'Poniżej normy',
+        'normal': 'Normalny',
+        'normalOutdated': 'Normalny (nieaktualny)',
+        'no-water-state-data': 'Brak danych',
+        'no-char-states': 'Brak charakterystyk',
+        'unknown': 'Nieznany'
+    };
+
+    // Get CSS class for state badge
+    function getStateBadgeClass(state) {
+        if (state === 'alarm') return 'state-alarm';
+        if (state === 'warning' || state === 'high' || state === 'highOutdated') return 'state-warning';
+        if (state === 'low' || state === 'lowOutdated' || state === 'below') return 'state-low';
+        if (state === 'medium' || state === 'mediumOutdated' || state === 'normal' || state === 'normalOutdated') return 'state-normal';
+        return 'state-unknown';
+    }
+
     // Load stations from API
     async function loadStations() {
         try {
@@ -83,10 +214,22 @@
                 return;
             }
 
+            // Update stats bar
+            if (data.summary) {
+                document.getElementById('stat-total').textContent = data.summary.total;
+                document.getElementById('stat-alarm').textContent = data.summary.alarm;
+                document.getElementById('stat-warning').textContent = data.summary.warning;
+                document.getElementById('stat-below').textContent = data.summary.below;
+            }
+
             data.stations.forEach(station => {
+                const color = stateColors[station.state] || '#2196f3';
+                const stateLabel = stateLabels[station.state] || station.state;
+                const badgeClass = getStateBadgeClass(station.state);
+
                 const marker = L.circleMarker([station.lat, station.lon], {
                     radius: 8,
-                    fillColor: '#2196F3',
+                    fillColor: color,
                     color: '#fff',
                     weight: 2,
                     opacity: 1,
@@ -99,15 +242,19 @@
                         <dl>
                             <dt>ID stacji</dt>
                             <dd><code>${station.id}</code></dd>
-                            <dt>Rzeka</dt>
-                            <dd>${station.river || '-'}</dd>
-                            ${station.water_level ? `<dt>Stan wody</dt><dd>${station.water_level} cm</dd>` : ''}
+                            <dt>Stan wody</dt>
+                            <dd><span class="state-badge ${badgeClass}">${stateLabel}</span></dd>
                             <dt>Współrzędne</dt>
                             <dd>${station.lat.toFixed(4)}, ${station.lon.toFixed(4)}</dd>
                         </dl>
-                        <button onclick="navigator.clipboard.writeText('${station.id}')" style="margin-top: 0.5rem;">
-                            Kopiuj ID
-                        </button>
+                        <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
+                            <button onclick="navigator.clipboard.writeText('${station.id}')">
+                                Kopiuj ID
+                            </button>
+                            <a href="https://hydro.imgw.pl/#/station/hydro/${station.id}" target="_blank" role="button" class="secondary">
+                                IMGW
+                            </a>
+                        </div>
                     </div>
                 `;
 

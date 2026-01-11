@@ -465,30 +465,47 @@ async def map_stations_data(request: Request):
     """
     Get hydro stations data for map (JSON response for Leaflet).
 
-    Fetches real-time data from IMGW API: https://danepubliczne.imgw.pl/api/data/hydro
-    Returns station ID, name, river, coordinates (lat/lon), and current water level.
+    Fetches data from IMGW hydro-back API (https://hydro-back.imgw.pl).
+    Returns 900+ stations with coordinates and current water state.
+
+    Water states: alarm, warning, high, medium, low, below, normal, unknown, etc.
     """
-    url = build_api_url("hydro")
+    url = "https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=false"
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=30.0)
+            response = await client.get(
+                url,
+                timeout=30.0,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; IMGWTools/1.0)",
+                    "Accept": "application/json",
+                    "Referer": "https://hydro.imgw.pl/",
+                },
+            )
             response.raise_for_status()
             data = response.json()
 
         stations = []
-        for item in data:
-            if item.get("lat") and item.get("lon"):
+        for item in data.get("stations", []):
+            if item.get("la") and item.get("lo"):
                 stations.append({
-                    "id": item.get("id_stacji", ""),
-                    "name": item.get("stacja", ""),
-                    "river": item.get("rzeka", ""),
-                    "lat": float(item["lat"]),
-                    "lon": float(item["lon"]),
-                    "water_level": item.get("stan_wody"),
+                    "id": item.get("id", ""),
+                    "name": item.get("n", ""),
+                    "lat": float(item["la"]),
+                    "lon": float(item["lo"]),
+                    "state": item.get("s", "unknown"),
                 })
 
-        return {"stations": stations}
+        return {
+            "stations": stations,
+            "summary": {
+                "total": len(stations),
+                "alarm": data.get("numOfAlarmStates", 0),
+                "warning": data.get("numOfWarningStates", 0),
+                "below": data.get("numOfBelowStates", 0),
+            },
+        }
 
-    except httpx.HTTPError:
-        return {"stations": [], "error": "Błąd pobierania danych"}
+    except httpx.HTTPError as e:
+        return {"stations": [], "error": f"Błąd pobierania danych: {e}"}
