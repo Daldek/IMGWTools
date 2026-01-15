@@ -54,7 +54,7 @@ async def get_hydro_station(station_id: str):
 
     Pobiera aktualne dane z API IMGW.
     """
-    url = build_api_url("hydro2", station_id=station_id)
+    url = build_api_url("hydro", station_id=station_id)
 
     async with httpx.AsyncClient() as client:
         try:
@@ -86,7 +86,7 @@ async def get_current_hydro_data(
 
     Pobiera dane bezposrednio z API IMGW.
     """
-    url = build_api_url("hydro2", station_id=station_id)
+    url = build_api_url("hydro", station_id=station_id)
 
     async with httpx.AsyncClient() as client:
         try:

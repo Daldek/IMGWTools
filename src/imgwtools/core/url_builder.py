@@ -252,7 +252,7 @@ def build_api_url(
     Build URL for IMGW real-time API.
 
     Args:
-        endpoint: API endpoint (hydro2, synop, meteo, warnings/hydro, warnings/meteo)
+        endpoint: API endpoint (hydro, synop, meteo, warnings/hydro, warnings/meteo)
         station_id: Station ID (optional)
         station_name: Station name (optional, for synop)
 

@@ -109,7 +109,7 @@ class HYDRO(IMGWAPI):
             data_format (str): Format of the data (default is 'json').
         """
         super().__init__()
-        self.url = f"{self.base_url}hydro2"
+        self.url = f"{self.base_url}hydro"
         self.station_id = station_id
         self.data_format = data_format
         self.data = None
