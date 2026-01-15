@@ -1,16 +1,52 @@
+"""
+Legacy IMGW API classes.
+
+.. deprecated:: 2.0.0
+    These classes are deprecated and will be removed in version 3.0.0.
+    Use the new imgwtools functions instead:
+    - HYDRO -> fetch_hydro_current()
+    - SYNOP -> fetch_synop()
+    - METEO -> fetch_synop()
+    - WARNINGS -> fetch_warnings()
+    - PMAXTPAPI -> fetch_pmaxtp()
+
+Example migration:
+    # Old way (deprecated)
+    from imgwtools.core.imgw_api import HYDRO
+    hydro = HYDRO(station_id="150160180")
+    data = hydro.get_hydro_data()
+
+    # New way (recommended)
+    from imgwtools import fetch_hydro_current
+    data = fetch_hydro_current(station_id="150160180")
+"""
+
+import warnings
+
 import requests
 import json
+
+_DEPRECATION_MESSAGE = (
+    "Legacy IMGW API classes (IMGWAPI, HYDRO, SYNOP, METEO, WARNINGS, PMAXTPAPI) "
+    "are deprecated since version 2.0.0 and will be removed in version 3.0.0. "
+    "Use imgwtools.fetch_* functions instead. "
+    "See https://github.com/Daldek/IMGWTools for migration guide."
+)
 
 
 class IMGWAPI:
     """
     A class to interact with the IMGW API to fetch weather and hydrological data.
+
+    .. deprecated:: 2.0.0
+        Use imgwtools.fetch_* functions instead.
     """
 
     def __init__(self):
         """
         Initializes the IMGWAPI instance with the base URL.
         """
+        warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
         self.base_url = "https://danepubliczne.imgw.pl/api/data/"
 
     def establish_connection(self, url):
@@ -190,13 +226,22 @@ class WARNINGS(IMGWAPI):
 
 class PMAXTPAPI:
     """
-    A class to interact with the PMAXTP IMGW's API to fetch theoretical precipitation data
+    A class to interact with the PMAXTP IMGW's API to fetch theoretical precipitation data.
+
+    .. deprecated:: 2.0.0
+        Use imgwtools.fetch_pmaxtp() instead.
     """
 
     def __init__(self, method=None, lon=None, lat=None):
         """
         Initializes the PMAXTPAPI instance with the base URL.
         """
+        warnings.warn(
+            "PMAXTPAPI is deprecated since version 2.0.0. "
+            "Use imgwtools.fetch_pmaxtp() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.base_url = "https://powietrze.imgw.pl/tpmax-api/point/"
         self.method = method
         self.lon = self.format_coordinate(lon)  # Formatowanie długości geograficznej

@@ -4,20 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "imgwtools"
-version = "1.0.0"
-description = "Narzedzie do pobierania danych publicznych z IMGW-PIB"
+version = "2.0.0"
+description = "Python library for accessing IMGW (Polish Institute of Meteorology and Water Management) public data"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
     { name = "Piotr de Bever", email = "piotr@example.com" }
 ]
-keywords = ["imgw", "hydrology", "meteorology", "poland", "weather", "data"]
+keywords = ["imgw", "hydrology", "meteorology", "poland", "weather", "data", "precipitation", "pmaxtp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Environment :: Web Environment",
     "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -25,31 +26,59 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
     "Topic :: Scientific/Engineering :: Hydrology",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Typing :: Typed",
 ]
 
+# Core dependencies - minimal for library usage
 dependencies = [
-    "fastapi>=0.100",
-    "uvicorn[standard]>=0.24",
-    "typer>=0.9",
     "httpx>=0.25",
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-    "jinja2>=3.1",
-    "python-multipart>=0.0.6",
-    "requests>=2.31",
-    "pandas>=2.0",
-    "pyproj>=3.6",
-    "pyshp>=2.3",
-    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
+# REST API server
+api = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.24",
+    "pydantic-settings>=2.0",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.6",
+]
+
+# Command-line interface
+cli = [
+    "typer>=0.9",
+    "rich>=13.0",
+    "pydantic-settings>=2.0",
+]
+
+# SQLite database cache for hydro data
+db = [
+    "pydantic-settings>=2.0",
+]
+
+# Spatial/GIS utilities (pandas, projections, shapefiles)
+spatial = [
+    "pandas>=2.0",
+    "pyproj>=3.6",
+    "pyshp>=2.3",
+]
+
+# Full installation with all features
+full = [
+    "imgwtools[api,cli,db,spatial]",
+]
+
+# Development dependencies
 dev = [
+    "imgwtools[full]",
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "pytest-asyncio>=0.21",
     "ruff>=0.1",
     "mypy>=1.6",
+    "respx>=0.20",
 ]
 
 [project.scripts]
