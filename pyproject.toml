@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "imgwtools"
-version = "2.0.0"
+version = "2.0.1"
 description = "Python library for accessing IMGW (Polish Institute of Meteorology and Water Management) public data"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "Piotr de Bever", email = "piotr@example.com" }
+    { name = "Piotr de Bever", email = "git@debever.pl" }
 ]
 keywords = ["imgw", "hydrology", "meteorology", "poland", "weather", "data", "precipitation", "pmaxtp"]
 classifiers = [
