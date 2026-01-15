@@ -316,6 +316,50 @@ Dane są automatycznie pobierane z IMGW przy pierwszym zapytaniu i cache'owane l
 
 ---
 
+## Testy
+
+Projekt zawiera kompleksowe testy jednostkowe dla publicznego API.
+
+### Uruchamianie testów
+
+```bash
+# Wszystkie testy
+pytest
+
+# Z pokryciem kodu
+pytest --cov=imgwtools
+
+# Verbose
+pytest -v
+```
+
+### Struktura testów
+
+```
+tests/
+├── conftest.py              # Wspólne fixtures
+├── unit/
+│   ├── test_models.py       # Modele danych (17 testów)
+│   ├── test_fetch.py        # Funkcje pobierania (19 testów)
+│   ├── test_stations.py     # Funkcje stacji (17 testów)
+│   └── test_urls.py         # Budowanie URL-i (22 testy)
+└── integration/             # Testy integracyjne (TODO)
+```
+
+### Pokrycie
+
+| Moduł | Pokrycie |
+|-------|----------|
+| `models.py` | 89% |
+| `exceptions.py` | 100% |
+| `urls.py` | 100% |
+| `stations.py` | 59% |
+| `fetch.py` | 45% |
+
+**Łącznie: 75 testów**
+
+---
+
 ## Dokumentacja
 
 - `CLAUDE.md` - Instrukcje dla Claude Code
