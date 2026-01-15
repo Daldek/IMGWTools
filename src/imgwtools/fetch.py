@@ -221,7 +221,7 @@ def fetch_hydro_current(
         >>> warsaw = fetch_hydro_current(station_id="150160180")
         >>> print(f"Water level: {warsaw[0].water_level_cm} cm")
     """
-    url = build_api_url("hydro2", station_id=station_id)
+    url = build_api_url("hydro", station_id=station_id)
 
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -253,7 +253,7 @@ async def fetch_hydro_current_async(
 
     See fetch_hydro_current for full documentation.
     """
-    url = build_api_url("hydro2", station_id=station_id)
+    url = build_api_url("hydro", station_id=station_id)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -304,7 +304,9 @@ def fetch_synop(
         >>> # Get specific station by name
         >>> warszawa = fetch_synop(station_name="Warszawa")
     """
-    url = build_api_url("synop", station_id=station_id, station_name=station_name)
+    # Note: IMGW synop API only supports station_id filter, not station_name
+    # For station_name, we fetch all and filter locally
+    url = build_api_url("synop", station_id=station_id)
 
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -320,9 +322,15 @@ def fetch_synop(
         raw_data = [raw_data]
 
     try:
-        return [SynopData.from_api_response(item) for item in raw_data]
+        results = [SynopData.from_api_response(item) for item in raw_data]
     except Exception as e:
         raise IMGWDataError(f"Failed to parse synop response: {e}") from e
+
+    # Filter by station_name if provided
+    if station_name:
+        results = [s for s in results if station_name.lower() in s.station_name.lower()]
+
+    return results
 
 
 async def fetch_synop_async(
@@ -336,7 +344,7 @@ async def fetch_synop_async(
 
     See fetch_synop for full documentation.
     """
-    url = build_api_url("synop", station_id=station_id, station_name=station_name)
+    url = build_api_url("synop", station_id=station_id)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -352,9 +360,14 @@ async def fetch_synop_async(
         raw_data = [raw_data]
 
     try:
-        return [SynopData.from_api_response(item) for item in raw_data]
+        results = [SynopData.from_api_response(item) for item in raw_data]
     except Exception as e:
         raise IMGWDataError(f"Failed to parse synop response: {e}") from e
+
+    if station_name:
+        results = [s for s in results if station_name.lower() in s.station_name.lower()]
+
+    return results
 
 
 def fetch_warnings(
