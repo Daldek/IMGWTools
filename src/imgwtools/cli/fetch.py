@@ -302,7 +302,7 @@ def fetch_current(
     import json
 
     endpoints = {
-        "hydro": "hydro2",
+        "hydro": "hydro",
         "meteo": "meteo",
         "synop": "synop",
     }
