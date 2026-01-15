@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-IMGWTools is a Python tool for downloading public data from IMGW (Polish Institute of Meteorology and Water Management). It provides three interfaces:
+IMGWTools is a Python library and tools for downloading public data from IMGW (Polish Institute of Meteorology and Water Management). It provides four interfaces:
+- **Python Library** - `pip install imgwtools` for integration with other projects
 - **CLI** - Command-line tool for local data downloading
 - **REST API** - FastAPI-based API for generating download URLs
 - **Web GUI** - HTMX + Jinja2 web interface
@@ -12,6 +13,27 @@ IMGWTools is a Python tool for downloading public data from IMGW (Polish Institu
 **Key principle:** Data is NEVER stored on the server by default. The service generates direct links to IMGW servers, and users download data directly from IMGW.
 
 **Optional feature:** SQLite database caching for hydrological data. When enabled (`IMGW_DB_ENABLED=true`), data is cached locally using lazy loading for efficient repeated queries.
+
+**Version:** 2.0.0
+
+## Installation
+
+```bash
+# Core library only (httpx, pydantic)
+pip install imgwtools
+
+# With CLI
+pip install imgwtools[cli]
+
+# With REST API server
+pip install imgwtools[api]
+
+# Full installation
+pip install imgwtools[full]
+
+# For development
+pip install -e ".[dev]"
+```
 
 ## Commands
 
@@ -59,7 +81,17 @@ imgw db vacuum                                 # Optimize database
 
 ```
 src/imgwtools/
-├── api/                  # FastAPI REST API
+├── __init__.py           # PUBLIC API - main entry point with exports
+├── _version.py           # Version: 2.0.0
+├── fetch.py              # PUBLIC: Data fetching (fetch_pmaxtp, fetch_hydro_current, etc.)
+├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, etc.)
+├── stations.py           # PUBLIC: Station functions (list_hydro_stations, etc.)
+├── exceptions.py         # PUBLIC: Exceptions (IMGWError, IMGWConnectionError, etc.)
+├── urls.py               # PUBLIC: Re-exports from core/url_builder.py
+├── parsers.py            # PUBLIC: Re-exports from db/parsers.py
+├── config.py             # Settings (pydantic-settings)
+│
+├── api/                  # FastAPI REST API [optional: imgwtools[api]]
 │   ├── main.py           # App entry point
 │   ├── routes/           # Endpoint handlers
 │   │   ├── hydro.py      # Hydrological data
@@ -67,30 +99,78 @@ src/imgwtools/
 │   │   ├── download.py   # Unified URL generation
 │   │   └── pmaxtp.py     # Max precipitation
 │   └── schemas.py        # Pydantic models
-├── cli/                  # Typer CLI
+├── cli/                  # Typer CLI [optional: imgwtools[cli]]
 │   ├── main.py           # Entry point (imgw command)
-│   ├── fetch.py          # Download commands (hydro, meteo, current, pmaxtp, warnings)
-│   ├── list_cmd.py       # Listing commands (stations, datasets, intervals)
-│   ├── admin.py          # API key management (keys, create, revoke, delete, stats)
-│   └── db.py             # Database management commands
-├── db/                   # SQLite cache for hydro data (optional)
+│   ├── fetch.py          # Download commands
+│   ├── list_cmd.py       # Listing commands
+│   ├── admin.py          # API key management
+│   └── db.py             # Database management
+├── db/                   # SQLite cache [optional: imgwtools[db]]
 │   ├── connection.py     # SQLite connection manager
 │   ├── schema.py         # DDL and migrations
 │   ├── models.py         # Pydantic models for records
 │   ├── repository.py     # Data access layer
 │   ├── cache_manager.py  # Lazy loading logic
 │   └── parsers.py        # CSV parsing from ZIP files
-├── core/                 # Core logic
+├── core/                 # Internal core logic
 │   ├── url_builder.py    # URL generation (key module!)
-│   ├── imgw_api.py       # Legacy IMGW API classes
+│   ├── imgw_api.py       # Legacy API classes (DEPRECATED)
 │   ├── imgw_datastore.py # Legacy downloader
 │   └── imgw_spatial.py   # Spatial utilities
-├── web/                  # Web GUI (HTMX + Jinja2)
-│   ├── app.py            # Web routes
-│   ├── templates/        # Jinja2 templates
-│   └── static/           # CSS, JavaScript
-└── config.py             # Settings (pydantic-settings)
+└── web/                  # Web GUI (HTMX + Jinja2)
+    ├── app.py            # Web routes
+    ├── templates/        # Jinja2 templates
+    └── static/           # CSS, JavaScript
 ```
+
+### Public Library API
+
+The public API is exposed via `from imgwtools import ...`:
+
+**Data Fetching Functions:**
+| Function | Description |
+|----------|-------------|
+| `fetch_pmaxtp(lat, lon, method)` | Get PMAXTP precipitation data |
+| `fetch_pmaxtp_async(...)` | Async version |
+| `fetch_hydro_current(station_id)` | Get current hydro data |
+| `fetch_synop(station_id, station_name)` | Get current synop data |
+| `fetch_warnings(warning_type)` | Get weather/hydro warnings |
+| `download_hydro_data(interval, year, month)` | Download archive ZIP as bytes |
+| `download_meteo_data(interval, subtype, year)` | Download meteo archive |
+
+**Station Functions:**
+| Function | Description |
+|----------|-------------|
+| `list_hydro_stations()` | List stations from IMGW CSV |
+| `get_hydro_stations_with_coords()` | Get stations with lat/lon from hydro-back.imgw.pl |
+| `list_meteo_stations()` | List meteo stations |
+
+**Data Models:**
+| Model | Description |
+|-------|-------------|
+| `PMaXTPData` | Precipitation quantiles (ks, sg, rb) with `get_precipitation(duration, prob)` |
+| `PMaXTPResult` | Complete PMAXTP result with metadata |
+| `HydroCurrentData` | Current hydro measurement |
+| `SynopData` | Current synop measurement |
+| `WarningData` | Weather/hydro warning |
+| `HydroStation` | Station with coordinates and water_state |
+
+**Exceptions:**
+| Exception | Description |
+|-----------|-------------|
+| `IMGWError` | Base exception |
+| `IMGWConnectionError` | Connection/timeout errors |
+| `IMGWDataError` | Data parsing errors |
+| `IMGWValidationError` | Input validation errors (e.g., coords outside Poland) |
+
+**Parsers:**
+| Function | Description |
+|----------|-------------|
+| `parse_zip_file(zip_data, interval)` | Parse downloaded ZIP file |
+| `parse_daily_csv(content)` | Parse daily CSV |
+| `parse_monthly_csv(content)` | Parse monthly CSV |
+| `parse_stations_csv(content)` | Parse station list CSV |
+| `IMGW_ENCODING` | CP1250 encoding constant |
 
 ### Key Module: `url_builder.py`
 

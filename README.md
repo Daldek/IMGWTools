@@ -1,6 +1,6 @@
 # IMGWTools - Narzędzie do pobierania danych IMGW
 
-Narzędzie do pobierania danych publicznych z Instytutu Meteorologii i Gospodarki Wodnej (IMGW-PIB). Dane pochodzą z serwisu [IMGW Dane Publiczne](https://danepubliczne.imgw.pl/).
+Biblioteka Python i narzędzia do pobierania danych publicznych z Instytutu Meteorologii i Gospodarki Wodnej (IMGW-PIB). Dane pochodzą z serwisu [IMGW Dane Publiczne](https://danepubliczne.imgw.pl/).
 
 Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAXTP) z serwisu [IMGW Klimat](https://klimat.imgw.pl/opady-maksymalne/).
 
@@ -8,48 +8,159 @@ Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAX
 
 ## Funkcjonalności
 
-1. **Trzy interfejsy dostępu**:
-   - **CLI** - narzędzie linii poleceń do pobierania danych
-   - **REST API** - FastAPI z dokumentacją OpenAPI/Swagger
-   - **Web GUI** - interfejs webowy z mapą interaktywną
+- **Biblioteka Python** - `pip install imgwtools` do integracji z innymi projektami
+- **CLI** - narzędzie linii poleceń do pobierania danych
+- **REST API** - FastAPI z dokumentacją OpenAPI/Swagger
+- **Web GUI** - interfejs webowy z mapą interaktywną
 
-2. **Pobieranie danych**:
-   - Aktualne dane meteorologiczne i hydrologiczne przez API IMGW
-   - Historyczne dane archiwalne (ZIP/CSV)
-   - Ostrzeżenia hydrologiczne i meteorologiczne
-   - Dane PMAXTP (opady maksymalne prawdopodobne)
+**Obsługiwane dane:**
+- Aktualne dane meteorologiczne i hydrologiczne przez API IMGW
+- Historyczne dane archiwalne (ZIP/CSV)
+- Ostrzeżenia hydrologiczne i meteorologiczne
+- Dane PMAXTP (opady maksymalne prawdopodobne)
+- Lista stacji z koordynatami
 
-3. **Kluczowa zasada**:
-   - Dane NIE są przechowywane na serwerze (domyślnie)
-   - Generowane są bezpośrednie linki do serwerów IMGW
+**Kluczowa zasada:** Dane NIE są przechowywane na serwerze (domyślnie) - generowane są bezpośrednie linki do serwerów IMGW.
 
-4. **Opcjonalne cache'owanie** (dane hydrologiczne):
-   - SQLite database dla danych historycznych
-   - Lazy loading - dane pobierane przy pierwszym zapytaniu
-   - Włączane przez `IMGW_DB_ENABLED=true`
+**Opcjonalne cache'owanie** (dane hydrologiczne):
+- SQLite database dla danych historycznych
+- Lazy loading - dane pobierane przy pierwszym zapytaniu
+- Włączane przez `IMGW_DB_ENABLED=true`
 
 ---
 
 ## Instalacja
 
 ```bash
-# Klonowanie repozytorium
+# Tylko biblioteka (minimalne zależności: httpx, pydantic)
+pip install imgwtools
+
+# Z CLI
+pip install imgwtools[cli]
+
+# Z REST API
+pip install imgwtools[api]
+
+# Pełna instalacja (CLI + API + DB + spatial)
+pip install imgwtools[full]
+
+# Dla deweloperów (z repozytorium)
 git clone https://github.com/Daldek/IMGWTools.git
 cd IMGWTools
-
-# Utworzenie środowiska wirtualnego
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Instalacja pakietu
 pip install -e ".[dev]"
 ```
 
 ---
 
-## Szybki start
+## Użycie jako biblioteka Python
 
-### CLI
+IMGWTools można używać jako biblioteki w innych projektach Python (np. HydroLOG).
+
+### Dane PMAXTP (opady maksymalne prawdopodobne)
+
+```python
+from imgwtools import fetch_pmaxtp
+
+# Pobierz dane dla Warszawy
+result = fetch_pmaxtp(latitude=52.23, longitude=21.01, method="POT")
+
+# Opad 15-minutowy z prawdopodobieństwem 50%
+precip = result.data.get_precipitation(15, 50)
+print(f"Opad 15-min, p=50%: {precip} mm")  # 13.34 mm
+
+# Dostępne czasy trwania: 5, 10, 15, 30, 45, 60, 90, 120, 180... minut
+# Dostępne prawdopodobieństwa: 1, 2, 5, 10, 20, 50... %
+```
+
+### Aktualne dane hydrologiczne
+
+```python
+from imgwtools import fetch_hydro_current
+
+# Wszystkie stacje
+stations = fetch_hydro_current()
+print(f"Liczba stacji: {len(stations)}")
+
+# Konkretna stacja
+data = fetch_hydro_current(station_id="150160180")
+print(f"Stan wody: {data[0].water_level_cm} cm")
+```
+
+### Aktualne dane synoptyczne
+
+```python
+from imgwtools import fetch_synop
+
+# Wszystkie stacje synoptyczne
+stations = fetch_synop()
+
+# Po nazwie
+warszawa = fetch_synop(station_name="Warszawa")
+print(f"Temperatura: {warszawa[0].temperature_c}°C")
+```
+
+### Lista stacji z koordynatami
+
+```python
+from imgwtools import get_hydro_stations_with_coords
+
+# Pobierz stacje z API hydro-back.imgw.pl
+stations = get_hydro_stations_with_coords()
+print(f"Liczba stacji: {len(stations)}")
+
+# Filtruj stacje w stanie alarmowym
+alarmed = [s for s in stations if s.water_state == "alarm"]
+for s in alarmed:
+    print(f"{s.name}: {s.latitude}, {s.longitude}")
+```
+
+### Pobieranie danych archiwalnych
+
+```python
+from imgwtools import download_hydro_data, parse_zip_file
+
+# Pobierz dane dobowe za 2023 rok
+zip_data = download_hydro_data("dobowe", 2023)
+
+# Parsuj dane
+for station, record in parse_zip_file(zip_data, "dobowe"):
+    print(f"{station.name}: {record.water_level_cm} cm ({record.measurement_date})")
+```
+
+### Wersja asynchroniczna
+
+```python
+import asyncio
+from imgwtools import fetch_pmaxtp_async, fetch_hydro_current_async
+
+async def main():
+    # Równoległe zapytania
+    pmaxtp, hydro = await asyncio.gather(
+        fetch_pmaxtp_async(52.23, 21.01),
+        fetch_hydro_current_async()
+    )
+    print(f"PMAXTP: {pmaxtp.data.get_precipitation(15, 50)} mm")
+    print(f"Stacje hydro: {len(hydro)}")
+
+asyncio.run(main())
+```
+
+### Obsługa błędów
+
+```python
+from imgwtools import fetch_pmaxtp, IMGWConnectionError, IMGWValidationError
+
+try:
+    result = fetch_pmaxtp(52.23, 21.01)
+except IMGWValidationError as e:
+    print(f"Błąd walidacji: {e}")  # np. koordynaty poza Polską
+except IMGWConnectionError as e:
+    print(f"Błąd połączenia: {e}")  # np. timeout, błąd serwera
+```
+
+---
+
+## Szybki start (CLI)
 
 ```bash
 # Uruchom serwer API
