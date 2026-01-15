@@ -434,6 +434,37 @@ Query: station X, years 2020-2023
 
 ---
 
+## Testing
+
+The project includes comprehensive unit tests for the public API.
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=imgwtools
+
+# Run specific test file
+pytest tests/unit/test_models.py -v
+```
+
+### Test Structure
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `tests/conftest.py` | - | Shared fixtures (API responses, CSV data) |
+| `tests/unit/test_models.py` | 17 | PMaXTPData, HydroCurrentData, SynopData, WarningData |
+| `tests/unit/test_fetch.py` | 19 | fetch_pmaxtp, fetch_hydro_current, fetch_synop |
+| `tests/unit/test_stations.py` | 17 | list_hydro_stations, get_hydro_stations_with_coords |
+| `tests/unit/test_urls.py` | 22 | build_hydro_url, build_meteo_url, build_pmaxtp_url |
+
+**Total: 75 tests**
+
+---
+
 ## Additional Documentation
 
 Detailed project documentation is available in the `docs/` folder:
