@@ -2,26 +2,32 @@
 
 ## 1. Architecture Model
 
-System consists of three main components:
+System consists of four main components:
 
-1. **Backend (FastAPI)**
+1. **Python Library** (v2.0.0)
+   - `pip install imgwtools` for integration with external projects
+   - Sync and async functions for data fetching
+   - Pydantic models for type-safe data access
+   - Minimal dependencies (httpx, pydantic)
+
+2. **Backend (FastAPI)** [optional: `imgwtools[api]`]
    - URL generation for IMGW data downloads
    - Proxy for real-time IMGW API data
    - REST API for external integrations
    - Rate limiting via Nginx
 
-2. **Frontend Web (GUI)**
+3. **Frontend Web (GUI)**
    - HTMX + Jinja2 templates
    - Interactive forms for data downloads
    - Station listings and search
    - Interactive map with Leaflet.js
 
-3. **CLI**
+4. **CLI** [optional: `imgwtools[cli]`]
    - Local client using core library directly
    - Data downloading to local filesystem
    - API key management
 
-4. **Database Cache** (optional)
+5. **Database Cache** [optional: `imgwtools[db]`]
    - SQLite-based caching for hydrological data
    - Lazy loading - data fetched on first query
    - Enabled via `IMGW_DB_ENABLED=true`
@@ -246,33 +252,42 @@ Scaling options if needed:
 ```
 IMGWTools/
 ├── src/imgwtools/
-│   ├── api/              # REST API
+│   ├── __init__.py       # PUBLIC API entry point
+│   ├── _version.py       # Version (2.0.0)
+│   ├── fetch.py          # PUBLIC: Data fetching functions
+│   ├── models.py         # PUBLIC: Data models (PMaXTPData, etc.)
+│   ├── stations.py       # PUBLIC: Station functions
+│   ├── exceptions.py     # PUBLIC: Custom exceptions
+│   ├── urls.py           # PUBLIC: URL builder re-exports
+│   ├── parsers.py        # PUBLIC: Parser re-exports
+│   ├── config.py         # Settings
+│   │
+│   ├── api/              # REST API [optional]
 │   │   ├── main.py       # FastAPI app
 │   │   ├── routes/       # Endpoint handlers
 │   │   └── schemas.py    # Pydantic models
-│   ├── cli/              # CLI commands
+│   ├── cli/              # CLI commands [optional]
 │   │   ├── main.py       # Entry point
 │   │   ├── fetch.py      # Download commands
 │   │   ├── list_cmd.py   # Listing commands
 │   │   ├── admin.py      # API key management
 │   │   └── db.py         # Database management
-│   ├── db/               # SQLite cache (optional)
+│   ├── db/               # SQLite cache [optional]
 │   │   ├── connection.py # Connection manager
 │   │   ├── schema.py     # DDL and migrations
 │   │   ├── models.py     # Pydantic models
 │   │   ├── repository.py # Data access layer
 │   │   ├── cache_manager.py # Lazy loading
 │   │   └── parsers.py    # CSV parsing
-│   ├── core/             # Core logic
+│   ├── core/             # Internal core logic
 │   │   ├── url_builder.py    # URL generation
-│   │   ├── imgw_api.py       # Legacy API
+│   │   ├── imgw_api.py       # Legacy API (DEPRECATED)
 │   │   ├── imgw_datastore.py # Legacy downloader
 │   │   └── imgw_spatial.py   # Spatial utils
-│   ├── web/              # Web GUI
-│   │   ├── app.py        # HTMX routes
-│   │   ├── templates/    # Jinja2 templates
-│   │   └── static/       # CSS, JS
-│   └── config.py         # Settings
+│   └── web/              # Web GUI
+│       ├── app.py        # HTMX routes
+│       ├── templates/    # Jinja2 templates
+│       └── static/       # CSS, JS
 ├── docker/               # Docker configuration
 ├── tests/                # Test files
 └── pyproject.toml        # Project configuration
