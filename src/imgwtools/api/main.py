@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from imgwtools.api.routes import hydro, meteo, download, pmaxtp
+from imgwtools.api.routes import download, hydro, meteo, pmaxtp
 from imgwtools.api.schemas import HealthCheck
 from imgwtools.config import settings
 from imgwtools.web.app import router as web_router

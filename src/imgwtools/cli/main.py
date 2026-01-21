@@ -11,7 +11,7 @@ Usage:
 import typer
 from rich.console import Console
 
-from imgwtools.cli import fetch, list_cmd, admin, db
+from imgwtools.cli import admin, db, fetch, list_cmd
 
 # Create main app
 app = typer.Typer(

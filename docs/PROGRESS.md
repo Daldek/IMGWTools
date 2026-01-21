@@ -4,10 +4,10 @@
 
 | Pole | Wartość |
 |------|---------|
-| **Wersja** | 2.0.1 |
+| **Wersja** | 2.1.0 |
 | **Data** | 2026-01-21 |
 | **Gałąź robocza** | master (=slave) |
-| **Python** | >=3.11 |
+| **Python** | >=3.12 |
 
 ---
 
@@ -15,6 +15,7 @@
 
 | Wersja | Data | Zakres |
 |--------|------|--------|
+| v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
 | v2.0.1 | 2026-01 | Fix import error (lazy load db module) |
 | v2.0.0 | 2026-01 | Refaktoring API, nowa architektura |
 | v1.0.0 | 2025-xx | Pierwsze stabilne wydanie |
@@ -46,24 +47,24 @@ IMGWTools jest **biblioteką bazową** używaną przez:
 
 | Problem | Status | Priorytet |
 |---------|--------|-----------|
-| Python `>=3.11` (inne projekty `>=3.12`) | 🟠 Do rozważenia | ŚREDNI |
+| Python `>=3.11` (inne projekty `>=3.12`) | ✅ Naprawione (v2.1.0) | - |
 | Używa `ruff` (inne używają `black+flake8`) | 🟡 Informacyjnie | NISKI |
 | Używa `hatchling` (inne używają `setuptools`) | 🟡 Informacyjnie | NISKI |
-| Brak DEVELOPMENT_STANDARDS.md | 🟡 Backlog | NISKI |
+| Brak DEVELOPMENT_STANDARDS.md | ✅ Naprawione (v2.1.0) | - |
 
 ### Standardy kodu - porównanie
 
 | Aspekt | IMGWTools | Hydrolog | Kartograf | Zgodność |
 |--------|-----------|----------|-----------|----------|
-| Python | >=3.11 | >=3.12 | >=3.12 | ⚠️ |
+| Python | >=3.12 | >=3.12 | >=3.12 | ✅ |
 | Line length | 88 | 88 | 88 | ✅ |
 | Formatter | ruff | black | black | ⚠️ |
 | Build | hatchling | setuptools | setuptools | ⚠️ |
 
 ### Rekomendacje
 
-1. **[ROZWAŻYĆ]** Podnieść Python do `>=3.12` dla spójności z innymi projektami
-2. **[BACKLOG]** Utworzyć DEVELOPMENT_STANDARDS.md (skopiować format z Hydrolog)
+1. ~~**[ROZWAŻYĆ]** Podnieść Python do `>=3.12` dla spójności z innymi projektami~~ ✅ Zrobione (v2.1.0)
+2. ~~**[BACKLOG]** Utworzyć DEVELOPMENT_STANDARDS.md (skopiować format z Hydrolog)~~ ✅ Zrobione (v2.1.0)
 3. **[INFO]** Używanie `ruff` zamiast `black+flake8` jest OK (nowoczesne podejście)
 
 ### Pełna dokumentacja

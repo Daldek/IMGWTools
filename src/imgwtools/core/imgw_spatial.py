@@ -1,8 +1,8 @@
+import matplotlib.pyplot as plt
 import pandas as pd
 import shapefile as shp
+from imgw_api import HYDRO, METEO, SYNOP
 from pyproj import Transformer
-import matplotlib.pyplot as plt
-from imgw_api import HYDRO, SYNOP, METEO
 
 
 class StationMap:
@@ -101,7 +101,7 @@ class StationMap:
                 y = [i[1] for i in shape.shape.points[:]]
                 plt.plot(x, y)
 
-            for index, row in data.iterrows():
+            for _index, row in data.iterrows():
                 if row["X"] != "NA" and row["Y"] != "NA":
                     station_y, station_x = self.reproject_to_epsg2180(
                         float(row["Y"]), float(row["X"])

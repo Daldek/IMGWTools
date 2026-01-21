@@ -2,15 +2,14 @@
 Meteorological data routes.
 """
 
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 from imgwtools.api.schemas import (
+    DownloadURLResponse,
     MeteoCurrentData,
     MeteoDownloadRequest,
-    DownloadURLResponse,
     MultiDownloadURLResponse,
     Station,
     StationList,
@@ -45,8 +44,8 @@ async def list_meteo_stations(
 
 @router.get("/synop", response_model=list[MeteoCurrentData])
 async def get_synop_data(
-    station_id: Optional[str] = Query(None, description="Filter by station ID"),
-    station_name: Optional[str] = Query(None, description="Filter by station name"),
+    station_id: str | None = Query(None, description="Filter by station ID"),
+    station_name: str | None = Query(None, description="Filter by station name"),
 ):
     """
     Dane synoptyczne.
@@ -90,7 +89,7 @@ async def get_synop_data(
 
 @router.get("/current", response_model=list[MeteoCurrentData])
 async def get_current_meteo_data(
-    station_id: Optional[str] = Query(None, description="Filter by station ID"),
+    station_id: str | None = Query(None, description="Filter by station ID"),
 ):
     """
     Aktualne dane meteorologiczne.

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from imgwtools.api.schemas import PMaXTPRequest, PMaXTPMethodEnum
+from imgwtools.api.schemas import PMaXTPRequest
 from imgwtools.core.url_builder import PMaXTPMethod, build_pmaxtp_url
 
 router = APIRouter()
