@@ -471,6 +471,20 @@ Detailed project documentation is available in the `docs/` folder:
 
 | File | Description |
 |------|-------------|
+| `docs/PROGRESS.md` | Progress tracker, cross-project analysis, and backlog |
 | `docs/ARCHITECTURE.md` | Detailed system architecture and component diagrams |
 | `docs/PRD.md` | Product Requirements Document - project goals and requirements |
 | `docs/RULES.md` | Development rules and conventions |
+
+## Cross-Project Integration
+
+IMGWTools is part of a 4-project ecosystem:
+
+```
+HYDROGRAF (main app)
+    ├── IMGWTools ← THIS PROJECT
+    ├── Kartograf
+    └── Hydrolog → IMGWTools (required dependency)
+```
+
+See `docs/PROGRESS.md` for cross-project analysis and integration details.
