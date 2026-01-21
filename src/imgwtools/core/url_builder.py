@@ -7,7 +7,6 @@ This is the core module for generating direct download links to IMGW servers.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class DataType(str, Enum):
@@ -58,7 +57,7 @@ class DownloadURL:
     data_type: str
     interval: str
     year: int
-    month: Optional[int] = None
+    month: int | None = None
 
 
 # Base URLs for IMGW services
@@ -93,8 +92,8 @@ def _get_meteo_folder(year: int) -> str:
 def build_hydro_url(
     interval: HydroInterval,
     year: int,
-    month: Optional[int] = None,
-    param: Optional[HydroParam] = None,
+    month: int | None = None,
+    param: HydroParam | None = None,
 ) -> DownloadURL:
     """
     Build URL for hydrological data download.
@@ -158,7 +157,7 @@ def build_meteo_url(
     interval: MeteoInterval,
     subtype: MeteoSubtype,
     year: int,
-    month: Optional[int] = None,
+    month: int | None = None,
 ) -> DownloadURL:
     """
     Build URL for meteorological data download.
@@ -245,8 +244,8 @@ def build_pmaxtp_url(
 
 def build_api_url(
     endpoint: str,
-    station_id: Optional[str] = None,
-    station_name: Optional[str] = None,
+    station_id: str | None = None,
+    station_name: str | None = None,
 ) -> str:
     """
     Build URL for IMGW real-time API.

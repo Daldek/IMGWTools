@@ -5,16 +5,15 @@ This module provides a unified endpoint for generating download URLs
 for both hydrological and meteorological data.
 """
 
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 from imgwtools.api.schemas import (
+    Dataset,
+    DatasetList,
     DataTypeEnum,
     DownloadURLResponse,
     MultiDownloadURLResponse,
-    Dataset,
-    DatasetList,
 )
 from imgwtools.core.url_builder import (
     DataType,
@@ -86,9 +85,9 @@ async def generate_download_url(
     data_type: DataTypeEnum = Query(..., description="Typ danych: hydro lub meteo"),
     interval: str = Query(..., description="Interwal: dobowe, miesieczne, polroczne_i_roczne, terminowe"),
     year: int = Query(..., ge=1951, le=2024, description="Rok"),
-    month: Optional[int] = Query(None, ge=1, le=13, description="Miesiac (1-12) lub 13 dla zjawisk"),
-    param: Optional[str] = Query(None, description="Parametr dla danych polrocznych: T, Q, H"),
-    subtype: Optional[str] = Query(None, description="Podtyp dla meteo: klimat, opad, synop"),
+    month: int | None = Query(None, ge=1, le=13, description="Miesiac (1-12) lub 13 dla zjawisk"),
+    param: str | None = Query(None, description="Parametr dla danych polrocznych: T, Q, H"),
+    subtype: str | None = Query(None, description="Podtyp dla meteo: klimat, opad, synop"),
 ):
     """
     Generuj link do pobrania danych.
@@ -144,8 +143,8 @@ async def generate_download_urls(
     interval: str = Query(..., description="Interwal danych"),
     start_year: int = Query(..., ge=1951, le=2024, description="Rok poczatkowy"),
     end_year: int = Query(..., ge=1951, le=2024, description="Rok koncowy"),
-    param: Optional[str] = Query(None, description="Parametr dla danych polrocznych hydro: T, Q, H"),
-    subtype: Optional[str] = Query(None, description="Podtyp dla meteo: klimat, opad, synop"),
+    param: str | None = Query(None, description="Parametr dla danych polrocznych hydro: T, Q, H"),
+    subtype: str | None = Query(None, description="Podtyp dla meteo: klimat, opad, synop"),
 ):
     """
     Generuj wiele linkow do pobrania danych.

@@ -2,8 +2,6 @@
 List command for displaying stations and datasets.
 """
 
-from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -25,7 +23,7 @@ def list_stations(
         "--limit", "-l",
         help="Maksymalna liczba wynikow",
     ),
-    search: Optional[str] = typer.Option(
+    search: str | None = typer.Option(
         None,
         "--search", "-s",
         help="Szukaj po nazwie",
@@ -38,15 +36,14 @@ def list_stations(
         imgw list stations --type hydro
         imgw list stations --type meteo --search Warszawa
     """
-    from imgwtools.config import settings
     import pandas as pd
+
+    from imgwtools.config import settings
 
     if data_type == "hydro":
         csv_file = settings.hydro_stations_file
-        columns = ["id", "name", "river"]
     elif data_type == "meteo":
         csv_file = settings.meteo_stations_file
-        columns = ["id", "name"]
     else:
         console.print(f"[red]Nieprawidlowy typ: {data_type}[/red]")
         raise typer.Exit(1)
@@ -89,7 +86,7 @@ def list_stations(
 
 @app.command("datasets")
 def list_datasets(
-    data_type: Optional[str] = typer.Option(
+    data_type: str | None = typer.Option(
         None,
         "--type", "-t",
         help="Filtruj po typie: hydro lub meteo",

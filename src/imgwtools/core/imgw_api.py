@@ -21,10 +21,10 @@ Example migration:
     data = fetch_hydro_current(station_id="150160180")
 """
 
+import json
 import warnings
 
 import requests
-import json
 
 _DEPRECATION_MESSAGE = (
     "Legacy IMGW API classes (IMGWAPI, HYDRO, SYNOP, METEO, WARNINGS, PMAXTPAPI) "

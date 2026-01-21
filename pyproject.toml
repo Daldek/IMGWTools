@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "imgwtools"
-version = "2.0.1"
+version = "2.1.0"
 description = "Python library for accessing IMGW (Polish Institute of Meteorology and Water Management) public data"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "Piotr de Bever", email = "git@debever.pl" }
 ]
@@ -22,8 +22,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
     "Topic :: Scientific/Engineering :: Hydrology",
     "Topic :: Scientific/Engineering :: GIS",
@@ -93,8 +93,10 @@ Issues = "https://github.com/Daldek/IMGWTools/issues"
 packages = ["src/imgwtools"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 88
+
+[tool.ruff.lint]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
@@ -106,9 +108,11 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "B008",   # function call in argument defaults (common in FastAPI)
+    "B904",   # raise ... from err (not always needed for HTTP exceptions)
 ]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["imgwtools"]
 
 [tool.pytest.ini_options]
@@ -116,7 +120,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_ignores = true
 disallow_untyped_defs = true

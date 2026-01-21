@@ -6,10 +6,9 @@ and browsing IMGW data.
 """
 
 from pathlib import Path
-from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Request, Query, Form
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -22,7 +21,6 @@ from imgwtools.core.url_builder import (
     build_hydro_url,
     build_meteo_url,
     build_pmaxtp_url,
-    build_api_url,
 )
 
 # Templates directory
@@ -85,7 +83,7 @@ async def generate_hydro_urls(
     interval: str = Form(...),
     start_year: int = Form(...),
     end_year: int = Form(...),
-    param: Optional[str] = Form(None),
+    param: str | None = Form(None),
 ):
     """Generate hydro download URLs (HTMX partial)."""
     urls = []
@@ -318,7 +316,7 @@ async def stations_page(request: Request):
 @router.get("/stations/hydro", response_class=HTMLResponse)
 async def hydro_stations_partial(
     request: Request,
-    search: Optional[str] = Query(None),
+    search: str | None = Query(None),
     limit: int = Query(50),
 ):
     """
@@ -391,7 +389,7 @@ async def hydro_stations_partial(
 @router.get("/stations/meteo", response_class=HTMLResponse)
 async def meteo_stations_partial(
     request: Request,
-    search: Optional[str] = Query(None),
+    search: str | None = Query(None),
     limit: int = Query(50),
 ):
     """

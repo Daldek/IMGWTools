@@ -3,7 +3,6 @@ Pydantic schemas for API request/response models.
 """
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -49,9 +48,9 @@ class Station(BaseModel):
 
     id: str = Field(..., description="Station ID")
     name: str = Field(..., description="Station name")
-    river: Optional[str] = Field(None, description="River name (for hydro stations)")
-    latitude: Optional[float] = Field(None, description="Latitude")
-    longitude: Optional[float] = Field(None, description="Longitude")
+    river: str | None = Field(None, description="River name (for hydro stations)")
+    latitude: float | None = Field(None, description="Latitude")
+    longitude: float | None = Field(None, description="Longitude")
 
 
 class StationList(BaseModel):
@@ -83,8 +82,8 @@ class HydroDownloadRequest(BaseModel):
 
     interval: HydroIntervalEnum
     year: int = Field(..., ge=1951, le=2024)
-    month: Optional[int] = Field(None, ge=1, le=13, description="Month (1-12) or 13 for phenomena")
-    param: Optional[HydroParamEnum] = Field(None, description="Parameter for semi-annual data")
+    month: int | None = Field(None, ge=1, le=13, description="Month (1-12) or 13 for phenomena")
+    param: HydroParamEnum | None = Field(None, description="Parameter for semi-annual data")
 
 
 class MeteoDownloadRequest(BaseModel):
@@ -93,7 +92,7 @@ class MeteoDownloadRequest(BaseModel):
     interval: MeteoIntervalEnum
     subtype: MeteoSubtypeEnum
     year: int = Field(..., ge=2001, le=2024)
-    month: Optional[int] = Field(None, ge=1, le=12)
+    month: int | None = Field(None, ge=1, le=12)
 
 
 class PMaXTPRequest(BaseModel):
@@ -112,7 +111,7 @@ class DownloadURLResponse(BaseModel):
     data_type: str
     interval: str
     year: int
-    month: Optional[int] = None
+    month: int | None = None
 
 
 class MultiDownloadURLResponse(BaseModel):
@@ -128,14 +127,14 @@ class HydroCurrentData(BaseModel):
 
     station_id: str
     station_name: str
-    river: Optional[str] = None
-    province: Optional[str] = None
-    water_level: Optional[float] = None
-    water_level_date: Optional[str] = None
-    flow: Optional[float] = None
-    temperature: Optional[float] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    river: str | None = None
+    province: str | None = None
+    water_level: float | None = None
+    water_level_date: str | None = None
+    flow: float | None = None
+    temperature: float | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class MeteoCurrentData(BaseModel):
@@ -143,13 +142,13 @@ class MeteoCurrentData(BaseModel):
 
     station_id: str
     station_name: str
-    temperature: Optional[float] = None
-    wind_speed: Optional[float] = None
-    wind_direction: Optional[int] = None
-    humidity: Optional[float] = None
-    precipitation: Optional[float] = None
-    pressure: Optional[float] = None
-    measurement_date: Optional[str] = None
+    temperature: float | None = None
+    wind_speed: float | None = None
+    wind_direction: int | None = None
+    humidity: float | None = None
+    precipitation: float | None = None
+    pressure: float | None = None
+    measurement_date: str | None = None
 
 
 class WarningData(BaseModel):
@@ -157,11 +156,11 @@ class WarningData(BaseModel):
 
     id: str
     type: str
-    level: Optional[int] = None
-    region: Optional[str] = None
-    description: Optional[str] = None
-    valid_from: Optional[str] = None
-    valid_to: Optional[str] = None
+    level: int | None = None
+    region: str | None = None
+    description: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
 
 
 # Health check
@@ -177,9 +176,9 @@ class HydroDailyDataPoint(BaseModel):
     """Single daily measurement from cache."""
 
     date: str = Field(..., description="Measurement date (YYYY-MM-DD)")
-    water_level_cm: Optional[float] = Field(None, description="Water level in cm")
-    flow_m3s: Optional[float] = Field(None, description="Discharge in m3/s")
-    water_temp_c: Optional[float] = Field(None, description="Water temperature in Celsius")
+    water_level_cm: float | None = Field(None, description="Water level in cm")
+    flow_m3s: float | None = Field(None, description="Discharge in m3/s")
+    water_temp_c: float | None = Field(None, description="Water temperature in Celsius")
 
 
 class HydroMonthlyDataPoint(BaseModel):
@@ -188,17 +187,17 @@ class HydroMonthlyDataPoint(BaseModel):
     year: int
     month: int
     extremum: str = Field(..., description="'min', 'mean', or 'max'")
-    water_level_cm: Optional[float] = None
-    flow_m3s: Optional[float] = None
-    water_temp_c: Optional[float] = None
+    water_level_cm: float | None = None
+    flow_m3s: float | None = None
+    water_temp_c: float | None = None
 
 
 class HydroDataResponse(BaseModel):
     """Response with cached hydrological data."""
 
     station_id: str
-    station_name: Optional[str] = None
-    river: Optional[str] = None
+    station_name: str | None = None
+    river: str | None = None
     interval: str
     start_year: int
     end_year: int

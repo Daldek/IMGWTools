@@ -2,14 +2,12 @@
 Fetch command for downloading IMGW data.
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from imgwtools.core.url_builder import (
     HydroInterval,
@@ -17,10 +15,10 @@ from imgwtools.core.url_builder import (
     MeteoInterval,
     MeteoSubtype,
     PMaXTPMethod,
+    build_api_url,
     build_hydro_url,
     build_meteo_url,
     build_pmaxtp_url,
-    build_api_url,
 )
 
 app = typer.Typer(help="Pobieranie danych z IMGW")
@@ -81,12 +79,12 @@ def fetch_hydro(
         "--year", "-y",
         help="Rok lub zakres lat (np. 2020 lub 2020-2023)",
     ),
-    month: Optional[int] = typer.Option(
+    month: int | None = typer.Option(
         None,
         "--month", "-m",
         help="Miesiac (1-12) dla danych dobowych, 13 dla zjawisk",
     ),
-    param: Optional[str] = typer.Option(
+    param: str | None = typer.Option(
         None,
         "--param", "-p",
         help="Parametr dla polrocznych: T, Q, H",
@@ -122,7 +120,7 @@ def fetch_hydro(
 
     hydro_param = HydroParam(param) if param else None
 
-    console.print(f"[bold]Pobieranie danych hydrologicznych[/bold]")
+    console.print("[bold]Pobieranie danych hydrologicznych[/bold]")
     console.print(f"Interwal: {interval}")
     console.print(f"Lata: {start_year}-{end_year}")
     console.print(f"Katalog: {output}")
@@ -161,7 +159,7 @@ def fetch_hydro(
                         result = build_hydro_url(hydro_interval, y, param=p)
                         if download_file(result.url, output, result.filename):
                             downloaded += 1
-                    except ValueError as e:
+                    except ValueError:
                         failed += 1
             else:
                 try:
@@ -195,7 +193,7 @@ def fetch_meteo(
         "--year", "-y",
         help="Rok lub zakres lat (np. 2020 lub 2020-2023)",
     ),
-    month: Optional[int] = typer.Option(
+    month: int | None = typer.Option(
         None,
         "--month", "-m",
         help="Miesiac (1-12)",
@@ -230,7 +228,7 @@ def fetch_meteo(
         console.print(f"[red]Nieprawidlowy parametr: {e}[/red]")
         raise typer.Exit(1)
 
-    console.print(f"[bold]Pobieranie danych meteorologicznych[/bold]")
+    console.print("[bold]Pobieranie danych meteorologicznych[/bold]")
     console.print(f"Interwal: {interval}")
     console.print(f"Podtyp: {subtype}")
     console.print(f"Lata: {start_year}-{end_year}")
@@ -258,7 +256,7 @@ def fetch_meteo(
                     result = build_meteo_url(meteo_interval, meteo_subtype, y, m)
                     if download_file(result.url, output, result.filename):
                         downloaded += 1
-                except ValueError as e:
+                except ValueError:
                     failed += 1
         else:
             try:
@@ -281,12 +279,12 @@ def fetch_current(
         ...,
         help="Typ danych: hydro, meteo, synop",
     ),
-    station_id: Optional[str] = typer.Option(
+    station_id: str | None = typer.Option(
         None,
         "--station", "-s",
         help="ID stacji (opcjonalne)",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output", "-o",
         help="Plik wyjsciowy (JSON)",
@@ -352,7 +350,7 @@ def fetch_pmaxtp(
         "--lon",
         help="Dlugosc geograficzna",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output", "-o",
         help="Plik wyjsciowy (JSON)",
@@ -374,7 +372,7 @@ def fetch_pmaxtp(
 
     url = build_pmaxtp_url(pmaxtp_method, lat, lon)
 
-    console.print(f"[bold]Pobieranie danych PMAXTP[/bold]")
+    console.print("[bold]Pobieranie danych PMAXTP[/bold]")
     console.print(f"Metoda: {method}")
     console.print(f"Lokalizacja: {lat}, {lon}")
     console.print(f"URL: {url}")
@@ -405,7 +403,7 @@ def fetch_warnings(
         "--type", "-t",
         help="Typ ostrzezen: hydro lub meteo",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output", "-o",
         help="Plik wyjsciowy (JSON)",

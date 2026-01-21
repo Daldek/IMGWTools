@@ -5,8 +5,6 @@ Admin commands for API key management.
 import json
 import secrets
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -23,7 +21,7 @@ def load_api_keys() -> dict:
     if not settings.api_keys_file.exists():
         return {"keys": []}
 
-    with open(settings.api_keys_file, "r", encoding="utf-8") as f:
+    with open(settings.api_keys_file, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -182,7 +180,7 @@ def delete_key(
 
 @app.command("stats")
 def key_stats(
-    key_id: Optional[str] = typer.Argument(
+    key_id: str | None = typer.Argument(
         None,
         help="ID klucza (opcjonalne)",
     ),
