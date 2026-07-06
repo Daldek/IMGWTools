@@ -14,7 +14,7 @@ IMGWTools is a Python library and tools for downloading public data from IMGW (P
 
 **Optional feature:** SQLite database caching for hydrological data. When enabled (`IMGW_DB_ENABLED=true`), data is cached locally using lazy loading for efficient repeated queries.
 
-**Version:** 2.0.0
+**Version:** 2.1.1
 
 ## Installation
 
@@ -82,7 +82,7 @@ imgw db vacuum                                 # Optimize database
 ```
 src/imgwtools/
 ├── __init__.py           # PUBLIC API - main entry point with exports
-├── _version.py           # Version: 2.0.0
+├── _version.py           # Version: 2.1.1
 ├── fetch.py              # PUBLIC: Data fetching (fetch_pmaxtp, fetch_hydro_current, etc.)
 ├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, etc.)
 ├── stations.py           # PUBLIC: Station functions (list_hydro_stations, etc.)
@@ -341,17 +341,18 @@ Requires `IMGW_DB_ENABLED=true` environment variable.
 - `miesieczne` (monthly): `mies_{year}.zip`
 - `polroczne_i_roczne` (semi-annual): `polr_{param}_{year}.zip` (param: T, Q, H)
 
-### Meteorological data (1951-current)
+### Meteorological data (1950-current)
 
-**Years 1951-2000:**
-- Folder structure: 5-year folders (e.g., `1951_1955`, `1956_1960`, ..., `1996_2000`)
-- File format: `{year}_{subtype}.zip` (yearly files, no monthly split)
+Real IMGW layout, verified against live server listings (2026-07-05):
 
-**Years 2001+:**
-- Folder structure: yearly folders (e.g., `2023`)
-- `dobowe` (daily): `{year}_{month:02d}_{subtype}.zip`
-- `miesieczne` (monthly): `{year}_m_{subtype}.zip`
-- `terminowe` (hourly): `{year}_{month:02d}_{subtype}.zip`
+**Folders:** 5-year ranges until 2000 (e.g. `1996_2000`), yearly from 2001 (e.g. `2023`).
+First folder differs per subtype: klimat `1951_1955`, opad `1950_1955`, synop `1960_1965` (six years); from `1966_1970` all subtypes share the same grid.
+
+**Files per interval/subtype:**
+- `miesieczne` (all subtypes): ONE file per folder — `{folder}_m_{k|o|s}.zip` (e.g. `1996_2000_m_s.zip`, `2023_m_s.zip`)
+- `dobowe`/`terminowe` klimat & opad: yearly `{year}_{k|o}.zip` until 2000, monthly `{year}_{month:02d}_{k|o}.zip` from 2001
+- `dobowe`/`terminowe` synop: PER-STATION files `{folder}_{station}_s.zip` — `build_meteo_url` raises ValueError (not supported)
+- `terminowe` opad: dataset does not exist — `build_meteo_url` raises ValueError
 
 **Subtypes:** `k` (klimat), `o` (opad), `s` (synop)
 
@@ -427,8 +428,11 @@ Query: station X, years 2020-2023
 
 ### IMGW CSV Format Notes
 
-- **Encoding**: CP1250 (Polish Windows encoding)
-- **Delimiter**: Semicolon (`;`)
+Archive files are inconsistent between years — parsers auto-detect the format per file:
+
+- **Encoding**: CP1250 (Polish Windows encoding) for most archives; `codz_2023.zip` is UTF-8 with BOM (auto-detected)
+- **Delimiter**: comma with quoted fields (e.g. 2019-2022, 2024) or semicolon (e.g. 2023) — auto-detected from the first line
+- **Quoting**: daily/monthly 2024 files wrap whole lines in outer quotes with doubled inner quotes (auto-unwrapped); some files carry a header row of column codes (skipped)
 - **Missing data codes**: `9999` (water level), `99999.999` (flow), `99.9` (temperature)
 - **Hydrological year**: November 1 - October 31 (month 1 = November)
 
@@ -440,15 +444,25 @@ The project includes comprehensive unit tests for the public API.
 
 ### Running Tests
 
+Always run tests and lint through the project venv — the global (pyenv) Python has an
+older non-editable `imgwtools` installed, which shadows the local `src/` and breaks
+test collection.
+
 ```bash
 # Run all tests
-pytest
+.venv/bin/python -m pytest
 
 # Run with coverage
-pytest --cov=imgwtools
+.venv/bin/python -m pytest --cov=imgwtools
 
 # Run specific test file
-pytest tests/unit/test_models.py -v
+.venv/bin/python -m pytest tests/unit/test_models.py -v
+
+# Lint
+.venv/bin/ruff check src/ tests/
+
+# Type check (pyright reads [tool.pyright] in pyproject.toml; legacy core/ modules excluded)
+npx -y pyright src/imgwtools/
 ```
 
 ### Test Structure
@@ -458,10 +472,11 @@ pytest tests/unit/test_models.py -v
 | `tests/conftest.py` | - | Shared fixtures (API responses, CSV data) |
 | `tests/unit/test_models.py` | 17 | PMaXTPData, HydroCurrentData, SynopData, WarningData |
 | `tests/unit/test_fetch.py` | 19 | fetch_pmaxtp, fetch_hydro_current, fetch_synop |
+| `tests/unit/test_parsers.py` | 28 | CSV parsers: delimiter/encoding/quoting detection |
 | `tests/unit/test_stations.py` | 17 | list_hydro_stations, get_hydro_stations_with_coords |
-| `tests/unit/test_urls.py` | 22 | build_hydro_url, build_meteo_url, build_pmaxtp_url |
+| `tests/unit/test_urls.py` | 28 | build_hydro_url, build_meteo_url, build_pmaxtp_url |
 
-**Total: 75 tests**
+**Total: 109 tests**
 
 ---
 

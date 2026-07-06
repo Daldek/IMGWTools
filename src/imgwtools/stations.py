@@ -54,11 +54,11 @@ class HydroStation(BaseModel):
 
     station_id: str = Field(alias="station_code")
     name: str = Field(alias="station_name")
-    river: str | None = Field(None, alias="river_name")
+    river: str | None = Field(default=None, alias="river_name")
     latitude: float | None = None
     longitude: float | None = None
     water_state: str | None = Field(
-        None,
+        default=None,
         description="Current state: alarm, warning, high, medium, low",
     )
 

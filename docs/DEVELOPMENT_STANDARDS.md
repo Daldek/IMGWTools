@@ -205,10 +205,11 @@ tests/
 ├── unit/
 │   ├── test_models.py      # Modele danych
 │   ├── test_fetch.py       # Funkcje fetch_*
+│   ├── test_parsers.py     # Parsery CSV (separator/kodowanie/cudzysłowy)
 │   ├── test_stations.py    # Funkcje list_*
 │   └── test_urls.py        # Funkcje build_*_url
 ├── integration/
-│   └── test_api.py         # Testy endpointów API
+│   └── test_api.py         # Testy endpointów API (TODO)
 └── conftest.py             # Shared fixtures
 ```
 
@@ -247,8 +248,8 @@ def test_pmaxtp_get_precipitation():
 ### 5.4 Pokrycie
 
 ```bash
-# Wymagane: > 70%
-pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=70
+# Wymagane: > 80%
+pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
 ```
 
 ---
@@ -402,8 +403,8 @@ ruff format src/imgwtools/ --check
 # Linting
 ruff check src/imgwtools/
 
-# Type checking
-mypy src/imgwtools/
+# Type checking (config: [tool.pyright] w pyproject.toml)
+npx pyright src/imgwtools/
 ```
 
 ---
@@ -411,10 +412,10 @@ mypy src/imgwtools/
 ## 10. Checklist przed commitem
 
 - [ ] Testy przechodzą (`pytest`)
-- [ ] Pokrycie > 70% (`pytest --cov`)
+- [ ] Pokrycie > 80% (`pytest --cov`)
 - [ ] Formatowanie OK (`ruff format --check`)
 - [ ] Linting OK (`ruff check`)
-- [ ] Type hints OK (`mypy`)
+- [ ] Type hints OK (`pyright`)
 - [ ] Docstrings dla publicznych funkcji/klas
 - [ ] PROGRESS.md zaktualizowany
 

@@ -48,9 +48,9 @@ class Station(BaseModel):
 
     id: str = Field(..., description="Station ID")
     name: str = Field(..., description="Station name")
-    river: str | None = Field(None, description="River name (for hydro stations)")
-    latitude: float | None = Field(None, description="Latitude")
-    longitude: float | None = Field(None, description="Longitude")
+    river: str | None = Field(default=None, description="River name (for hydro stations)")
+    latitude: float | None = Field(default=None, description="Latitude")
+    longitude: float | None = Field(default=None, description="Longitude")
 
 
 class StationList(BaseModel):
@@ -82,8 +82,8 @@ class HydroDownloadRequest(BaseModel):
 
     interval: HydroIntervalEnum
     year: int = Field(..., ge=1951, le=2024)
-    month: int | None = Field(None, ge=1, le=13, description="Month (1-12) or 13 for phenomena")
-    param: HydroParamEnum | None = Field(None, description="Parameter for semi-annual data")
+    month: int | None = Field(default=None, ge=1, le=13, description="Month (1-12) or 13 for phenomena")
+    param: HydroParamEnum | None = Field(default=None, description="Parameter for semi-annual data")
 
 
 class MeteoDownloadRequest(BaseModel):
@@ -92,7 +92,7 @@ class MeteoDownloadRequest(BaseModel):
     interval: MeteoIntervalEnum
     subtype: MeteoSubtypeEnum
     year: int = Field(..., ge=2001, le=2024)
-    month: int | None = Field(None, ge=1, le=12)
+    month: int | None = Field(default=None, ge=1, le=12)
 
 
 class PMaXTPRequest(BaseModel):
@@ -176,9 +176,9 @@ class HydroDailyDataPoint(BaseModel):
     """Single daily measurement from cache."""
 
     date: str = Field(..., description="Measurement date (YYYY-MM-DD)")
-    water_level_cm: float | None = Field(None, description="Water level in cm")
-    flow_m3s: float | None = Field(None, description="Discharge in m3/s")
-    water_temp_c: float | None = Field(None, description="Water temperature in Celsius")
+    water_level_cm: float | None = Field(default=None, description="Water level in cm")
+    flow_m3s: float | None = Field(default=None, description="Discharge in m3/s")
+    water_temp_c: float | None = Field(default=None, description="Water temperature in Celsius")
 
 
 class HydroMonthlyDataPoint(BaseModel):

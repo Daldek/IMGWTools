@@ -226,6 +226,16 @@ async def generate_meteo_urls(
     except ValueError as e:
         errors.append(str(e))
 
+    # Monthly archives before 2001 are one file per 5-year folder,
+    # so consecutive years map to the same URL - deduplicate
+    seen: set[str] = set()
+    unique_urls = []
+    for u in urls:
+        if u["url"] not in seen:
+            seen.add(u["url"])
+            unique_urls.append(u)
+    urls = unique_urls
+
     return templates.TemplateResponse(
         "partials/download_links.html",
         {

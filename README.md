@@ -222,15 +222,25 @@ Każda stacja ma link do oficjalnej strony IMGW: `https://hydro.imgw.pl/#/statio
 - `miesieczne`: pliki roczne
 - `polroczne_i_roczne`: pliki roczne z parametrami T, Q, H
 
-### Dane meteorologiczne (1951-obecnie)
-- **1951-2000**: foldery 5-letnie, pliki roczne
-- **2001+**: foldery roczne, pliki miesięczne
-- Podtypy: klimat, opad, synop
+> **Format CSV:** pliki archiwalne IMGW są niespójne między rocznikami w trzech aspektach:
+> - **separator** — większość roczników używa przecinka z cudzysłowami, część (np. 2023) średnika, a niektóre mają dodatkowy wiersz nagłówka;
+> - **kodowanie** — standardem jest CP1250, ale np. `codz_2023.zip` jest w UTF-8 z BOM;
+> - **cudzysłowy** — pliki dobowe i miesięczne 2024 mają całe wiersze opakowane w cudzysłów (z podwojonymi cudzysłowami wewnątrz).
+>
+> Parsery (`parse_zip_file`) **wykrywają separator, kodowanie i wariant cudzysłowów automatycznie, per plik**. Zweryfikowano na danych rzeczywistych dla roczników 2019-2024 (wszystkie interwały).
+
+### Dane meteorologiczne (1950-obecnie)
+- **do 2000**: foldery 5-letnie; **od 2001**: foldery roczne
+- **miesieczne**: jeden plik na folder (`{folder}_m_{k|o|s}.zip`)
+- **dobowe/terminowe klimat i opad**: pliki roczne (do 2000) lub miesięczne (od 2001)
+- **dobowe/terminowe synop**: pliki per stacja (`{folder}_{kod}_s.zip`) — generator URL zgłasza błąd (użyj interwału miesięcznego)
+- **terminowe opad**: zbiór nie istnieje na serwerze IMGW
+- Siatki folderów różnią się na starcie: klimat od `1951_1955`, opad od `1950_1955`, synop od `1960_1965` (struktura zweryfikowana na serwerach IMGW, 2026-07-05)
 
 ### Źródła danych stacji
 - **Lista stacji hydro**: CSV z `danepubliczne.imgw.pl` (kodowanie CP1250)
 - **Lista stacji meteo**: CSV z `danepubliczne.imgw.pl` (kodowanie CP1250)
-- **Współrzędne dla mapy**: API `danepubliczne.imgw.pl/api/data/hydro`
+- **Współrzędne dla mapy**: API `hydro-back.imgw.pl/map/stations/hydrologic` (900+ stacji ze stanem wody)
 
 ---
 
@@ -304,11 +314,11 @@ imgw db vacuum
 
 ### Obsługiwane interwały
 
-| Interwał | Opis | Parametry |
-|----------|------|-----------|
-| `dobowe` | Dane dzienne | - |
-| `miesieczne` | Dane miesięczne (min/mean/max) | - |
-| `polroczne` | Dane półroczne/roczne | `--param H/Q/T` |
+| Interwał     | Opis                           | Parametry       |
+|--------------|--------------------------------|-----------------|
+| `dobowe`     | Dane dzienne                   | -               |
+| `miesieczne` | Dane miesięczne (min/mean/max) | -               |
+| `polroczne`  | Dane półroczne/roczne          | `--param H/Q/T` |
 
 ### Lazy loading
 
@@ -341,8 +351,9 @@ tests/
 ├── unit/
 │   ├── test_models.py       # Modele danych (17 testów)
 │   ├── test_fetch.py        # Funkcje pobierania (19 testów)
+│   ├── test_parsers.py      # Parsery CSV: separator, kodowanie, cudzysłowy (28 testów)
 │   ├── test_stations.py     # Funkcje stacji (17 testów)
-│   └── test_urls.py         # Budowanie URL-i (22 testy)
+│   └── test_urls.py         # Budowanie URL-i (28 testów)
 └── integration/             # Testy integracyjne (TODO)
 ```
 
@@ -353,10 +364,11 @@ tests/
 | `models.py` | 89% |
 | `exceptions.py` | 100% |
 | `urls.py` | 100% |
+| `db/parsers.py` | 78% |
 | `stations.py` | 59% |
 | `fetch.py` | 45% |
 
-**Łącznie: 75 testów**
+**Łącznie: 109 testów**
 
 ---
 

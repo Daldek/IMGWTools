@@ -153,7 +153,7 @@ imgw admin stats [key_id]
 | No server-side data storage | Implemented | Core design principle |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Partial | Some modules |
-| Unit tests | Partial | Basic tests in `/tests` |
+| Unit tests | Implemented | 109 tests in `/tests/unit` |
 | Integration tests | Not Implemented | - |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
@@ -180,7 +180,7 @@ The following are explicitly out of scope for this project:
 |-----|--------|----------------|
 | API response time (proxied) | < 2s | Met |
 | API documentation completeness | 100% | Met (Swagger) |
-| Test coverage | 80% | Not measured |
+| Test coverage | 80% | Measured (`pytest --cov`) |
 | Stability (no critical bugs) | 30 days | In progress |
 
 ---
@@ -188,7 +188,7 @@ The following are explicitly out of scope for this project:
 ## 10. Versioning
 
 - SemVer for API and CLI/GUI package
-- Current version: 1.0.0
+- Current version: 2.1.1
 
 ---
 
