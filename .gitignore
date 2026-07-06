@@ -1,6 +1,31 @@
+# macOS
+.DS_Store
+
+# Python
 __pycache__/
+*.egg-info/
+
+# Virtual environment
 /.venv/
+.python-version
+
+# IDE
+.vscode/
+
+# Build artifacts
+dist/
+build/
+
+# Tests / coverage
+.coverage
+htmlcov/
+
+# Data files
 /temp/
 /data/downloaded/
-hello-world.py
 *.txt
+
+# Database files
+*.db
+*.db-shm
+*.db-wal

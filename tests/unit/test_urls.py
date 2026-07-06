@@ -5,19 +5,19 @@ Unit tests for imgwtools.urls module (URL builders).
 import pytest
 
 from imgwtools.urls import (
+    IMGW_API_URL,
+    IMGW_PMAXTP_URL,
+    IMGW_PUBLIC_DATA_URL,
+    HydroInterval,
+    HydroParam,
+    MeteoInterval,
+    MeteoSubtype,
+    PMaXTPMethod,
+    build_api_url,
     build_hydro_url,
     build_meteo_url,
     build_pmaxtp_url,
-    build_api_url,
     get_available_years,
-    HydroInterval,
-    MeteoInterval,
-    MeteoSubtype,
-    HydroParam,
-    PMaXTPMethod,
-    IMGW_PUBLIC_DATA_URL,
-    IMGW_API_URL,
-    IMGW_PMAXTP_URL,
 )
 
 
@@ -99,28 +99,66 @@ class TestBuildMeteoUrl:
         assert "klimat" in result.url
         assert "2023_03_k.zip" in result.url
 
-    def test_hourly_opad_url(self):
-        """Test hourly meteo URL for precipitation data."""
+    def test_hourly_klimat_url(self):
+        """Test hourly meteo URL for climate data."""
         result = build_meteo_url(
-            MeteoInterval.HOURLY, MeteoSubtype.PRECIPITATION, 2023, month=7
+            MeteoInterval.HOURLY, MeteoSubtype.CLIMATE, 2023, month=7
         )
 
         assert "terminowe" in result.url
-        assert "opad" in result.url
-        assert "2023_07_o.zip" in result.url
+        assert "klimat" in result.url
+        assert "2023_07_k.zip" in result.url
+
+    def test_hourly_opad_raises(self):
+        """Hourly precipitation dataset does not exist on IMGW servers."""
+        with pytest.raises(ValueError, match="does not exist"):
+            build_meteo_url(
+                MeteoInterval.HOURLY, MeteoSubtype.PRECIPITATION, 2023, month=7
+            )
+
+    def test_daily_synop_raises_per_station(self):
+        """Daily synop archives are per-station files - not supported."""
+        with pytest.raises(ValueError, match="per-station"):
+            build_meteo_url(MeteoInterval.DAILY, MeteoSubtype.SYNOP, 2023, month=6)
 
     def test_old_year_folder_structure(self):
         """Test URL generation for years 1951-2000 (5-year folders)."""
-        result = build_meteo_url(MeteoInterval.DAILY, MeteoSubtype.SYNOP, 1975)
+        result = build_meteo_url(MeteoInterval.MONTHLY, MeteoSubtype.SYNOP, 1975)
 
-        # Should use 5-year range folder
-        assert "1971_1975" in result.url
+        # Should use 5-year range folder with one file per folder
+        assert "1971_1975/1971_1975_m_s.zip" in result.url
 
     def test_old_year_folder_1951(self):
         """Test URL for 1951."""
         result = build_meteo_url(MeteoInterval.DAILY, MeteoSubtype.CLIMATE, 1951)
 
         assert "1951_1955" in result.url
+        assert "1951_k.zip" in result.url
+
+    def test_monthly_old_year_one_file_per_folder(self):
+        """Monthly archives before 2001 are one file per 5-year folder."""
+        result = build_meteo_url(MeteoInterval.MONTHLY, MeteoSubtype.CLIMATE, 1999)
+
+        assert "1996_2000/1996_2000_m_k.zip" in result.url
+
+    def test_opad_first_folder_is_1950_1955(self):
+        """Precipitation grid starts at 1950_1955 (IMGW quirk)."""
+        result = build_meteo_url(
+            MeteoInterval.MONTHLY, MeteoSubtype.PRECIPITATION, 1952
+        )
+
+        assert "1950_1955/1950_1955_m_o.zip" in result.url
+
+    def test_synop_first_folder_is_1960_1965(self):
+        """Synop grid starts at the six-year 1960_1965 folder (IMGW quirk)."""
+        result = build_meteo_url(MeteoInterval.MONTHLY, MeteoSubtype.SYNOP, 1962)
+
+        assert "1960_1965/1960_1965_m_s.zip" in result.url
+
+    def test_synop_before_1960_raises(self):
+        """No synop archives exist before 1960."""
+        with pytest.raises(ValueError, match="1960"):
+            build_meteo_url(MeteoInterval.MONTHLY, MeteoSubtype.SYNOP, 1955)
 
 
 class TestBuildPmaxtpUrl:

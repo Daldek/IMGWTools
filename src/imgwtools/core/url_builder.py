@@ -66,27 +66,39 @@ IMGW_API_URL = "https://danepubliczne.imgw.pl/api/data"
 IMGW_PMAXTP_URL = "https://powietrze.imgw.pl/tpmax-api/point"
 
 
-def _get_meteo_folder(year: int) -> str:
+def _get_meteo_folder(year: int, subtype: MeteoSubtype) -> str:
     """
     Get folder name for meteorological data.
 
     For years 1951-2000: returns 5-year range folder (e.g., "1951_1955", "1956_1960")
     For years 2001+: returns year as string (e.g., "2023")
 
+    The first folder of the grid differs per subtype on IMGW servers
+    (verified against live directory listings):
+    klimat starts at "1951_1955", opad at "1950_1955" and synop at
+    "1960_1965" (six years); from 1966 onward all subtypes share the
+    same "1966_1970", "1971_1975", ... grid.
+
     Args:
         year: Year of data
+        subtype: Data subtype (folder grids differ before 1966)
 
     Returns:
         Folder name for the given year
     """
-    if year <= 2000:
-        # Calculate 5-year range: 1951-1955, 1956-1960, ..., 1996-2000
-        # Start years: 1951, 1956, 1961, ..., 1996
-        start_year = ((year - 1951) // 5) * 5 + 1951
-        end_year = start_year + 4
-        return f"{start_year}_{end_year}"
-    else:
+    if year > 2000:
         return str(year)
+
+    if subtype == MeteoSubtype.PRECIPITATION and year <= 1955:
+        return "1950_1955"
+    if subtype == MeteoSubtype.SYNOP and year <= 1965:
+        return "1960_1965"
+
+    # Standard 5-year grid: 1951-1955, 1956-1960, ..., 1996-2000
+    # Start years: 1951, 1956, 1961, ..., 1996
+    start_year = ((year - 1951) // 5) * 5 + 1951
+    end_year = start_year + 4
+    return f"{start_year}_{end_year}"
 
 
 def build_hydro_url(
@@ -172,39 +184,57 @@ def build_meteo_url(
         DownloadURL with direct link to IMGW server.
 
     Raises:
-        ValueError: If required parameters are missing.
+        ValueError: If required parameters are missing or the requested
+            dataset does not exist on IMGW servers (hourly precipitation;
+            daily/hourly synop, which is published as per-station files).
 
     Note:
-        For years 1951-2000: data in 5-year folders, yearly files (no monthly split).
-        For years 2001+: data in yearly folders, monthly files.
+        Real IMGW folder layout (verified against live server listings):
+        - monthly: one file per folder ("{folder}_m_{k|o|s}.zip") — the
+          folder is a 5-year range until 2000 and the year from 2001;
+        - daily/hourly klimat and opad: yearly files ("{year}_{k|o}.zip")
+          until 2000, monthly files ("{year}_{month:02d}_{k|o}.zip") from 2001;
+        - daily/hourly synop: per-station files ("{folder}_{station}_s.zip")
+          — not supported here;
+        - hourly opad: dataset does not exist.
     """
     base = f"{IMGW_PUBLIC_DATA_URL}/{DataType.METEO.value}"
+
+    # Combinations that do not exist on IMGW servers
+    if interval == MeteoInterval.HOURLY and subtype == MeteoSubtype.PRECIPITATION:
+        raise ValueError(
+            "Hourly (terminowe) precipitation data does not exist on IMGW servers"
+        )
+    if subtype == MeteoSubtype.SYNOP and interval in (
+        MeteoInterval.DAILY,
+        MeteoInterval.HOURLY,
+    ):
+        raise ValueError(
+            "Daily and hourly synop archives are published as per-station files "
+            "(e.g. 2023_100_s.zip); single-URL generation is not supported - "
+            "use the monthly interval instead"
+        )
+    if subtype == MeteoSubtype.SYNOP and year < 1960:
+        raise ValueError("Synop archives are available from 1960 onward")
 
     # Get subtype abbreviation
     subtype_abbr = subtype.value[0]  # k, o, s
 
     # Get folder name (5-year range for 1951-2000, year for 2001+)
-    folder = _get_meteo_folder(year)
+    folder = _get_meteo_folder(year, subtype)
 
-    if year <= 2000:
-        # 1951-2000: yearly files in 5-year folders (no monthly split)
+    if interval == MeteoInterval.MONTHLY:
+        # Monthly: one file per folder, prefixed with the folder name
+        # (e.g. 1996_2000_m_s.zip until 2000, 2023_m_s.zip from 2001)
+        filename = f"{folder}_m_{subtype_abbr}.zip"
+    elif year <= 2000:
+        # Daily/hourly klimat and opad, 1951-2000: yearly files
         filename = f"{year}_{subtype_abbr}.zip"
-    elif interval == MeteoInterval.DAILY:
-        # 2001+: monthly files
+    elif interval in (MeteoInterval.DAILY, MeteoInterval.HOURLY):
+        # Daily/hourly klimat and opad, 2001+: monthly files
         if month is None:
-            raise ValueError("Month is required for daily data from 2001+")
-        month_str = f"{month:02d}"
-        filename = f"{year}_{month_str}_{subtype_abbr}.zip"
-
-    elif interval == MeteoInterval.MONTHLY:
-        filename = f"{year}_m_{subtype_abbr}.zip"
-
-    elif interval == MeteoInterval.HOURLY:
-        if month is None:
-            raise ValueError("Month is required for hourly data from 2001+")
-        month_str = f"{month:02d}"
-        filename = f"{year}_{month_str}_{subtype_abbr}.zip"
-
+            raise ValueError("Month is required for daily/hourly data from 2001+")
+        filename = f"{year}_{month:02d}_{subtype_abbr}.zip"
     else:
         raise ValueError(f"Unknown interval: {interval}")
 

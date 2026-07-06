@@ -26,6 +26,19 @@ Note:
 # Lazy imports to avoid requiring pydantic_settings for core library
 # These are only loaded when actually accessed
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from imgwtools.db.cache_manager import HydroCacheManager, get_cache_manager
+    from imgwtools.db.connection import db_exists, get_db_connection
+    from imgwtools.db.repository import HydroRepository, get_repository
+    from imgwtools.db.schema import (
+        get_cached_years,
+        get_schema_version,
+        get_table_counts,
+        init_db,
+    )
+
 
 def __getattr__(name: str):
     """Lazy import for database components."""

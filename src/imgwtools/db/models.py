@@ -15,9 +15,9 @@ class HydroStation(BaseModel):
 
     station_code: str = Field(..., description="Station code (e.g., '150160180')")
     station_name: str = Field(..., description="Station name")
-    river_name: str | None = Field(None, description="River or lake name")
-    latitude: float | None = Field(None, description="Latitude in decimal degrees")
-    longitude: float | None = Field(None, description="Longitude in decimal degrees")
+    river_name: str | None = Field(default=None, description="River or lake name")
+    latitude: float | None = Field(default=None, description="Latitude in decimal degrees")
+    longitude: float | None = Field(default=None, description="Longitude in decimal degrees")
 
 
 class HydroDailyRecord(BaseModel):
@@ -29,11 +29,11 @@ class HydroDailyRecord(BaseModel):
     hydro_year: int = Field(..., description="Hydrological year (Nov-Oct)")
     hydro_month: int = Field(..., ge=1, le=12, description="Month in hydro year (1=Nov, 12=Oct)")
     day: int = Field(..., ge=1, le=31)
-    calendar_month: int | None = Field(None, ge=1, le=12)
-    water_level_cm: float | None = Field(None, description="Water level in cm")
-    flow_m3s: float | None = Field(None, description="Discharge in m3/s")
-    water_temp_c: float | None = Field(None, description="Water temperature in Celsius")
-    measurement_date: str | None = Field(None, description="Date in YYYY-MM-DD format")
+    calendar_month: int | None = Field(default=None, ge=1, le=12)
+    water_level_cm: float | None = Field(default=None, description="Water level in cm")
+    flow_m3s: float | None = Field(default=None, description="Discharge in m3/s")
+    water_temp_c: float | None = Field(default=None, description="Water temperature in Celsius")
+    measurement_date: str | None = Field(default=None, description="Date in YYYY-MM-DD format")
 
 
 class HydroMonthlyRecord(BaseModel):
@@ -44,7 +44,7 @@ class HydroMonthlyRecord(BaseModel):
     river_name: str | None = None
     hydro_year: int
     hydro_month: int = Field(..., ge=1, le=12)
-    calendar_month: int | None = Field(None, ge=1, le=12)
+    calendar_month: int | None = Field(default=None, ge=1, le=12)
     extremum: str = Field(..., description="'min', 'mean', or 'max'")
     water_level_cm: float | None = None
     flow_m3s: float | None = None

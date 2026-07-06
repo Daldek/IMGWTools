@@ -70,6 +70,78 @@ def _safe_int(value: str) -> int | None:
         return None
 
 
+def _detect_delimiter(content: str) -> str:
+    """
+    Detect the field delimiter used in an IMGW CSV file.
+
+    IMGW hydrological archives are inconsistent between years: most
+    files (e.g. 2019-2022, 2024) use a comma with quoted fields,
+    while others (e.g. 2023) use a semicolon without quotes. The
+    delimiter is inferred from the first non-empty line by comparing
+    how often each candidate appears.
+
+    Args:
+        content: Decoded CSV content.
+
+    Returns:
+        The detected delimiter, either ";" or ",". Semicolon wins
+        ties, matching the historical IMGW default.
+    """
+    first_line = next(
+        (line for line in content.splitlines() if line.strip()),
+        "",
+    )
+    if first_line.count(";") >= first_line.count(","):
+        return ";"
+    return ","
+
+
+def _decode_content(content: bytes, encoding: str) -> str:
+    """
+    Decode raw IMGW CSV bytes, handling encoding drift between years.
+
+    Most archives use CP1250, but some (e.g. the 2023 daily archive
+    ``codz_2023.zip``) are UTF-8 with a BOM. A BOM always wins;
+    otherwise the requested encoding is tried first with a UTF-8
+    fallback.
+
+    Args:
+        content: Raw CSV bytes.
+        encoding: Preferred encoding (default CP1250).
+
+    Returns:
+        Decoded CSV content without a BOM.
+    """
+    if content.startswith(b"\xef\xbb\xbf"):
+        return content.decode("utf-8-sig")
+    try:
+        return content.decode(encoding)
+    except UnicodeDecodeError:
+        return content.decode("utf-8")
+
+
+def _iter_rows(content: str, delimiter: str) -> Iterator[list[str]]:
+    """
+    Iterate CSV rows, unwrapping fully quoted lines.
+
+    In some archives (e.g. daily and monthly 2024) every line is
+    wrapped in an outer pair of quotes with inner quotes doubled,
+    so the standard reader sees the whole line as a single field.
+    Such rows are parsed a second time to recover the real columns.
+
+    Args:
+        content: Decoded CSV content.
+        delimiter: Field delimiter detected for this file.
+
+    Yields:
+        Parsed CSV rows as lists of strings.
+    """
+    for row in csv.reader(io.StringIO(content), delimiter=delimiter):
+        if len(row) == 1 and delimiter in row[0]:
+            row = next(csv.reader(io.StringIO(row[0]), delimiter=delimiter))
+        yield row
+
+
 def parse_daily_csv(
     content: str | bytes,
     encoding: str = IMGW_ENCODING,
@@ -96,13 +168,14 @@ def parse_daily_csv(
     Yields:
         Tuples of (station, daily_record).
     """
-    if isinstance(content, bytes):
-        content = content.decode(encoding)
+    if not isinstance(content, str):
+        content = _decode_content(content, encoding)
+    content = content.lstrip("\ufeff")
 
-    # IMGW CSV files use semicolon as delimiter
-    reader = csv.reader(io.StringIO(content), delimiter=";")
+    # Delimiter and quoting vary between IMGW yearly archives
+    delimiter = _detect_delimiter(content)
 
-    for row in reader:
+    for row in _iter_rows(content, delimiter):
         if len(row) < 9:
             continue
 
@@ -115,7 +188,7 @@ def parse_daily_csv(
             hydro_month = _safe_int(row[4])
             day = _safe_int(row[5])
 
-            if not all([hydro_year, hydro_month, day]):
+            if not hydro_year or not hydro_month or not day:
                 continue
 
             water_level = _safe_float(row[6], MISSING_WATER_LEVEL)
@@ -182,13 +255,14 @@ def parse_monthly_csv(
     Yields:
         Tuples of (station, monthly_record).
     """
-    if isinstance(content, bytes):
-        content = content.decode(encoding)
+    if not isinstance(content, str):
+        content = _decode_content(content, encoding)
+    content = content.lstrip("\ufeff")
 
-    # IMGW CSV files use semicolon as delimiter
-    reader = csv.reader(io.StringIO(content), delimiter=";")
+    # Delimiter and quoting vary between IMGW yearly archives
+    delimiter = _detect_delimiter(content)
 
-    for row in reader:
+    for row in _iter_rows(content, delimiter):
         if len(row) < 9:
             continue
 
@@ -201,7 +275,7 @@ def parse_monthly_csv(
             hydro_month = _safe_int(row[4])
             extremum_code = _safe_int(row[5])
 
-            if not all([hydro_year, hydro_month, extremum_code]):
+            if not hydro_year or not hydro_month or not extremum_code:
                 continue
 
             extremum = EXTREMUM_MAP.get(extremum_code, "mean")
@@ -261,13 +335,14 @@ def parse_semi_annual_csv(
     Yields:
         Tuples of (station, semi_annual_record).
     """
-    if isinstance(content, bytes):
-        content = content.decode(encoding)
+    if not isinstance(content, str):
+        content = _decode_content(content, encoding)
+    content = content.lstrip("\ufeff")
 
-    # IMGW CSV files use semicolon as delimiter
-    reader = csv.reader(io.StringIO(content), delimiter=";")
+    # Delimiter and quoting vary between IMGW yearly archives
+    delimiter = _detect_delimiter(content)
 
-    for row in reader:
+    for row in _iter_rows(content, delimiter):
         if len(row) < 8:
             continue
 
@@ -281,7 +356,7 @@ def parse_semi_annual_csv(
             param = row[5].strip().strip('"').upper() if len(row) > 5 else None
             extremum_code = _safe_int(row[6])
 
-            if not all([hydro_year, period_code, param, extremum_code]):
+            if not hydro_year or not period_code or not param or not extremum_code:
                 continue
 
             period = PERIOD_MAP.get(period_code, "annual")
@@ -306,12 +381,16 @@ def parse_semi_annual_csv(
                 if all(p is not None for p in start_parts[:3]):
                     extremum_start_date = f"{start_parts[0]:04d}-{start_parts[1]:02d}-{start_parts[2]:02d}"
                     if start_parts[3] is not None and start_parts[4] is not None:
-                        extremum_start_date += f" {start_parts[3]:02d}:{start_parts[4]:02d}"
+                        extremum_start_date += (
+                            f" {start_parts[3]:02d}:{start_parts[4]:02d}"
+                        )
 
             if len(row) >= 18:
                 end_parts = [_safe_int(row[i]) for i in range(13, 18)]
                 if all(p is not None for p in end_parts[:3]):
-                    extremum_end_date = f"{end_parts[0]:04d}-{end_parts[1]:02d}-{end_parts[2]:02d}"
+                    extremum_end_date = (
+                        f"{end_parts[0]:04d}-{end_parts[1]:02d}-{end_parts[2]:02d}"
+                    )
                     if end_parts[3] is not None and end_parts[4] is not None:
                         extremum_end_date += f" {end_parts[3]:02d}:{end_parts[4]:02d}"
 
@@ -341,7 +420,9 @@ def parse_semi_annual_csv(
 def parse_zip_file(
     zip_data: bytes,
     interval: str,
-) -> Iterator[tuple[HydroStation, HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord]]:
+) -> Iterator[
+    tuple[HydroStation, HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord]
+]:
     """
     Parse hydrological data from ZIP file.
 

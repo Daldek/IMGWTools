@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "imgwtools"
-version = "2.1.0"
+version = "2.1.1"
 description = "Python library for accessing IMGW (Polish Institute of Meteorology and Water Management) public data"
 readme = "README.md"
 license = "MIT"
@@ -77,7 +77,6 @@ dev = [
     "pytest-cov>=4.1",
     "pytest-asyncio>=0.21",
     "ruff>=0.1",
-    "mypy>=1.6",
     "respx>=0.20",
 ]
 
@@ -115,12 +114,17 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["imgwtools"]
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+# Legacy core modules (deprecated, broken imports: wget/matplotlib/imgw_api)
+# are excluded from type checking pending removal — see docs/PROGRESS.md
+ignore = [
+    "src/imgwtools/core/imgw_api.py",
+    "src/imgwtools/core/imgw_datastore.py",
+    "src/imgwtools/core/imgw_spatial.py",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-
-[tool.mypy]
-python_version = "3.12"
-warn_return_any = true
-warn_unused_ignores = true
-disallow_untyped_defs = true

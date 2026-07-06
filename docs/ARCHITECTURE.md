@@ -4,7 +4,7 @@
 
 System consists of four main components:
 
-1. **Python Library** (v2.0.0)
+1. **Python Library** (v2.1.1)
    - `pip install imgwtools` for integration with external projects
    - Sync and async functions for data fetching
    - Pydantic models for type-safe data access
@@ -198,8 +198,10 @@ SQLite-based cache for hydrological data. Disabled by default.
 4. Query data from local SQLite → return results
 
 ### CSV Parsing Notes
-- Encoding: CP1250 (Polish Windows)
-- Delimiter: Semicolon (`;`)
+IMGW archives are inconsistent between years; parsers auto-detect the format per file:
+- Encoding: CP1250 for most archives, UTF-8 with BOM for the 2023 daily archive (auto-detected)
+- Delimiter: comma with quoted fields (e.g. 2019-2022, 2024) or semicolon (e.g. 2023), auto-detected
+- Quoting: 2024 daily/monthly files wrap whole lines in outer quotes with doubled inner quotes (auto-unwrapped)
 - Missing data codes: `9999` (H), `99999.999` (Q), `99.9` (T)
 - Hydrological year: Nov 1 - Oct 31
 
@@ -253,7 +255,7 @@ Scaling options if needed:
 IMGWTools/
 ├── src/imgwtools/
 │   ├── __init__.py       # PUBLIC API entry point
-│   ├── _version.py       # Version (2.0.0)
+│   ├── _version.py       # Version (2.1.1)
 │   ├── fetch.py          # PUBLIC: Data fetching functions
 │   ├── models.py         # PUBLIC: Data models (PMaXTPData, etc.)
 │   ├── stations.py       # PUBLIC: Station functions

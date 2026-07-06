@@ -18,6 +18,7 @@
 ## 3. Workflow Git
 Branch'e:
 - `master` — stabilne wydania
+- `slave` — główna gałąź rozwojowa
 - `feature/*` — nowe funkcje
 - `hotfix/*` — poprawki krytyczne
 

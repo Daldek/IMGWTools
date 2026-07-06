@@ -451,6 +451,8 @@ def query(
         console.print(f"[green]Zapisano {len(records)} rekordow do {output}[/green]")
     else:
         # Display first 20 records in table
+        from imgwtools.db.models import HydroDailyRecord, HydroMonthlyRecord
+
         table = Table(title=f"Dane dla stacji {station} ({len(records)} rekordow)")
 
         if interval == "dobowe":
@@ -460,6 +462,8 @@ def query(
             table.add_column("Temp [°C]", justify="right")
 
             for r in records[:20]:
+                if not isinstance(r, HydroDailyRecord):
+                    continue
                 table.add_row(
                     r.measurement_date or "-",
                     f"{r.water_level_cm:.0f}" if r.water_level_cm else "-",
@@ -474,6 +478,8 @@ def query(
             table.add_column("Przeplyw [m3/s]", justify="right")
 
             for r in records[:20]:
+                if not isinstance(r, HydroMonthlyRecord):
+                    continue
                 table.add_row(
                     str(r.hydro_year),
                     str(r.hydro_month),

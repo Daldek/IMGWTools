@@ -2,26 +2,24 @@
 Unit tests for imgwtools.fetch module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from imgwtools.fetch import (
-    fetch_pmaxtp,
-    fetch_pmaxtp_async,
-    fetch_hydro_current,
-    fetch_hydro_current_async,
-    fetch_synop,
-    fetch_synop_async,
-    fetch_warnings,
-    download_hydro_data,
-    download_meteo_data,
-)
-from imgwtools.models import PMaXTPResult, HydroCurrentData, SynopData, WarningData
+import pytest
+
 from imgwtools.exceptions import (
     IMGWConnectionError,
-    IMGWDataError,
     IMGWValidationError,
 )
+from imgwtools.fetch import (
+    download_hydro_data,
+    download_meteo_data,
+    fetch_hydro_current,
+    fetch_pmaxtp,
+    fetch_pmaxtp_async,
+    fetch_synop,
+    fetch_warnings,
+)
+from imgwtools.models import HydroCurrentData, PMaXTPResult, SynopData, WarningData
 
 
 class TestFetchPmaxtp:

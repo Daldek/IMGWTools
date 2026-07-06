@@ -2,23 +2,20 @@
 Unit tests for imgwtools.stations module.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from imgwtools.exceptions import IMGWConnectionError
 from imgwtools.stations import (
-    list_hydro_stations,
-    list_hydro_stations_async,
-    get_hydro_stations_with_coords,
-    get_hydro_stations_with_coords_async,
-    list_meteo_stations,
-    list_meteo_stations_async,
     HydroStation,
     MeteoStation,
     _parse_hydro_stations_csv,
-    _parse_meteo_stations_csv,
     _parse_map_stations_response,
+    _parse_meteo_stations_csv,
+    get_hydro_stations_with_coords,
+    list_hydro_stations,
 )
-from imgwtools.exceptions import IMGWConnectionError
 
 
 class TestParseHydroStationsCsv:

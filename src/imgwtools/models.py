@@ -150,16 +150,16 @@ class HydroCurrentData(BaseModel):
 
     station_id: str = Field(description="Station identifier")
     station_name: str = Field(description="Station name")
-    river: str | None = Field(None, description="River name")
-    province: str | None = Field(None, description="Province (wojewodztwo)")
-    water_level_cm: float | None = Field(None, description="Water level [cm]")
-    water_level_date: str | None = Field(None, description="Water level measurement date")
-    flow_m3s: float | None = Field(None, description="Flow [m3/s]")
-    flow_date: str | None = Field(None, description="Flow measurement date")
-    water_temp_c: float | None = Field(None, description="Water temperature [C]")
-    water_temp_date: str | None = Field(None, description="Temperature measurement date")
-    ice_phenomenon: str | None = Field(None, description="Ice phenomenon code")
-    overgrowth: str | None = Field(None, description="Overgrowth code")
+    river: str | None = Field(default=None, description="River name")
+    province: str | None = Field(default=None, description="Province (wojewodztwo)")
+    water_level_cm: float | None = Field(default=None, description="Water level [cm]")
+    water_level_date: str | None = Field(default=None, description="Water level measurement date")
+    flow_m3s: float | None = Field(default=None, description="Flow [m3/s]")
+    flow_date: str | None = Field(default=None, description="Flow measurement date")
+    water_temp_c: float | None = Field(default=None, description="Water temperature [C]")
+    water_temp_date: str | None = Field(default=None, description="Temperature measurement date")
+    ice_phenomenon: str | None = Field(default=None, description="Ice phenomenon code")
+    overgrowth: str | None = Field(default=None, description="Overgrowth code")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> HydroCurrentData:
@@ -189,16 +189,16 @@ class SynopData(BaseModel):
 
     station_id: str = Field(description="Station identifier")
     station_name: str = Field(description="Station name")
-    measurement_date: str | None = Field(None, description="Measurement date")
-    measurement_hour: int | None = Field(None, description="Measurement hour")
-    temperature_c: float | None = Field(None, description="Air temperature [C]")
-    wind_speed_ms: float | None = Field(None, description="Wind speed [m/s]")
-    wind_direction: int | None = Field(None, description="Wind direction [degrees]")
-    humidity_percent: float | None = Field(None, description="Relative humidity [%]")
-    precipitation_mm: float | None = Field(None, description="Total precipitation [mm]")
-    pressure_hpa: float | None = Field(None, description="Atmospheric pressure [hPa]")
-    visibility_m: int | None = Field(None, description="Visibility [m]")
-    cloud_cover: int | None = Field(None, description="Cloud cover [octants]")
+    measurement_date: str | None = Field(default=None, description="Measurement date")
+    measurement_hour: int | None = Field(default=None, description="Measurement hour")
+    temperature_c: float | None = Field(default=None, description="Air temperature [C]")
+    wind_speed_ms: float | None = Field(default=None, description="Wind speed [m/s]")
+    wind_direction: int | None = Field(default=None, description="Wind direction [degrees]")
+    humidity_percent: float | None = Field(default=None, description="Relative humidity [%]")
+    precipitation_mm: float | None = Field(default=None, description="Total precipitation [mm]")
+    pressure_hpa: float | None = Field(default=None, description="Atmospheric pressure [hPa]")
+    visibility_m: int | None = Field(default=None, description="Visibility [m]")
+    cloud_cover: int | None = Field(default=None, description="Cloud cover [octants]")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> SynopData:
@@ -228,12 +228,12 @@ class WarningData(BaseModel):
 
     id: str = Field(description="Warning identifier")
     warning_type: str = Field(description="Warning type")
-    level: int | None = Field(None, description="Warning level (1-3)")
-    region: str | None = Field(None, description="Affected region")
-    description: str | None = Field(None, description="Warning description")
-    valid_from: str | None = Field(None, description="Valid from datetime")
-    valid_to: str | None = Field(None, description="Valid to datetime")
-    probability: int | None = Field(None, description="Probability [%]")
+    level: int | None = Field(default=None, description="Warning level (1-3)")
+    region: str | None = Field(default=None, description="Affected region")
+    description: str | None = Field(default=None, description="Warning description")
+    valid_from: str | None = Field(default=None, description="Valid from datetime")
+    valid_to: str | None = Field(default=None, description="Valid to datetime")
+    probability: int | None = Field(default=None, description="Probability [%]")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> WarningData:

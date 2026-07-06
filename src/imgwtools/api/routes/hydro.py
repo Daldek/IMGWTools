@@ -277,6 +277,7 @@ async def get_hydro_data(
                 await manager.ensure_data_cached(interval, year)
 
         # Query data from cache
+        data_points: list[HydroDailyDataPoint | HydroMonthlyDataPoint]
         if interval == "dobowe":
             records = manager.get_daily_data(
                 station_code=station_id,

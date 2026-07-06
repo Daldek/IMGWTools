@@ -2,12 +2,10 @@
 Unit tests for imgwtools.models module.
 """
 
-import pytest
-
 from imgwtools.models import (
+    HydroCurrentData,
     PMaXTPData,
     PMaXTPResult,
-    HydroCurrentData,
     SynopData,
     WarningData,
 )
