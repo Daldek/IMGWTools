@@ -334,6 +334,29 @@ def parse_semi_annual_csv(
 
     Yields:
         Tuples of (station, semi_annual_record).
+
+    Notes:
+        IMGW logs an extremum separately for every measurement interval in
+        which it occurred, so a plateau (a peak or low that persists across
+        several readings) yields multiple records sharing the same ``value``
+        and differing only in ``extremum_start_date``. These are faithful,
+        distinct source rows and are intentionally not deduplicated here.
+        For example station ``150150070`` (Jelenia Gora), ``hydro_year=2023``,
+        ``period='winter'``, ``extremum='max'``, ``value=40.0`` appears three
+        times with ``extremum_start_date`` 2023-04-15 06:10, 06:30 and 06:50.
+
+        For ``extremum='mean'`` both ``extremum_start_date`` and
+        ``extremum_end_date`` are ``None`` (a half-year mean has no single
+        moment of occurrence; only ``min``/``max`` carry dates), and ``value``
+        may be ``None`` for missing data.
+
+        Consumers deriving annual characteristics (WQ = annual max, NQ =
+        annual min, etc.) are unaffected by plateau duplicates when using
+        ``max()``/``min()``, but must deduplicate by ``(period, extremum)``
+        before any ``sum``/``count``. The optional DB-cache layer collapses
+        these automatically via the ``UNIQUE(station_code, hydro_year, period,
+        param, extremum)`` constraint (``db/schema.py``) combined with
+        ``INSERT OR IGNORE`` (``db/repository.py``).
     """
     if not isinstance(content, str):
         content = _decode_content(content, encoding)
