@@ -386,6 +386,31 @@ Zgłoś problemy w sekcji [Issues](https://github.com/Daldek/IMGWTools/issues).
 
 ---
 
+## Źródła danych
+
+IMGWTools nie przechowuje ani nie dystrybuuje danych — każde pobranie jest świadomą decyzją użytkownika. Poniżej zestawienie wykorzystywanych źródeł.
+
+| Źródło | Operator | Warunki korzystania |
+|--------|----------|---------------------|
+| Archiwum pomiarowo-obserwacyjne — `danepubliczne.imgw.pl/data` (hydro/meteo, ZIP/CSV) | IMGW-PIB | Nieodpłatnie do celów prywatnych i naukowych; dane o wysokiej wartości — w każdym celu; część zastosowań komercyjnych wymaga umowy; obowiązkowa atrybucja. [Regulamin](https://danepubliczne.imgw.pl/regulations)
+| API czasu rzeczywistego — `danepubliczne.imgw.pl/api/data` (hydro, synop, meteo, ostrzeżenia) | IMGW-PIB | Jak wyżej ([regulamin](https://danepubliczne.imgw.pl/regulations))
+| PMAXTP — `klimat.imgw.pl/opady-maksymalne` | IMGW-PIB | Wskazanie źródła IMGW-PIB (dane ze strony `klimat.imgw.pl/opady-maksymalne`) oraz cytowanie monografii Projektu PMAXTP (red. B. Ozga-Zieliński, IMGW-PIB, Warszawa 2022; monografia: Open Access, CC-BY 4.0); przy danych przetworzonych — adnotacja o przetworzeniu; korzystanie na własne ryzyko. [Regulamin](https://klimat.imgw.pl/opady-maksymalne/) |
+| Mapa stacji ze współrzędnymi — `hydro-back.imgw.pl/map/stations/hydrologic` (backend serwisu `hydro.imgw.pl`) | IMGW-PIB | Regulamin serwisu hydro.imgw.pl (akceptacja przez rozpoczęcie korzystania); obowiązuje ogólna zasada wskazania źródła IMGW-PIB. [Regulamin](https://hydro.imgw.pl/#/regulamin) |
+
+Obowiązek podania atrybucji przy publikacji wyników spoczywa na użytkowniku pobierającym dane.
+
+### Dane referencyjne (listy stacji, współrzędne, opisy formatów)
+
+Repozytorium **nie zawiera** danych IMGW. Pliki referencyjne używane przez narzędzia (listy stacji, współrzędne, opisy formatów) pobierz jednorazowo — po instalacji pakietu (`pip install -e .`), bez żadnych argumentów:
+
+```bash
+python -m imgwtools.reference_data
+```
+
+Pobrane pliki trafiają do `data/` i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu). Plik granicy Polski w `data/shp/` nie jest danymi IMGW i nie jest pobierany.
+
+---
+
 ## Licencja
 
 Projekt udostępniony na licencji MIT. Szczegóły w pliku `LICENSE`.
