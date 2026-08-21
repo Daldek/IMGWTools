@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,6 +8,7 @@ version = "2.1.1"
 description = "Python library for accessing IMGW (Polish Institute of Meteorology and Water Management) public data"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [
     { name = "Piotr de Bever", email = "git@debever.pl" }
@@ -19,7 +20,6 @@ classifiers = [
     "Environment :: Web Environment",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
