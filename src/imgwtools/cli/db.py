@@ -30,7 +30,9 @@ def check_db_enabled() -> None:
 
 @app.command()
 def init(
-    force: bool = typer.Option(False, "--force", "-f", help="Wymus ponowne utworzenie tabel"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Wymus ponowne utworzenie tabel"
+    ),
 ):
     """
     Inicjalizacja bazy danych.
@@ -52,7 +54,9 @@ def init(
         created = init_db(force=force)
 
     if created:
-        console.print(f"[bold green]Utworzono baze danych:[/bold green] {settings.db_path}")
+        console.print(
+            f"[bold green]Utworzono baze danych:[/bold green] {settings.db_path}"
+        )
     else:
         console.print("[green]Baza danych jest aktualna.[/green]")
 
@@ -151,16 +155,17 @@ def _format_year_ranges(years: list[int]) -> str:
 
 @app.command()
 def cache(
-    years: str = typer.Option(..., "--years", "-y", help="Zakres lat (np. 2020-2023 lub 2020)"),
+    years: str = typer.Option(
+        ..., "--years", "-y", help="Zakres lat (np. 2020-2023 lub 2020)"
+    ),
     interval: str = typer.Option(
         "dobowe",
-        "--interval", "-i",
-        help="Interwal danych: dobowe, miesieczne, polroczne"
+        "--interval",
+        "-i",
+        help="Interwal danych: dobowe, miesieczne, polroczne",
     ),
     param: str | None = typer.Option(
-        None,
-        "--param", "-p",
-        help="Parametr dla danych polrocznych: H, Q, T"
+        None, "--param", "-p", help="Parametr dla danych polrocznych: H, Q, T"
     ),
 ):
     """
@@ -187,12 +192,16 @@ def cache(
     # Validate interval
     valid_intervals = ["dobowe", "miesieczne", "polroczne"]
     if interval not in valid_intervals:
-        console.print(f"[red]Blad: Nieprawidlowy interwal. Dozwolone: {', '.join(valid_intervals)}[/red]")
+        console.print(
+            f"[red]Blad: Nieprawidlowy interwal. Dozwolone: {', '.join(valid_intervals)}[/red]"
+        )
         raise typer.Exit(1)
 
     # Validate param for semi-annual
     if interval == "polroczne" and not param:
-        console.print("[red]Blad: Parametr --param (H, Q lub T) jest wymagany dla danych polrocznych[/red]")
+        console.print(
+            "[red]Blad: Parametr --param (H, Q lub T) jest wymagany dla danych polrocznych[/red]"
+        )
         raise typer.Exit(1)
 
     if param and param.upper() not in ["H", "Q", "T"]:
@@ -252,11 +261,11 @@ def cache(
 @app.command()
 def clear(
     interval: str | None = typer.Option(
-        None,
-        "--interval", "-i",
-        help="Wyczysc tylko dane dla danego interwalu"
+        None, "--interval", "-i", help="Wyczysc tylko dane dla danego interwalu"
     ),
-    force: bool = typer.Option(False, "--force", "-f", help="Nie pytaj o potwierdzenie"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Nie pytaj o potwierdzenie"
+    ),
 ):
     """
     Wyczysc zcache'owane dane.
@@ -274,7 +283,9 @@ def clear(
     if interval:
         valid_intervals = ["dobowe", "miesieczne", "polroczne"]
         if interval not in valid_intervals:
-            console.print(f"[red]Blad: Nieprawidlowy interwal. Dozwolone: {', '.join(valid_intervals)}[/red]")
+            console.print(
+                f"[red]Blad: Nieprawidlowy interwal. Dozwolone: {', '.join(valid_intervals)}[/red]"
+            )
             raise typer.Exit(1)
         msg = f"dane {interval}"
     else:
@@ -349,6 +360,7 @@ def stations(
         init_db()
 
     if refresh:
+
         async def run_refresh():
             manager = get_cache_manager()
             with console.status("[bold green]Pobieranie listy stacji..."):
@@ -362,9 +374,13 @@ def stations(
 
     if not stations_list:
         if search:
-            console.print(f"[yellow]Nie znaleziono stacji pasujacych do '{search}'[/yellow]")
+            console.print(
+                f"[yellow]Nie znaleziono stacji pasujacych do '{search}'[/yellow]"
+            )
         else:
-            console.print("[yellow]Brak stacji w cache. Uzyj --refresh aby pobrac.[/yellow]")
+            console.print(
+                "[yellow]Brak stacji w cache. Uzyj --refresh aby pobrac.[/yellow]"
+            )
         return
 
     table = Table(title=f"Stacje hydrologiczne ({len(stations_list)})")
@@ -387,11 +403,11 @@ def query(
     station: str = typer.Option(..., "--station", "-s", help="Kod stacji"),
     years: str = typer.Option(..., "--years", "-y", help="Zakres lat (np. 2020-2023)"),
     interval: str = typer.Option(
-        "dobowe",
-        "--interval", "-i",
-        help="Interwal: dobowe, miesieczne, polroczne"
+        "dobowe", "--interval", "-i", help="Interwal: dobowe, miesieczne, polroczne"
     ),
-    output: str | None = typer.Option(None, "--output", "-o", help="Zapisz do pliku CSV"),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Zapisz do pliku CSV"
+    ),
 ):
     """
     Zapytaj o dane dla stacji i zakresu lat.
@@ -436,12 +452,15 @@ def query(
     records = asyncio.run(run_query())
 
     if not records:
-        console.print(f"[yellow]Brak danych dla stacji {station} w latach {start_year}-{end_year}[/yellow]")
+        console.print(
+            f"[yellow]Brak danych dla stacji {station} w latach {start_year}-{end_year}[/yellow]"
+        )
         return
 
     # Output to file or table
     if output:
         import csv
+
         with open(output, "w", newline="", encoding="utf-8") as f:
             if records:
                 writer = csv.DictWriter(f, fieldnames=records[0].model_dump().keys())
@@ -491,4 +510,6 @@ def query(
         console.print(table)
 
         if len(records) > 20:
-            console.print(f"\n[dim]Pokazano 20 z {len(records)} rekordow. Uzyj --output aby zapisac wszystkie.[/dim]")
+            console.print(
+                f"\n[dim]Pokazano 20 z {len(records)} rekordow. Uzyj --output aby zapisac wszystkie.[/dim]"
+            )

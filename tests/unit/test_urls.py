@@ -28,7 +28,10 @@ class TestBuildHydroUrl:
         """Test daily hydro URL for 2023 (single yearly file)."""
         result = build_hydro_url(HydroInterval.DAILY, 2023)
 
-        assert result.url == f"{IMGW_PUBLIC_DATA_URL}/dane_hydrologiczne/dobowe/2023/codz_2023.zip"
+        assert (
+            result.url
+            == f"{IMGW_PUBLIC_DATA_URL}/dane_hydrologiczne/dobowe/2023/codz_2023.zip"
+        )
         assert result.filename == "codz_2023.zip"
         assert result.data_type == "dane_hydrologiczne"  # Polish folder name
         assert result.interval == "dobowe"
@@ -53,9 +56,7 @@ class TestBuildHydroUrl:
 
     def test_semi_annual_url_with_param(self):
         """Test semi-annual hydro URL with parameter."""
-        result = build_hydro_url(
-            HydroInterval.SEMI_ANNUAL, 2023, param=HydroParam.FLOW
-        )
+        result = build_hydro_url(HydroInterval.SEMI_ANNUAL, 2023, param=HydroParam.FLOW)
 
         assert "polroczne_i_roczne" in result.url
         assert "polr_Q_2023.zip" in result.url

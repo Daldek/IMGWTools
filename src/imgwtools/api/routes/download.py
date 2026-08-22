@@ -5,7 +5,6 @@ This module provides a unified endpoint for generating download URLs
 for both hydrological and meteorological data.
 """
 
-
 from fastapi import APIRouter, HTTPException, Query
 
 from imgwtools.api.schemas import (
@@ -83,11 +82,19 @@ async def list_available_datasets():
 @router.get("/url", response_model=DownloadURLResponse)
 async def generate_download_url(
     data_type: DataTypeEnum = Query(..., description="Typ danych: hydro lub meteo"),
-    interval: str = Query(..., description="Interwal: dobowe, miesieczne, polroczne_i_roczne, terminowe"),
+    interval: str = Query(
+        ..., description="Interwal: dobowe, miesieczne, polroczne_i_roczne, terminowe"
+    ),
     year: int = Query(..., ge=1951, le=2024, description="Rok"),
-    month: int | None = Query(None, ge=1, le=13, description="Miesiac (1-12) lub 13 dla zjawisk"),
-    param: str | None = Query(None, description="Parametr dla danych polrocznych: T, Q, H"),
-    subtype: str | None = Query(None, description="Podtyp dla meteo: klimat, opad, synop"),
+    month: int | None = Query(
+        None, ge=1, le=13, description="Miesiac (1-12) lub 13 dla zjawisk"
+    ),
+    param: str | None = Query(
+        None, description="Parametr dla danych polrocznych: T, Q, H"
+    ),
+    subtype: str | None = Query(
+        None, description="Podtyp dla meteo: klimat, opad, synop"
+    ),
 ):
     """
     Generuj link do pobrania danych.
@@ -143,8 +150,12 @@ async def generate_download_urls(
     interval: str = Query(..., description="Interwal danych"),
     start_year: int = Query(..., ge=1951, le=2024, description="Rok poczatkowy"),
     end_year: int = Query(..., ge=1951, le=2024, description="Rok koncowy"),
-    param: str | None = Query(None, description="Parametr dla danych polrocznych hydro: T, Q, H"),
-    subtype: str | None = Query(None, description="Podtyp dla meteo: klimat, opad, synop"),
+    param: str | None = Query(
+        None, description="Parametr dla danych polrocznych hydro: T, Q, H"
+    ),
+    subtype: str | None = Query(
+        None, description="Podtyp dla meteo: klimat, opad, synop"
+    ),
 ):
     """
     Generuj wiele linkow do pobrania danych.
@@ -177,9 +188,7 @@ async def generate_download_urls(
                 if hydro_interval == HydroInterval.DAILY:
                     if year >= 2023:
                         # From 2023: single file per year
-                        result = build_hydro_url(
-                            interval=hydro_interval, year=year
-                        )
+                        result = build_hydro_url(interval=hydro_interval, year=year)
                         urls.append(
                             DownloadURLResponse(
                                 url=result.url,

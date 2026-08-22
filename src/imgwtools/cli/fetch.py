@@ -43,7 +43,9 @@ def download_file(url: str, output_path: Path, filename: str) -> bool:
         task = progress.add_task(f"Pobieranie {filename}...", total=100)
 
         try:
-            with httpx.stream("GET", url, timeout=60.0, follow_redirects=True) as response:
+            with httpx.stream(
+                "GET", url, timeout=60.0, follow_redirects=True
+            ) as response:
                 response.raise_for_status()
                 total = int(response.headers.get("content-length", 0))
 
@@ -71,27 +73,32 @@ def download_file(url: str, output_path: Path, filename: str) -> bool:
 def fetch_hydro(
     interval: str = typer.Option(
         "polroczne_i_roczne",
-        "--interval", "-i",
+        "--interval",
+        "-i",
         help="Interwal: dobowe, miesieczne, polroczne_i_roczne",
     ),
     year: str = typer.Option(
         ...,
-        "--year", "-y",
+        "--year",
+        "-y",
         help="Rok lub zakres lat (np. 2020 lub 2020-2023)",
     ),
     month: int | None = typer.Option(
         None,
-        "--month", "-m",
+        "--month",
+        "-m",
         help="Miesiac (1-12) dla danych dobowych, 13 dla zjawisk",
     ),
     param: str | None = typer.Option(
         None,
-        "--param", "-p",
+        "--param",
+        "-p",
         help="Parametr dla polrocznych: T, Q, H",
     ),
     output: Path = typer.Option(
         Path("./data/downloaded"),
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Katalog wyjsciowy",
     ),
 ):
@@ -180,27 +187,32 @@ def fetch_hydro(
 def fetch_meteo(
     interval: str = typer.Option(
         "miesieczne",
-        "--interval", "-i",
+        "--interval",
+        "-i",
         help="Interwal: dobowe, miesieczne, terminowe",
     ),
     subtype: str = typer.Option(
         "synop",
-        "--subtype", "-s",
+        "--subtype",
+        "-s",
         help="Podtyp: klimat, opad, synop",
     ),
     year: str = typer.Option(
         ...,
-        "--year", "-y",
+        "--year",
+        "-y",
         help="Rok lub zakres lat (np. 2020 lub 2020-2023)",
     ),
     month: int | None = typer.Option(
         None,
-        "--month", "-m",
+        "--month",
+        "-m",
         help="Miesiac (1-12)",
     ),
     output: Path = typer.Option(
         Path("./data/downloaded"),
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Katalog wyjsciowy",
     ),
 ):
@@ -281,12 +293,14 @@ def fetch_current(
     ),
     station_id: str | None = typer.Option(
         None,
-        "--station", "-s",
+        "--station",
+        "-s",
         help="ID stacji (opcjonalne)",
     ),
     output: Path | None = typer.Option(
         None,
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Plik wyjsciowy (JSON)",
     ),
 ):
@@ -337,7 +351,8 @@ def fetch_current(
 def fetch_pmaxtp(
     method: str = typer.Option(
         "POT",
-        "--method", "-m",
+        "--method",
+        "-m",
         help="Metoda: POT lub AMP",
     ),
     lat: float = typer.Option(
@@ -352,7 +367,8 @@ def fetch_pmaxtp(
     ),
     output: Path | None = typer.Option(
         None,
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Plik wyjsciowy (JSON)",
     ),
 ):
@@ -400,12 +416,14 @@ def fetch_pmaxtp(
 def fetch_warnings(
     warning_type: str = typer.Option(
         "hydro",
-        "--type", "-t",
+        "--type",
+        "-t",
         help="Typ ostrzezen: hydro lub meteo",
     ),
     output: Path | None = typer.Option(
         None,
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Plik wyjsciowy (JSON)",
     ),
 ):
@@ -419,7 +437,9 @@ def fetch_warnings(
     import json
 
     if warning_type not in ["hydro", "meteo"]:
-        console.print(f"[red]Nieprawidlowy typ: {warning_type}. Uzyj hydro lub meteo.[/red]")
+        console.print(
+            f"[red]Nieprawidlowy typ: {warning_type}. Uzyj hydro lub meteo.[/red]"
+        )
         raise typer.Exit(1)
 
     url = build_api_url(f"warnings/{warning_type}")

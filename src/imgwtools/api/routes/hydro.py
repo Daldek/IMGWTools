@@ -2,7 +2,6 @@
 Hydrological data routes.
 """
 
-
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
@@ -70,8 +69,12 @@ async def get_hydro_station(station_id: str):
                 id=station_id,
                 name=station_data.get("nazwa_stacji", ""),
                 river=station_data.get("rzeka", ""),
-                latitude=float(station_data.get("lat", 0)) if station_data.get("lat") else None,
-                longitude=float(station_data.get("lon", 0)) if station_data.get("lon") else None,
+                latitude=float(station_data.get("lat", 0))
+                if station_data.get("lat")
+                else None,
+                longitude=float(station_data.get("lon", 0))
+                if station_data.get("lon")
+                else None,
             )
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"IMGW API error: {str(e)}")
@@ -107,10 +110,14 @@ async def get_current_hydro_data(
                         station_name=item.get("nazwa_stacji", ""),
                         river=item.get("rzeka"),
                         province=item.get("wojewodztwo"),
-                        water_level=float(item["stan_wody"]) if item.get("stan_wody") else None,
+                        water_level=float(item["stan_wody"])
+                        if item.get("stan_wody")
+                        else None,
                         water_level_date=item.get("stan_wody_data_pomiaru"),
                         flow=float(item["przeplyw"]) if item.get("przeplyw") else None,
-                        temperature=float(item["temperatura_wody"]) if item.get("temperatura_wody") else None,
+                        temperature=float(item["temperatura_wody"])
+                        if item.get("temperatura_wody")
+                        else None,
                         latitude=float(item["lat"]) if item.get("lat") else None,
                         longitude=float(item["lon"]) if item.get("lon") else None,
                     )
@@ -190,7 +197,9 @@ async def generate_hydro_download_urls(
                 else:
                     # Before 2023: generate for each month
                     for month in range(1, 13):
-                        result = build_hydro_url(interval=interval, year=year, month=month)
+                        result = build_hydro_url(
+                            interval=interval, year=year, month=month
+                        )
                         urls.append(
                             DownloadURLResponse(
                                 url=result.url,
@@ -222,7 +231,9 @@ async def generate_hydro_download_urls(
 @router.get("/data", response_model=HydroDataResponse)
 async def get_hydro_data(
     station_id: str = Query(..., description="Station code"),
-    start_year: int = Query(..., ge=1951, le=2024, description="Start hydrological year"),
+    start_year: int = Query(
+        ..., ge=1951, le=2024, description="Start hydrological year"
+    ),
     end_year: int = Query(..., ge=1951, le=2024, description="End hydrological year"),
     interval: str = Query("dobowe", description="Data interval: dobowe, miesieczne"),
     use_cache: bool = Query(True, description="Use DB cache if enabled"),
@@ -247,14 +258,14 @@ async def get_hydro_data(
     if interval not in valid_intervals:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid interval. Allowed: {', '.join(valid_intervals)}"
+            detail=f"Invalid interval. Allowed: {', '.join(valid_intervals)}",
         )
 
     # Check if cache is enabled
     if not settings.db_enabled or not use_cache:
         raise HTTPException(
             status_code=400,
-            detail="Database cache is not enabled. Set IMGW_DB_ENABLED=true or use /download-url endpoint."
+            detail="Database cache is not enabled. Set IMGW_DB_ENABLED=true or use /download-url endpoint.",
         )
 
     try:
