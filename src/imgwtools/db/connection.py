@@ -29,20 +29,28 @@ def get_db_connection(
     """
     Get SQLite database connection with proper configuration.
 
-    Args:
-        readonly: If True, open database in read-only mode.
+    Parameters
+    ----------
+    readonly : bool, optional
+        If True, open database in read-only mode.
 
-    Yields:
+    Yields
+    ------
+    sqlite3.Connection
         Configured SQLite connection.
 
-    Raises:
-        RuntimeError: If database is not enabled in settings.
-        FileNotFoundError: If readonly=True and database doesn't exist.
+    Raises
+    ------
+    RuntimeError
+        If database is not enabled in settings.
+    FileNotFoundError
+        If readonly=True and the database does not exist.
 
-    Example:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT * FROM hydro_stations")
-            rows = cursor.fetchall()
+    Examples
+    --------
+    >>> with get_db_connection() as conn:
+    ...     cursor = conn.execute("SELECT * FROM hydro_stations")
+    ...     rows = cursor.fetchall()
     """
     if not settings.db_enabled:
         raise RuntimeError(
@@ -96,14 +104,17 @@ def get_transaction() -> Generator[sqlite3.Connection, None, None]:
 
     Commits on success, rolls back on exception.
 
-    Yields:
-        SQLite connection with active transaction.
+    Yields
+    ------
+    sqlite3.Connection
+        SQLite connection with an active transaction.
 
-    Example:
-        with get_transaction() as conn:
-            conn.execute("INSERT INTO ...")
-            conn.execute("UPDATE ...")
-            # Auto-commits if no exception
+    Examples
+    --------
+    >>> with get_transaction() as conn:
+    ...     conn.execute("INSERT INTO ...")
+    ...     conn.execute("UPDATE ...")
+    ...     # Auto-commits if no exception
     """
     with get_db_connection() as conn:
         try:

@@ -104,14 +104,20 @@ def init_db(force: bool = False) -> bool:
 
     Creates all tables and indexes if they don't exist.
 
-    Args:
-        force: If True, drop existing tables and recreate.
+    Parameters
+    ----------
+    force : bool, optional
+        If True, drop existing tables and recreate.
 
-    Returns:
+    Returns
+    -------
+    bool
         True if database was created/updated, False if already up-to-date.
 
-    Raises:
-        RuntimeError: If database is not enabled.
+    Raises
+    ------
+    RuntimeError
+        If database is not enabled.
     """
     with get_db_connection() as conn:
         if force:
@@ -152,11 +158,16 @@ def get_schema_version(conn: sqlite3.Connection | None = None) -> int:
     """
     Get current schema version from database.
 
-    Args:
-        conn: Optional existing connection. If None, creates new connection.
+    Parameters
+    ----------
+    conn : sqlite3.Connection or None, optional
+        Existing connection. If None, creates a new connection.
 
-    Returns:
-        Schema version number, or 0 if schema_version table doesn't exist.
+    Returns
+    -------
+    int
+        Schema version number, or 0 if the schema_version table does not
+        exist.
     """
 
     def _get_version(c: sqlite3.Connection) -> int:
@@ -182,8 +193,10 @@ def get_table_counts() -> dict[str, int]:
     """
     Get record counts for all data tables.
 
-    Returns:
-        Dictionary mapping table names to record counts.
+    Returns
+    -------
+    dict of str to int
+        Mapping of table names to record counts.
     """
     tables = [
         "hydro_stations",
@@ -207,8 +220,10 @@ def get_cached_years() -> dict[str, list[int]]:
     """
     Get years that have been cached for each interval.
 
-    Returns:
-        Dictionary mapping interval names to lists of cached years.
+    Returns
+    -------
+    dict of str to list of int
+        Mapping of interval names to lists of cached years.
     """
     result: dict[str, list[int]] = {
         "dobowe": [],

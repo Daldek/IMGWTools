@@ -31,13 +31,19 @@ class HydroRepository:
         """
         Get list of stations from cache.
 
-        Args:
-            search: Optional search term (filters by name or river).
-            limit: Maximum number of results.
-            offset: Number of results to skip.
+        Parameters
+        ----------
+        search : str or None, optional
+            Search term (filters by name or river).
+        limit : int or None, optional
+            Maximum number of results.
+        offset : int, optional
+            Number of results to skip.
 
-        Returns:
-            List of HydroStation objects.
+        Returns
+        -------
+        list of HydroStation
+            Stations from the cache.
         """
         with get_db_connection(readonly=True) as conn:
             if search:
@@ -134,15 +140,23 @@ class HydroRepository:
         """
         Get daily measurements from cache.
 
-        Args:
-            station_code: Filter by station code.
-            start_year: Start hydrological year (inclusive).
-            end_year: End hydrological year (inclusive).
-            start_date: Start date in YYYY-MM-DD format.
-            end_date: End date in YYYY-MM-DD format.
+        Parameters
+        ----------
+        station_code : str or None, optional
+            Filter by station code.
+        start_year : int or None, optional
+            Start hydrological year (inclusive).
+        end_year : int or None, optional
+            End hydrological year (inclusive).
+        start_date : str or None, optional
+            Start date in YYYY-MM-DD format.
+        end_date : str or None, optional
+            End date in YYYY-MM-DD format.
 
-        Returns:
-            List of daily measurement records.
+        Returns
+        -------
+        list of HydroDailyRecord
+            Daily measurement records.
         """
         conditions = []
         params = []
@@ -210,11 +224,16 @@ class HydroRepository:
         """
         Insert batch of daily records.
 
-        Args:
-            records: List of daily records to insert.
-            conn: Optional existing connection (for transaction grouping).
+        Parameters
+        ----------
+        records : list of HydroDailyRecord
+            Daily records to insert.
+        conn : sqlite3.Connection or None, optional
+            Existing connection (for transaction grouping).
 
-        Returns:
+        Returns
+        -------
+        int
             Number of records inserted.
         """
         if not records:
@@ -573,10 +592,14 @@ class HydroRepository:
         """
         Clear cached data.
 
-        Args:
-            interval: If specified, only clear data for this interval.
+        Parameters
+        ----------
+        interval : str or None, optional
+            If specified, only clear data for this interval.
 
-        Returns:
+        Returns
+        -------
+        int
             Number of records deleted.
         """
         with get_transaction() as conn:

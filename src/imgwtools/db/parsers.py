@@ -40,12 +40,17 @@ def _safe_float(value: str, missing_value: float) -> float | None:
     """
     Parse float value, returning None for missing data.
 
-    Args:
-        value: String value to parse.
-        missing_value: Value that indicates missing data.
+    Parameters
+    ----------
+    value : str
+        String value to parse.
+    missing_value : float
+        Value that indicates missing data.
 
-    Returns:
-        Parsed float or None if empty/missing.
+    Returns
+    -------
+    float or None
+        Parsed float, or None if empty/missing.
     """
     if not value or not value.strip():
         return None
@@ -80,12 +85,16 @@ def _detect_delimiter(content: str) -> str:
     delimiter is inferred from the first non-empty line by comparing
     how often each candidate appears.
 
-    Args:
-        content: Decoded CSV content.
+    Parameters
+    ----------
+    content : str
+        Decoded CSV content.
 
-    Returns:
-        The detected delimiter, either ";" or ",". Semicolon wins
-        ties, matching the historical IMGW default.
+    Returns
+    -------
+    str
+        The detected delimiter, either ";" or ",". Semicolon wins ties,
+        matching the historical IMGW default.
     """
     first_line = next(
         (line for line in content.splitlines() if line.strip()),
@@ -105,11 +114,16 @@ def _decode_content(content: bytes, encoding: str) -> str:
     otherwise the requested encoding is tried first with a UTF-8
     fallback.
 
-    Args:
-        content: Raw CSV bytes.
-        encoding: Preferred encoding (default CP1250).
+    Parameters
+    ----------
+    content : bytes
+        Raw CSV bytes.
+    encoding : str
+        Preferred encoding (default CP1250).
 
-    Returns:
+    Returns
+    -------
+    str
         Decoded CSV content without a BOM.
     """
     if content.startswith(b"\xef\xbb\xbf"):
@@ -129,12 +143,17 @@ def _iter_rows(content: str, delimiter: str) -> Iterator[list[str]]:
     so the standard reader sees the whole line as a single field.
     Such rows are parsed a second time to recover the real columns.
 
-    Args:
-        content: Decoded CSV content.
-        delimiter: Field delimiter detected for this file.
+    Parameters
+    ----------
+    content : str
+        Decoded CSV content.
+    delimiter : str
+        Field delimiter detected for this file.
 
-    Yields:
-        Parsed CSV rows as lists of strings.
+    Yields
+    ------
+    list of str
+        Parsed CSV rows.
     """
     for row in csv.reader(io.StringIO(content), delimiter=delimiter):
         if len(row) == 1 and delimiter in row[0]:
@@ -158,15 +177,20 @@ def parse_daily_csv(
     6. Dzien
     7. Stan wody [cm]
     8. Przeplyw [m3/s]
-    9. Temperatura wody [°C]
+    9. Temperatura wody [deg C]
     10. Miesiac kalendarzowy
 
-    Args:
-        content: CSV content as string or bytes.
-        encoding: Character encoding (default CP1250).
+    Parameters
+    ----------
+    content : str or bytes
+        CSV content.
+    encoding : str
+        Character encoding (default CP1250).
 
-    Yields:
-        Tuples of (station, daily_record).
+    Yields
+    ------
+    tuple of (HydroStation, HydroDailyRecord)
+        Station metadata paired with its daily record.
     """
     if not isinstance(content, str):
         content = _decode_content(content, encoding)
@@ -245,15 +269,20 @@ def parse_monthly_csv(
     6. Wskaznik ekstremum (1=min, 2=mean, 3=max)
     7. Stan wody [cm]
     8. Przeplyw [m3/s]
-    9. Temperatura wody [°C]
+    9. Temperatura wody [deg C]
     10. Miesiac kalendarzowy
 
-    Args:
-        content: CSV content as string or bytes.
-        encoding: Character encoding (default CP1250).
+    Parameters
+    ----------
+    content : str or bytes
+        CSV content.
+    encoding : str
+        Character encoding (default CP1250).
 
-    Yields:
-        Tuples of (station, monthly_record).
+    Yields
+    ------
+    tuple of (HydroStation, HydroMonthlyRecord)
+        Station metadata paired with its monthly record.
     """
     if not isinstance(content, str):
         content = _decode_content(content, encoding)
@@ -328,35 +357,41 @@ def parse_semi_annual_csv(
     9-13. Data ekstremum od (rok, miesiac, dzien, godzina, minuta)
     14-18. Data ekstremum do (rok, miesiac, dzien, godzina, minuta)
 
-    Args:
-        content: CSV content as string or bytes.
-        encoding: Character encoding (default CP1250).
+    Parameters
+    ----------
+    content : str or bytes
+        CSV content.
+    encoding : str
+        Character encoding (default CP1250).
 
-    Yields:
-        Tuples of (station, semi_annual_record).
+    Yields
+    ------
+    tuple of (HydroStation, HydroSemiAnnualRecord)
+        Station metadata paired with its semi-annual record.
 
-    Notes:
-        IMGW logs an extremum separately for every measurement interval in
-        which it occurred, so a plateau (a peak or low that persists across
-        several readings) yields multiple records sharing the same ``value``
-        and differing only in ``extremum_start_date``. These are faithful,
-        distinct source rows and are intentionally not deduplicated here.
-        For example station ``150150070`` (Jelenia Gora), ``hydro_year=2023``,
-        ``period='winter'``, ``extremum='max'``, ``value=40.0`` appears three
-        times with ``extremum_start_date`` 2023-04-15 06:10, 06:30 and 06:50.
+    Notes
+    -----
+    IMGW logs an extremum separately for every measurement interval in
+    which it occurred, so a plateau (a peak or low that persists across
+    several readings) yields multiple records sharing the same ``value``
+    and differing only in ``extremum_start_date``. These are faithful,
+    distinct source rows and are intentionally not deduplicated here.
+    For example station ``150150070`` (Jelenia Gora), ``hydro_year=2023``,
+    ``period='winter'``, ``extremum='max'``, ``value=40.0`` appears three
+    times with ``extremum_start_date`` 2023-04-15 06:10, 06:30 and 06:50.
 
-        For ``extremum='mean'`` both ``extremum_start_date`` and
-        ``extremum_end_date`` are ``None`` (a half-year mean has no single
-        moment of occurrence; only ``min``/``max`` carry dates), and ``value``
-        may be ``None`` for missing data.
+    For ``extremum='mean'`` both ``extremum_start_date`` and
+    ``extremum_end_date`` are ``None`` (a half-year mean has no single
+    moment of occurrence; only ``min``/``max`` carry dates), and ``value``
+    may be ``None`` for missing data.
 
-        Consumers deriving annual characteristics (WQ = annual max, NQ =
-        annual min, etc.) are unaffected by plateau duplicates when using
-        ``max()``/``min()``, but must deduplicate by ``(period, extremum)``
-        before any ``sum``/``count``. The optional DB-cache layer collapses
-        these automatically via the ``UNIQUE(station_code, hydro_year, period,
-        param, extremum)`` constraint (``db/schema.py``) combined with
-        ``INSERT OR IGNORE`` (``db/repository.py``).
+    Consumers deriving annual characteristics (WQ = annual max, NQ =
+    annual min, etc.) are unaffected by plateau duplicates when using
+    ``max()``/``min()``, but must deduplicate by ``(period, extremum)``
+    before any ``sum``/``count``. The optional DB-cache layer collapses
+    these automatically via the ``UNIQUE(station_code, hydro_year, period,
+    param, extremum)`` constraint (``db/schema.py``) combined with
+    ``INSERT OR IGNORE`` (``db/repository.py``).
     """
     if not isinstance(content, str):
         content = _decode_content(content, encoding)
@@ -449,12 +484,17 @@ def parse_zip_file(
     """
     Parse hydrological data from ZIP file.
 
-    Args:
-        zip_data: ZIP file content as bytes.
-        interval: Data interval ('dobowe', 'miesieczne', 'polroczne').
+    Parameters
+    ----------
+    zip_data : bytes
+        ZIP file content.
+    interval : str
+        Data interval ('dobowe', 'miesieczne', 'polroczne').
 
-    Yields:
-        Tuples of (station, record).
+    Yields
+    ------
+    tuple of (HydroStation, record)
+        Station metadata paired with the parsed record.
     """
     parser_map = {
         "dobowe": parse_daily_csv,
@@ -488,12 +528,17 @@ def parse_stations_csv(
     3. Rzeka (ID cieku) - format: "Odra (1)"
     4. Kod (optional)
 
-    Args:
-        content: CSV content as string or bytes.
-        encoding: Character encoding (default CP1250).
+    Parameters
+    ----------
+    content : str or bytes
+        CSV content.
+    encoding : str
+        Character encoding (default CP1250).
 
-    Yields:
-        HydroStation objects.
+    Yields
+    ------
+    HydroStation
+        Station parsed from a CSV row.
     """
     import re
 
