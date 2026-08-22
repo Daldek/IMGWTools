@@ -4,10 +4,11 @@ URL builders for IMGW public data resources.
 This module re-exports all URL building functions and types from core.url_builder
 for a cleaner public API.
 
-Example:
-    >>> from imgwtools.urls import build_hydro_url, HydroInterval
-    >>> url = build_hydro_url(HydroInterval.DAILY, 2023)
-    >>> print(url.url)
+Examples
+--------
+>>> from imgwtools.urls import build_hydro_url, HydroInterval
+>>> url = build_hydro_url(HydroInterval.DAILY, 2023)
+>>> print(url.url)
 """
 
 from imgwtools.core.url_builder import (

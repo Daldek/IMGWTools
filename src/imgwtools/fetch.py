@@ -81,34 +81,46 @@ def fetch_pmaxtp(
     PMAXTP provides precipitation quantiles for 7 durations and 6 probabilities,
     useful for hydrological modeling and flood risk assessment.
 
-    Args:
-        latitude: Latitude in decimal degrees (Poland: 49-55).
-        longitude: Longitude in decimal degrees (Poland: 14-24.5).
-        method: Calculation method:
-            - "POT" (Peak Over Threshold) - recommended for most applications.
-            - "AMP" (Annual Max Precipitation) - alternative method.
-        timeout: Request timeout in seconds.
-        validate_coords: Whether to validate coordinates are within Poland.
+    Parameters
+    ----------
+    latitude : float
+        Latitude in decimal degrees (Poland: 49-55).
+    longitude : float
+        Longitude in decimal degrees (Poland: 14-24.5).
+    method : {"POT", "AMP"}, optional
+        Calculation method. "POT" (Peak Over Threshold) is recommended for
+        most applications, "AMP" (Annual Max Precipitation) is an
+        alternative method.
+    timeout : float, optional
+        Request timeout in seconds.
+    validate_coords : bool, optional
+        Whether to validate coordinates are within Poland.
 
-    Returns:
-        PMaXTPResult with precipitation data including:
-            - ks: Precipitation quantiles [mm]
-            - sg: Upper confidence bounds [mm]
-            - rb: Estimation errors [mm]
+    Returns
+    -------
+    PMaXTPResult
+        Precipitation data including ks (quantiles [mm]), sg (upper
+        confidence bounds [mm]) and rb (estimation errors [mm]).
 
-    Raises:
-        IMGWValidationError: If coordinates outside Poland bounds.
-        IMGWConnectionError: If connection to IMGW fails.
-        IMGWDataError: If response parsing fails.
+    Raises
+    ------
+    IMGWValidationError
+        If coordinates outside Poland bounds.
+    IMGWConnectionError
+        If connection to IMGW fails.
+    IMGWDataError
+        If response parsing fails.
 
-    Example:
-        >>> result = fetch_pmaxtp(52.23, 21.01, method="POT")
-        >>> precip_15min_p50 = result.data.get_precipitation(15, 50)
-        >>> print(f"15-min precipitation, p=50%: {precip_15min_p50} mm")
+    Examples
+    --------
+    >>> result = fetch_pmaxtp(52.23, 21.01, method="POT")
+    >>> precip_15min_p50 = result.data.get_precipitation(15, 50)
+    >>> print(f"15-min precipitation, p=50%: {precip_15min_p50} mm")
 
-    Note:
-        Data durations: 15, 30, 45, 60, 90, 120, 180 minutes
-        Probabilities: 1%, 2%, 5%, 10%, 20%, 50%
+    Notes
+    -----
+    Data durations: 15, 30, 45, 60, 90, 120, 180 minutes.
+    Probabilities: 1%, 2%, 5%, 10%, 20%, 50%.
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)
@@ -200,26 +212,34 @@ def fetch_hydro_current(
 
     Data includes water level, flow, and temperature for monitoring stations.
 
-    Args:
-        station_id: Optional station ID to filter results.
-                   If None, returns data for all stations.
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    station_id : str or None, optional
+        Station ID to filter results. If None, returns data for all stations.
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        List of HydroCurrentData objects.
+    Returns
+    -------
+    list of HydroCurrentData
+        Current measurements for the requested stations.
 
-    Raises:
-        IMGWConnectionError: If connection fails.
-        IMGWDataError: If response parsing fails.
+    Raises
+    ------
+    IMGWConnectionError
+        If connection fails.
+    IMGWDataError
+        If response parsing fails.
 
-    Example:
-        >>> # Get all stations
-        >>> stations = fetch_hydro_current()
-        >>> print(f"Total stations: {len(stations)}")
-        >>>
-        >>> # Get specific station
-        >>> warsaw = fetch_hydro_current(station_id="150160180")
-        >>> print(f"Water level: {warsaw[0].water_level_cm} cm")
+    Examples
+    --------
+    >>> # Get all stations
+    >>> stations = fetch_hydro_current()
+    >>> print(f"Total stations: {len(stations)}")
+    >>>
+    >>> # Get specific station
+    >>> warsaw = fetch_hydro_current(station_id="150160180")
+    >>> print(f"Water level: {warsaw[0].water_level_cm} cm")
     """
     url = build_api_url("hydro", station_id=station_id)
 
@@ -285,24 +305,34 @@ def fetch_synop(
 
     Synoptic data includes temperature, wind, humidity, precipitation, etc.
 
-    Args:
-        station_id: Optional station ID to filter results.
-        station_name: Optional station name to filter results.
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    station_id : str or None, optional
+        Station ID to filter results.
+    station_name : str or None, optional
+        Station name to filter results.
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        List of SynopData objects.
+    Returns
+    -------
+    list of SynopData
+        Current synoptic measurements for the requested stations.
 
-    Raises:
-        IMGWConnectionError: If connection fails.
-        IMGWDataError: If response parsing fails.
+    Raises
+    ------
+    IMGWConnectionError
+        If connection fails.
+    IMGWDataError
+        If response parsing fails.
 
-    Example:
-        >>> # Get all synop stations
-        >>> stations = fetch_synop()
-        >>>
-        >>> # Get specific station by name
-        >>> warszawa = fetch_synop(station_name="Warszawa")
+    Examples
+    --------
+    >>> # Get all synop stations
+    >>> stations = fetch_synop()
+    >>>
+    >>> # Get specific station by name
+    >>> warszawa = fetch_synop(station_name="Warszawa")
     """
     # Note: IMGW synop API only supports station_id filter, not station_name
     # For station_name, we fetch all and filter locally
@@ -378,20 +408,28 @@ def fetch_warnings(
     """
     Fetch current weather or hydro warnings from IMGW.
 
-    Args:
-        warning_type: Type of warnings - "hydro" or "meteo".
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    warning_type : {"hydro", "meteo"}, optional
+        Type of warnings to fetch.
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        List of WarningData objects. Empty list if no active warnings.
+    Returns
+    -------
+    list of WarningData
+        Active warnings. Empty list if there are none.
 
-    Raises:
-        IMGWConnectionError: If connection fails.
+    Raises
+    ------
+    IMGWConnectionError
+        If connection fails.
 
-    Example:
-        >>> warnings = fetch_warnings(warning_type="hydro")
-        >>> for w in warnings:
-        ...     print(f"Level {w.level}: {w.description}")
+    Examples
+    --------
+    >>> warnings = fetch_warnings(warning_type="hydro")
+    >>> for w in warnings:
+    ...     print(f"Level {w.level}: {w.description}")
     """
     url = build_api_url(f"warnings/{warning_type}")
 
@@ -464,34 +502,41 @@ def download_hydro_data(
     Downloads ZIP file directly from IMGW servers containing CSV data.
     Use parse_zip_file() to extract and parse the data.
 
-    Args:
-        interval: Data interval:
-            - "dobowe" (daily)
-            - "miesieczne" (monthly)
-            - "polroczne_i_roczne" (semi-annual/annual)
-        year: Hydrological year (1951-current).
-        month: Month (1-12). Required for daily data before 2023.
-        param: Parameter for semi-annual data:
-            - "T" (temperature)
-            - "Q" (flow)
-            - "H" (water level/depth)
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    interval : {"dobowe", "miesieczne", "polroczne_i_roczne"}
+        Data interval: daily, monthly or semi-annual/annual.
+    year : int
+        Hydrological year (1951-current).
+    month : int or None, optional
+        Month (1-12). Required for daily data before 2023.
+    param : {"T", "Q", "H"} or None, optional
+        Parameter for semi-annual data: "T" (temperature), "Q" (flow) or
+        "H" (water level/depth).
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        ZIP file content as bytes.
+    Returns
+    -------
+    bytes
+        ZIP file content.
 
-    Raises:
-        IMGWConnectionError: If download fails.
-        ValueError: If required parameters are missing.
+    Raises
+    ------
+    IMGWConnectionError
+        If download fails.
+    ValueError
+        If required parameters are missing.
 
-    Example:
-        >>> # Download daily data for 2023
-        >>> zip_data = download_hydro_data("dobowe", 2023)
-        >>>
-        >>> # Parse the downloaded data
-        >>> from imgwtools import parse_zip_file
-        >>> for station, record in parse_zip_file(zip_data, "dobowe"):
-        ...     print(f"{station.name}: {record.water_level_cm} cm")
+    Examples
+    --------
+    >>> # Download daily data for 2023
+    >>> zip_data = download_hydro_data("dobowe", 2023)
+    >>>
+    >>> # Parse the downloaded data
+    >>> from imgwtools import parse_zip_file
+    >>> for station, record in parse_zip_file(zip_data, "dobowe"):
+    ...     print(f"{station.name}: {record.water_level_cm} cm")
     """
     hydro_interval = HydroInterval(interval)
     hydro_param = HydroParam(param) if param else None
@@ -559,29 +604,35 @@ def download_meteo_data(
 
     Downloads ZIP file directly from IMGW servers containing CSV data.
 
-    Args:
-        interval: Data interval:
-            - "dobowe" (daily)
-            - "miesieczne" (monthly)
-            - "terminowe" (hourly)
-        subtype: Data subtype:
-            - "klimat" (climate)
-            - "opad" (precipitation)
-            - "synop" (synoptic)
-        year: Year (1951-current).
-        month: Month (1-12). Required for daily/hourly data from 2001+.
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    interval : {"dobowe", "miesieczne", "terminowe"}
+        Data interval: daily, monthly or hourly.
+    subtype : {"klimat", "opad", "synop"}
+        Data subtype: climate, precipitation or synoptic.
+    year : int
+        Year (1951-current).
+    month : int or None, optional
+        Month (1-12). Required for daily/hourly data from 2001+.
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        ZIP file content as bytes.
+    Returns
+    -------
+    bytes
+        ZIP file content.
 
-    Raises:
-        IMGWConnectionError: If download fails.
-        ValueError: If required parameters are missing.
+    Raises
+    ------
+    IMGWConnectionError
+        If download fails.
+    ValueError
+        If required parameters are missing.
 
-    Example:
-        >>> # Download monthly precipitation data
-        >>> zip_data = download_meteo_data("miesieczne", "opad", 2023)
+    Examples
+    --------
+    >>> # Download monthly precipitation data
+    >>> zip_data = download_meteo_data("miesieczne", "opad", 2023)
     """
     meteo_interval = MeteoInterval(interval)
     meteo_subtype = MeteoSubtype(subtype)
