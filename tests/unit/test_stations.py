@@ -26,9 +26,9 @@ class TestParseHydroStationsCsv:
         stations = _parse_hydro_stations_csv(hydro_stations_csv)
 
         assert len(stations) == 3
-        assert stations[0].station_id == "149180020"
-        assert stations[0].name == "CHAŁUPKI"
-        assert stations[0].river == "Odra"
+        assert stations[0].station_id == "123456789"
+        assert stations[0].name == "SAN ESCOBAR"
+        assert stations[0].river == "Ławica"
 
     def test_parse_river_with_id_suffix(self):
         """Test parsing river name with (id) suffix."""
@@ -91,7 +91,7 @@ class TestParseMapStationsResponse:
         stations = _parse_map_stations_response(map_stations_api_response)
 
         alarm_station = next(s for s in stations if s.water_state == "alarm")
-        assert alarm_station.name == "Chałupki"
+        assert alarm_station.name == "San Escobar"
 
     def test_parse_list_response(self):
         """Test parsing response as direct list (without wrapper)."""

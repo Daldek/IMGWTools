@@ -104,7 +104,7 @@ def synop_api_response():
 @pytest.fixture
 def hydro_stations_csv():
     """Sample CSV content from IMGW hydro stations list."""
-    return '"149180020","CHAŁUPKI","Odra (1)"\n"150160180","KŁODZKO","Nysa Kłodzka (1)"\n"151140030","PRZEWOŹNIKI","Skroda (1)"'
+    return '"123456789","SAN ESCOBAR","Ławica (1)"\n"150160180","KŁODZKO","Nysa Kłodzka (1)"\n"151140030","PRZEWOŹNIKI","Skroda (1)"'
 
 
 # Sample map stations API response
@@ -130,11 +130,11 @@ def map_stations_api_response():
                 "s": "medium",
             },
             {
-                "id": "149180020",
-                "n": "Chałupki",
-                "riverName": "Odra",
-                "la": 49.9167,
-                "lo": 18.3333,
+                "id": "123456789",
+                "n": "San Escobar",
+                "riverName": "Ławica",
+                "la": 49.8765,
+                "lo": 18.1234,
                 "s": "alarm",
             },
         ]
