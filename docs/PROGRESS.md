@@ -6,7 +6,7 @@
 |------|---------|
 | **Wersja** | 2.2.0 |
 | **Data** | 2026-08-22 |
-| **Gałąź robocza** | slave (10 commitów przed master, oczekuje scalenia) |
+| **Gałąź robocza** | slave (20 commitów przed master, oczekuje scalenia) |
 | **Python** | >=3.12 |
 
 ---
@@ -26,7 +26,7 @@
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
-Wydanie minor — 10 commitów na gałęzi `slave` ponad v2.1.1, w tym jedna zmiana łamiąca kompatybilność (usunięcie legacy modułu spatial).
+Wydanie minor — 20 commitów na gałęzi `slave` ponad v2.1.1, w tym zmiany łamiące kompatybilność (usunięcie legacy modułów spatial, api i datastore).
 
 - **Licencja:** poprawiony rok w `LICENSE`; metadane licencji zgodne z PEP 639 w `pyproject.toml` (`license = "MIT"`, `license-files`).
 - **Proces CLA:** ręczny proces CLA — `docs/CLA.md`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`, szablon PR.
@@ -35,6 +35,8 @@ Wydanie minor — 10 commitów na gałęzi `slave` ponad v2.1.1, w tym jedna zmi
 - **Parsery:** notatki dokumentacyjne o przetwarzaniu ekstremów w `parse_semi_annual_csv`.
 - **Testy:** fikcyjna stacja testowa „San Escobar" (123456789) zamiast realnych danych IMGW w fixturach.
 - **Breaking: usunięcie `core/imgw_spatial.py`** — legacy moduł (martwe importy, błędy pyright) usunięty; extras `[spatial]` przemianowane na `[pandas]` (zależności `pyproj`/`pyshp` porzucone). Osoby instalujące `imgwtools[spatial]` lub importujące `StationMap` muszą zaktualizować kod — funkcjonalność nie ma bezpośredniego zamiennika w tym wydaniu.
+- **Breaking: usunięcie `core/imgw_api.py` i `core/imgw_datastore.py`** — klasy oznaczone jako DEPRECATED od 2.0.0 (`HYDRO`, `SYNOP`, `METEO`, `WARNINGS`, `PMAXTPAPI`, `DataDownloader`) usunięte; zamienniki w publicznym API: `fetch_hydro_current`, `fetch_synop`, `fetch_warnings`, `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data`. W `core/` pozostał wyłącznie `url_builder.py`.
+- **Dokumentacja i styl kodu (2026-08-22):** `ruff format` przebiegł na całym repozytorium (19 plików); wszystkie docstringi w `src/` przepisane na konwencję NumPy, a reguły `D` (pydocstyle, `convention = "numpy"`, bez `D401`) włączone w `pyproject.toml` jako stała bramka lintu (`tests/**` zwolnione). Skorygowano `docs/DEVELOPMENT_STANDARDS.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `CLAUDE.md` i `README.md` do stanu faktycznego kodu. Weryfikacja: **109 passed**, `ruff check` czysto, `ruff format --check` czysto, `pyright` 0 błędów, pokrycie **23%** (`pytest --cov=imgwtools`).
 
 **Stan końcowy v2.2.0:** 109 passed, `ruff check` czysto, `pyright` 0 błędów (weryfikacja jak dla v2.1.1 poniżej).
 
@@ -52,7 +54,7 @@ Archiwalne pliki CSV IMGW (`dane_hydrologiczne`) różnią się formatem między
 
 Wiodąca spacja w kodzie stacji i wiersz nagłówka są obsługiwane przez istniejące zabezpieczenia (`_safe_int`, `.strip().strip('"')`).
 
-**Testy:** `tests/unit/test_parsers.py` — 28 testów (separator, kodowanie, cudzysłowy, end-to-end przez `parse_zip_file`). Po tej poprawce pakiet liczył 103 testy; docelowo dla całego wydania v2.1.1 jest ich **109** (patrz poprawka URL-i meteo niżej). `ruff check src/ tests/` i `ruff format --check` (zmienione pliki) — czysto; przy okazji naprawiono 13 zastanych błędów lint w starych plikach testowych (nieużywane importy, sortowanie importów).
+**Testy:** `tests/unit/test_parsers.py` — 28 testów (separator, kodowanie, cudzysłowy, end-to-end przez `parse_zip_file`). Po tej poprawce pakiet liczył 103 testy; docelowo dla całego wydania v2.1.1 jest ich **109** (patrz poprawka URL-i meteo niżej). `ruff check src/ tests/` i `ruff format --check` (wówczas tylko dla zmienionych plików — od 2026-08-22 formatowanie obejmuje całe repozytorium) — czysto; przy okazji naprawiono 13 zastanych błędów lint w starych plikach testowych (nieużywane importy, sortowanie importów).
 
 **Weryfikacja na danych rzeczywistych (2026-07-05, liczby rekordów):**
 
@@ -83,7 +85,7 @@ Pylance w VSC zgłaszał błędy w `db/parsers.py` (i szerzej). Weryfikacja `pyr
 - **`db/parsers.py`**: jawne zawężanie typów — `not isinstance(content, str)` (obsługuje też bytearray/memoryview lepiej niż stary wariant), warunki `or` zamiast `all([...])` (pyright nie zawęża przez `all`). Usunięte błędy `int | None` i `memoryview.lstrip`.
 - **`db/__init__.py`**: importy pod `TYPE_CHECKING` dla nazw ładowanych leniwie przez `__getattr__` — Pylance widzi symbole i podpowiada, runtime bez zmian (lazy loading zachowany).
 - **`cli/db.py`**: zawężanie `isinstance` w gałęziach wyświetlania rekordów; **`api/routes/hydro.py`**: adnotacja `list[HydroDailyDataPoint | HydroMonthlyDataPoint]` dla `data_points` (inwariancja list).
-- **`pyproject.toml`**: nowa sekcja `[tool.pyright]` (venvPath/venv + ignore dla legacy core); **`.vscode/settings.json`** ze wskazaniem interpretera `.venv` (bez niego Pylance analizuje pakiet ze starego globalnego pyenv 2.0.1).
+- **`pyproject.toml`**: nowa sekcja `[tool.pyright]` (venvPath/venv + ignore dla legacy core); **`.vscode/settings.json`** (lokalna konfiguracja, nieśledzona w repo) ze wskazaniem interpretera `.venv` (bez niego Pylance analizuje pakiet ze starego globalnego pyenv 2.0.1).
 
 **Zrealizowane 2026-08-22 (v2.2.0):** legacy moduły `core/imgw_spatial.py`, `core/imgw_api.py` (DEPRECATED od 2.0.0) i `core/imgw_datastore.py` (martwy import `wget`) zostały usunięte; `[tool.pyright].ignore` nie jest już potrzebne. W `core/` pozostał wyłącznie `url_builder.py`.
 
