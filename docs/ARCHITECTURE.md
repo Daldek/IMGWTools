@@ -282,9 +282,7 @@ IMGWTools/
 │   │   ├── cache_manager.py # Lazy loading
 │   │   └── parsers.py    # CSV parsing
 │   ├── core/             # Internal core logic
-│   │   ├── url_builder.py    # URL generation
-│   │   ├── imgw_api.py       # Legacy API (DEPRECATED)
-│   │   └── imgw_datastore.py # Legacy downloader
+│   │   └── url_builder.py    # URL generation
 │   └── web/              # Web GUI
 │       ├── app.py        # HTMX routes
 │       ├── templates/    # Jinja2 templates

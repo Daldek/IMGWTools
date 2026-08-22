@@ -113,9 +113,7 @@ src/imgwtools/
 │   ├── cache_manager.py  # Lazy loading logic
 │   └── parsers.py        # CSV parsing from ZIP files
 ├── core/                 # Internal core logic
-│   ├── url_builder.py    # URL generation (key module!)
-│   ├── imgw_api.py       # Legacy API classes (DEPRECATED)
-│   └── imgw_datastore.py # Legacy downloader
+│   └── url_builder.py    # URL generation (key module!)
 └── web/                  # Web GUI (HTMX + Jinja2)
     ├── app.py            # Web routes
     ├── templates/        # Jinja2 templates
