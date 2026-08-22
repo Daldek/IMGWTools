@@ -72,7 +72,7 @@ result = fetch_pmaxtp(latitude=52.23, longitude=21.01, method="POT")
 
 # Opad 15-minutowy z prawdopodobieństwem 50%
 precip = result.data.get_precipitation(15, 50)
-print(f"Opad 15-min, p=50%: {precip} mm")  # 13.34 mm
+print(f"Opad 15-min, p=50%: {precip} mm")  # opad [mm] dla t=15 min, p=50%
 
 # Dostępne czasy trwania: 5, 10, 15, 30, 45, 60, 90, 120, 180... minut
 # Dostępne prawdopodobieństwa: 1, 2, 5, 10, 20, 50... %
@@ -130,7 +130,7 @@ zip_data = download_hydro_data("dobowe", 2023)
 
 # Parsuj dane
 for station, record in parse_zip_file(zip_data, "dobowe"):
-    print(f"{station.name}: {record.water_level_cm} cm ({record.measurement_date})")
+    print(f"{station.station_name}: {record.water_level_cm} cm ({record.measurement_date})")
 ```
 
 ### Wersja asynchroniczna
