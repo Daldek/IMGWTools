@@ -11,6 +11,7 @@ Usage:
 import typer
 from rich.console import Console
 
+from imgwtools._version import __version__
 from imgwtools.cli import admin, db, fetch, list_cmd
 
 # Create main app
@@ -33,7 +34,7 @@ app.add_typer(db.app, name="db", help="Zarzadzanie baza danych cache")
 @app.command()
 def version():
     """Wyswietl wersje programu."""
-    console.print("[bold]IMGWTools[/bold] v1.0.0")
+    console.print(f"[bold]IMGWTools[/bold] v{__version__}")
 
 
 @app.command()
