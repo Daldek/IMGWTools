@@ -458,7 +458,7 @@ test collection.
 # Lint
 .venv/bin/ruff check src/ tests/
 
-# Type check (pyright reads [tool.pyright] in pyproject.toml; legacy core/ modules excluded)
+# Type check (pyright reads [tool.pyright] in pyproject.toml)
 npx -y pyright src/imgwtools/
 ```
 
