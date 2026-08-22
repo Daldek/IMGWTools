@@ -36,20 +36,20 @@ from imgwtools.db.parsers import (
 # ---------------------------------------------------------------------------
 
 # Daily: kod;nazwa;rzeka;rok;mies;dzien;stan;przeplyw;temp;mies_kal
-DAILY_SEMICOLON = "149180020;CHALUPKI;Odra;2020;3;15;120;45.6;5.5;1\n"
-DAILY_COMMA = '" 149180020","CHALUPKI","Odra",2020,3,15,120,45.6,5.5,1\n'
+DAILY_SEMICOLON = "123456789;SAN ESCOBAR;Ławica;2020;3;15;125;47.3;6.1;1\n"
+DAILY_COMMA = '" 123456789","SAN ESCOBAR","Ławica",2020,3,15,125,47.3,6.1,1\n'
 
 # Monthly: kod;nazwa;rzeka;rok;mies;ekstremum;stan;przeplyw;temp;mies_kal
-MONTHLY_SEMICOLON = "149180020;CHALUPKI;Odra;2020;3;2;120;45.6;5.5;1\n"
-MONTHLY_COMMA = '" 149180020","CHALUPKI","Odra",2020,3,2,120,45.6,5.5,1\n'
+MONTHLY_SEMICOLON = "123456789;SAN ESCOBAR;Ławica;2020;3;2;125;47.3;6.1;1\n"
+MONTHLY_COMMA = '" 123456789","SAN ESCOBAR","Ławica",2020,3,2,125,47.3,6.1,1\n'
 
 # Semi-annual: kod;nazwa;rzeka;rok;polrocze;param;ekstremum;wartosc;+dates
 SEMI_ANNUAL_SEMICOLON = (
-    "149180020;CHALUPKI;Odra;2020;15;Q;2;123.456;2020;5;10;12;30;2020;5;10;12;30\n"
+    "123456789;SAN ESCOBAR;Ławica;2020;15;Q;2;234.567;2020;5;12;14;30;2020;5;12;14;30\n"
 )
 SEMI_ANNUAL_COMMA = (
-    '" 149180020","CHALUPKI","Odra",2020,15,"Q",2,123.456,'
-    "2020,5,10,12,30,2020,5,10,12,30\n"
+    '" 123456789","SAN ESCOBAR","Ławica",2020,15,"Q",2,234.567,'
+    "2020,5,12,14,30,2020,5,12,14,30\n"
 )
 
 # Header row of column codes as seen in the 2024 semi-annual archive.
@@ -59,16 +59,16 @@ SEMI_ANNUAL_HEADER = (
 
 # Daily row in the 2023 archive format: semicolon, UTF-8, Polish chars.
 # The real codz_2023.csv is UTF-8 with a BOM; 99.9 is the missing-temp code.
-DAILY_UTF8 = "149180020;CHAŁUPKI;Odra (1);2023;01;01;88;14.200;99.9;11\n"
+DAILY_UTF8 = "123456789;SAN ESCOBAR;Ławica (1);2023;01;01;91;15.300;99.9;11\n"
 
 # Rows in the 2024 daily/monthly archive format: the WHOLE line is wrapped
 # in an outer pair of quotes and inner quotes are doubled, so a standard
 # csv.reader sees a single field. Taken from real mies_2024.csv structure.
 DAILY_WRAPPED_2024 = (
-    '"149180020,CHAŁUPKI,Odra (1),""2024"",""01"",""15"",104,21.100,,""11"""\n'
+    '"123456789,SAN ESCOBAR,Ławica (1),""2024"",""01"",""15"",107,22.400,,""11"""\n'
 )
 MONTHLY_WRAPPED_2024 = (
-    '"149180020,CHAŁUPKI,Odra (1),""2024"",""01"",""1"",104,21.100,,""11"""\n'
+    '"123456789,SAN ESCOBAR,Ławica (1),""2024"",""01"",""1"",107,22.400,,""11"""\n'
 )
 
 
@@ -131,7 +131,7 @@ class TestDecodeContent:
 
     def test_decode_plain_ascii(self):
         """Pure ASCII decodes identically under any strategy."""
-        raw = b"149180020;STACJA;Rzeka;2020;1;1;10;1.0;5.0;11\n"
+        raw = b"123456789;STACJA;Rzeka;2020;1;1;10;1.0;5.0;11\n"
         assert _decode_content(raw, "cp1250") == raw.decode("ascii")
 
 
@@ -155,14 +155,14 @@ def test_parse_daily_csv_both_delimiters_equal(content):
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_code == "149180020"
-    assert station.station_name == "CHALUPKI"
+    assert station.station_code == "123456789"
+    assert station.station_name == "SAN ESCOBAR"
     assert record.hydro_year == 2020
     assert record.hydro_month == 3
     assert record.day == 15
-    assert record.water_level_cm == 120
-    assert record.flow_m3s == 45.6
-    assert record.water_temp_c == 5.5
+    assert record.water_level_cm == 125
+    assert record.flow_m3s == 47.3
+    assert record.water_temp_c == 6.1
     assert record.calendar_month == 1
 
 
@@ -184,11 +184,11 @@ def test_parse_daily_csv_utf8_bom_bytes():
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_code == "149180020"  # no BOM residue
-    assert station.station_name == "CHAŁUPKI"  # Polish chars intact
+    assert station.station_code == "123456789"  # no BOM residue
+    assert station.station_name == "SAN ESCOBAR"  # Polish chars intact
     assert record.hydro_year == 2023
-    assert record.water_level_cm == 88
-    assert record.flow_m3s == 14.2
+    assert record.water_level_cm == 91
+    assert record.flow_m3s == 15.3
     assert record.water_temp_c is None  # 99.9 = missing-temp code
 
 
@@ -200,13 +200,13 @@ def test_parse_daily_csv_wrapped_lines_2024():
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_code == "149180020"
-    assert station.station_name == "CHAŁUPKI"
+    assert station.station_code == "123456789"
+    assert station.station_name == "SAN ESCOBAR"
     assert record.hydro_year == 2024
     assert record.hydro_month == 1
     assert record.day == 15
-    assert record.water_level_cm == 104
-    assert record.flow_m3s == 21.1
+    assert record.water_level_cm == 107
+    assert record.flow_m3s == 22.4
     assert record.water_temp_c is None  # empty field
     assert record.calendar_month == 11
 
@@ -231,12 +231,12 @@ def test_parse_monthly_csv_both_delimiters_equal(content):
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_code == "149180020"
+    assert station.station_code == "123456789"
     assert record.hydro_year == 2020
     assert record.hydro_month == 3
     assert record.extremum == "mean"  # code 2 -> mean
-    assert record.water_level_cm == 120
-    assert record.flow_m3s == 45.6
+    assert record.water_level_cm == 125
+    assert record.flow_m3s == 47.3
 
 
 def test_parse_monthly_csv_formats_are_identical():
@@ -254,11 +254,11 @@ def test_parse_monthly_csv_wrapped_lines_2024():
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_code == "149180020"
+    assert station.station_code == "123456789"
     assert record.hydro_year == 2024
     assert record.extremum == "min"  # code 1 -> min
-    assert record.water_level_cm == 104
-    assert record.flow_m3s == 21.1
+    assert record.water_level_cm == 107
+    assert record.flow_m3s == 22.4
     assert record.water_temp_c is None  # empty field
 
 
@@ -282,14 +282,14 @@ def test_parse_semi_annual_csv_both_delimiters_equal(content):
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_code == "149180020"
+    assert station.station_code == "123456789"
     assert record.hydro_year == 2020
     assert record.period == "annual"  # code 15 -> annual
     assert record.param == "Q"
     assert record.extremum == "mean"  # code 2 -> mean
-    assert record.value == 123.456
-    assert record.extremum_start_date == "2020-05-10 12:30"
-    assert record.extremum_end_date == "2020-05-10 12:30"
+    assert record.value == 234.567
+    assert record.extremum_start_date == "2020-05-12 14:30"
+    assert record.extremum_end_date == "2020-05-12 14:30"
 
 
 def test_parse_semi_annual_csv_formats_are_identical():
@@ -310,14 +310,14 @@ def test_parse_semi_annual_csv_skips_header_row():
     # Assert: header is dropped (non-numeric fields -> None -> skip)
     assert len(records) == 1
     _, record = records[0]
-    assert record.value == 123.456
+    assert record.value == 234.567
     assert record.param == "Q"
 
 
 def test_parse_semi_annual_csv_leading_space_station_code():
     """Leading space in a quoted station code is stripped consistently."""
     ((_, rec_comma),) = list(parse_semi_annual_csv(SEMI_ANNUAL_COMMA))
-    assert rec_comma.station_code == "149180020"  # no leading space
+    assert rec_comma.station_code == "123456789"  # no leading space
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ def test_parse_zip_file_semi_annual_returns_records(content):
     assert len(records) == 1
     _, record = records[0]
     assert record.param == "Q"
-    assert record.value == 123.456
+    assert record.value == 234.567
 
 
 def test_parse_zip_file_daily_utf8_bom():
@@ -375,8 +375,8 @@ def test_parse_zip_file_daily_utf8_bom():
     # Assert
     assert len(records) == 1
     station, record = records[0]
-    assert station.station_name == "CHAŁUPKI"
-    assert record.water_level_cm == 88
+    assert station.station_name == "SAN ESCOBAR"
+    assert record.water_level_cm == 91
 
 
 def test_parse_zip_file_monthly_wrapped_2024():
@@ -395,4 +395,4 @@ def test_parse_zip_file_monthly_wrapped_2024():
     assert len(records) == 1
     _, record = records[0]
     assert record.hydro_year == 2024
-    assert record.water_level_cm == 104
+    assert record.water_level_cm == 107
