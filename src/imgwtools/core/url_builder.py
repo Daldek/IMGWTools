@@ -126,7 +126,7 @@ def build_hydro_url(
     interval : HydroInterval
         Data interval (daily, monthly, semi-annual).
     year : int
-        Hydrological year (1951-2023).
+        Hydrological year (1951-current).
     month : int or None, optional
         Month number (1-12 for daily, 13 for phenomena). Required for daily.
     param : HydroParam or None, optional

@@ -536,7 +536,7 @@ def download_hydro_data(
     >>> # Parse the downloaded data
     >>> from imgwtools import parse_zip_file
     >>> for station, record in parse_zip_file(zip_data, "dobowe"):
-    ...     print(f"{station.name}: {record.water_level_cm} cm")
+    ...     print(f"{station.station_name}: {record.water_level_cm} cm")
     """
     hydro_interval = HydroInterval(interval)
     hydro_param = HydroParam(param) if param else None

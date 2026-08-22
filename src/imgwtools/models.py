@@ -84,7 +84,7 @@ class PMaXTPData(BaseModel):
         Examples
         --------
         >>> data.get_precipitation(15, 50)
-        13.34
+        5.1
         """
         duration_key = str(duration_minutes)
         prob_key = str(probability_percent)
