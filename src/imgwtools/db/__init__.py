@@ -9,18 +9,18 @@ Usage:
     or .env file. The database file location can be configured
     via IMGW_DB_PATH (default: ./data/imgw_hydro.db).
 
-Example:
-    from imgwtools.db import get_repository, init_db
+This module requires the [db] extra: pip install imgwtools[db]
 
-    # Initialize database (creates tables if not exist)
-    init_db()
-
-    # Get repository for queries
-    repo = get_repository()
-    data = repo.get_daily_data("150160180", 2020, 2023)
-
-Note:
-    This module requires the [db] extra: pip install imgwtools[db]
+Examples
+--------
+>>> from imgwtools.db import get_repository, init_db
+>>>
+>>> # Initialize database (creates tables if not exist)
+>>> init_db()
+>>>
+>>> # Get repository for queries
+>>> repo = get_repository()
+>>> data = repo.get_daily_data("150160180", 2020, 2023)
 """
 
 # Lazy imports to avoid requiring pydantic_settings for core library

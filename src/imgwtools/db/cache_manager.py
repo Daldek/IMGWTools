@@ -45,8 +45,10 @@ class HydroCacheManager:
         """
         Initialize cache manager.
 
-        Args:
-            timeout: HTTP request timeout in seconds.
+        Parameters
+        ----------
+        timeout : float
+            HTTP request timeout in seconds.
         """
         self.timeout = timeout
         self.repo = get_repository()
@@ -64,19 +66,30 @@ class HydroCacheManager:
 
         Downloads and caches data if not already present.
 
-        Args:
-            interval: Data interval ('dobowe', 'miesieczne', 'polroczne').
-            year: Hydrological year.
-            month: Month (for daily data before 2023).
-            param: Parameter 'H', 'Q', or 'T' (for semi-annual data).
-            progress_callback: Optional callback for progress updates.
+        Parameters
+        ----------
+        interval : str
+            Data interval ('dobowe', 'miesieczne', 'polroczne').
+        year : int
+            Hydrological year.
+        month : int or None, optional
+            Month (for daily data before 2023).
+        param : str or None, optional
+            Parameter 'H', 'Q', or 'T' (for semi-annual data).
+        progress_callback : callable or None, optional
+            Callback for progress updates.
 
-        Returns:
+        Returns
+        -------
+        bool
             True if data was downloaded, False if already cached.
 
-        Raises:
-            ValueError: If invalid parameters.
-            httpx.HTTPError: If download fails.
+        Raises
+        ------
+        ValueError
+            If invalid parameters.
+        httpx.HTTPError
+            If download fails.
         """
         # Check if already cached
         if self.repo.is_range_cached(interval, year, month, param):
@@ -146,15 +159,24 @@ class HydroCacheManager:
         """
         Import data from ZIP file into database.
 
-        Args:
-            zip_data: ZIP file content.
-            interval: Data interval.
-            year: Hydrological year.
-            source_file: Source filename for tracking.
-            month: Month (optional).
-            param: Parameter (optional).
+        Parameters
+        ----------
+        zip_data : bytes
+            ZIP file content.
+        interval : str
+            Data interval.
+        year : int
+            Hydrological year.
+        source_file : str
+            Source filename for tracking.
+        month : int or None, optional
+            Month.
+        param : str or None, optional
+            Parameter.
 
-        Returns:
+        Returns
+        -------
+        int
             Number of records imported.
         """
         stations: dict[str, HydroStation] = {}
@@ -218,15 +240,23 @@ class HydroCacheManager:
         """
         Cache data for a range of years.
 
-        Args:
-            interval: Data interval.
-            start_year: Start year (inclusive).
-            end_year: End year (inclusive).
-            param: Parameter for semi-annual data.
-            progress_callback: Optional progress callback.
+        Parameters
+        ----------
+        interval : str
+            Data interval.
+        start_year : int
+            Start year (inclusive).
+        end_year : int
+            End year (inclusive).
+        param : str or None, optional
+            Parameter for semi-annual data.
+        progress_callback : callable or None, optional
+            Progress callback.
 
-        Returns:
-            Dictionary mapping year to record count.
+        Returns
+        -------
+        dict of int to int
+            Mapping of year to record count.
         """
         results: dict[int, int] = {}
 
@@ -295,10 +325,14 @@ class HydroCacheManager:
 
         Downloads the station list CSV and updates the database.
 
-        Args:
-            progress_callback: Optional progress callback.
+        Parameters
+        ----------
+        progress_callback : callable or None, optional
+            Progress callback.
 
-        Returns:
+        Returns
+        -------
+        int
             Number of stations updated.
         """
         if progress_callback:
@@ -334,16 +368,22 @@ class HydroCacheManager:
         """
         Get daily data from cache.
 
-        Note: This does NOT trigger lazy loading. Call ensure_data_cached()
+        This does NOT trigger lazy loading. Call ensure_data_cached()
         first if you need to ensure data is available.
 
-        Args:
-            station_code: Filter by station.
-            start_year: Start hydrological year.
-            end_year: End hydrological year.
+        Parameters
+        ----------
+        station_code : str or None, optional
+            Filter by station.
+        start_year : int or None, optional
+            Start hydrological year.
+        end_year : int or None, optional
+            End hydrological year.
 
-        Returns:
-            List of daily records.
+        Returns
+        -------
+        list of HydroDailyRecord
+            Daily records from the cache.
         """
         return self.repo.get_daily_data(
             station_code=station_code,

@@ -130,12 +130,18 @@ def hydro_to_calendar_date(hydro_year: int, hydro_month: int, day: int) -> date:
     """
     Convert hydrological date to calendar date.
 
-    Args:
-        hydro_year: Hydrological year (e.g., 2020 means Nov 2019 - Oct 2020)
-        hydro_month: Month in hydro year (1=Nov, 12=Oct)
-        day: Day of month
+    Parameters
+    ----------
+    hydro_year : int
+        Hydrological year (e.g. 2020 means Nov 2019 - Oct 2020).
+    hydro_month : int
+        Month in hydro year (1=Nov, 12=Oct).
+    day : int
+        Day of month.
 
-    Returns:
+    Returns
+    -------
+    datetime.date
         Calendar date.
     """
     calendar_month = HYDRO_TO_CALENDAR_MONTH[hydro_month]
@@ -154,11 +160,16 @@ def is_missing_value(value: float | None, value_type: str) -> bool:
     """
     Check if a value represents missing data.
 
-    Args:
-        value: The value to check.
-        value_type: Type of measurement ('level', 'flow', or 'temp').
+    Parameters
+    ----------
+    value : float or None
+        The value to check.
+    value_type : str
+        Type of measurement ('level', 'flow', or 'temp').
 
-    Returns:
+    Returns
+    -------
+    bool
         True if the value indicates missing data.
     """
     if value is None:

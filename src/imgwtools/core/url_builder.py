@@ -1,7 +1,6 @@
 """
-Module: url_builder
+Builders of URLs for IMGW public data resources.
 
-Builds URLs for IMGW public data resources.
 This is the core module for generating direct download links to IMGW servers.
 """
 
@@ -86,12 +85,17 @@ def _get_meteo_folder(year: int, subtype: MeteoSubtype) -> str:
     "1960_1965" (six years); from 1966 onward all subtypes share the
     same "1966_1970", "1971_1975", ... grid.
 
-    Args:
-        year: Year of data
-        subtype: Data subtype (folder grids differ before 1966)
+    Parameters
+    ----------
+    year : int
+        Year of data.
+    subtype : MeteoSubtype
+        Data subtype (folder grids differ before 1966).
 
-    Returns:
-        Folder name for the given year
+    Returns
+    -------
+    str
+        Folder name for the given year.
     """
     if year > 2000:
         return str(year)
@@ -117,17 +121,26 @@ def build_hydro_url(
     """
     Build URL for hydrological data download.
 
-    Args:
-        interval: Data interval (daily, monthly, semi-annual)
-        year: Hydrological year (1951-2023)
-        month: Month number (1-12 for daily, 13 for phenomena). Required for daily.
-        param: Parameter (T, Q, H). Required for semi-annual.
+    Parameters
+    ----------
+    interval : HydroInterval
+        Data interval (daily, monthly, semi-annual).
+    year : int
+        Hydrological year (1951-2023).
+    month : int or None, optional
+        Month number (1-12 for daily, 13 for phenomena). Required for daily.
+    param : HydroParam or None, optional
+        Parameter (T, Q, H). Required for semi-annual.
 
-    Returns:
-        DownloadURL with direct link to IMGW server.
+    Returns
+    -------
+    DownloadURL
+        Direct link to the IMGW server.
 
-    Raises:
-        ValueError: If required parameters are missing.
+    Raises
+    ------
+    ValueError
+        If required parameters are missing.
     """
     base = f"{IMGW_PUBLIC_DATA_URL}/{DataType.HYDRO.value}"
 
@@ -181,29 +194,40 @@ def build_meteo_url(
     """
     Build URL for meteorological data download.
 
-    Args:
-        interval: Data interval (daily, monthly, hourly)
-        subtype: Data subtype (climate, precipitation, synop)
-        year: Year (1951-current)
-        month: Month number (1-12). Required for daily/hourly data from 2001+.
+    Parameters
+    ----------
+    interval : MeteoInterval
+        Data interval (daily, monthly, hourly).
+    subtype : MeteoSubtype
+        Data subtype (climate, precipitation, synop).
+    year : int
+        Year (1951-current).
+    month : int or None, optional
+        Month number (1-12). Required for daily/hourly data from 2001+.
 
-    Returns:
-        DownloadURL with direct link to IMGW server.
+    Returns
+    -------
+    DownloadURL
+        Direct link to the IMGW server.
 
-    Raises:
-        ValueError: If required parameters are missing or the requested
-            dataset does not exist on IMGW servers (hourly precipitation;
-            daily/hourly synop, which is published as per-station files).
+    Raises
+    ------
+    ValueError
+        If required parameters are missing or the requested dataset does not
+        exist on IMGW servers (hourly precipitation; daily/hourly synop,
+        which is published as per-station files).
 
-    Note:
-        Real IMGW folder layout (verified against live server listings):
-        - monthly: one file per folder ("{folder}_m_{k|o|s}.zip") — the
-          folder is a 5-year range until 2000 and the year from 2001;
-        - daily/hourly klimat and opad: yearly files ("{year}_{k|o}.zip")
-          until 2000, monthly files ("{year}_{month:02d}_{k|o}.zip") from 2001;
-        - daily/hourly synop: per-station files ("{folder}_{station}_s.zip")
-          — not supported here;
-        - hourly opad: dataset does not exist.
+    Notes
+    -----
+    Real IMGW folder layout (verified against live server listings):
+
+    - monthly: one file per folder ("{folder}_m_{k|o|s}.zip") - the
+      folder is a 5-year range until 2000 and the year from 2001;
+    - daily/hourly klimat and opad: yearly files ("{year}_{k|o}.zip")
+      until 2000, monthly files ("{year}_{month:02d}_{k|o}.zip") from 2001;
+    - daily/hourly synop: per-station files ("{folder}_{station}_s.zip")
+      - not supported here;
+    - hourly opad: dataset does not exist.
     """
     base = f"{IMGW_PUBLIC_DATA_URL}/{DataType.METEO.value}"
 
@@ -265,13 +289,19 @@ def build_pmaxtp_url(
     """
     Build URL for PMAXTP (probabilistic max precipitation) API.
 
-    Args:
-        method: Calculation method (POT or AMP)
-        latitude: Latitude in decimal degrees
-        longitude: Longitude in decimal degrees
+    Parameters
+    ----------
+    method : PMaXTPMethod
+        Calculation method (POT or AMP).
+    latitude : float
+        Latitude in decimal degrees.
+    longitude : float
+        Longitude in decimal degrees.
 
-    Returns:
-        URL for PMAXTP API endpoint.
+    Returns
+    -------
+    str
+        URL for the PMAXTP API endpoint.
     """
     lat_str = f"{latitude:.4f}"
     lon_str = f"{longitude:.4f}"
@@ -287,13 +317,19 @@ def build_api_url(
     """
     Build URL for IMGW real-time API.
 
-    Args:
-        endpoint: API endpoint (hydro, synop, meteo, warnings/hydro, warnings/meteo)
-        station_id: Station ID (optional)
-        station_name: Station name (optional, for synop)
+    Parameters
+    ----------
+    endpoint : str
+        API endpoint (hydro, synop, meteo, warnings/hydro, warnings/meteo).
+    station_id : str or None, optional
+        Station ID.
+    station_name : str or None, optional
+        Station name (for synop).
 
-    Returns:
-        URL for IMGW API endpoint.
+    Returns
+    -------
+    str
+        URL for the IMGW API endpoint.
     """
     url = f"{IMGW_API_URL}/{endpoint}"
 
@@ -309,12 +345,17 @@ def get_available_years(data_type: DataType, interval: str) -> tuple[int, int]:
     """
     Get the range of available years for a given data type and interval.
 
-    Args:
-        data_type: Type of data (hydro or meteo)
-        interval: Data interval
+    Parameters
+    ----------
+    data_type : DataType
+        Type of data (hydro or meteo).
+    interval : str
+        Data interval.
 
-    Returns:
-        Tuple of (start_year, end_year)
+    Returns
+    -------
+    tuple of (int, int)
+        Pair of (start_year, end_year).
     """
     import datetime
 
