@@ -1,6 +1,4 @@
-"""
-Hydrological data routes.
-"""
+"""Hydrological data routes."""
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query

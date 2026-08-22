@@ -1,6 +1,4 @@
-"""
-Pydantic schemas for API request/response models.
-"""
+"""Pydantic schemas for API request/response models."""
 
 from enum import Enum
 
@@ -9,35 +7,47 @@ from pydantic import BaseModel, Field
 
 # Enums for API
 class DataTypeEnum(str, Enum):
+    """Type of IMGW dataset exposed by the API."""
+
     HYDRO = "hydro"
     METEO = "meteo"
 
 
 class HydroIntervalEnum(str, Enum):
+    """Interval for hydrological data."""
+
     DAILY = "dobowe"
     MONTHLY = "miesieczne"
     SEMI_ANNUAL = "polroczne_i_roczne"
 
 
 class MeteoIntervalEnum(str, Enum):
+    """Interval for meteorological data."""
+
     DAILY = "dobowe"
     MONTHLY = "miesieczne"
     HOURLY = "terminowe"
 
 
 class MeteoSubtypeEnum(str, Enum):
+    """Subtype of meteorological data."""
+
     CLIMATE = "klimat"
     PRECIPITATION = "opad"
     SYNOP = "synop"
 
 
 class HydroParamEnum(str, Enum):
+    """Parameter for semi-annual/annual hydrological data."""
+
     TEMPERATURE = "T"
     FLOW = "Q"
     DEPTH = "H"
 
 
 class PMaXTPMethodEnum(str, Enum):
+    """Method for PMAXTP data."""
+
     POT = "POT"
     AMP = "AMP"
 

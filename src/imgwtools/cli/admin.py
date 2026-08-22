@@ -1,6 +1,4 @@
-"""
-Admin commands for API key management.
-"""
+"""Admin commands for API key management."""
 
 import json
 import secrets
@@ -35,9 +33,7 @@ def save_api_keys(data: dict) -> None:
 
 @app.command("keys")
 def list_keys():
-    """
-    Lista kluczy API.
-    """
+    """Lista kluczy API."""
     data = load_api_keys()
     keys = data.get("keys", [])
 
@@ -80,7 +76,7 @@ def create_key(
     """
     Utworz nowy klucz API.
 
-    Przykład:
+    Przyklad:
         imgw admin create --name "User1" --limit 100
     """
     data = load_api_keys()
@@ -115,13 +111,13 @@ def create_key(
 def revoke_key(
     key_id: str = typer.Argument(
         ...,
-        help="ID klucza do unieważnienia (wystarczy poczatek)",
+        help="ID klucza do uniewaznienia (wystarczy poczatek)",
     ),
 ):
     """
     Uniewazni klucz API.
 
-    Przykład:
+    Przyklad:
         imgw admin revoke abc123
     """
     data = load_api_keys()
@@ -157,7 +153,7 @@ def delete_key(
     """
     Usun klucz API.
 
-    Przykład:
+    Przyklad:
         imgw admin delete abc123 --force
     """
     data = load_api_keys()
@@ -193,7 +189,7 @@ def key_stats(
     """
     Statystyki uzycia kluczy API.
 
-    Przykład:
+    Przyklad:
         imgw admin stats
         imgw admin stats abc123
     """

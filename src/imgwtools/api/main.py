@@ -1,6 +1,4 @@
-"""
-Main FastAPI application for IMGWTools REST API.
-"""
+"""Main FastAPI application for IMGWTools REST API."""
 
 from pathlib import Path
 

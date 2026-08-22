@@ -1,6 +1,4 @@
-"""
-List command for displaying stations and datasets.
-"""
+"""List command for displaying stations and datasets."""
 
 import typer
 from rich.console import Console
@@ -34,7 +32,7 @@ def list_stations(
     """
     Lista stacji pomiarowych.
 
-    Przykłady:
+    Przyklady:
         imgw list stations --type hydro
         imgw list stations --type meteo --search Warszawa
     """
@@ -102,7 +100,7 @@ def list_datasets(
     """
     Lista dostepnych zbiorow danych.
 
-    Przykłady:
+    Przyklady:
         imgw list datasets
         imgw list datasets --type hydro
     """
@@ -130,9 +128,7 @@ def list_datasets(
 
 @app.command("intervals")
 def list_intervals():
-    """
-    Lista dostepnych interwalow danych.
-    """
+    """Lista dostepnych interwalow danych."""
     console.print("[bold]Interwaly danych hydrologicznych:[/bold]")
     console.print("  - dobowe: dane dzienne (H, Q, T)")
     console.print("  - miesieczne: dane miesieczne")

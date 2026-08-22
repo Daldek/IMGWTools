@@ -1,6 +1,4 @@
-"""
-Fetch command for downloading IMGW data.
-"""
+"""Fetch command for downloading IMGW data."""
 
 from pathlib import Path
 
@@ -105,7 +103,7 @@ def fetch_hydro(
     """
     Pobierz dane hydrologiczne z IMGW.
 
-    Przykłady:
+    Przyklady:
         imgw fetch hydro --interval dobowe --year 2023 --month 1
         imgw fetch hydro --interval polroczne_i_roczne --year 2020-2023 --param Q
     """
@@ -219,7 +217,7 @@ def fetch_meteo(
     """
     Pobierz dane meteorologiczne z IMGW.
 
-    Przykłady:
+    Przyklady:
         imgw fetch meteo --interval dobowe --subtype klimat --year 2023 --month 1
         imgw fetch meteo --interval miesieczne --subtype synop --year 2020-2023
     """
@@ -307,7 +305,7 @@ def fetch_current(
     """
     Pobierz aktualne dane z API IMGW.
 
-    Przykłady:
+    Przyklady:
         imgw fetch current hydro
         imgw fetch current hydro --station 150160180 --output data.json
     """
@@ -375,7 +373,7 @@ def fetch_pmaxtp(
     """
     Pobierz dane PMAXTP (opady maksymalne prawdopodobne).
 
-    Przykłady:
+    Przyklady:
         imgw fetch pmaxtp --method POT --lat 52.2297 --lon 21.0122 --output pmaxtp.json
     """
     import json
@@ -430,7 +428,7 @@ def fetch_warnings(
     """
     Pobierz ostrzezenia z API IMGW.
 
-    Przykłady:
+    Przyklady:
         imgw fetch warnings --type hydro
         imgw fetch warnings --type meteo --output warnings.json
     """

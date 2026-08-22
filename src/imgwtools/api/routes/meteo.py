@@ -1,6 +1,4 @@
-"""
-Meteorological data routes.
-"""
+"""Meteorological data routes."""
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
