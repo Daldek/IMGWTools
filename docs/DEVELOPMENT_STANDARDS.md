@@ -94,6 +94,7 @@ from imgwtools.exceptions import IMGWError
 ```python
 def fetch_hydro_current(
     station_id: str | None = None,
+    *,
     timeout: float = 30.0,
 ) -> list[HydroCurrentData]:
     """Fetch current hydro data."""
@@ -259,13 +260,13 @@ def test_pmaxtp_get_precipitation():
 ### 5.4 Pokrycie
 
 Stan faktyczny: **23%** (zmierzone 2026-08-22, 109 testów).
-Cel docelowy: **80%** - bramka `--cov-fail-under` nie jest jeszcze wlaczona
+Cel docelowy: **80%** - bramka `--cov-fail-under` nie jest jeszcze włączona
 w konfiguracji projektu.
 
 ```bash
 pytest tests/ --cov=imgwtools --cov-report=html
 
-# Docelowo, po osiagnieciu progu:
+# Docelowo, po osiągnięciu progu:
 # pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
 ```
 
@@ -289,7 +290,7 @@ Gałąź `master` otrzymuje tylko merge z `slave` przy wydaniach.
 
 ```bash
 # Tworzenie tagu wersji
-git tag -a v2.2.0 -m "Release v2.2.0: licencja, dane referencyjne, usuniecie legacy"
+git tag -a v2.2.0 -m "Release v2.2.0: licencja, dane referencyjne, usunięcie legacy"
 git push origin v2.2.0
 ```
 
