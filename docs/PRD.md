@@ -7,7 +7,7 @@ IMGWTools is a tool for downloading, exposing, and basic visualization of hydrol
 - Web GUI application
 - Public REST API
 
-Analytical and statistical parts (hydrological calculations, probabilistic models, statistical analyses) will be separated into another repository and are out of scope for this PRD.
+Analytical and statistical parts (hydrological calculations, probabilistic models, statistical analyses) live in a separate repository (Hydrolog) and are out of scope for this PRD.
 
 ---
 
@@ -53,7 +53,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 |--------|--------|-------------|
 | JSON | Implemented | All API responses |
 | URLs | Implemented | Direct links to IMGW servers |
-| CSV | Not Implemented | Direct CSV export |
+| CSV | Implemented | PMAXTP export in the Web GUI, `imgw db query -o <file>` |
 | GeoJSON | Not Implemented | GIS-compatible format |
 
 ---
@@ -113,6 +113,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | `imgw list` command | Implemented |
 | `imgw admin` command | Implemented |
 | `imgw server` command | Implemented |
+| `imgw db` command | Implemented |
 | `--output` flag | Implemented |
 | `--station` filtering | Implemented |
 | Progress bars | Implemented |
@@ -142,6 +143,15 @@ imgw admin create --name <name> [--limit]
 imgw admin revoke <key_id>
 imgw admin delete <key_id> [--force]
 imgw admin stats [key_id]
+
+# Database cache (requires IMGW_DB_ENABLED=true)
+imgw db init [--force]
+imgw db status
+imgw db stations [--search] [--refresh]
+imgw db cache --years <range> [--interval] [--param]
+imgw db query --station <code> --years <range> [--interval] [--output]
+imgw db clear [--interval] [--force]
+imgw db vacuum
 ```
 
 ---
@@ -152,9 +162,9 @@ imgw admin stats [key_id]
 |-------------|--------|-------|
 | No server-side data storage | Implemented | Core design principle |
 | PEP8 compliance | Implemented | Using ruff |
-| NumPy-style docstrings | Partial | Some modules |
+| NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
 | Unit tests | Implemented | 109 tests in `/tests/unit` |
-| Integration tests | Not Implemented | - |
+| Integration tests | Not Implemented | Planned as a separate task |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
 
@@ -180,7 +190,7 @@ The following are explicitly out of scope for this project:
 |-----|--------|----------------|
 | API response time (proxied) | < 2s | Met |
 | API documentation completeness | 100% | Met (Swagger) |
-| Test coverage | 80% | Measured (`pytest --cov`) |
+| Test coverage | 80% | 23% (measured 2026-08-22) |
 | Stability (no critical bugs) | 30 days | In progress |
 
 ---
