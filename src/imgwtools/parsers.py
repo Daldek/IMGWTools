@@ -9,7 +9,7 @@ Examples
 >>> from imgwtools import download_hydro_data, parse_zip_file
 >>> zip_data = download_hydro_data("dobowe", 2023)
 >>> for station, record in parse_zip_file(zip_data, "dobowe"):
-...     print(f"{station.name}: {record.water_level_cm} cm")
+...     print(f"{station.station_name}: {record.water_level_cm} cm")
 """
 
 from imgwtools.db.parsers import (
