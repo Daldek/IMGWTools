@@ -104,6 +104,13 @@ def list_datasets(
         imgw list datasets
         imgw list datasets --type hydro
     """
+    from imgwtools.core.url_builder import DataType, get_available_years
+
+    hydro_start, hydro_end = get_available_years(DataType.HYDRO, "dobowe")
+    meteo_start, meteo_end = get_available_years(DataType.METEO, "dobowe")
+    hydro_years = f"{hydro_start}-{hydro_end}"
+    meteo_years = f"{meteo_start}-{meteo_end}"
+
     table = Table(title="Dostepne zbiory danych")
     table.add_column("Typ", style="cyan")
     table.add_column("Interwal", style="green")
@@ -111,12 +118,12 @@ def list_datasets(
     table.add_column("Opis")
 
     datasets = [
-        ("hydro", "dobowe", "1951-2023", "Dobowe dane hydrologiczne"),
-        ("hydro", "miesieczne", "1951-2023", "Miesieczne dane hydrologiczne"),
-        ("hydro", "polroczne_i_roczne", "1951-2023", "Polroczne/roczne dane (T, Q, H)"),
-        ("meteo", "dobowe", "2001-2023", "Dobowe dane meteorologiczne"),
-        ("meteo", "miesieczne", "2001-2023", "Miesieczne dane meteorologiczne"),
-        ("meteo", "terminowe", "2001-2023", "Terminowe dane (co godzine)"),
+        ("hydro", "dobowe", hydro_years, "Dobowe dane hydrologiczne"),
+        ("hydro", "miesieczne", hydro_years, "Miesieczne dane hydrologiczne"),
+        ("hydro", "polroczne_i_roczne", hydro_years, "Polroczne/roczne dane (T, Q, H)"),
+        ("meteo", "dobowe", meteo_years, "Dobowe dane meteorologiczne"),
+        ("meteo", "miesieczne", meteo_years, "Miesieczne dane meteorologiczne"),
+        ("meteo", "terminowe", meteo_years, "Terminowe dane (co godzine)"),
     ]
 
     for d_type, interval, years, desc in datasets:
