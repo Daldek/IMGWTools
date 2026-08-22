@@ -478,7 +478,7 @@ def query(
             table.add_column("Data", style="cyan")
             table.add_column("Stan [cm]", justify="right")
             table.add_column("Przeplyw [m3/s]", justify="right")
-            table.add_column("Temp [°C]", justify="right")
+            table.add_column("Temp [C]", justify="right")
 
             for r in records[:20]:
                 if not isinstance(r, HydroDailyRecord):

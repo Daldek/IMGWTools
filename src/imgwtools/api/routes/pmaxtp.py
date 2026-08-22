@@ -1,6 +1,4 @@
-"""
-PMAXTP (Probabilistic Maximum Precipitation) routes.
-"""
+"""PMAXTP (Probabilistic Maximum Precipitation) routes."""
 
 from typing import Any
 
@@ -15,9 +13,7 @@ router = APIRouter()
 
 @router.get("/methods")
 async def list_pmaxtp_methods():
-    """
-    Lista dostepnych metod obliczania opadow maksymalnych.
-    """
+    """Lista dostepnych metod obliczania opadow maksymalnych."""
     return {
         "methods": [
             {
