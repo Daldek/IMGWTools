@@ -40,14 +40,21 @@ class HydroStation(BaseModel):
     """
     Hydrological station metadata.
 
-    Attributes:
-        station_id: Unique station identifier (kod stacji).
-        name: Station name.
-        river: River or lake name (optional).
-        latitude: Latitude in decimal degrees (optional, from map API).
-        longitude: Longitude in decimal degrees (optional, from map API).
-        water_state: Current water state status (optional, from map API).
-            Values: 'alarm', 'warning', 'high', 'medium', 'low', etc.
+    Attributes
+    ----------
+    station_id : str
+        Unique station identifier (kod stacji).
+    name : str
+        Station name.
+    river : str or None
+        River or lake name.
+    latitude : float or None
+        Latitude in decimal degrees (from map API).
+    longitude : float or None
+        Longitude in decimal degrees (from map API).
+    water_state : str or None
+        Current water state status (from map API). Values: 'alarm',
+        'warning', 'high', 'medium', 'low', etc.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -67,9 +74,12 @@ class MeteoStation(BaseModel):
     """
     Meteorological station metadata.
 
-    Attributes:
-        station_id: Unique station identifier.
-        name: Station name.
+    Attributes
+    ----------
+    station_id : str
+        Unique station identifier.
+    name : str
+        Station name.
     """
 
     station_id: str
@@ -86,19 +96,26 @@ def list_hydro_stations(
     Returns basic station info without coordinates.
     For coordinates and water state, use get_hydro_stations_with_coords().
 
-    Args:
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        List of HydroStation objects.
+    Returns
+    -------
+    list of HydroStation
+        Stations without coordinates.
 
-    Raises:
-        IMGWConnectionError: If connection to IMGW fails.
+    Raises
+    ------
+    IMGWConnectionError
+        If connection to IMGW fails.
 
-    Example:
-        >>> stations = list_hydro_stations()
-        >>> print(len(stations))  # ~900 stations
-        >>> print(stations[0].name)
+    Examples
+    --------
+    >>> stations = list_hydro_stations()
+    >>> print(len(stations))  # ~900 stations
+    >>> print(stations[0].name)
     """
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -146,22 +163,30 @@ def get_hydro_stations_with_coords(
     Uses hydro-back.imgw.pl API which provides lat/lon and water state.
     This is the recommended method for getting station locations.
 
-    Args:
-        include_all: If True, include secondary stations (default).
-                    If False, only main stations.
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    include_all : bool, optional
+        If True, include secondary stations (default). If False, only main
+        stations.
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        List of HydroStation with coordinates and water_state.
+    Returns
+    -------
+    list of HydroStation
+        Stations with coordinates and water_state.
 
-    Raises:
-        IMGWConnectionError: If connection fails.
+    Raises
+    ------
+    IMGWConnectionError
+        If connection fails.
 
-    Example:
-        >>> stations = get_hydro_stations_with_coords()
-        >>> alarmed = [s for s in stations if s.water_state == "alarm"]
-        >>> for s in alarmed:
-        ...     print(f"{s.name}: {s.latitude}, {s.longitude}")
+    Examples
+    --------
+    >>> stations = get_hydro_stations_with_coords()
+    >>> alarmed = [s for s in stations if s.water_state == "alarm"]
+    >>> for s in alarmed:
+    ...     print(f"{s.name}: {s.latitude}, {s.longitude}")
     """
     params = {"onlyMainStations": "false" if include_all else "true"}
     headers = {
@@ -220,18 +245,25 @@ def list_meteo_stations(
     """
     List all meteorological stations from IMGW CSV.
 
-    Args:
-        timeout: Request timeout in seconds.
+    Parameters
+    ----------
+    timeout : float, optional
+        Request timeout in seconds.
 
-    Returns:
-        List of MeteoStation objects.
+    Returns
+    -------
+    list of MeteoStation
+        Meteorological stations.
 
-    Raises:
-        IMGWConnectionError: If connection fails.
+    Raises
+    ------
+    IMGWConnectionError
+        If connection fails.
 
-    Example:
-        >>> stations = list_meteo_stations()
-        >>> print(len(stations))
+    Examples
+    --------
+    >>> stations = list_meteo_stations()
+    >>> print(len(stations))
     """
     try:
         with httpx.Client(timeout=timeout) as client:

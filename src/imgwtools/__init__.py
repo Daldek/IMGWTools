@@ -29,6 +29,8 @@ Installation:
     pip install imgwtools           # Core library only
     pip install imgwtools[cli]      # With CLI
     pip install imgwtools[api]      # With REST API server
+    pip install imgwtools[db]       # With SQLite cache for hydro data
+    pip install imgwtools[pandas]   # With DataFrame export
     pip install imgwtools[full]     # All features
 """
 

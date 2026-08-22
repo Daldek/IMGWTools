@@ -15,18 +15,25 @@ class PMaXTPData(BaseModel):
     """
     PMAXTP precipitation quantiles for all durations and probabilities.
 
-    Structure:
-        ks: Precipitation quantiles [mm]
-        sg: Upper confidence bounds [mm]
-        rb: Estimation errors [mm]
+    Each attribute is a nested dict of the form
+    ``{duration: {probability: value}}``, where both keys are plain numbers
+    written as strings: durations in minutes (e.g. "5", "10", "15", "30",
+    "45", "60", "90", "120", "180") and probabilities in percent
+    (e.g. "1", "2", "5", "10", "20", "50").
 
-    Each contains nested dicts: {duration: {probability: value}}
-    Durations: t15, t30, t45, t60, t90, t120, t180 (minutes)
-    Probabilities: p1, p2, p5, p10, p20, p50 (percent)
+    Attributes
+    ----------
+    ks : dict of str to dict of str to float
+        Precipitation quantiles [mm].
+    sg : dict of str to dict of str to float
+        Upper confidence bounds [mm].
+    rb : dict of str to dict of str to float
+        Estimation errors [mm].
 
-    Example:
-        >>> data.ks["t15"]["p50"]  # 15-min precipitation, 50% probability
-        23.5
+    Examples
+    --------
+    >>> data.ks["15"]["50"]  # 15-min precipitation, 50% probability
+    5.1
     """
 
     ks: dict[str, dict[str, float]] = Field(
@@ -62,16 +69,22 @@ class PMaXTPData(BaseModel):
         """
         Get precipitation value for given duration and probability.
 
-        Args:
-            duration_minutes: Duration in minutes (5, 10, 15, 30, 45, 60, 90, 120, 180, etc.)
-            probability_percent: Probability in percent (1, 2, 5, 10, 20, 50, etc.)
+        Parameters
+        ----------
+        duration_minutes : int
+            Duration in minutes (5, 10, 15, 30, 45, 60, 90, 120, 180, etc.).
+        probability_percent : int
+            Probability in percent (1, 2, 5, 10, 20, 50, etc.).
 
-        Returns:
+        Returns
+        -------
+        float or None
             Precipitation in mm, or None if not available.
 
-        Example:
-            >>> data.get_precipitation(15, 50)
-            13.34
+        Examples
+        --------
+        >>> data.get_precipitation(15, 50)
+        13.34
         """
         duration_key = str(duration_minutes)
         prob_key = str(probability_percent)
@@ -103,11 +116,15 @@ class PMaXTPData(BaseModel):
 
         Requires pandas to be installed.
 
-        Returns:
-            DataFrame with columns: duration, probability, ks_mm, sg_mm, rb_mm
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with columns: duration, probability, ks_mm, sg_mm, rb_mm.
 
-        Raises:
-            ImportError: If pandas is not installed.
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
         """
         try:
             import pandas as pd
