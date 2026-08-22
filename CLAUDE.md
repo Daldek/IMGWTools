@@ -14,7 +14,7 @@ IMGWTools is a Python library and tools for downloading public data from IMGW (P
 
 **Optional feature:** SQLite database caching for hydrological data. When enabled (`IMGW_DB_ENABLED=true`), data is cached locally using lazy loading for efficient repeated queries.
 
-**Version:** 2.1.1
+**Version:** 2.2.0
 
 ## Installation
 
@@ -82,7 +82,7 @@ imgw db vacuum                                 # Optimize database
 ```
 src/imgwtools/
 ├── __init__.py           # PUBLIC API - main entry point with exports
-├── _version.py           # Version: 2.1.1
+├── _version.py           # Version: 2.2.0
 ├── fetch.py              # PUBLIC: Data fetching (fetch_pmaxtp, fetch_hydro_current, etc.)
 ├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, etc.)
 ├── stations.py           # PUBLIC: Station functions (list_hydro_stations, etc.)
