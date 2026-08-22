@@ -44,33 +44,43 @@ def __getattr__(name: str):
     """Lazy import for database components."""
     if name == "HydroCacheManager":
         from imgwtools.db.cache_manager import HydroCacheManager
+
         return HydroCacheManager
     elif name == "get_cache_manager":
         from imgwtools.db.cache_manager import get_cache_manager
+
         return get_cache_manager
     elif name == "get_db_connection":
         from imgwtools.db.connection import get_db_connection
+
         return get_db_connection
     elif name == "db_exists":
         from imgwtools.db.connection import db_exists
+
         return db_exists
     elif name == "HydroRepository":
         from imgwtools.db.repository import HydroRepository
+
         return HydroRepository
     elif name == "get_repository":
         from imgwtools.db.repository import get_repository
+
         return get_repository
     elif name == "init_db":
         from imgwtools.db.schema import init_db
+
         return init_db
     elif name == "get_schema_version":
         from imgwtools.db.schema import get_schema_version
+
         return get_schema_version
     elif name == "get_table_counts":
         from imgwtools.db.schema import get_table_counts
+
         return get_table_counts
     elif name == "get_cached_years":
         from imgwtools.db.schema import get_cached_years
+
         return get_cached_years
     raise AttributeError(f"module 'imgwtools.db' has no attribute '{name}'")
 

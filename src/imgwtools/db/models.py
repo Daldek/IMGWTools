@@ -16,8 +16,12 @@ class HydroStation(BaseModel):
     station_code: str = Field(..., description="Station code (e.g., '150160180')")
     station_name: str = Field(..., description="Station name")
     river_name: str | None = Field(default=None, description="River or lake name")
-    latitude: float | None = Field(default=None, description="Latitude in decimal degrees")
-    longitude: float | None = Field(default=None, description="Longitude in decimal degrees")
+    latitude: float | None = Field(
+        default=None, description="Latitude in decimal degrees"
+    )
+    longitude: float | None = Field(
+        default=None, description="Longitude in decimal degrees"
+    )
 
 
 class HydroDailyRecord(BaseModel):
@@ -27,13 +31,19 @@ class HydroDailyRecord(BaseModel):
     station_name: str | None = None
     river_name: str | None = None
     hydro_year: int = Field(..., description="Hydrological year (Nov-Oct)")
-    hydro_month: int = Field(..., ge=1, le=12, description="Month in hydro year (1=Nov, 12=Oct)")
+    hydro_month: int = Field(
+        ..., ge=1, le=12, description="Month in hydro year (1=Nov, 12=Oct)"
+    )
     day: int = Field(..., ge=1, le=31)
     calendar_month: int | None = Field(default=None, ge=1, le=12)
     water_level_cm: float | None = Field(default=None, description="Water level in cm")
     flow_m3s: float | None = Field(default=None, description="Discharge in m3/s")
-    water_temp_c: float | None = Field(default=None, description="Water temperature in Celsius")
-    measurement_date: str | None = Field(default=None, description="Date in YYYY-MM-DD format")
+    water_temp_c: float | None = Field(
+        default=None, description="Water temperature in Celsius"
+    )
+    measurement_date: str | None = Field(
+        default=None, description="Date in YYYY-MM-DD format"
+    )
 
 
 class HydroMonthlyRecord(BaseModel):
@@ -101,17 +111,17 @@ PERIOD_MAP = {
 # Mapping for hydro month to calendar month
 # Hydro year starts in November (month 1 = November)
 HYDRO_TO_CALENDAR_MONTH = {
-    1: 11,   # November
-    2: 12,   # December
-    3: 1,    # January
-    4: 2,    # February
-    5: 3,    # March
-    6: 4,    # April
-    7: 5,    # May
-    8: 6,    # June
-    9: 7,    # July
-    10: 8,   # August
-    11: 9,   # September
+    1: 11,  # November
+    2: 12,  # December
+    3: 1,  # January
+    4: 2,  # February
+    5: 3,  # March
+    6: 4,  # April
+    7: 5,  # May
+    8: 6,  # June
+    9: 7,  # July
+    10: 8,  # August
+    11: 9,  # September
     12: 10,  # October
 }
 

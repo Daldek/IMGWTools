@@ -2,7 +2,6 @@
 List command for displaying stations and datasets.
 """
 
-
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -15,17 +14,20 @@ console = Console()
 def list_stations(
     data_type: str = typer.Option(
         "hydro",
-        "--type", "-t",
+        "--type",
+        "-t",
         help="Typ stacji: hydro lub meteo",
     ),
     limit: int = typer.Option(
         50,
-        "--limit", "-l",
+        "--limit",
+        "-l",
         help="Maksymalna liczba wynikow",
     ),
     search: str | None = typer.Option(
         None,
-        "--search", "-s",
+        "--search",
+        "-s",
         help="Szukaj po nazwie",
     ),
 ):
@@ -76,7 +78,11 @@ def list_stations(
 
     for _, row in df.iterrows():
         if data_type == "hydro":
-            table.add_row(str(row.iloc[0]), str(row.iloc[1]), str(row.iloc[2]) if len(row) > 2 else "")
+            table.add_row(
+                str(row.iloc[0]),
+                str(row.iloc[1]),
+                str(row.iloc[2]) if len(row) > 2 else "",
+            )
         else:
             table.add_row(str(row.iloc[0]), str(row.iloc[1]))
 
@@ -88,7 +94,8 @@ def list_stations(
 def list_datasets(
     data_type: str | None = typer.Option(
         None,
-        "--type", "-t",
+        "--type",
+        "-t",
         help="Filtruj po typie: hydro lub meteo",
     ),
 ):

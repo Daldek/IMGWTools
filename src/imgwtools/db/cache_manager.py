@@ -190,7 +190,9 @@ class HydroCacheManager:
             if monthly_records:
                 record_count += self.repo.insert_monthly_batch(monthly_records, conn)
             if semi_annual_records:
-                record_count += self.repo.insert_semi_annual_batch(semi_annual_records, conn)
+                record_count += self.repo.insert_semi_annual_batch(
+                    semi_annual_records, conn
+                )
 
             # Mark range as cached
             self.repo.mark_range_cached(

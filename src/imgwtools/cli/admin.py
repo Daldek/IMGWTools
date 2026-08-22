@@ -66,12 +66,14 @@ def list_keys():
 def create_key(
     name: str = typer.Option(
         ...,
-        "--name", "-n",
+        "--name",
+        "-n",
         help="Nazwa klucza",
     ),
     rate_limit: int = typer.Option(
         100,
-        "--limit", "-l",
+        "--limit",
+        "-l",
         help="Limit zapytan na godzine",
     ),
 ):
@@ -104,7 +106,9 @@ def create_key(
     console.print(f"[bold]Klucz:[/bold] {key_id}")
     console.print(f"[bold]Limit:[/bold] {rate_limit} req/h")
     console.print()
-    console.print("[yellow]Zapisz ten klucz - nie bedzie mozna go odczytac ponownie![/yellow]")
+    console.print(
+        "[yellow]Zapisz ten klucz - nie bedzie mozna go odczytac ponownie![/yellow]"
+    )
 
 
 @app.command("revoke")
@@ -145,7 +149,8 @@ def delete_key(
     ),
     force: bool = typer.Option(
         False,
-        "--force", "-f",
+        "--force",
+        "-f",
         help="Usun bez potwierdzenia",
     ),
 ):

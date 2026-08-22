@@ -99,45 +99,61 @@ async def generate_hydro_urls(
                     if year >= 2023:
                         # From 2023: single file per year
                         result = build_hydro_url(hydro_interval, year)
-                        urls.append({
-                            "url": result.url,
-                            "filename": result.filename,
-                            "year": year,
-                        })
+                        urls.append(
+                            {
+                                "url": result.url,
+                                "filename": result.filename,
+                                "year": year,
+                            }
+                        )
                     else:
                         # Before 2023: monthly files
                         for month in range(1, 13):
                             result = build_hydro_url(hydro_interval, year, month)
-                            urls.append({
+                            urls.append(
+                                {
+                                    "url": result.url,
+                                    "filename": result.filename,
+                                    "year": year,
+                                    "month": month,
+                                }
+                            )
+                elif hydro_interval == HydroInterval.SEMI_ANNUAL:
+                    if hydro_param:
+                        result = build_hydro_url(
+                            hydro_interval, year, param=hydro_param
+                        )
+                        urls.append(
+                            {
                                 "url": result.url,
                                 "filename": result.filename,
                                 "year": year,
-                                "month": month,
-                            })
-                elif hydro_interval == HydroInterval.SEMI_ANNUAL:
-                    if hydro_param:
-                        result = build_hydro_url(hydro_interval, year, param=hydro_param)
-                        urls.append({
+                            }
+                        )
+                    else:
+                        for p in [
+                            HydroParam.FLOW,
+                            HydroParam.DEPTH,
+                            HydroParam.TEMPERATURE,
+                        ]:
+                            result = build_hydro_url(hydro_interval, year, param=p)
+                            urls.append(
+                                {
+                                    "url": result.url,
+                                    "filename": result.filename,
+                                    "year": year,
+                                    "param": p.value,
+                                }
+                            )
+                else:
+                    result = build_hydro_url(hydro_interval, year)
+                    urls.append(
+                        {
                             "url": result.url,
                             "filename": result.filename,
                             "year": year,
-                        })
-                    else:
-                        for p in [HydroParam.FLOW, HydroParam.DEPTH, HydroParam.TEMPERATURE]:
-                            result = build_hydro_url(hydro_interval, year, param=p)
-                            urls.append({
-                                "url": result.url,
-                                "filename": result.filename,
-                                "year": year,
-                                "param": p.value,
-                            })
-                else:
-                    result = build_hydro_url(hydro_interval, year)
-                    urls.append({
-                        "url": result.url,
-                        "filename": result.filename,
-                        "year": year,
-                    })
+                        }
+                    )
             except ValueError as e:
                 errors.append(f"Rok {year}: {e}")
 
@@ -198,28 +214,36 @@ async def generate_meteo_urls(
                 if year <= 2000:
                     # 1951-2000: yearly files (no monthly split)
                     result = build_meteo_url(meteo_interval, meteo_subtype, year)
-                    urls.append({
-                        "url": result.url,
-                        "filename": result.filename,
-                        "year": year,
-                    })
-                elif meteo_interval in [MeteoInterval.DAILY, MeteoInterval.HOURLY]:
-                    # 2001+: monthly files
-                    for month in range(1, 13):
-                        result = build_meteo_url(meteo_interval, meteo_subtype, year, month)
-                        urls.append({
+                    urls.append(
+                        {
                             "url": result.url,
                             "filename": result.filename,
                             "year": year,
-                            "month": month,
-                        })
+                        }
+                    )
+                elif meteo_interval in [MeteoInterval.DAILY, MeteoInterval.HOURLY]:
+                    # 2001+: monthly files
+                    for month in range(1, 13):
+                        result = build_meteo_url(
+                            meteo_interval, meteo_subtype, year, month
+                        )
+                        urls.append(
+                            {
+                                "url": result.url,
+                                "filename": result.filename,
+                                "year": year,
+                                "month": month,
+                            }
+                        )
                 else:
                     result = build_meteo_url(meteo_interval, meteo_subtype, year)
-                    urls.append({
-                        "url": result.url,
-                        "filename": result.filename,
-                        "year": year,
-                    })
+                    urls.append(
+                        {
+                            "url": result.url,
+                            "filename": result.filename,
+                            "year": year,
+                        }
+                    )
             except ValueError as e:
                 errors.append(f"Rok {year}: {e}")
 
@@ -354,7 +378,7 @@ async def hydro_stations_partial(
             if len(row) >= 3:
                 river_raw = row[2].strip('"')
                 # Extract river name and hydro ID from "Odra (1)" format
-                match = re.match(r'^(.+?)\s*\((\d+)\)$', river_raw)
+                match = re.match(r"^(.+?)\s*\((\d+)\)$", river_raw)
                 if match:
                     river_name = match.group(1).strip()
                     river_id = match.group(2)
@@ -369,7 +393,10 @@ async def hydro_stations_partial(
                     "river_id": river_id,
                 }
                 if search:
-                    if search.lower() in station["name"].lower() or search.lower() in station["river"].lower():
+                    if (
+                        search.lower() in station["name"].lower()
+                        or search.lower() in station["river"].lower()
+                    ):
                         stations.append(station)
                 else:
                     stations.append(station)
@@ -497,13 +524,15 @@ async def map_stations_data(request: Request):
         stations = []
         for item in data.get("stations", []):
             if item.get("la") and item.get("lo"):
-                stations.append({
-                    "id": item.get("id", ""),
-                    "name": item.get("n", ""),
-                    "lat": float(item["la"]),
-                    "lon": float(item["lo"]),
-                    "state": item.get("s", "unknown"),
-                })
+                stations.append(
+                    {
+                        "id": item.get("id", ""),
+                        "name": item.get("n", ""),
+                        "lat": float(item["la"]),
+                        "lon": float(item["lo"]),
+                        "state": item.get("s", "unknown"),
+                    }
+                )
 
         return {
             "stations": stations,

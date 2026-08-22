@@ -11,12 +11,14 @@ from enum import Enum
 
 class DataType(str, Enum):
     """Type of IMGW data."""
+
     HYDRO = "dane_hydrologiczne"
     METEO = "dane_meteorologiczne"
 
 
 class HydroInterval(str, Enum):
     """Interval for hydrological data."""
+
     DAILY = "dobowe"
     MONTHLY = "miesieczne"
     SEMI_ANNUAL = "polroczne_i_roczne"
@@ -24,6 +26,7 @@ class HydroInterval(str, Enum):
 
 class MeteoInterval(str, Enum):
     """Interval for meteorological data."""
+
     DAILY = "dobowe"
     MONTHLY = "miesieczne"
     HOURLY = "terminowe"
@@ -31,6 +34,7 @@ class MeteoInterval(str, Enum):
 
 class MeteoSubtype(str, Enum):
     """Subtype of meteorological data."""
+
     CLIMATE = "klimat"
     PRECIPITATION = "opad"
     SYNOP = "synop"
@@ -38,6 +42,7 @@ class MeteoSubtype(str, Enum):
 
 class HydroParam(str, Enum):
     """Parameter for semi-annual/annual hydrological data."""
+
     TEMPERATURE = "T"
     FLOW = "Q"
     DEPTH = "H"
@@ -45,6 +50,7 @@ class HydroParam(str, Enum):
 
 class PMaXTPMethod(str, Enum):
     """Method for PMAXTP data."""
+
     POT = "POT"  # Peak Over Threshold
     AMP = "AMP"  # Annual Max Precipitation
 
@@ -52,6 +58,7 @@ class PMaXTPMethod(str, Enum):
 @dataclass
 class DownloadURL:
     """Result of URL building."""
+
     url: str
     filename: str
     data_type: str
@@ -310,6 +317,7 @@ def get_available_years(data_type: DataType, interval: str) -> tuple[int, int]:
         Tuple of (start_year, end_year)
     """
     import datetime
+
     current_year = datetime.datetime.now().year
 
     if data_type == DataType.HYDRO:

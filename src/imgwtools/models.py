@@ -153,11 +153,17 @@ class HydroCurrentData(BaseModel):
     river: str | None = Field(default=None, description="River name")
     province: str | None = Field(default=None, description="Province (wojewodztwo)")
     water_level_cm: float | None = Field(default=None, description="Water level [cm]")
-    water_level_date: str | None = Field(default=None, description="Water level measurement date")
+    water_level_date: str | None = Field(
+        default=None, description="Water level measurement date"
+    )
     flow_m3s: float | None = Field(default=None, description="Flow [m3/s]")
     flow_date: str | None = Field(default=None, description="Flow measurement date")
-    water_temp_c: float | None = Field(default=None, description="Water temperature [C]")
-    water_temp_date: str | None = Field(default=None, description="Temperature measurement date")
+    water_temp_c: float | None = Field(
+        default=None, description="Water temperature [C]"
+    )
+    water_temp_date: str | None = Field(
+        default=None, description="Temperature measurement date"
+    )
     ice_phenomenon: str | None = Field(default=None, description="Ice phenomenon code")
     overgrowth: str | None = Field(default=None, description="Overgrowth code")
 
@@ -193,10 +199,18 @@ class SynopData(BaseModel):
     measurement_hour: int | None = Field(default=None, description="Measurement hour")
     temperature_c: float | None = Field(default=None, description="Air temperature [C]")
     wind_speed_ms: float | None = Field(default=None, description="Wind speed [m/s]")
-    wind_direction: int | None = Field(default=None, description="Wind direction [degrees]")
-    humidity_percent: float | None = Field(default=None, description="Relative humidity [%]")
-    precipitation_mm: float | None = Field(default=None, description="Total precipitation [mm]")
-    pressure_hpa: float | None = Field(default=None, description="Atmospheric pressure [hPa]")
+    wind_direction: int | None = Field(
+        default=None, description="Wind direction [degrees]"
+    )
+    humidity_percent: float | None = Field(
+        default=None, description="Relative humidity [%]"
+    )
+    precipitation_mm: float | None = Field(
+        default=None, description="Total precipitation [mm]"
+    )
+    pressure_hpa: float | None = Field(
+        default=None, description="Atmospheric pressure [hPa]"
+    )
     visibility_m: int | None = Field(default=None, description="Visibility [m]")
     cloud_cover: int | None = Field(default=None, description="Cloud cover [octants]")
 

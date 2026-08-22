@@ -2,7 +2,6 @@
 Meteorological data routes.
 """
 
-
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
@@ -71,12 +70,24 @@ async def get_synop_data(
                     MeteoCurrentData(
                         station_id=item.get("id_stacji", ""),
                         station_name=item.get("stacja", ""),
-                        temperature=float(item["temperatura"]) if item.get("temperatura") else None,
-                        wind_speed=float(item["predkosc_wiatru"]) if item.get("predkosc_wiatru") else None,
-                        wind_direction=int(item["kierunek_wiatru"]) if item.get("kierunek_wiatru") else None,
-                        humidity=float(item["wilgotnosc_wzgledna"]) if item.get("wilgotnosc_wzgledna") else None,
-                        precipitation=float(item["suma_opadu"]) if item.get("suma_opadu") else None,
-                        pressure=float(item["cisnienie"]) if item.get("cisnienie") else None,
+                        temperature=float(item["temperatura"])
+                        if item.get("temperatura")
+                        else None,
+                        wind_speed=float(item["predkosc_wiatru"])
+                        if item.get("predkosc_wiatru")
+                        else None,
+                        wind_direction=int(item["kierunek_wiatru"])
+                        if item.get("kierunek_wiatru")
+                        else None,
+                        humidity=float(item["wilgotnosc_wzgledna"])
+                        if item.get("wilgotnosc_wzgledna")
+                        else None,
+                        precipitation=float(item["suma_opadu"])
+                        if item.get("suma_opadu")
+                        else None,
+                        pressure=float(item["cisnienie"])
+                        if item.get("cisnienie")
+                        else None,
                         measurement_date=item.get("data_pomiaru"),
                     )
                 )
@@ -115,9 +126,15 @@ async def get_current_meteo_data(
                     MeteoCurrentData(
                         station_id=item.get("id_stacji", ""),
                         station_name=item.get("nazwa_stacji", ""),
-                        temperature=float(item["temperatura"]) if item.get("temperatura") else None,
-                        wind_speed=float(item["predkosc_wiatru"]) if item.get("predkosc_wiatru") else None,
-                        humidity=float(item["wilgotnosc"]) if item.get("wilgotnosc") else None,
+                        temperature=float(item["temperatura"])
+                        if item.get("temperatura")
+                        else None,
+                        wind_speed=float(item["predkosc_wiatru"])
+                        if item.get("predkosc_wiatru")
+                        else None,
+                        humidity=float(item["wilgotnosc"])
+                        if item.get("wilgotnosc")
+                        else None,
                         precipitation=float(item["opad"]) if item.get("opad") else None,
                         measurement_date=item.get("data_pomiaru"),
                     )

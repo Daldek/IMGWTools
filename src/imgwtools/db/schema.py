@@ -158,11 +158,10 @@ def get_schema_version(conn: sqlite3.Connection | None = None) -> int:
     Returns:
         Schema version number, or 0 if schema_version table doesn't exist.
     """
+
     def _get_version(c: sqlite3.Connection) -> int:
         try:
-            cursor = c.execute(
-                "SELECT MAX(version) FROM schema_version"
-            )
+            cursor = c.execute("SELECT MAX(version) FROM schema_version")
             row = cursor.fetchone()
             return row[0] if row and row[0] else 0
         except sqlite3.OperationalError:

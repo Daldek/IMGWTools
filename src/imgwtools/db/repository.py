@@ -592,7 +592,9 @@ class HydroRepository:
                 if table:
                     conn.execute(f"DELETE FROM {table}")
                     total += conn.total_changes
-                conn.execute("DELETE FROM cached_ranges WHERE interval = ?", (interval,))
+                conn.execute(
+                    "DELETE FROM cached_ranges WHERE interval = ?", (interval,)
+                )
                 total += conn.total_changes
             else:
                 conn.execute("DELETE FROM hydro_daily")

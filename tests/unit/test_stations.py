@@ -95,9 +95,7 @@ class TestParseMapStationsResponse:
 
     def test_parse_list_response(self):
         """Test parsing response as direct list (without wrapper)."""
-        data = [
-            {"id": "123", "n": "Test", "la": 50.0, "lo": 19.0, "s": "medium"}
-        ]
+        data = [{"id": "123", "n": "Test", "la": 50.0, "lo": 19.0, "s": "medium"}]
         stations = _parse_map_stations_response(data)
 
         assert len(stations) == 1
