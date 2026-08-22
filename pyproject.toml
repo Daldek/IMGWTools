@@ -115,12 +115,6 @@ known-first-party = ["imgwtools"]
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
-# Legacy core modules (deprecated, broken imports: wget/imgw_api)
-# are excluded from type checking pending removal — see docs/PROGRESS.md
-ignore = [
-    "src/imgwtools/core/imgw_api.py",
-    "src/imgwtools/core/imgw_datastore.py",
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

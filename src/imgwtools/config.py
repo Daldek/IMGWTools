@@ -56,11 +56,6 @@ class Settings(BaseSettings):
         """Path to meteorological stations CSV."""
         return self.data_dir / "meteo_stations_names.csv"
 
-    @property
-    def hydro_stations_locations_file(self) -> Path:
-        """Path to hydrological stations locations CSV."""
-        return self.data_dir / "hydro_stations_locations.csv"
-
 
 # Global settings instance
 settings = Settings()
