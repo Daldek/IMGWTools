@@ -114,7 +114,7 @@ class PMaXTPData(BaseModel):
         except ImportError as e:
             raise ImportError(
                 "pandas is required for to_dataframe(). "
-                "Install with: pip install imgwtools[spatial]"
+                "Install with: pip install imgwtools[pandas]"
             ) from e
 
         rows = []

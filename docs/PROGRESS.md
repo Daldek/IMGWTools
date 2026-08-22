@@ -68,7 +68,7 @@ Pylance w VSC zgłaszał błędy w `db/parsers.py` (i szerzej). Weryfikacja `pyr
 - **`cli/db.py`**: zawężanie `isinstance` w gałęziach wyświetlania rekordów; **`api/routes/hydro.py`**: adnotacja `list[HydroDailyDataPoint | HydroMonthlyDataPoint]` dla `data_points` (inwariancja list).
 - **`pyproject.toml`**: nowa sekcja `[tool.pyright]` (venvPath/venv + ignore dla legacy core); **`.vscode/settings.json`** ze wskazaniem interpretera `.venv` (bez niego Pylance analizuje pakiet ze starego globalnego pyenv 2.0.1).
 
-**TODO (osobne zadanie, poza v2.1.1):** legacy moduły `core/imgw_api.py` (DEPRECATED), `core/imgw_datastore.py`, `core/imgw_spatial.py` mają martwe importy (`wget`, `matplotlib`, płaski `import imgw_api`) i realne błędy Optional — są wyłączone z analizy pyright w `pyproject.toml`; docelowo do usunięcia w wydaniu minor.
+**TODO (osobne zadanie, poza v2.1.1):** legacy moduły `core/imgw_api.py` (DEPRECATED), `core/imgw_datastore.py` mają martwe importy (`wget`, płaski `import imgw_api`); `core/imgw_spatial.py` usunięty 2026-08-22 i realne błędy Optional — są wyłączone z analizy pyright w `pyproject.toml`; docelowo do usunięcia w wydaniu minor.
 
 ### 🐛 Bugfix: URL-e meteo niezgodne z rzeczywistą strukturą serwera IMGW (2026-07-05)
 

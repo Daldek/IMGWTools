@@ -61,11 +61,6 @@ class Settings(BaseSettings):
         """Path to hydrological stations locations CSV."""
         return self.data_dir / "hydro_stations_locations.csv"
 
-    @property
-    def shapefile_path(self) -> Path:
-        """Path to Poland shapefile."""
-        return self.data_dir / "shp" / "polska.shp"
-
 
 # Global settings instance
 settings = Settings()

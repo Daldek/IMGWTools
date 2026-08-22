@@ -284,8 +284,7 @@ IMGWTools/
 │   ├── core/             # Internal core logic
 │   │   ├── url_builder.py    # URL generation
 │   │   ├── imgw_api.py       # Legacy API (DEPRECATED)
-│   │   ├── imgw_datastore.py # Legacy downloader
-│   │   └── imgw_spatial.py   # Spatial utils
+│   │   └── imgw_datastore.py # Legacy downloader
 │   └── web/              # Web GUI
 │       ├── app.py        # HTMX routes
 │       ├── templates/    # Jinja2 templates
