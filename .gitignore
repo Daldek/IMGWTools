@@ -25,6 +25,14 @@ htmlcov/
 /data/downloaded/
 *.txt
 
+# IMGW reference data — NOT shipped; fetch via `python -m imgwtools.reference_data`
+# (data is IMGW-PIB's, under its terms, not this project's MIT licence)
+/data/desc/
+/data/hydro_stations_names.csv
+/data/meteo_stations_names.csv
+/data/hydro_stations_locations.csv
+/data/shp/
+
 # Database files
 *.db
 *.db-shm
