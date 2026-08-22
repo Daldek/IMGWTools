@@ -188,7 +188,7 @@ The following are explicitly out of scope for this project:
 ## 10. Versioning
 
 - SemVer for API and CLI/GUI package
-- Current version: 2.1.1
+- Current version: 2.2.0
 
 ---
 

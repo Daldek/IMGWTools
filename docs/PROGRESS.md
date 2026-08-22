@@ -4,9 +4,9 @@
 
 | Pole | Wartość |
 |------|---------|
-| **Wersja** | 2.1.1 |
-| **Data** | 2026-07-06 |
-| **Gałąź robocza** | slave (scalona do master) |
+| **Wersja** | 2.2.0 |
+| **Data** | 2026-08-22 |
+| **Gałąź robocza** | slave (10 commitów przed master, oczekuje scalenia) |
 | **Python** | >=3.12 |
 
 ---
@@ -15,6 +15,7 @@
 
 | Wersja | Data | Zakres |
 |--------|------|--------|
+| v2.2.0 | 2026-08 | Licencja (rok, PEP 639), ręczny proces CLA, moduł danych referencyjnych IMGW-PIB (`reference_data.py`), usunięcie danych IMGW z repo, **usunięcie legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` usunięty) |
 | v2.1.1 | 2026-07 | Parsery: auto-detekcja separatora/kodowania (UTF-8 BOM)/cudzysłowów; URL-e meteo zgodne z serwerem IMGW; zgodność z pyright; audyt dokumentacji |
 | v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
 | v2.0.1 | 2026-01 | Fix import error (lazy load db module) |
@@ -22,6 +23,22 @@
 | v1.0.0 | 2025-xx | Pierwsze stabilne wydanie |
 
 ---
+
+## v2.2.0 — szczegóły wydania (2026-08-22)
+
+Wydanie minor — 10 commitów na gałęzi `slave` ponad v2.1.1, w tym jedna zmiana łamiąca kompatybilność (usunięcie legacy modułu spatial).
+
+- **Licencja:** poprawiony rok w `LICENSE`; metadane licencji zgodne z PEP 639 w `pyproject.toml` (`license = "MIT"`, `license-files`).
+- **Proces CLA:** ręczny proces CLA — `docs/CLA.md`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`, szablon PR.
+- **Dane referencyjne IMGW-PIB:** dane IMGW usunięte z repozytorium (`cf72e32`); nowy moduł `src/imgwtools/reference_data.py` do pobierania ich na żądanie (`python -m imgwtools.reference_data`); `data/shp` wyłączone spod śledzenia i zignorowane.
+- **README:** nowa sekcja o źródłach danych i atrybucji.
+- **Parsery:** notatki dokumentacyjne o przetwarzaniu ekstremów w `parse_semi_annual_csv`.
+- **Testy:** fikcyjna stacja testowa „San Escobar" (123456789) zamiast realnych danych IMGW w fixturach.
+- **Breaking: usunięcie `core/imgw_spatial.py`** — legacy moduł (martwe importy, błędy pyright) usunięty; extras `[spatial]` przemianowane na `[pandas]` (zależności `pyproj`/`pyshp` porzucone). Osoby instalujące `imgwtools[spatial]` lub importujące `StationMap` muszą zaktualizować kod — funkcjonalność nie ma bezpośredniego zamiennika w tym wydaniu.
+
+**Stan końcowy v2.2.0:** 109 passed, `ruff check` czysto, `pyright` 0 błędów (weryfikacja jak dla v2.1.1 poniżej).
+
+**Status:** przygotowane na gałęzi `slave`, commit `release: v2.2.0`; oczekuje scalenia do `master` (bez tagowania/publikacji na tym etapie).
 
 ## v2.1.1 — szczegóły wydania (2026-07-06)
 
@@ -266,8 +283,8 @@ npx pyright src/imgwtools/
 ## Git workflow
 
 - **master** - główna gałąź (stabilna)
-- **slave** - gałąź rozwojowa (obecnie = master)
+- **slave** - gałąź rozwojowa (v2.2.0 przygotowane, oczekuje scalenia do master)
 
 ---
 
-**Ostatnia aktualizacja:** 2026-07-05
+**Ostatnia aktualizacja:** 2026-08-22

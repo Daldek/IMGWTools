@@ -4,7 +4,7 @@
 
 System consists of four main components:
 
-1. **Python Library** (v2.1.1)
+1. **Python Library** (v2.2.0)
    - `pip install imgwtools` for integration with external projects
    - Sync and async functions for data fetching
    - Pydantic models for type-safe data access
@@ -255,7 +255,7 @@ Scaling options if needed:
 IMGWTools/
 ├── src/imgwtools/
 │   ├── __init__.py       # PUBLIC API entry point
-│   ├── _version.py       # Version (2.1.1)
+│   ├── _version.py       # Version (2.2.0)
 │   ├── fetch.py          # PUBLIC: Data fetching functions
 │   ├── models.py         # PUBLIC: Data models (PMaXTPData, etc.)
 │   ├── stations.py       # PUBLIC: Station functions
