@@ -2,8 +2,8 @@
 
 ## IMGWTools - Biblioteka danych IMGW
 
-**Wersja:** 1.0
-**Data:** 2026-01-21
+**Wersja:** 1.1
+**Data:** 2026-08-22
 
 ---
 
@@ -76,7 +76,7 @@ def build_hydro_url(interval: str, year: int, month: int | None = None, param: s
 # Alfabetycznie w grupach
 # Puste linie między grupami
 
-from typing import Optional
+from pathlib import Path
 
 import httpx
 from pydantic import BaseModel
@@ -92,19 +92,18 @@ from imgwtools.exceptions import IMGWError
 ### 3.1 Wymagane wszędzie
 
 ```python
-from typing import Optional
-
 def fetch_hydro_current(
     station_id: str | None = None,
-    timeout: int = 30,
+    timeout: float = 30.0,
 ) -> list[HydroCurrentData]:
     """Fetch current hydro data."""
     pass
 
 class PMaXTPData:
-    ks: list[float]  # Kwantyle opadu [mm]
-    sg: list[float]  # Górne granice przedziału ufności [mm]
-    rb: list[float]  # Błędy estymacji [mm]
+    # Zagnieżdżone słowniki: {czas_trwania: {prawdopodobieństwo: wartość}}
+    ks: dict[str, dict[str, float]]  # Kwantyle opadu [mm]
+    sg: dict[str, dict[str, float]]  # Górne granice przedziału ufności [mm]
+    rb: dict[str, dict[str, float]]  # Błędy estymacji [mm]
 ```
 
 ### 3.2 Python 3.12+ style
@@ -127,21 +126,28 @@ def get_station(id: str | int | None = None) -> Station | None:
 
 ```python
 def fetch_pmaxtp(
-    lat: float,
-    lon: float,
-    method: str = "POT",
+    latitude: float,
+    longitude: float,
+    method: Literal["POT", "AMP"] = "POT",
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    validate_coords: bool = True,
 ) -> PMaXTPResult:
     """
     Fetch PMAXTP precipitation data for given coordinates.
 
     Parameters
     ----------
-    lat : float
+    latitude : float
         Latitude in WGS84 (49.0 - 55.0 for Poland).
-    lon : float
-        Longitude in WGS84 (14.0 - 24.0 for Poland).
-    method : str, optional
-        Calculation method ('POT' or 'AMP'), by default 'POT'.
+    longitude : float
+        Longitude in WGS84 (14.0 - 24.5 for Poland).
+    method : {"POT", "AMP"}, optional
+        Calculation method, by default "POT".
+    timeout : float, optional
+        Request timeout in seconds.
+    validate_coords : bool, optional
+        Whether to validate coordinates are within Poland.
 
     Returns
     -------
@@ -158,7 +164,7 @@ def fetch_pmaxtp(
     Examples
     --------
     >>> result = fetch_pmaxtp(52.23, 21.01)
-    >>> precip = result.data.get_precipitation(duration=15, probability=0.5)
+    >>> precip = result.data.get_precipitation(15, 50)
     """
     pass
 ```
@@ -176,15 +182,15 @@ class HydroCurrentData:
         IMGW station identifier.
     station_name : str
         Station name.
-    water_level_cm : float | None
+    water_level_cm : float or None
         Water level in centimeters.
-    discharge_m3s : float | None
-        Discharge in m³/s.
+    flow_m3s : float or None
+        Flow in m3/s.
 
     Attributes
     ----------
-    measurement_date : datetime
-        Date and time of measurement.
+    water_level_date : str or None
+        Date and time of the water level measurement.
 
     Examples
     --------
@@ -208,9 +214,10 @@ tests/
 │   ├── test_parsers.py     # Parsery CSV (separator/kodowanie/cudzysłowy)
 │   ├── test_stations.py    # Funkcje list_*
 │   └── test_urls.py        # Funkcje build_*_url
-├── integration/
-│   └── test_api.py         # Testy endpointów API (TODO)
 └── conftest.py             # Shared fixtures
+
+# Planowane (jeszcze nieutworzone):
+# tests/integration/test_api.py  - testy endpointów API
 ```
 
 ### 5.2 Nazewnictwo testów
@@ -236,10 +243,14 @@ def test_build_hydro_url_daily_with_month():
 ```python
 def test_pmaxtp_get_precipitation():
     # Arrange
-    data = PMaXTPData(ks=[10.0, 20.0], sg=[12.0, 24.0], rb=[1.0, 2.0])
+    data = PMaXTPData(
+        ks={"15": {"50": 10.0}},
+        sg={"15": {"50": 12.0}},
+        rb={"15": {"50": 1.0}},
+    )
 
     # Act
-    result = data.get_precipitation(duration=15, probability=0.5)
+    result = data.get_precipitation(15, 50)
 
     # Assert
     assert result == 10.0
@@ -247,9 +258,15 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
+Stan faktyczny: **23%** (zmierzone 2026-08-22, 109 testów).
+Cel docelowy: **80%** - bramka `--cov-fail-under` nie jest jeszcze wlaczona
+w konfiguracji projektu.
+
 ```bash
-# Wymagane: > 80%
-pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
+pytest tests/ --cov=imgwtools --cov-report=html
+
+# Docelowo, po osiagnieciu progu:
+# pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
 ```
 
 ---
@@ -262,7 +279,7 @@ pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
 master        # Stabilna wersja (wydania)
 slave         # Aktywny rozwój (DOMYŚLNA GAŁĄŹ ROBOCZA)
 feature/*     # Nowe funkcjonalności
-fix/*         # Poprawki błędów
+hotfix/*      # Pilne poprawki błędów
 ```
 
 **WAŻNE:** Cały rozwój kodu odbywa się na gałęzi `slave`.
@@ -272,8 +289,8 @@ Gałąź `master` otrzymuje tylko merge z `slave` przy wydaniach.
 
 ```bash
 # Tworzenie tagu wersji
-git tag -a v2.0.1 -m "Release v2.0.1: Python 3.12 compatibility"
-git push origin v2.0.1
+git tag -a v2.2.0 -m "Release v2.2.0: licencja, dane referencyjne, usuniecie legacy"
+git push origin v2.2.0
 ```
 
 ### 6.3 Conventional Commits
@@ -369,12 +386,16 @@ class IMGWValidationError(IMGWError):
 ### 8.2 Walidacja na wejściu
 
 ```python
-def fetch_pmaxtp(lat: float, lon: float, method: str = "POT") -> PMaXTPResult:
+def fetch_pmaxtp(
+    latitude: float,
+    longitude: float,
+    method: Literal["POT", "AMP"] = "POT",
+) -> PMaXTPResult:
     """Fetch PMAXTP data."""
-    # Walidacja współrzędnych (Polska: lat 49-55, lon 14-24)
-    if not (49.0 <= lat <= 55.0 and 14.0 <= lon <= 24.0):
+    # Walidacja współrzędnych (Polska: lat 49-55, lon 14-24.5)
+    if not (49.0 <= latitude <= 55.0 and 14.0 <= longitude <= 24.5):
         raise IMGWValidationError(
-            f"Coordinates ({lat}, {lon}) are outside Poland"
+            f"Coordinates ({latitude}, {longitude}) are outside Poland"
         )
 
     if method not in ("POT", "AMP"):
@@ -412,14 +433,14 @@ npx pyright src/imgwtools/
 ## 10. Checklist przed commitem
 
 - [ ] Testy przechodzą (`pytest`)
-- [ ] Pokrycie > 80% (`pytest --cov`)
+- [ ] Pokrycie nie spada (`pytest --cov`; stan 23%, cel docelowy 80%)
 - [ ] Formatowanie OK (`ruff format --check`)
 - [ ] Linting OK (`ruff check`)
 - [ ] Type hints OK (`pyright`)
-- [ ] Docstrings dla publicznych funkcji/klas
+- [ ] Docstrings NumPy dla publicznych funkcji/klas (wymuszane przez ruff `D`)
 - [ ] PROGRESS.md zaktualizowany
 
 ---
 
-**Wersja dokumentu:** 1.0
-**Data ostatniej aktualizacji:** 2026-01-21
+**Wersja dokumentu:** 1.1
+**Data ostatniej aktualizacji:** 2026-08-22
