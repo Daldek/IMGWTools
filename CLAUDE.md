@@ -28,6 +28,12 @@ pip install imgwtools[cli]
 # With REST API server
 pip install imgwtools[api]
 
+# With SQLite cache for hydro data
+pip install imgwtools[db]
+
+# With DataFrame export (PMaXTPData.to_dataframe)
+pip install imgwtools[pandas]
+
 # Full installation
 pip install imgwtools[full]
 
@@ -89,6 +95,7 @@ src/imgwtools/
 ├── exceptions.py         # PUBLIC: Exceptions (IMGWError, IMGWConnectionError, etc.)
 ├── urls.py               # PUBLIC: Re-exports from core/url_builder.py
 ├── parsers.py            # PUBLIC: Re-exports from db/parsers.py
+├── reference_data.py     # Fetch IMGW-PIB reference data into data/
 ├── config.py             # Settings (pydantic-settings)
 │
 ├── api/                  # FastAPI REST API [optional: imgwtools[api]]
@@ -455,8 +462,11 @@ test collection.
 # Run specific test file
 .venv/bin/python -m pytest tests/unit/test_models.py -v
 
-# Lint
+# Lint (includes pydocstyle `D` rules, numpy convention; tests/ exempt)
 .venv/bin/ruff check src/ tests/
+
+# Format check (whole repository)
+.venv/bin/ruff format --check src/ tests/
 
 # Type check (pyright reads [tool.pyright] in pyproject.toml)
 npx -y pyright src/imgwtools/

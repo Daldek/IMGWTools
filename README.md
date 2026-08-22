@@ -41,6 +41,12 @@ pip install imgwtools[cli]
 # Z REST API
 pip install imgwtools[api]
 
+# Z cache SQLite dla danych hydrologicznych
+pip install imgwtools[db]
+
+# Z eksportem do DataFrame (PMaXTPData.to_dataframe)
+pip install imgwtools[pandas]
+
 # Pełna instalacja (CLI + API + DB + pandas)
 pip install imgwtools[full]
 
@@ -408,6 +414,44 @@ python -m imgwtools.reference_data
 ```
 
 Pobrane pliki trafiają do `data/` i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu).
+
+---
+
+## Zmiany w wersji 2.2.0
+
+### Zmiany łamiące kompatybilność
+
+- **Extras `[spatial]` → `[pandas]`.** Instalacja `pip install imgwtools[spatial]`
+  przestaje działać — użyj `pip install imgwtools[pandas]`. Zależności
+  `pyproj`/`pyshp` zostały porzucone.
+- **Usunięty `core/imgw_spatial.py`** (klasa `StationMap`). Dotyczy wyłącznie
+  kodu robiącego `from imgwtools.core.imgw_spatial import StationMap` — klasa
+  nigdy nie należała do publicznego API i nie ma bezpośredniego zamiennika.
+- **Usunięty `core/imgw_api.py`** (oznaczony jako DEPRECATED od 2.0.0).
+  Zamienniki w publicznym API:
+
+  | Usunięte | Zamiennik |
+  |----------|-----------|
+  | `HYDRO` | `fetch_hydro_current()` |
+  | `SYNOP` | `fetch_synop()` |
+  | `METEO` | `fetch_synop()` / `fetch_hydro_current()` |
+  | `WARNINGS` | `fetch_warnings()` |
+  | `PMAXTPAPI` | `fetch_pmaxtp()` |
+
+- **Usunięty `core/imgw_datastore.py`** — zamiast `DataDownloader` użyj
+  `download_hydro_data()` lub `download_meteo_data()`.
+
+### Pozostałe zmiany
+
+- Ręczny proces CLA (`docs/CLA.md`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`,
+  szablon PR).
+- Nowy moduł `imgwtools.reference_data` do pobierania danych referencyjnych
+  IMGW-PIB (`python -m imgwtools.reference_data`); dane IMGW usunięte z repo.
+- Metadane licencji zgodne z PEP 639 (`license = "MIT"`, `license-files`)
+  i poprawiony rok w `LICENSE`.
+- Nowa sekcja README o źródłach danych i atrybucji IMGW-PIB.
+- Docstringi w całym `src/` w konwencji NumPy, wymuszane przez reguły `D`
+  w ruff; `ruff format` obejmuje całe repozytorium.
 
 ---
 

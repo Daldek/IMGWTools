@@ -134,11 +134,22 @@ System consists of four main components:
 - **Leaflet.js** - interactive maps
 - **Vanilla CSS** - styling
 
-### Available Pages
-- `/` - Dashboard
-- `/download` - Download forms (hydro, meteo, PMAXTP)
-- `/stations` - Station listings with search
-- `/map` - Interactive map with station markers
+### Available Routes
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/` | GET | Dashboard |
+| `/download` | GET | Download landing page |
+| `/download/hydro` | GET | Hydro download form |
+| `/download/hydro/generate` | POST | Generate hydro download URLs |
+| `/download/meteo` | GET | Meteo download form |
+| `/download/meteo/generate` | POST | Generate meteo download URLs |
+| `/download/pmaxtp` | GET | PMAXTP form |
+| `/download/pmaxtp/generate` | POST | Fetch PMAXTP data (CSV/XLSX/JSON export) |
+| `/stations` | GET | Station listings page |
+| `/stations/hydro` | GET | Hydro stations partial (HTMX) |
+| `/stations/meteo` | GET | Meteo stations partial (HTMX) |
+| `/map` | GET | Interactive map with station markers |
+| `/map/stations` | GET | JSON endpoint for map markers |
 
 ---
 
@@ -190,6 +201,10 @@ SQLite-based cache for hydrological data. Disabled by default.
 | `hydro_monthly` | Monthly aggregates (min/mean/max) |
 | `hydro_semi_annual` | Semi-annual/annual extrema |
 | `cached_ranges` | Tracks which year/month combinations are cached |
+| `schema_version` | Applied schema version (migrations) |
+
+`hydro_daily` and `hydro_monthly` also store `calendar_month` next to the
+hydrological month, so calendar-based queries do not need a conversion.
 
 ### Lazy Loading Flow
 1. User queries data for station X, years 2020-2023
@@ -241,9 +256,12 @@ Scaling options if needed:
 
 ## 10. CI/CD
 
+**Status: not configured.** There is no GitHub Actions workflow (or any other
+CI pipeline) in the repository; tests, linting and formatting are run locally.
+
 ### Recommended Setup
 - pytest for automated testing
-- ruff for linting (PEP8 compliance)
+- ruff for linting (PEP8 compliance) and docstring checks (numpy `D` rules)
 - GitHub Actions for CI pipeline
 - Docker for deployment
 
@@ -262,6 +280,7 @@ IMGWTools/
 │   ├── exceptions.py     # PUBLIC: Custom exceptions
 │   ├── urls.py           # PUBLIC: URL builder re-exports
 │   ├── parsers.py        # PUBLIC: Parser re-exports
+│   ├── reference_data.py # Fetch IMGW-PIB reference data into data/
 │   ├── config.py         # Settings
 │   │
 │   ├── api/              # REST API [optional]

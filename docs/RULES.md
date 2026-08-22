@@ -2,15 +2,16 @@
 
 ## 1. Styl i jakość kodu
 - styl: **PEP8**
-- docstringi: **NumPy Style**
-- linting/formatowanie: **ruff**
+- docstringi: **NumPy Style** (wymuszane przez reguły `D` w ruff, `convention = "numpy"`)
+- linting/formatowanie: **ruff** (`ruff check`, `ruff format` — całe repozytorium)
 - typowanie: **typing** (obowiązkowe)
 
 ---
 
 ## 2. Testy
-- wymagane **testy jednostkowe i integracyjne**
-- pokrycie min. 80%
+- **testy jednostkowe** — wymagane, stan: 109 testów w `tests/unit`
+- **testy integracyjne** — cel docelowy, nie ma ich jeszcze w repozytorium
+- pokrycie: stan **23%** (zmierzone 2026-08-22), cel docelowy **80%**
 - nie merge'ujemy PR bez testów
 
 ---
