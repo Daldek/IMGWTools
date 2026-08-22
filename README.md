@@ -41,7 +41,7 @@ pip install imgwtools[cli]
 # Z REST API
 pip install imgwtools[api]
 
-# Pełna instalacja (CLI + API + DB + spatial)
+# Pełna instalacja (CLI + API + DB + pandas)
 pip install imgwtools[full]
 
 # Dla deweloperów (z repozytorium)
@@ -407,7 +407,7 @@ Repozytorium **nie zawiera** danych IMGW. Pliki referencyjne używane przez narz
 python -m imgwtools.reference_data
 ```
 
-Pobrane pliki trafiają do `data/` i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu). Plik granicy Polski w `data/shp/` nie jest danymi IMGW i nie jest pobierany.
+Pobrane pliki trafiają do `data/` i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu).
 
 ---
 

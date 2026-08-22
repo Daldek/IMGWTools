@@ -115,8 +115,7 @@ src/imgwtools/
 ├── core/                 # Internal core logic
 │   ├── url_builder.py    # URL generation (key module!)
 │   ├── imgw_api.py       # Legacy API classes (DEPRECATED)
-│   ├── imgw_datastore.py # Legacy downloader
-│   └── imgw_spatial.py   # Spatial utilities
+│   └── imgw_datastore.py # Legacy downloader
 └── web/                  # Web GUI (HTMX + Jinja2)
     ├── app.py            # Web routes
     ├── templates/        # Jinja2 templates

@@ -58,16 +58,14 @@ db = [
     "pydantic-settings>=2.0",
 ]
 
-# Spatial/GIS utilities (pandas, projections, shapefiles)
-spatial = [
+# DataFrame export (PMaXTPData.to_dataframe, imgw list)
+pandas = [
     "pandas>=2.0",
-    "pyproj>=3.6",
-    "pyshp>=2.3",
 ]
 
 # Full installation with all features
 full = [
-    "imgwtools[api,cli,db,spatial]",
+    "imgwtools[api,cli,db,pandas]",
 ]
 
 # Development dependencies
@@ -117,12 +115,11 @@ known-first-party = ["imgwtools"]
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
-# Legacy core modules (deprecated, broken imports: wget/matplotlib/imgw_api)
+# Legacy core modules (deprecated, broken imports: wget/imgw_api)
 # are excluded from type checking pending removal — see docs/PROGRESS.md
 ignore = [
     "src/imgwtools/core/imgw_api.py",
     "src/imgwtools/core/imgw_datastore.py",
-    "src/imgwtools/core/imgw_spatial.py",
 ]
 
 [tool.pytest.ini_options]
