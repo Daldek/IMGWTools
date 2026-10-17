@@ -1,6 +1,7 @@
 """Public versioned IMGW store writer API."""
 
 from imgwtools.store.catalog import build_catalog, check_catalog
+from imgwtools.store.export import export_series
 from imgwtools.store.pmaxtp import check_pmaxtp, read_pmaxtp, sync_pmaxtp
 from imgwtools.store.reader import (
     current_version,
@@ -23,6 +24,7 @@ __all__ = [
     "check_series",
     "check_store",
     "current_version",
+    "export_series",
     "init_store",
     "iter_store",
     "open_store",
