@@ -51,14 +51,109 @@ _LICENSE = License(
 )
 
 _DATASETS = (
-    DatasetDescriptor("pl.imgw.hydro_daily", "hydro_daily", "dane_hydrologiczne/dobowe", "parse_daily_csv", {"H": "cm", "Q": "m3/s", "T": "degC"}, "day", "hydrological", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.hydro_monthly", "hydro_monthly", "dane_hydrologiczne/miesieczne", "parse_monthly_csv", {f"{v}_{stat}": unit for v, unit in (("H", "cm"), ("Q", "m3/s"), ("T", "degC")) for stat in ("min", "mean", "max")}, "month", "hydrological", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.hydro_semiannual", "hydro_semiannual", "dane_hydrologiczne/polroczne_i_roczne", "parse_semi_annual_csv", {f"{v}_{stat}": unit for v, unit in (("H", "cm"), ("Q", "m3/s"), ("T", "degC")) for stat in ("min", "mean", "max")}, "half_year", "hydrological", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.meteo_climate_daily", "meteo_climate_daily", "dane_meteorologiczne/dobowe/klimat", "parse_meteo_climate_daily", {"Tmax": "degC", "Tmin": "degC", "Tmean": "degC", "Tground": "degC", "P": "mm", "snow_cover": "cm"}, "day", "calendar", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.meteo_precip_daily", "meteo_precip_daily", "dane_meteorologiczne/dobowe/opad", "parse_meteo_precip_daily", {"P": "mm", "snow_cover": "cm", "fresh_snow": "cm"}, "day", "calendar", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.hydro_stations", "hydro_stations", "dane_hydrologiczne", "parse_stations_csv", {}, "station_list", "none", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.meteo_stations", "meteo_stations", "dane_meteorologiczne", "parse_stations_csv", {}, "station_list", "none", "http", _LICENSE),
-    DatasetDescriptor("pl.imgw.pmaxtp", "pmaxtp", None, None, {"ks": "mm", "sg": "mm", "rb": "mm"}, "cell", "none", "none", _LICENSE),
+    DatasetDescriptor(
+        "pl.imgw.hydro_daily",
+        "hydro_daily",
+        "dane_hydrologiczne/dobowe",
+        "parse_daily_csv",
+        {"H": "cm", "Q": "m3/s", "T": "degC"},
+        "day",
+        "hydrological",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.hydro_monthly",
+        "hydro_monthly",
+        "dane_hydrologiczne/miesieczne",
+        "parse_monthly_csv",
+        {
+            f"{v}_{stat}": unit
+            for v, unit in (("H", "cm"), ("Q", "m3/s"), ("T", "degC"))
+            for stat in ("min", "mean", "max")
+        },
+        "month",
+        "hydrological",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.hydro_semiannual",
+        "hydro_semiannual",
+        "dane_hydrologiczne/polroczne_i_roczne",
+        "parse_semi_annual_csv",
+        {
+            f"{v}_{stat}": unit
+            for v, unit in (("H", "cm"), ("Q", "m3/s"), ("T", "degC"))
+            for stat in ("min", "mean", "max")
+        },
+        "half_year",
+        "hydrological",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.meteo_climate_daily",
+        "meteo_climate_daily",
+        "dane_meteorologiczne/dobowe/klimat",
+        "parse_meteo_climate_daily",
+        {
+            "Tmax": "degC",
+            "Tmin": "degC",
+            "Tmean": "degC",
+            "Tground": "degC",
+            "P": "mm",
+            "snow_cover": "cm",
+        },
+        "day",
+        "calendar",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.meteo_precip_daily",
+        "meteo_precip_daily",
+        "dane_meteorologiczne/dobowe/opad",
+        "parse_meteo_precip_daily",
+        {"P": "mm", "snow_cover": "cm", "fresh_snow": "cm"},
+        "day",
+        "calendar",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.hydro_stations",
+        "hydro_stations",
+        "dane_hydrologiczne",
+        "parse_stations_csv",
+        {},
+        "station_list",
+        "none",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.meteo_stations",
+        "meteo_stations",
+        "dane_meteorologiczne",
+        "parse_stations_csv",
+        {},
+        "station_list",
+        "none",
+        "http",
+        _LICENSE,
+    ),
+    DatasetDescriptor(
+        "pl.imgw.pmaxtp",
+        "pmaxtp",
+        None,
+        None,
+        {"ks": "mm", "sg": "mm", "rb": "mm"},
+        "cell",
+        "none",
+        "none",
+        _LICENSE,
+    ),
 )
 _BY_KEY = {descriptor.key: descriptor for descriptor in _DATASETS}
 
@@ -93,30 +188,68 @@ def _period(year: int, month: int | None, *, hydrological: bool) -> tuple[date, 
         actual_year = year - 1 if hydrological and month <= 2 else year
         actual_month = ((month + 9) % 12) + 1 if hydrological else month
         start = date(actual_year, actual_month, 1)
-        next_month = date(actual_year + 1, 1, 1) if actual_month == 12 else date(actual_year, actual_month + 1, 1)
+        next_month = (
+            date(actual_year + 1, 1, 1)
+            if actual_month == 12
+            else date(actual_year, actual_month + 1, 1)
+        )
         end = next_month - timedelta(days=1)
     return start, end
 
 
-def _archive(descriptor: DatasetDescriptor, path: str, year: int | None, month: int | None = None, param: str | None = None) -> ArchiveFile:
-    start, end = _period(year, month, hydrological=descriptor.year_type == "hydrological") if year is not None else (None, None)
-    return ArchiveFile(descriptor.key, path, f"{IMGW_PUBLIC_DATA_URL}/{path}", year, month, param, descriptor.year_type, start, end)
+def _archive(
+    descriptor: DatasetDescriptor,
+    path: str,
+    year: int | None,
+    month: int | None = None,
+    param: str | None = None,
+) -> ArchiveFile:
+    start, end = (
+        _period(year, month, hydrological=descriptor.year_type == "hydrological")
+        if year is not None
+        else (None, None)
+    )
+    return ArchiveFile(
+        descriptor.key,
+        path,
+        f"{IMGW_PUBLIC_DATA_URL}/{path}",
+        year,
+        month,
+        param,
+        descriptor.year_type,
+        start,
+        end,
+    )
 
 
-def archive_files(dataset: str, /, *, years: Iterable[int], months: Iterable[int] | None = None) -> tuple[ArchiveFile, ...]:
+def archive_files(
+    dataset: str, /, *, years: Iterable[int], months: Iterable[int] | None = None
+) -> tuple[ArchiveFile, ...]:
     """Enumerate distinct physical IMGW archives without accessing the network."""
     descriptor = get_dataset(dataset)
     if descriptor.time_unit in ("station_list", "cell"):
         raise IMGWValidationError(f"Zbiór {dataset} nie udostępnia archiwów rocznych")
     try:
         selected_years = sorted(set(years))
-        selected_months = sorted(set(months)) if months is not None else list(range(1, 13))
+        selected_months = (
+            sorted(set(months)) if months is not None else list(range(1, 13))
+        )
     except TypeError as exc:
-        raise IMGWValidationError("Roczniki i miesiące muszą być liczbami całkowitymi") from exc
+        raise IMGWValidationError(
+            "Roczniki i miesiące muszą być liczbami całkowitymi"
+        ) from exc
     first_year = 1950 if descriptor.slug == "meteo_precip_daily" else 1951
-    if not selected_years or any(type(year) is not int or year < first_year or year > 9999 for year in selected_years):
-        raise IMGWValidationError(f"Nieprawidłowe roczniki zbioru {dataset}; minimalny rok: {first_year}")
-    if any(type(month) is not int or not 1 <= month <= 12 for month in selected_months) or not selected_months:
+    if not selected_years or any(
+        type(year) is not int or year < first_year or year > 9999
+        for year in selected_years
+    ):
+        raise IMGWValidationError(
+            f"Nieprawidłowe roczniki zbioru {dataset}; minimalny rok: {first_year}"
+        )
+    if (
+        any(type(month) is not int or not 1 <= month <= 12 for month in selected_months)
+        or not selected_months
+    ):
         raise IMGWValidationError("Miesiące muszą należeć do zakresu 1–12")
 
     result: list[ArchiveFile] = []
@@ -125,23 +258,52 @@ def archive_files(dataset: str, /, *, years: Iterable[int], months: Iterable[int
         if descriptor.slug == "hydro_daily":
             if year < 2023:
                 for month in selected_months:
-                    result.append(_archive(descriptor, f"{directory}/{year}/codz_{year}_{month:02d}.zip", year, month))
+                    result.append(
+                        _archive(
+                            descriptor,
+                            f"{directory}/{year}/codz_{year}_{month:02d}.zip",
+                            year,
+                            month,
+                        )
+                    )
             else:
-                result.append(_archive(descriptor, f"{directory}/{year}/codz_{year}.zip", year))
+                result.append(
+                    _archive(descriptor, f"{directory}/{year}/codz_{year}.zip", year)
+                )
         elif descriptor.slug == "hydro_monthly":
-            result.append(_archive(descriptor, f"{directory}/{year}/mies_{year}.zip", year))
+            result.append(
+                _archive(descriptor, f"{directory}/{year}/mies_{year}.zip", year)
+            )
         elif descriptor.slug == "hydro_semiannual":
             for param in ("H", "Q", "T"):
-                result.append(_archive(descriptor, f"{directory}/{year}/polr_{param}_{year}.zip", year, param=param))
+                result.append(
+                    _archive(
+                        descriptor,
+                        f"{directory}/{year}/polr_{param}_{year}.zip",
+                        year,
+                        param=param,
+                    )
+                )
         else:
             precipitation = descriptor.slug == "meteo_precip_daily"
             folder = _meteo_folder(year, precipitation=precipitation)
             suffix = "o" if precipitation else "k"
             if year <= 2000:
-                result.append(_archive(descriptor, f"{directory}/{folder}/{year}_{suffix}.zip", year))
+                result.append(
+                    _archive(
+                        descriptor, f"{directory}/{folder}/{year}_{suffix}.zip", year
+                    )
+                )
             else:
                 for month in selected_months:
-                    result.append(_archive(descriptor, f"{directory}/{folder}/{year}_{month:02d}_{suffix}.zip", year, month))
+                    result.append(
+                        _archive(
+                            descriptor,
+                            f"{directory}/{folder}/{year}_{month:02d}_{suffix}.zip",
+                            year,
+                            month,
+                        )
+                    )
     return tuple(result)
 
 

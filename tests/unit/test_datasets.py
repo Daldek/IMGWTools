@@ -25,13 +25,27 @@ def test_registry_namespaces_and_license():
 
 
 def test_hydro_monthly_physical_archive_count_and_calendar_boundaries():
-    archives = archive_files("pl.imgw.hydro_daily", years=[2022, 2022, 2024, 2024], months=[1, 3, 3, 12])
+    archives = archive_files(
+        "pl.imgw.hydro_daily", years=[2022, 2022, 2024, 2024], months=[1, 3, 3, 12]
+    )
     assert [item.server_path.split("/")[-1] for item in archives] == [
-        "codz_2022_01.zip", "codz_2022_03.zip", "codz_2022_12.zip", "codz_2024.zip"
+        "codz_2022_01.zip",
+        "codz_2022_03.zip",
+        "codz_2022_12.zip",
+        "codz_2024.zip",
     ]
-    assert (archives[0].period_start, archives[0].period_end) == (date(2021, 11, 1), date(2021, 11, 30))
-    assert (archives[1].period_start, archives[1].period_end) == (date(2022, 1, 1), date(2022, 1, 31))
-    assert (archives[-1].period_start, archives[-1].period_end) == (date(2023, 11, 1), date(2024, 10, 31))
+    assert (archives[0].period_start, archives[0].period_end) == (
+        date(2021, 11, 1),
+        date(2021, 11, 30),
+    )
+    assert (archives[1].period_start, archives[1].period_end) == (
+        date(2022, 1, 1),
+        date(2022, 1, 31),
+    )
+    assert (archives[-1].period_start, archives[-1].period_end) == (
+        date(2023, 11, 1),
+        date(2024, 10, 31),
+    )
     assert len(archive_files("pl.imgw.hydro_daily", years=[2022])) == 12
     assert len(archive_files("pl.imgw.hydro_daily", years=[2024])) == 1
 
@@ -42,7 +56,9 @@ def test_hydro_monthly_and_semiannual_are_distinct_files():
     assert [item.server_path.split("/")[-1] for item in monthly] == ["mies_2024.zip"]
     assert [item.param for item in semiannual] == ["H", "Q", "T"]
     assert [item.server_path.split("/")[-1] for item in semiannual] == [
-        "polr_H_2024.zip", "polr_Q_2024.zip", "polr_T_2024.zip"
+        "polr_H_2024.zip",
+        "polr_Q_2024.zip",
+        "polr_T_2024.zip",
     ]
 
 
@@ -67,7 +83,10 @@ def test_meteo_archive_layout(dataset, year, filename, folder):
 
 def test_calendar_leap_and_monthly_filter():
     files = archive_files("pl.imgw.meteo_precip_daily", years=[2004], months=[2])
-    assert (files[0].period_start, files[0].period_end) == (date(2004, 2, 1), date(2004, 2, 29))
+    assert (files[0].period_start, files[0].period_end) == (
+        date(2004, 2, 1),
+        date(2004, 2, 29),
+    )
     assert len(archive_files("pl.imgw.meteo_precip_daily", years=[2001])) == 12
 
 
@@ -82,15 +101,18 @@ def test_station_lists_are_real_csv_sources():
         assert archive.url == f"{IMGW_PUBLIC_DATA_URL}/{archive.server_path}"
 
 
-@pytest.mark.parametrize("dataset, years, months", [
-    ("pl.imgw.meteo_stations", [2024], None),
-    ("pl.imgw.pmaxtp", [2024], None),
-    ("pl.imgw.hydro_daily", [1950], None),
-    ("pl.imgw.meteo_climate_daily", [1950], None),
-    ("pl.imgw.hydro_daily", [2022], [13]),
-    ("pl.imgw.meteo_precip_daily", [2024], []),
-    ("hydro_daily", [2024], None),
-])
+@pytest.mark.parametrize(
+    "dataset, years, months",
+    [
+        ("pl.imgw.meteo_stations", [2024], None),
+        ("pl.imgw.pmaxtp", [2024], None),
+        ("pl.imgw.hydro_daily", [1950], None),
+        ("pl.imgw.meteo_climate_daily", [1950], None),
+        ("pl.imgw.hydro_daily", [2022], [13]),
+        ("pl.imgw.meteo_precip_daily", [2024], []),
+        ("hydro_daily", [2024], None),
+    ],
+)
 def test_invalid_choices_raise_validation_error(dataset, years, months):
     with pytest.raises(IMGWValidationError):
         archive_files(dataset, years=years, months=months)

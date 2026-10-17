@@ -69,7 +69,10 @@ def _listing(client: httpx.Client, directory: str) -> set[str] | None:
     if response.status_code in (404, 410):
         return None
     response.raise_for_status()
-    return {PurePosixPath(unquote(urlsplit(href).path)).name for href in _HREF.findall(response.text)}
+    return {
+        PurePosixPath(unquote(urlsplit(href).path)).name
+        for href in _HREF.findall(response.text)
+    }
 
 
 def _head(client: httpx.Client, archive: ArchiveFile) -> _Signal | None:
@@ -80,7 +83,8 @@ def _head(client: httpx.Client, archive: ArchiveFile) -> _Signal | None:
     response.raise_for_status()
     length = response.headers.get("Content-Length")
     return _Signal(
-        response.headers.get("ETag"), response.headers.get("Last-Modified"),
+        response.headers.get("ETag"),
+        response.headers.get("Last-Modified"),
         int(length) if length is not None and length.isdigit() else None,
     )
 
@@ -99,16 +103,27 @@ def _compare(local: dict[str, object], remote: _Signal) -> Status:
         (local.get("etag"), remote.etag),
         (local.get("last_modified"), remote.last_modified),
     ]
-    comparable = [(mine, theirs) for mine, theirs in pairs if mine is not None and theirs is not None]
+    comparable = [
+        (mine, theirs)
+        for mine, theirs in pairs
+        if mine is not None and theirs is not None
+    ]
     if not comparable:
         return "unverifiable"
     return "current" if all(mine == theirs for mine, theirs in comparable) else "newer"
 
 
-def _item(archive: ArchiveFile, status: Status, *, local: _Version | None = None, signal: _Signal | None = None,
-          error: str | None = None) -> PlanItem:
+def _item(
+    archive: ArchiveFile,
+    status: Status,
+    *,
+    local: _Version | None = None,
+    signal: _Signal | None = None,
+    error: str | None = None,
+) -> PlanItem:
     return PlanItem(
-        archive=archive, status=status,
+        archive=archive,
+        status=status,
         local_path=Path(local.relative) if local is not None else None,
         local_sha256=local.sha256 if local is not None else None,
         remote_etag=signal.etag if signal else None,
@@ -118,7 +133,9 @@ def _item(archive: ArchiveFile, status: Status, *, local: _Version | None = None
     )
 
 
-def _select(datasets: Iterable[str], years: Iterable[int], months: Iterable[int] | None) -> list[ArchiveFile]:
+def _select(
+    datasets: Iterable[str], years: Iterable[int], months: Iterable[int] | None
+) -> list[ArchiveFile]:
     if isinstance(datasets, str):
         raise IMGWValidationError("Parametr datasets musi być listą kluczy zbiorów")
     selected_years = tuple(years)
@@ -129,15 +146,22 @@ def _select(datasets: Iterable[str], years: Iterable[int], months: Iterable[int]
         raise IMGWValidationError("Wybierz co najmniej jeden zbiór")
     for dataset in keys:
         _series_descriptor(dataset)
-        for archive in archive_files(dataset, years=selected_years, months=selected_months):
+        for archive in archive_files(
+            dataset, years=selected_years, months=selected_months
+        ):
             result.setdefault(archive.server_path, archive)
     return list(result.values())
 
 
 def check_store(
-    root: PathArg | StoreHandle, /, *, datasets: Iterable[str], years: Iterable[int],
+    root: PathArg | StoreHandle,
+    /,
+    *,
+    datasets: Iterable[str],
+    years: Iterable[int],
     months: Iterable[int] | None = None,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
     """Plan without downloading: directory listings and HEAD only, no writes."""
@@ -156,26 +180,59 @@ def check_store(
             items.append(_check_one(client, path, archive, listings))
             item = items[-1]
             if item.status == "unverifiable" and on_notice is not None:
-                on_notice(Notice("warning", "source_unverifiable", f"{archive.server_path}: {item.error}"))
+                on_notice(
+                    Notice(
+                        "warning",
+                        "source_unverifiable",
+                        f"{archive.server_path}: {item.error}",
+                    )
+                )
             elif item.status == "check_failed" and on_notice is not None:
-                on_notice(Notice("error", "archive_failed", f"{archive.server_path}: {item.error}"))
+                on_notice(
+                    Notice(
+                        "error",
+                        "archive_failed",
+                        f"{archive.server_path}: {item.error}",
+                    )
+                )
             if on_progress is not None:
-                on_progress(Progress(index, len(archives), "archive", item.status, archive.server_path))
+                on_progress(
+                    Progress(
+                        index,
+                        len(archives),
+                        "archive",
+                        item.status,
+                        archive.server_path,
+                    )
+                )
     series_state = {}
     for dataset in dict.fromkeys(archive.dataset for archive in archives):
         descriptor = get_dataset(dataset)
         inputs, problems = _scan_inputs(path, descriptor)
         state = _series_state(path, descriptor, inputs, reliable=not problems)
-        pending = any(item.archive.dataset == dataset and item.status in ("newer", "missing") for item in items)
-        series_state[descriptor.slug] = "outdated" if state == "current" and pending else state
+        pending = any(
+            item.archive.dataset == dataset and item.status in ("newer", "missing")
+            for item in items
+        )
+        series_state[descriptor.slug] = (
+            "outdated" if state == "current" and pending else state
+        )
     return StorePlan(
-        schema="imgw-plan/1", root=path, checked_at=datetime.now(UTC), items=tuple(items),
-        series_state=series_state, cancelled=cancelled,
+        schema="imgw-plan/1",
+        root=path,
+        checked_at=datetime.now(UTC),
+        items=tuple(items),
+        series_state=series_state,
+        cancelled=cancelled,
     )
 
 
-def _check_one(client: httpx.Client, root: Path, archive: ArchiveFile,
-               listings: dict[str, set[str] | Exception | None]) -> PlanItem:
+def _check_one(
+    client: httpx.Client,
+    root: Path,
+    archive: ArchiveFile,
+    listings: dict[str, set[str] | Exception | None],
+) -> PlanItem:
     try:
         local = _current_version(root, archive)
     except IMGWDataError as exc:
@@ -200,40 +257,75 @@ def _check_one(client: httpx.Client, root: Path, archive: ArchiveFile,
     if local is None:
         return _item(archive, "missing", signal=signal)
     status = _compare(dict(local.http), signal)
-    return _item(archive, status, local=local, signal=signal, error=NO_SIGNAL if status == "unverifiable" else None)
+    return _item(
+        archive,
+        status,
+        local=local,
+        signal=signal,
+        error=NO_SIGNAL if status == "unverifiable" else None,
+    )
 
 
 def _download(archive: ArchiveFile) -> DownloadResult:
     slug = get_dataset(archive.dataset).slug
     assert archive.year is not None
     if slug.startswith("hydro_"):
-        interval = {"hydro_daily": "dobowe", "hydro_monthly": "miesieczne", "hydro_semiannual": "polroczne_i_roczne"}[slug]
+        interval = {
+            "hydro_daily": "dobowe",
+            "hydro_monthly": "miesieczne",
+            "hydro_semiannual": "polroczne_i_roczne",
+        }[slug]
         return download_hydro_data(interval, archive.year, archive.month, archive.param)  # type: ignore[arg-type]
     subtype = "klimat" if slug == "meteo_climate_daily" else "opad"
     return download_meteo_data("dobowe", subtype, archive.year, archive.month)
 
 
-def _result(item: PlanItem, status: str, *, version: Path | None = None, error: str | None = None) -> OperationResult:
+def _result(
+    item: PlanItem,
+    status: str,
+    *,
+    version: Path | None = None,
+    error: str | None = None,
+) -> OperationResult:
     return OperationResult(_slot_of(item.archive), status, version, error)  # type: ignore[arg-type]
 
 
 def sync_store(
-    root: PathArg | StoreHandle, /, *, datasets: Iterable[str] | None = None,
-    years: Iterable[int] | None = None, months: Iterable[int] | None = None,
-    plan: StorePlan | PathArg | None = None, series: bool = True,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    root: PathArg | StoreHandle,
+    /,
+    *,
+    datasets: Iterable[str] | None = None,
+    years: Iterable[int] | None = None,
+    months: Iterable[int] | None = None,
+    plan: StorePlan | PathArg | None = None,
+    series: bool = True,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> SyncReport:
     """Download what a plan marks as new or missing; HEAD re-validates each item first."""
     path = _root(root)
-    if plan is not None and (datasets is not None or years is not None or months is not None):
-        raise IMGWValidationError("Podaj plan albo selektory datasets/years/months, nie oba naraz")
+    if plan is not None and (
+        datasets is not None or years is not None or months is not None
+    ):
+        raise IMGWValidationError(
+            "Podaj plan albo selektory datasets/years/months, nie oba naraz"
+        )
     explicit = plan is None
     if plan is None:
         if datasets is None or years is None:
-            raise IMGWValidationError("Bez planu wymagane są parametry datasets i years")
-        plan = check_store(path, datasets=datasets, years=years, months=months,
-                           on_progress=on_progress, on_notice=on_notice, cancel=cancel)
+            raise IMGWValidationError(
+                "Bez planu wymagane są parametry datasets i years"
+            )
+        plan = check_store(
+            path,
+            datasets=datasets,
+            years=years,
+            months=months,
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
     elif not isinstance(plan, StorePlan):
         plan = StorePlan.from_json(plan)
     if Path(plan.root).expanduser().absolute() != path:
@@ -250,33 +342,78 @@ def sync_store(
             if stop:
                 results.append(_result(item, "cancelled", error=CANCELLED))
                 continue
-            results.append(_sync_one(client, path, item, explicit=explicit, cancel=cancel, on_notice=on_notice))
+            results.append(
+                _sync_one(
+                    client,
+                    path,
+                    item,
+                    explicit=explicit,
+                    cancel=cancel,
+                    on_notice=on_notice,
+                )
+            )
             if on_progress is not None:
-                on_progress(Progress(index, len(plan.items), "archive", results[-1].status, item.archive.server_path))
+                on_progress(
+                    Progress(
+                        index,
+                        len(plan.items),
+                        "archive",
+                        results[-1].status,
+                        item.archive.server_path,
+                    )
+                )
 
     reports: list[SeriesReport] = []
     if series:
         for dataset in dict.fromkeys(item.archive.dataset for item in plan.items):
-            outcome = [result for item, result in zip(plan.items, results, strict=True) if item.archive.dataset == dataset]
+            outcome = [
+                result
+                for item, result in zip(plan.items, results, strict=True)
+                if item.archive.dataset == dataset
+            ]
             blocking = [result.slot for result in outcome if result.status not in _DONE]
             if stop or any(result.status == "cancelled" for result in outcome):
                 reports.append(SeriesReport("cancelled", None, 0, (), (CANCELLED,)))
             elif blocking:
-                reports.append(SeriesReport("failed", None, 0, (), (
-                    f"Pominięto budowę szeregu {dataset}: niekompletne wejścia {', '.join(blocking)}",
-                )))
+                reports.append(
+                    SeriesReport(
+                        "failed",
+                        None,
+                        0,
+                        (),
+                        (
+                            f"Pominięto budowę szeregu {dataset}: niekompletne wejścia {', '.join(blocking)}",
+                        ),
+                    )
+                )
             else:
                 try:
-                    reports.append(build_series(path, dataset=dataset, on_progress=on_progress,
-                                                on_notice=on_notice, cancel=cancel))
+                    reports.append(
+                        build_series(
+                            path,
+                            dataset=dataset,
+                            on_progress=on_progress,
+                            on_notice=on_notice,
+                            cancel=cancel,
+                        )
+                    )
                 except IMGWError as exc:
                     reports.append(SeriesReport("failed", None, 0, (), (str(exc),)))
     was_cancelled = stop or any(result.status == "cancelled" for result in results)
-    return SyncReport(items=tuple(results), series=tuple(reports), cancelled=was_cancelled)
+    return SyncReport(
+        items=tuple(results), series=tuple(reports), cancelled=was_cancelled
+    )
 
 
-def _sync_one(client: httpx.Client, root: Path, item: PlanItem, *, explicit: bool,
-              cancel: Cancel | None, on_notice: NoticeHook | None) -> OperationResult:
+def _sync_one(
+    client: httpx.Client,
+    root: Path,
+    item: PlanItem,
+    *,
+    explicit: bool,
+    cancel: Cancel | None,
+    on_notice: NoticeHook | None,
+) -> OperationResult:
     local = root / item.local_path if item.local_path is not None else None
     if item.status == "current":
         return _result(item, "unchanged", version=local)
@@ -289,26 +426,49 @@ def _sync_one(client: httpx.Client, root: Path, item: PlanItem, *, explicit: boo
             return _result(item, "unchanged", version=local, error=UNPUBLISHED)
         if not explicit:
             if on_notice is not None:
-                on_notice(Notice("warning", "source_unverifiable", f"{item.archive.server_path}: {item.error}; pominięto przy synchronizacji z planu"))
+                on_notice(
+                    Notice(
+                        "warning",
+                        "source_unverifiable",
+                        f"{item.archive.server_path}: {item.error}; pominięto przy synchronizacji z planu",
+                    )
+                )
             return _result(item, "unchanged", version=local, error=item.error)
         if on_notice is not None:
-            on_notice(Notice("warning", "source_unverifiable", f"{item.archive.server_path}: {item.error}; pobieranie i porównanie sumy SHA-256"))
+            on_notice(
+                Notice(
+                    "warning",
+                    "source_unverifiable",
+                    f"{item.archive.server_path}: {item.error}; pobieranie i porównanie sumy SHA-256",
+                )
+            )
     try:
         signal = _head(client, item.archive)
     except httpx.HTTPError as exc:
         return _result(item, "failed", error=_http_error(exc))
-    if signal is None or (signal.etag, signal.last_modified) != (item.remote_etag, item.remote_last_modified):
+    if signal is None or (signal.etag, signal.last_modified) != (
+        item.remote_etag,
+        item.remote_last_modified,
+    ):
         message = f"{item.archive.server_path}: nagłówki serwera zmieniły się od sprawdzenia planu"
         if on_notice is not None:
             on_notice(Notice("warning", "stale_plan", message))
         return _result(item, "stale_plan", version=local, error=message)
     try:
         response = _download(item.archive)
-        written = write_archive(root, archive=item.archive, response=response, on_notice=on_notice, cancel=cancel)
+        written = write_archive(
+            root,
+            archive=item.archive,
+            response=response,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
     except (IMGWError, OSError) as exc:
         if cancel is not None and cancel():
             return _result(item, "cancelled", error=CANCELLED)
         if on_notice is not None:
-            on_notice(Notice("error", "archive_failed", f"{item.archive.server_path}: {exc}"))
+            on_notice(
+                Notice("error", "archive_failed", f"{item.archive.server_path}: {exc}")
+            )
         return _result(item, "failed", error=str(exc))
     return _result(item, written.status, version=written.path)

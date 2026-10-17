@@ -63,7 +63,9 @@ class IMGWStoreConflictError(IMGWStoreError):
 class IMGWStoreDependencyError(IMGWStoreError):
     """Brak opcjonalnej zależności Parquet: pip install imgwtools[store]."""
 
-    def __init__(self, message: str = "Zainstaluj dodatek: pip install imgwtools[store]"):
+    def __init__(
+        self, message: str = "Zainstaluj dodatek: pip install imgwtools[store]"
+    ):
         super().__init__(message)
 
 

@@ -38,12 +38,28 @@ def _rows(content: str | bytes, encoding: str) -> Iterator[tuple[int, list[str]]
 
 
 def _base(row: list[str]) -> tuple[HydroArchiveStation, int]:
-    station = HydroArchiveStation(station_code=row[0].strip().strip('"'), station_name=row[1].strip().strip('"'), river_name=row[2].strip().strip('"'))
+    station = HydroArchiveStation(
+        station_code=row[0].strip().strip('"'),
+        station_name=row[1].strip().strip('"'),
+        river_name=row[2].strip().strip('"'),
+    )
     year = int(row[3])
     return station, year
 
 
-def _parse(content: str | bytes, interval: str, encoding: str = IMGW_ENCODING, *, filename: str | None = None, strict: bool = False) -> Iterator[tuple[HydroArchiveStation, HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord]]:
+def _parse(
+    content: str | bytes,
+    interval: str,
+    encoding: str = IMGW_ENCODING,
+    *,
+    filename: str | None = None,
+    strict: bool = False,
+) -> Iterator[
+    tuple[
+        HydroArchiveStation,
+        HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord,
+    ]
+]:
     minimum = 8 if interval == "polroczne_i_roczne" else 9
     for number, row in _rows(content, encoding):
         if not any(field.strip() for field in row):
@@ -63,7 +79,11 @@ def _parse(content: str | bytes, interval: str, encoding: str = IMGW_ENCODING, *
                 if param not in {"H", "Q", "T"}:
                     raise ValueError("Nieznany parametr")
                 extremum = EXTREMUM_MAP[int(row[6])]
-                sentinel = {"H": MISSING_WATER_LEVEL, "Q": MISSING_FLOW, "T": MISSING_TEMP}[param]
+                sentinel = {
+                    "H": MISSING_WATER_LEVEL,
+                    "Q": MISSING_FLOW,
+                    "T": MISSING_TEMP,
+                }[param]
                 dates = []
                 for offset in (8, 13):
                     parts = [_safe_int(value) for value in row[offset : offset + 5]]
@@ -71,14 +91,31 @@ def _parse(content: str | bytes, interval: str, encoding: str = IMGW_ENCODING, *
                         dates.append(None)
                     else:
                         value = f"{parts[0]:04d}-{parts[1]:02d}-{parts[2]:02d}"
-                        if len(parts) >= 5 and parts[3] is not None and parts[4] is not None:
+                        if (
+                            len(parts) >= 5
+                            and parts[3] is not None
+                            and parts[4] is not None
+                        ):
                             value += f" {parts[3]:02d}:{parts[4]:02d}"
                         datetime.fromisoformat(value)
                         dates.append(value)
                 if strict and row[7].strip():
                     float(row[7])
-                value = None if row[7].strip() == "99999.999" else _safe_float(row[7], sentinel)
-                record = HydroSemiAnnualRecord(station_code=code, hydro_year=year, period=period, param=param, extremum=extremum, value=value, extremum_start_date=dates[0], extremum_end_date=dates[1])
+                value = (
+                    None
+                    if row[7].strip() == "99999.999"
+                    else _safe_float(row[7], sentinel)
+                )
+                record = HydroSemiAnnualRecord(
+                    station_code=code,
+                    hydro_year=year,
+                    period=period,
+                    param=param,
+                    extremum=extremum,
+                    value=value,
+                    extremum_start_date=dates[0],
+                    extremum_end_date=dates[1],
+                )
             else:
                 month = int(row[4])
                 calendar_month = _safe_int(row[9]) if len(row) > 9 else None
@@ -98,16 +135,24 @@ def _parse(content: str | bytes, interval: str, encoding: str = IMGW_ENCODING, *
                 if interval == "dobowe":
                     day = int(row[5])
                     measured = hydro_to_calendar_date(year, month, day)
-                    record = HydroDailyRecord(**kwargs, day=day, measurement_date=measured.isoformat())
+                    record = HydroDailyRecord(
+                        **kwargs, day=day, measurement_date=measured.isoformat()
+                    )
                 else:
-                    record = HydroMonthlyRecord(**kwargs, extremum=EXTREMUM_MAP[int(row[5])])
+                    record = HydroMonthlyRecord(
+                        **kwargs, extremum=EXTREMUM_MAP[int(row[5])]
+                    )
             yield station, record
         except (IndexError, ValueError, KeyError) as exc:
             if strict:
-                raise IMGWDataError(f"Błędny rekord {filename}, wiersz {number}: {exc}") from exc
+                raise IMGWDataError(
+                    f"Błędny rekord {filename}, wiersz {number}: {exc}"
+                ) from exc
 
 
-def parse_daily_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -> Iterator[tuple[HydroArchiveStation, HydroDailyRecord]]:
+def parse_daily_csv(
+    content: str | bytes, encoding: str = IMGW_ENCODING
+) -> Iterator[tuple[HydroArchiveStation, HydroDailyRecord]]:
     """
     Parse daily hydrological data CSV.
 
@@ -138,7 +183,9 @@ def parse_daily_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -> Iter
     yield from _parse(content, "dobowe", encoding)
 
 
-def parse_monthly_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -> Iterator[tuple[HydroArchiveStation, HydroMonthlyRecord]]:
+def parse_monthly_csv(
+    content: str | bytes, encoding: str = IMGW_ENCODING
+) -> Iterator[tuple[HydroArchiveStation, HydroMonthlyRecord]]:
     """
     Parse monthly hydrological data CSV.
 
@@ -169,7 +216,9 @@ def parse_monthly_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -> It
     yield from _parse(content, "miesieczne", encoding)
 
 
-def parse_semi_annual_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -> Iterator[tuple[HydroArchiveStation, HydroSemiAnnualRecord]]:
+def parse_semi_annual_csv(
+    content: str | bytes, encoding: str = IMGW_ENCODING
+) -> Iterator[tuple[HydroArchiveStation, HydroSemiAnnualRecord]]:
     """
     Parse semi-annual/annual hydrological data CSV.
 
@@ -224,7 +273,14 @@ def parse_semi_annual_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -
     yield from _parse(content, "polroczne_i_roczne", encoding)
 
 
-def parse_zip_file(zip_data: bytes, interval: str) -> Iterator[tuple[HydroArchiveStation, HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord]]:
+def parse_zip_file(
+    zip_data: bytes, interval: str
+) -> Iterator[
+    tuple[
+        HydroArchiveStation,
+        HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord,
+    ]
+]:
     """
     Parse hydrological data from ZIP file.
 
@@ -253,7 +309,9 @@ def parse_zip_file(zip_data: bytes, interval: str) -> Iterator[tuple[HydroArchiv
         yield from _parse(content, interval)
 
 
-def parse_stations_csv(content: str | bytes, encoding: str = IMGW_ENCODING) -> Iterator[HydroArchiveStation]:
+def parse_stations_csv(
+    content: str | bytes, encoding: str = IMGW_ENCODING
+) -> Iterator[HydroArchiveStation]:
     """
     Parse station list CSV.
 
@@ -295,31 +353,88 @@ def _measurement(value: float | None) -> Measurement:
     return Measurement(value, "missing" if value is None else "value")
 
 
-def normalize_hydro_archive(dataset: str, archive_name: str, data: bytes) -> Iterator[NormalizedRecord]:
-    interval = {"pl.imgw.hydro_daily": "dobowe", "pl.imgw.hydro_monthly": "miesieczne", "pl.imgw.hydro_semiannual": "polroczne_i_roczne"}[dataset]
+def normalize_hydro_archive(
+    dataset: str, archive_name: str, data: bytes
+) -> Iterator[NormalizedRecord]:
+    interval = {
+        "pl.imgw.hydro_daily": "dobowe",
+        "pl.imgw.hydro_monthly": "miesieczne",
+        "pl.imgw.hydro_semiannual": "polroczne_i_roczne",
+    }[dataset]
     monthly: dict[tuple[str, date], NormalizedRecord] = {}
     for member, content in archive_csv_members(data, filename=archive_name):
-        for station, record in _parse(content, interval, filename=f"{archive_name}/{member}", strict=True):
+        for station, record in _parse(
+            content, interval, filename=f"{archive_name}/{member}", strict=True
+        ):
             if isinstance(record, HydroDailyRecord):
                 measured = date.fromisoformat(record.measurement_date)
-                values = {key: _measurement(getattr(record, attr)) for key, attr in (("H", "water_level_cm"), ("Q", "flow_m3s"), ("T", "water_temp_c"))}
-                yield NormalizedRecord(station.station_code, dataset, measured, record.hydro_year, None, values)
+                values = {
+                    key: _measurement(getattr(record, attr))
+                    for key, attr in (
+                        ("H", "water_level_cm"),
+                        ("Q", "flow_m3s"),
+                        ("T", "water_temp_c"),
+                    )
+                }
+                yield NormalizedRecord(
+                    station.station_code,
+                    dataset,
+                    measured,
+                    record.hydro_year,
+                    None,
+                    values,
+                )
             elif isinstance(record, HydroMonthlyRecord):
-                measured = hydro_to_calendar_date(record.hydro_year, record.hydro_month, 1)
+                measured = hydro_to_calendar_date(
+                    record.hydro_year, record.hydro_month, 1
+                )
                 key = (station.station_code, measured)
                 existing = monthly.get(key)
                 values = dict(existing.measurements) if existing else {}
-                for name, field in (("H", "water_level_cm"), ("Q", "flow_m3s"), ("T", "water_temp_c")):
+                for name, field in (
+                    ("H", "water_level_cm"),
+                    ("Q", "flow_m3s"),
+                    ("T", "water_temp_c"),
+                ):
                     column = f"{name}_{record.extremum}"
                     value = _measurement(getattr(record, field))
                     if column in values and values[column] != value:
-                        raise IMGWDataError(f"Sprzeczne wartości {column} w {archive_name}/{member}")
+                        raise IMGWDataError(
+                            f"Sprzeczne wartości {column} w {archive_name}/{member}"
+                        )
                     values[column] = value
-                monthly[key] = NormalizedRecord(station.station_code, dataset, measured, record.hydro_year, None, values)
+                monthly[key] = NormalizedRecord(
+                    station.station_code,
+                    dataset,
+                    measured,
+                    record.hydro_year,
+                    None,
+                    values,
+                )
             else:
-                start = {"winter": date(record.hydro_year - 1, 11, 1), "summer": date(record.hydro_year, 5, 1), "annual": date(record.hydro_year - 1, 11, 1)}[record.period]
+                start = {
+                    "winter": date(record.hydro_year - 1, 11, 1),
+                    "summer": date(record.hydro_year, 5, 1),
+                    "annual": date(record.hydro_year - 1, 11, 1),
+                }[record.period]
                 column = f"{record.param}_{record.extremum}"
-                start_date = datetime.fromisoformat(record.extremum_start_date) if record.extremum_start_date else None
-                end_date = datetime.fromisoformat(record.extremum_end_date) if record.extremum_end_date else None
-                yield NormalizedRecord(station.station_code, dataset, start, record.hydro_year, record.period, {column: _measurement(record.value)}, extrema_dates={column: (start_date, end_date)})
+                start_date = (
+                    datetime.fromisoformat(record.extremum_start_date)
+                    if record.extremum_start_date
+                    else None
+                )
+                end_date = (
+                    datetime.fromisoformat(record.extremum_end_date)
+                    if record.extremum_end_date
+                    else None
+                )
+                yield NormalizedRecord(
+                    station.station_code,
+                    dataset,
+                    start,
+                    record.hydro_year,
+                    record.period,
+                    {column: _measurement(record.value)},
+                    extrema_dates={column: (start_date, end_date)},
+                )
     yield from monthly.values()

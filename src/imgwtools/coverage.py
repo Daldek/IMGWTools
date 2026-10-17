@@ -40,7 +40,9 @@ def _gaps(missing: list[date], *, time_unit: str) -> tuple[tuple[date, date], ..
     return tuple(spans)
 
 
-def summarize_coverage(records: Iterable[NormalizedRecord], /, *, dataset: str) -> list[StationCoverage]:
+def summarize_coverage(
+    records: Iterable[NormalizedRecord], /, *, dataset: str
+) -> list[StationCoverage]:
     """Summarize each station/variable; absent archive months stay unknown.
 
     Records identify observed months, not all possessed archive periods. The
@@ -54,7 +56,9 @@ def summarize_coverage(records: Iterable[NormalizedRecord], /, *, dataset: str) 
     known_months: set[tuple[int, int]] = set()
     for record in records:
         if record.dataset != dataset:
-            raise IMGWValidationError(f"Rekord zbioru {record.dataset} nie należy do {dataset}")
+            raise IMGWValidationError(
+                f"Rekord zbioru {record.dataset} nie należy do {dataset}"
+            )
         stations.add(record.station_code)
         if descriptor.time_unit == "day":
             known_months.add((record.date.year, record.date.month))
@@ -64,10 +68,14 @@ def summarize_coverage(records: Iterable[NormalizedRecord], /, *, dataset: str) 
                 raise IMGWDataError(f"Nieznana zmienna {variable} w zbiorze {dataset}")
             key = (record.station_code, period, variable, record.date)
             if key in observations and observations[key] != measurement:
-                raise IMGWDataError(f"Sprzeczne wartości {variable} stacji {record.station_code} z {record.date}")
+                raise IMGWDataError(
+                    f"Sprzeczne wartości {variable} stacji {record.station_code} z {record.date}"
+                )
             observations[key] = measurement
 
-    per_variable: dict[tuple[str, str | None, str], dict[date, Measurement]] = defaultdict(dict)
+    per_variable: dict[tuple[str, str | None, str], dict[date, Measurement]] = (
+        defaultdict(dict)
+    )
     for (station, period, variable, day), measurement in observations.items():
         per_variable[(station, period, variable)][day] = measurement
 
@@ -78,7 +86,11 @@ def summarize_coverage(records: Iterable[NormalizedRecord], /, *, dataset: str) 
         for period in periods:
             for variable, unit in descriptor.variables.items():
                 values = per_variable.get((station, period, variable), {})
-                observed = sorted(day for day, measurement in values.items() if measurement.value is not None)
+                observed = sorted(
+                    day
+                    for day, measurement in values.items()
+                    if measurement.value is not None
+                )
                 first, last = (observed[0], observed[-1]) if observed else (None, None)
                 missing: list[date] = []
                 if first is not None and last is not None:
@@ -92,11 +104,26 @@ def summarize_coverage(records: Iterable[NormalizedRecord], /, *, dataset: str) 
                                     missing.append(day)
                                 day += timedelta(days=1)
                     else:
-                        missing = sorted(day for day, measurement in values.items() if first < day < last and measurement.value is None)
-                result.append(StationCoverage(
-                    station=station, variable=variable, unit=unit, period=period,
-                    first=first, last=last, with_value=len(observed),
-                    accumulated=sum(measurement.flag == "accumulated" and measurement.value is not None for measurement in values.values()),
-                    gaps=_gaps(missing, time_unit=descriptor.time_unit),
-                ))
+                        missing = sorted(
+                            day
+                            for day, measurement in values.items()
+                            if first < day < last and measurement.value is None
+                        )
+                result.append(
+                    StationCoverage(
+                        station=station,
+                        variable=variable,
+                        unit=unit,
+                        period=period,
+                        first=first,
+                        last=last,
+                        with_value=len(observed),
+                        accumulated=sum(
+                            measurement.flag == "accumulated"
+                            and measurement.value is not None
+                            for measurement in values.values()
+                        ),
+                        gaps=_gaps(missing, time_unit=descriptor.time_unit),
+                    )
+                )
     return result

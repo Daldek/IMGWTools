@@ -106,7 +106,9 @@ LOCK_NAME = ".imgw-project.lock"
 LOCK_TIMEOUT_S = 5.0
 LOCK_RETRY_S = 0.05
 
-TaskStatus = Literal["unpinned", "current", "missing", "changed", "upgraded", "failed", "cancelled"]
+TaskStatus = Literal[
+    "unpinned", "current", "missing", "changed", "upgraded", "failed", "cancelled"
+]
 PinState = Literal["current", "missing", "changed"]
 Hooks = Mapping[str, Any]
 
@@ -117,7 +119,10 @@ _ROLES = ("series", "station_series", "catalog", "input")
 # Przypięty plik to zawsze plik opublikowanej wersji: <rodzaj>/versions/…
 _VERSION_KINDS = ("archives", "series", "stations", "pmaxtp")
 _TOP_KEYS = (("schema", "store_dir", "tasks"), ("extensions",))
-_TASK_KEYS = (("name", "command", "options", "pinned_at", "imgwtools_version", "files"), ("geometry_sha256",))
+_TASK_KEYS = (
+    ("name", "command", "options", "pinned_at", "imgwtools_version", "files"),
+    ("geometry_sha256",),
+)
 _FILE_KEYS = (("role", "path", "sha256"), ("station",))
 _SHA = re.compile(r"[0-9a-f]{64}")
 _STATION = re.compile(r"[0-9]{9}")
@@ -128,7 +133,10 @@ _SERIES_UNITS = ("day", "month", "half_year")
 _SEVERITY = {"current": 0, "outdated": 1, "missing": 2}
 _UPGRADE = 'świadome przepięcie: update="upgrade"'
 _CHUNK = 1024 * 1024
-_OPTIONS = {command.name: {option.name: option for option in command.options} for command in commands.data_commands()}
+_OPTIONS = {
+    command.name: {option.name: option for option in command.options}
+    for command in commands.data_commands()
+}
 
 
 # --- postać manifestu ----------------------------------------------------------------------
@@ -156,7 +164,11 @@ class _Manifest:
 
 
 def _file_json(pin: ProjectFile) -> dict[str, Any]:
-    data: dict[str, Any] = {"role": pin.role, "path": pin.path.as_posix(), "sha256": pin.sha256}
+    data: dict[str, Any] = {
+        "role": pin.role,
+        "path": pin.path.as_posix(),
+        "sha256": pin.sha256,
+    }
     if pin.station is not None:
         data["station"] = pin.station
     return data
@@ -180,16 +192,25 @@ def _task_json(task: ProjectTask) -> dict[str, Any]:
 
 
 def _invalid(where: str, problem: str) -> IMGWProjectError:
-    return IMGWProjectError(f"{PROJECT_FILE}: {where}: {problem}" if where else f"{PROJECT_FILE}: {problem}")
+    return IMGWProjectError(
+        f"{PROJECT_FILE}: {where}: {problem}" if where else f"{PROJECT_FILE}: {problem}"
+    )
 
 
-def _object(value: object, keys: tuple[tuple[str, ...], tuple[str, ...]], where: str) -> dict[str, Any]:
+def _object(
+    value: object, keys: tuple[tuple[str, ...], tuple[str, ...]], where: str
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _invalid(where, "oczekiwano obiektu JSON")
     required, optional = keys
-    unknown = [repr(key) for key in value if key not in required and key not in optional]
+    unknown = [
+        repr(key) for key in value if key not in required and key not in optional
+    ]
     if unknown:
-        raise _invalid(where, f"nieznane klucze {', '.join(unknown)}; dodatki wyłącznie w extensions")
+        raise _invalid(
+            where,
+            f"nieznane klucze {', '.join(unknown)}; dodatki wyłącznie w extensions",
+        )
     missing = [key for key in required if key not in value]
     if missing:
         raise _invalid(where, f"brak kluczy {', '.join(missing)}")
@@ -199,18 +220,28 @@ def _object(value: object, keys: tuple[tuple[str, ...], tuple[str, ...]], where:
 def _relative(value: object, base: Path, name: str) -> str:
     """Bezpieczna ścieżka względna POSIX w ``base``: bez ``..``, ``\\`` i dowiązań symbolicznych."""
     text = value.as_posix() if isinstance(value, Path) else value
-    if (not isinstance(text, str) or not text or "\0" in text or "\\" in text
-            or text.startswith("/") or _DRIVE.match(text)):
+    if (
+        not isinstance(text, str)
+        or not text
+        or "\0" in text
+        or "\\" in text
+        or text.startswith("/")
+        or _DRIVE.match(text)
+    ):
         raise IMGWValidationError(f"{name} musi być ścieżką względną POSIX: {value!r}")
     parts = text.split("/")
     if any(part in ("", ".", "..") for part in parts):
-        raise IMGWValidationError(f"{name} nie może zawierać '..', '.' ani pustych segmentów: {text!r}")
+        raise IMGWValidationError(
+            f"{name} nie może zawierać '..', '.' ani pustych segmentów: {text!r}"
+        )
     path = base.joinpath(*parts)
     for step in (path, *path.parents):
         if step == base:
             break
         if step.is_symlink():
-            raise IMGWValidationError(f"Dowiązanie symboliczne w ścieżce {name}: {step}")
+            raise IMGWValidationError(
+                f"Dowiązanie symboliczne w ścieżce {name}: {step}"
+            )
     return text
 
 
@@ -223,12 +254,20 @@ def _input_relative(value: object, base: Path, name: str) -> str:
         try:
             path = path.relative_to(base)
         except ValueError:
-            raise IMGWValidationError(f"{name} musi leżeć w katalogu {base}: {value}") from None
+            raise IMGWValidationError(
+                f"{name} musi leżeć w katalogu {base}: {value}"
+            ) from None
     return _relative(path.as_posix(), base, name)
 
 
-def _options_json(command: str, normalized: Mapping[str, Any], directory: Path, root: Path, *,
-                  inputs: bool) -> dict[str, Any]:
+def _options_json(
+    command: str,
+    normalized: Mapping[str, Any],
+    directory: Path,
+    root: Path,
+    *,
+    inputs: bool,
+) -> dict[str, Any]:
     """Opcje w postaci manifestu: listy JSON, ścieżki względne (``version`` wobec magazynu)."""
     spec = _OPTIONS[command]
     relative = _input_relative if inputs else _relative
@@ -240,7 +279,9 @@ def _options_json(command: str, normalized: Mapping[str, Any], directory: Path, 
     return result
 
 
-def _stored_options(command: str, raw: object, directory: Path, root: Path) -> dict[str, Any]:
+def _stored_options(
+    command: str, raw: object, directory: Path, root: Path
+) -> dict[str, Any]:
     """Opcje zadania zapisane w manifeście: walidator katalogu komend + jawne opcje series select."""
     if not isinstance(raw, dict):
         raise IMGWValidationError("Opcje zadania muszą być obiektem JSON")
@@ -252,10 +293,14 @@ def _stored_options(command: str, raw: object, directory: Path, root: Path) -> d
     if command == _SELECT:
         missing = [name for name in _EXPLICIT if name not in normalized]
         if missing:
-            raise IMGWValidationError(f"Zadanie series select wymaga jawnych opcji: {', '.join(missing)}")
+            raise IMGWValidationError(
+                f"Zadanie series select wymaga jawnych opcji: {', '.join(missing)}"
+            )
     if area:
         if command != _SELECT:
-            raise IMGWValidationError("Opcja geometry dotyczy wyłącznie zadań series select")
+            raise IMGWValidationError(
+                "Opcja geometry dotyczy wyłącznie zadań series select"
+            )
         result["geometry"] = _relative(geometry, directory, "geometry")
     return result
 
@@ -278,20 +323,31 @@ def _parse_file(raw: object, where: str, root: Path) -> ProjectFile:
     data = _object(raw, _FILE_KEYS, where)
     role = data["role"]
     if role not in _ROLES:
-        raise _invalid(f"{where}.role", f"nieznana rola {role!r}; dozwolone: {', '.join(_ROLES)}")
+        raise _invalid(
+            f"{where}.role", f"nieznana rola {role!r}; dozwolone: {', '.join(_ROLES)}"
+        )
     try:
         path = _relative(data["path"], root, "path")
     except IMGWValidationError as exc:
         raise _invalid(f"{where}.path", str(exc)) from exc
     parts = path.split("/")
     if len(parts) < 4 or parts[0] not in _VERSION_KINDS or parts[1] != "versions":
-        raise _invalid(f"{where}.path", f"oczekiwano pliku opublikowanej wersji magazynu (<rodzaj>/versions/…): {path}")
+        raise _invalid(
+            f"{where}.path",
+            f"oczekiwano pliku opublikowanej wersji magazynu (<rodzaj>/versions/…): {path}",
+        )
     sha = data["sha256"]
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
-        raise _invalid(f"{where}.sha256", "oczekiwano pełnej sumy SHA-256 (64 małe cyfry hex)")
+        raise _invalid(
+            f"{where}.sha256", "oczekiwano pełnej sumy SHA-256 (64 małe cyfry hex)"
+        )
     station = data.get("station")
-    if "station" in data and (not isinstance(station, str) or not _STATION.fullmatch(station)):
-        raise _invalid(f"{where}.station", f"kod stacji musi mieć dokładnie 9 cyfr: {station!r}")
+    if "station" in data and (
+        not isinstance(station, str) or not _STATION.fullmatch(station)
+    ):
+        raise _invalid(
+            f"{where}.station", f"kod stacji musi mieć dokładnie 9 cyfr: {station!r}"
+        )
     if role == "station_series" and station is None:
         raise _invalid(where, "plik station_series wymaga kodu station")
     return ProjectFile(role, Path(path), sha, station)
@@ -301,9 +357,14 @@ def _parse_task(raw: object, where: str, directory: Path, root: Path) -> Project
     data = _object(raw, _TASK_KEYS, where)
     name, command = data["name"], data["command"]
     if not isinstance(name, str) or not commands._TASK_NAME.fullmatch(name):
-        raise _invalid(f"{where}.name", f"nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra: {name!r}")
+        raise _invalid(
+            f"{where}.name",
+            f"nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra: {name!r}",
+        )
     if command not in commands._TASK_COMMANDS:
-        raise _invalid(f"{where}.command", f"komenda {command!r} nie może być zadaniem projektu")
+        raise _invalid(
+            f"{where}.command", f"komenda {command!r} nie może być zadaniem projektu"
+        )
     try:
         options = _stored_options(command, data["options"], directory, root)
     except IMGWValidationError as exc:
@@ -311,24 +372,50 @@ def _parse_task(raw: object, where: str, directory: Path, root: Path) -> Project
     geometry = options.get("geometry")
     digests = data.get("geometry_sha256")
     if "geometry_sha256" in data:
-        if (not isinstance(digests, dict) or set(digests) != {geometry}
-                or not all(isinstance(value, str) and _SHA.fullmatch(value) for value in digests.values())):
-            raise _invalid(f"{where}.geometry_sha256", "oczekiwano {<options.geometry>: <SHA-256 pliku wyboru obszaru>}")
+        if (
+            not isinstance(digests, dict)
+            or set(digests) != {geometry}
+            or not all(
+                isinstance(value, str) and _SHA.fullmatch(value)
+                for value in digests.values()
+            )
+        ):
+            raise _invalid(
+                f"{where}.geometry_sha256",
+                "oczekiwano {<options.geometry>: <SHA-256 pliku wyboru obszaru>}",
+            )
     elif geometry is not None:
-        raise _invalid(where, "wybór obszarem (options.geometry) wymaga geometry_sha256")
+        raise _invalid(
+            where, "wybór obszarem (options.geometry) wymaga geometry_sha256"
+        )
     pinned_at = _moment(data["pinned_at"], f"{where}.pinned_at")
     version = data["imgwtools_version"]
     if version is not None and (not isinstance(version, str) or not version.strip()):
-        raise _invalid(f"{where}.imgwtools_version", "oczekiwano niepustego tekstu albo null")
+        raise _invalid(
+            f"{where}.imgwtools_version", "oczekiwano niepustego tekstu albo null"
+        )
     if (pinned_at is None) != (version is None):
-        raise _invalid(where, "pinned_at i imgwtools_version są oba null (zadanie nieprzypięte) albo oba ustawione")
+        raise _invalid(
+            where,
+            "pinned_at i imgwtools_version są oba null (zadanie nieprzypięte) albo oba ustawione",
+        )
     if not isinstance(data["files"], list):
         raise _invalid(f"{where}.files", "oczekiwano listy plików")
-    pins = tuple(_parse_file(entry, f"{where}.files[{index}]", root) for index, entry in enumerate(data["files"]))
+    pins = tuple(
+        _parse_file(entry, f"{where}.files[{index}]", root)
+        for index, entry in enumerate(data["files"])
+    )
     if len({pin.path for pin in pins}) != len(pins):
         raise _invalid(f"{where}.files", "powtórzona ścieżka przypiętego pliku")
-    return ProjectTask(name, command, options, dict(digests) if isinstance(digests, dict) else None,
-                       pinned_at, version, pins)
+    return ProjectTask(
+        name,
+        command,
+        options,
+        dict(digests) if isinstance(digests, dict) else None,
+        pinned_at,
+        version,
+        pins,
+    )
 
 
 def _store_root(directory: Path, text: str) -> Path:
@@ -339,7 +426,9 @@ def _store_root(directory: Path, text: str) -> Path:
 def _check_store(root: Path, directory: Path) -> None:
     """Projekt poza magazynem; istniejący niepusty ``store_dir`` musi być magazynem IMGW."""
     if root == directory or root in directory.parents:
-        raise IMGWProjectError(f"Katalog projektu {directory} nie może leżeć w magazynie {root}")
+        raise IMGWProjectError(
+            f"Katalog projektu {directory} nie może leżeć w magazynie {root}"
+        )
     if not root.exists() and not root.is_symlink():
         return
     if root.is_dir() and not root.is_symlink() and not any(root.iterdir()):
@@ -349,13 +438,18 @@ def _check_store(root: Path, directory: Path) -> None:
     except IMGWError as exc:
         raise IMGWProjectError(f"Nieprawidłowy katalog magazynu {root}: {exc}") from exc
     if not info.supported:
-        raise IMGWProjectError(f"Katalog {root} nie jest obsługiwanym magazynem IMGW: {'; '.join(info.problems)}")
+        raise IMGWProjectError(
+            f"Katalog {root} nie jest obsługiwanym magazynem IMGW: {'; '.join(info.problems)}"
+        )
 
 
 def _parse(directory: Path, document: object) -> _Manifest:
     data = _object(document, _TOP_KEYS, "")
     if data["schema"] != PROJECT_SCHEMA:
-        raise _invalid("schema", f"nieobsługiwany schemat {data['schema']!r}; ta wersja IMGWTools czyta {PROJECT_SCHEMA}")
+        raise _invalid(
+            "schema",
+            f"nieobsługiwany schemat {data['schema']!r}; ta wersja IMGWTools czyta {PROJECT_SCHEMA}",
+        )
     text = data["store_dir"]
     if not isinstance(text, str) or not text.strip() or "\0" in text:
         raise _invalid("store_dir", "oczekiwano niepustej ścieżki magazynu")
@@ -370,7 +464,9 @@ def _parse(directory: Path, document: object) -> _Manifest:
     for index, raw in enumerate(data["tasks"]):
         task = _parse_task(raw, f"tasks[{index}]", directory, root)
         if any(other.name == task.name for other in tasks):
-            raise _invalid(f"tasks[{index}].name", f"powtórzona nazwa zadania {task.name!r}")
+            raise _invalid(
+                f"tasks[{index}].name", f"powtórzona nazwa zadania {task.name!r}"
+            )
         tasks.append(task)
     return _Manifest(Project(directory, root, tuple(tasks), dict(extensions)), text)
 
@@ -391,15 +487,23 @@ def _no_constant(name: str) -> Any:
 def _load(directory: Path) -> _Manifest:
     path = directory / PROJECT_FILE
     if path.is_symlink():
-        raise IMGWProjectError(f"Manifest projektu nie może być dowiązaniem symbolicznym: {path}")
+        raise IMGWProjectError(
+            f"Manifest projektu nie może być dowiązaniem symbolicznym: {path}"
+        )
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        raise IMGWProjectError(f"Brak manifestu projektu {path}; najpierw imgw project init") from None
+        raise IMGWProjectError(
+            f"Brak manifestu projektu {path}; najpierw imgw project init"
+        ) from None
     except (OSError, UnicodeDecodeError) as exc:
-        raise IMGWProjectError(f"Nie można odczytać manifestu projektu {path}: {exc}") from exc
+        raise IMGWProjectError(
+            f"Nie można odczytać manifestu projektu {path}: {exc}"
+        ) from exc
     try:
-        document = json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant)
+        document = json.loads(
+            text, object_pairs_hook=_unique_keys, parse_constant=_no_constant
+        )
     except ValueError as exc:
         raise _invalid("", f"nieprawidłowy JSON: {exc}") from exc
     return _parse(directory, document)
@@ -436,10 +540,15 @@ def _locked(directory: Path) -> Iterator[None]:
                 ) from None
             time.sleep(LOCK_RETRY_S)
         except OSError as exc:
-            raise IMGWProjectError(f"Nie można zablokować manifestu projektu ({lock}): {exc}") from exc
+            raise IMGWProjectError(
+                f"Nie można zablokować manifestu projektu ({lock}): {exc}"
+            ) from exc
     try:
         with suppress(OSError):  # plik właściciela służy wyłącznie diagnostyce
-            (lock / "owner").write_text(f"{_host()} pid {os.getpid()} od {_utc(datetime.now(UTC))}\n", encoding="utf-8")
+            (lock / "owner").write_text(
+                f"{_host()} pid {os.getpid()} od {_utc(datetime.now(UTC))}\n",
+                encoding="utf-8",
+            )
         yield
     finally:
         with suppress(OSError):
@@ -450,7 +559,10 @@ def _locked(directory: Path) -> Iterator[None]:
 
 def _write(directory: Path, document: Mapping[str, Any]) -> None:
     target = directory / PROJECT_FILE
-    temporary = directory / f".{PROJECT_FILE}.{_host()}_{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp"
+    temporary = (
+        directory
+        / f".{PROJECT_FILE}.{_host()}_{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp"
+    )
     try:
         with temporary.open("xb") as stream:
             stream.write(_canonical(document))
@@ -461,14 +573,18 @@ def _write(directory: Path, document: Mapping[str, Any]) -> None:
     except OSError as exc:
         with suppress(OSError):
             temporary.unlink()
-        raise IMGWProjectError(f"Nie można zapisać manifestu projektu {target}: {exc}") from exc
+        raise IMGWProjectError(
+            f"Nie można zapisać manifestu projektu {target}: {exc}"
+        ) from exc
     except BaseException:
         with suppress(OSError):
             temporary.unlink()
         raise
 
 
-def _update(directory: Path, change: Callable[[_Manifest], _Manifest | None]) -> Project:
+def _update(
+    directory: Path, change: Callable[[_Manifest], _Manifest | None]
+) -> Project:
     """Odczyt–scalenie–zapis pod blokadą; ``change`` dostaje bieżący (świeżo odczytany) manifest."""
     with _locked(directory):
         current = _load(directory)
@@ -482,18 +598,26 @@ def _update(directory: Path, change: Callable[[_Manifest], _Manifest | None]) ->
 
 def _commit(directory: Path, before: ProjectTask, after: ProjectTask) -> None:
     """Scal jedno zadanie: zmienione od odczytu przez inny proces = konflikt bez zapisu."""
+
     def change(current: _Manifest) -> _Manifest | None:
         tasks = list(current.project.tasks)
-        index = next((index for index, task in enumerate(tasks) if task.name == before.name), None)
+        index = next(
+            (index for index, task in enumerate(tasks) if task.name == before.name),
+            None,
+        )
         if index is None:
-            raise IMGWProjectError(f"Konflikt: zadanie {before.name} usunięto z manifestu w trakcie pobierania; "
-                                   "przypięć nie zapisano")
+            raise IMGWProjectError(
+                f"Konflikt: zadanie {before.name} usunięto z manifestu w trakcie pobierania; "
+                "przypięć nie zapisano"
+            )
         existing = _task_json(tasks[index])
         if existing == _task_json(after):
             return None
         if existing != _task_json(before):
-            raise IMGWProjectError(f"Konflikt: zadanie {before.name} zmienił inny proces w trakcie pobierania; "
-                                   "przypięć nie zapisano")
+            raise IMGWProjectError(
+                f"Konflikt: zadanie {before.name} zmienił inny proces w trakcie pobierania; "
+                "przypięć nie zapisano"
+            )
         tasks[index] = after
         return current.with_tasks(tasks)
 
@@ -541,7 +665,12 @@ def _store_path(root: Path, path: Path) -> str:
         raise IMGWStoreError(f"Wersja {path} leży poza magazynem {root}") from None
 
 
-def _notice(hook: NoticeHook | None, level: Literal["info", "warning", "error"], code: str, text: str) -> None:
+def _notice(
+    hook: NoticeHook | None,
+    level: Literal["info", "warning", "error"],
+    code: str,
+    text: str,
+) -> None:
     if hook is not None:
         hook(Notice(level, code, text))
 
@@ -557,16 +686,22 @@ def init_project(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise IMGWProjectError(f"Nie można utworzyć katalogu projektu {directory}: {exc}") from exc
+        raise IMGWProjectError(
+            f"Nie można utworzyć katalogu projektu {directory}: {exc}"
+        ) from exc
     with _locked(directory):
         manifest = directory / PROJECT_FILE
         if manifest.exists() or manifest.is_symlink():
             existing = _load(directory).project
             if existing.store_dir != root:
-                raise IMGWProjectError(f"Manifest projektu {manifest} już istnieje i wskazuje magazyn "
-                                       f"{existing.store_dir}; zmiana magazynu: set_project_store")
+                raise IMGWProjectError(
+                    f"Manifest projektu {manifest} już istnieje i wskazuje magazyn "
+                    f"{existing.store_dir}; zmiana magazynu: set_project_store"
+                )
             return existing
-        created = _parse(directory, {"schema": PROJECT_SCHEMA, "store_dir": text, "tasks": []})
+        created = _parse(
+            directory, {"schema": PROJECT_SCHEMA, "store_dir": text, "tasks": []}
+        )
         _write(directory, created.document())
         return created.project
 
@@ -584,17 +719,23 @@ def set_project_store(project_dir: PathArg, /, *, store_dir: PathArg) -> Project
     _check_store(root, directory)
     problems = [
         f"{task.name}: {pin.path.as_posix()}: {error}"
-        for task in before.project.tasks for pin in task.files
-        for state, error in (_inspect(root, pin, full=True),) if state != "current"
+        for task in before.project.tasks
+        for pin in task.files
+        for state, error in (_inspect(root, pin, full=True),)
+        if state != "current"
     ]
     if problems:
         shown = "; ".join(problems[:5]) + (" …" if len(problems) > 5 else "")
-        raise IMGWProjectError(f"Magazyn {root} nie zawiera identycznych przypiętych plików ({len(problems)}): "
-                               f"{shown}; manifest bez zmian")
+        raise IMGWProjectError(
+            f"Magazyn {root} nie zawiera identycznych przypiętych plików ({len(problems)}): "
+            f"{shown}; manifest bez zmian"
+        )
 
     def change(current: _Manifest) -> _Manifest:
         if current.document() != before.document():
-            raise IMGWProjectError("Manifest projektu zmienił się w trakcie weryfikacji magazynu; powtórz set-store")
+            raise IMGWProjectError(
+                "Manifest projektu zmienił się w trakcie weryfikacji magazynu; powtórz set-store"
+            )
         return _Manifest(replace(current.project, store_dir=root), text)
 
     return _update(directory, change)
@@ -609,9 +750,16 @@ def _area(data: bytes, name: str) -> _Border:
             raise ValueError("pierścień wielokąta wymaga co najmniej 4 pozycji")
         points: list[list[float]] = []
         for position in value:
-            if (not isinstance(position, list) or len(position) < 2 or not all(
-                    isinstance(number, int | float) and not isinstance(number, bool) and math.isfinite(number)
-                    for number in position[:2])):
+            if (
+                not isinstance(position, list)
+                or len(position) < 2
+                or not all(
+                    isinstance(number, int | float)
+                    and not isinstance(number, bool)
+                    and math.isfinite(number)
+                    for number in position[:2]
+                )
+            ):
                 raise ValueError(f"nieprawidłowa pozycja {position!r}")
             points.append([float(position[0]), float(position[1])])
         if points[0] != points[-1]:
@@ -626,9 +774,15 @@ def _area(data: bytes, name: str) -> _Border:
             for item in value.get("geometries") or []:
                 geometry(item)
             return
-        polygons = [value.get("coordinates")] if kind == "Polygon" else value.get("coordinates")
+        polygons = (
+            [value.get("coordinates")]
+            if kind == "Polygon"
+            else value.get("coordinates")
+        )
         if kind not in ("Polygon", "MultiPolygon") or not isinstance(polygons, list):
-            raise ValueError(f"nieobsługiwana geometria {kind!r}; oczekiwano Polygon lub MultiPolygon")
+            raise ValueError(
+                f"nieobsługiwana geometria {kind!r}; oczekiwano Polygon lub MultiPolygon"
+            )
         for polygon in polygons:
             if not isinstance(polygon, list) or not polygon:
                 raise ValueError("pusty wielokąt")
@@ -645,25 +799,44 @@ def _area(data: bytes, name: str) -> _Border:
             for feature in features:
                 geometry(feature.get("geometry") if isinstance(feature, dict) else None)
         else:
-            geometry(document.get("geometry") if document.get("type") == "Feature" else document)
+            geometry(
+                document.get("geometry")
+                if document.get("type") == "Feature"
+                else document
+            )
         if not rings:
             raise ValueError("brak wielokątów")
         return _Border(rings)
     except (ValueError, IMGWDataError) as exc:
-        raise IMGWValidationError(f"Plik wyboru obszaru {name} nie jest poprawnym wielokątem GeoJSON: {exc}") from exc
+        raise IMGWValidationError(
+            f"Plik wyboru obszaru {name} nie jest poprawnym wielokątem GeoJSON: {exc}"
+        ) from exc
 
 
-def _area_stations(root: Path, descriptor: DatasetDescriptor, area: _Border) -> tuple[ProjectFile, list[str]]:
+def _area_stations(
+    root: Path, descriptor: DatasetDescriptor, area: _Border
+) -> tuple[ProjectFile, list[str]]:
     """Stacje rodziny zbioru z położeniem w obszarze, z bieżącej wersji katalogu (przypinanej)."""
     entry = current_version(root, slot="catalog:stations")
     if entry is None or entry.version is None or entry.meta is None:
-        raise IMGWStoreError(f"Brak katalogu stacji w magazynie {root}; najpierw imgw store catalog")
-    family = "hydro" if (descriptor.server_dir or "").startswith("dane_hydrologiczne") else "meteo"
+        raise IMGWStoreError(
+            f"Brak katalogu stacji w magazynie {root}; najpierw imgw store catalog"
+        )
+    family = (
+        "hydro"
+        if (descriptor.server_dir or "").startswith("dane_hydrologiczne")
+        else "meteo"
+    )
     codes = [
-        feature.station_code for feature in read_catalog(entry.version)
-        if feature.geometry is not None and feature.properties.get("kind") == family and area.contains(*feature.geometry)
+        feature.station_code
+        for feature in read_catalog(entry.version)
+        if feature.geometry is not None
+        and feature.properties.get("kind") == family
+        and area.contains(*feature.geometry)
     ]
-    return ProjectFile("catalog", Path(_store_path(root, entry.version)), entry.meta.sha256), codes
+    return ProjectFile(
+        "catalog", Path(_store_path(root, entry.version)), entry.meta.sha256
+    ), codes
 
 
 def _new_task(directory: Path, root: Path, request: Mapping[str, Any]) -> ProjectTask:
@@ -682,29 +855,55 @@ def _new_task(directory: Path, root: Path, request: Mapping[str, Any]) -> Projec
         try:
             data = directory.joinpath(*relative.split("/")).read_bytes()
         except OSError as exc:
-            raise IMGWValidationError(f"Nie można odczytać pliku wyboru obszaru {relative}: {exc}") from exc
+            raise IMGWValidationError(
+                f"Nie można odczytać pliku wyboru obszaru {relative}: {exc}"
+            ) from exc
         # Suma dokładnie tych bajtów, z których materializujemy wybór stacji.
         digests = {relative: hashlib.sha256(data).hexdigest()}
-        catalog, codes = _area_stations(root, get_dataset(options["dataset"]), _area(data, relative))
+        catalog, codes = _area_stations(
+            root, get_dataset(options["dataset"]), _area(data, relative)
+        )
         options["stations"] = tuple(sorted({*options.get("stations", ()), *codes}))
         if not options["stations"]:
-            raise IMGWValidationError(f"Wybór obszarem {relative} nie objął żadnej stacji katalogu "
-                                      f"{catalog.path.as_posix()}")
+            raise IMGWValidationError(
+                f"Wybór obszarem {relative} nie objął żadnej stacji katalogu "
+                f"{catalog.path.as_posix()}"
+            )
         pins = (catalog,)
-    stored = _options_json(command, commands._validate(command, options, task=True), directory, root, inputs=True)
+    stored = _options_json(
+        command,
+        commands._validate(command, options, task=True),
+        directory,
+        root,
+        inputs=True,
+    )
     if geometry is not None:
         stored["geometry"] = relative
     return ProjectTask(request["name"], command, stored, digests, None, None, pins)
 
 
-def add_project_task(project_dir: PathArg, /, *, name: str, command: str,
-                     options: Mapping[str, object], geometry: PathArg | None = None) -> Project:
+def add_project_task(
+    project_dir: PathArg,
+    /,
+    *,
+    name: str,
+    command: str,
+    options: Mapping[str, object],
+    geometry: PathArg | None = None,
+) -> Project:
     """Dodaj nieprzypięte zadanie; wybór obszarem materializuje jawną listę stacji z bieżącego katalogu."""
     directory = _directory(project_dir)
     before = _load(directory).project
-    request = commands.validate_command("project add", options={
-        "project_dir": directory, "name": name, "command": command, "options": options, "geometry": geometry,
-    })
+    request = commands.validate_command(
+        "project add",
+        options={
+            "project_dir": directory,
+            "name": name,
+            "command": command,
+            "options": options,
+            "geometry": geometry,
+        },
+    )
     if any(task.name == request["name"] for task in before.tasks):
         raise IMGWProjectError(f"Zadanie {request['name']!r} już istnieje w projekcie")
     task = _new_task(directory, before.store_dir, request)
@@ -724,7 +923,9 @@ def remove_project_task(project_dir: PathArg, /, *, name: str) -> Project:
     def change(current: _Manifest) -> _Manifest:
         if not any(task.name == name for task in current.project.tasks):
             raise IMGWProjectError(f"Brak zadania {name!r} w projekcie")
-        return current.with_tasks(task for task in current.project.tasks if task.name != name)
+        return current.with_tasks(
+            task for task in current.project.tasks if task.name != name
+        )
 
     return _update(directory, change)
 
@@ -740,8 +941,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _inspect(root: Path, pin: ProjectFile, *, full: bool,
-             indexes: dict[Path, SeriesIndex] | None = None) -> tuple[PinState, str | None]:
+def _inspect(
+    root: Path,
+    pin: ProjectFile,
+    *,
+    full: bool,
+    indexes: dict[Path, SeriesIndex] | None = None,
+) -> tuple[PinState, str | None]:
     """Stan pliku offline: istnienie i rozmiar wg sidecara; ``full`` — pełne SHA i spis szeregu."""
     path = root.joinpath(*pin.path.parts)
     if path.is_symlink():
@@ -758,27 +964,46 @@ def _inspect(root: Path, pin: ProjectFile, *, full: bool,
                 if indexes is not None:
                     indexes[version] = index
                 entry = index.stations.get(pin.station or "")
-                if entry is None or version / entry.file != path or entry.sha256 != pin.sha256:
-                    return "changed", "spis series.json wersji nie potwierdza przypiętego pliku stacji"
+                if (
+                    entry is None
+                    or version / entry.file != path
+                    or entry.sha256 != pin.sha256
+                ):
+                    return (
+                        "changed",
+                        "spis series.json wersji nie potwierdza przypiętego pliku stacji",
+                    )
         else:
             meta = read_meta(path)
             size = path.stat().st_size
             if meta.size_bytes != size:
-                return "changed", f"rozmiar {size} B różni się od sidecara ({meta.size_bytes} B)"
+                return (
+                    "changed",
+                    f"rozmiar {size} B różni się od sidecara ({meta.size_bytes} B)",
+                )
             if meta.sha256 != pin.sha256:
                 return "changed", "sidecar wskazuje inną sumę SHA-256 niż przypięta"
         if full:
             actual = _sha256(path)
             if actual != pin.sha256:
-                return "changed", f"suma SHA-256 pliku ({actual}) różni się od przypiętej ({pin.sha256})"
+                return (
+                    "changed",
+                    f"suma SHA-256 pliku ({actual}) różni się od przypiętej ({pin.sha256})",
+                )
     except (IMGWError, OSError) as exc:
         return "changed", str(exc)
     return "current", None
 
 
-def _pin_result(task: ProjectTask, root: Path, pin: ProjectFile, status: str, error: str | None) -> OperationResult:
-    return OperationResult(f"{task.name}:{pin.path.as_posix()}", status,  # type: ignore[arg-type]
-                           root.joinpath(*pin.path.parts), error)
+def _pin_result(
+    task: ProjectTask, root: Path, pin: ProjectFile, status: str, error: str | None
+) -> OperationResult:
+    return OperationResult(
+        f"{task.name}:{pin.path.as_posix()}",
+        status,  # type: ignore[arg-type]
+        root.joinpath(*pin.path.parts),
+        error,
+    )
 
 
 def _task_result(task: ProjectTask, status: str, error: str | None) -> OperationResult:
@@ -794,7 +1019,9 @@ def _state(task: ProjectTask, states: Iterable[str]) -> TaskStatus:
     return "missing" if "missing" in found else "current"
 
 
-def get_project_status(project_dir: PathArg, /, *, tasks: Iterable[str] | None = None) -> ProjectReport:
+def get_project_status(
+    project_dir: PathArg, /, *, tasks: Iterable[str] | None = None
+) -> ProjectReport:
     """Stan przypiętych plików offline: istnienie i rozmiar wg sidecarów, bez haszowania."""
     project = open_project(project_dir)
     statuses: dict[str, TaskStatus] = {}
@@ -804,15 +1031,28 @@ def get_project_status(project_dir: PathArg, /, *, tasks: Iterable[str] | None =
         for pin in task.files:
             state, error = _inspect(project.store_dir, pin, full=False)
             states.append(state)
-            results.append(_pin_result(task, project.store_dir, pin, "unchanged" if state == "current" else "failed", error))
+            results.append(
+                _pin_result(
+                    task,
+                    project.store_dir,
+                    pin,
+                    "unchanged" if state == "current" else "failed",
+                    error,
+                )
+            )
         statuses[task.name] = _state(task, states)
     return ProjectReport(statuses, tuple(results), False)
 
 
-def verify_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = None,
-                   on_progress: ProgressHook | None = None,
-                   on_notice: NoticeHook | None = None,
-                   cancel: Cancel | None = None) -> ProjectReport:
+def verify_project(
+    project_dir: PathArg,
+    /,
+    *,
+    tasks: Iterable[str] | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
+) -> ProjectReport:
     """Pełne SHA-256 przypiętych plików oraz zgodność sidecarów i spisów szeregów, offline."""
     project = open_project(project_dir)
     selected = _selected(project, tasks)
@@ -832,14 +1072,31 @@ def verify_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = Non
                 continue
             state, error = _inspect(root, pin, full=True, indexes=indexes)
             states.append(state)
-            results.append(_pin_result(task, root, pin, "unchanged" if state == "current" else "failed", error))
+            results.append(
+                _pin_result(
+                    task,
+                    root,
+                    pin,
+                    "unchanged" if state == "current" else "failed",
+                    error,
+                )
+            )
             if state != "current":
-                _notice(on_notice, "error", "pin_mismatch", f"{task.name}: {pin.path.as_posix()}: {error}")
+                _notice(
+                    on_notice,
+                    "error",
+                    "pin_mismatch",
+                    f"{task.name}: {pin.path.as_posix()}: {error}",
+                )
             done += 1
             if on_progress is not None:
                 on_progress(Progress(done, total, "file", state, pin.path.as_posix()))
         stopped = stopped or (not task.files and cancel is not None and cancel())
-        statuses[task.name] = "cancelled" if stopped and len(states) < max(len(task.files), 1) else _state(task, states)
+        statuses[task.name] = (
+            "cancelled"
+            if stopped and len(states) < max(len(task.files), 1)
+            else _state(task, states)
+        )
     return ProjectReport(statuses, tuple(results), stopped)
 
 
@@ -847,7 +1104,9 @@ def verify_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = Non
 
 
 def _select_options(task: ProjectTask, root: Path) -> dict[str, Any]:
-    options = {name: value for name, value in task.options.items() if name != "geometry"}
+    options = {
+        name: value for name, value in task.options.items() if name != "geometry"
+    }
     return commands.validate_command(_SELECT, options={**options, "root": root})
 
 
@@ -857,7 +1116,9 @@ def _command_options(task: ProjectTask, directory: Path, root: Path) -> dict[str
     options: dict[str, Any] = {}
     for name, value in task.options.items():
         if spec[name].type == "path":
-            value = (root if name == "version" else directory).joinpath(*str(value).split("/"))
+            value = (root if name == "version" else directory).joinpath(
+                *str(value).split("/")
+            )
         options[name] = value
     if "root" in spec:
         options["root"] = root
@@ -874,42 +1135,86 @@ def _archive_years(options: Mapping[str, Any]) -> tuple[int, ...]:
     if options["year_type"] != descriptor.year_type:
         shift = 1 if descriptor.year_type == "hydrological" else -1
         for year in options["years"]:
-            with suppress(IMGWValidationError):  # rocznik sprzed pierwszego archiwum zbioru
+            with suppress(
+                IMGWValidationError
+            ):  # rocznik sprzed pierwszego archiwum zbioru
                 archive_files(descriptor.key, years=(year + shift,))
                 years.add(year + shift)
     return tuple(sorted(years))
 
 
-def _check_task(root: Path, directory: Path, task: ProjectTask, hooks: Hooks) -> tuple[str, str, StorePlan | None]:
+def _check_task(
+    root: Path, directory: Path, task: ProjectTask, hooks: Hooks
+) -> tuple[str, str, StorePlan | None]:
     states = [_inspect(root, pin, full=False) for pin in task.files]
     try:
         if task.command == _SELECT:
             options = _select_options(task, root)
-            plan = check_store(root, datasets=(options["dataset"],), years=_archive_years(options), **hooks)
+            plan = check_store(
+                root,
+                datasets=(options["dataset"],),
+                years=_archive_years(options),
+                **hooks,
+            )
         else:
-            plan = commands.check_command(task.command, options=_command_options(task, directory, root), **hooks)
+            plan = commands.check_command(
+                task.command, options=_command_options(task, directory, root), **hooks
+            )
     except IMGWError as exc:
         return "check_failed", str(exc), None
-    found = [(item.status, item.error) for item in plan.items] + [(action.status, action.detail) for action in plan.actions]
-    failed = [detail or "błąd sprawdzenia" for status, detail in found if status == "check_failed"]
-    changed = [f"{pin.path.as_posix()}: {error}" for pin, (state, error) in zip(task.files, states, strict=True)
-               if state == "changed"]
+    found = [(item.status, item.error) for item in plan.items] + [
+        (action.status, action.detail) for action in plan.actions
+    ]
+    failed = [
+        detail or "błąd sprawdzenia"
+        for status, detail in found
+        if status == "check_failed"
+    ]
+    changed = [
+        f"{pin.path.as_posix()}: {error}"
+        for pin, (state, error) in zip(task.files, states, strict=True)
+        if state == "changed"
+    ]
     missing = sum(state == "missing" for state, _ in states)
     if plan.cancelled:
         return "unverifiable", CANCELLED, plan
     if failed:
         return "check_failed", "; ".join(failed), plan
     if changed:
-        return "check_failed", f"zmienione przypięte pliki (nie do odtworzenia): {'; '.join(changed)}", plan
+        return (
+            "check_failed",
+            f"zmienione przypięte pliki (nie do odtworzenia): {'; '.join(changed)}",
+            plan,
+        )
     if task.pinned_at is None:
-        return "missing", "zadanie nieprzypięte: project download pobierze dane i przypnie pliki", plan
+        return (
+            "missing",
+            "zadanie nieprzypięte: project download pobierze dane i przypnie pliki",
+            plan,
+        )
     if missing:
-        return "missing", (f"brak {missing} przypiętych plików; project download odtworzy je wyłącznie "
-                           "przy identycznym SHA-256"), plan
+        return (
+            "missing",
+            (
+                f"brak {missing} przypiętych plików; project download odtworzy je wyłącznie "
+                "przy identycznym SHA-256"
+            ),
+            plan,
+        )
     if any(status in ("newer", "missing") for status, _ in found):
-        return "newer", f"dostępne nowsze lub brakujące dane źródłowe; piny zmieni wyłącznie {_UPGRADE}", plan
-    if any(status == "unverifiable" and detail != UNPUBLISHED for status, detail in found):
-        return "unverifiable", "brak porównywalnego sygnału aktualności części danych", plan
+        return (
+            "newer",
+            f"dostępne nowsze lub brakujące dane źródłowe; piny zmieni wyłącznie {_UPGRADE}",
+            plan,
+        )
+    if any(
+        status == "unverifiable" and detail != UNPUBLISHED for status, detail in found
+    ):
+        return (
+            "unverifiable",
+            "brak porównywalnego sygnału aktualności części danych",
+            plan,
+        )
     return "current", "przypięte pliki obecne, dane aktualne", plan
 
 
@@ -920,10 +1225,15 @@ def _store_ready(root: Path) -> bool:
         return False
 
 
-def check_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = None,
-                  on_progress: ProgressHook | None = None,
-                  on_notice: NoticeHook | None = None,
-                  cancel: Cancel | None = None) -> StorePlan:
+def check_project(
+    project_dir: PathArg,
+    /,
+    *,
+    tasks: Iterable[str] | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
+) -> StorePlan:
     """Plan ``imgw-plan/1`` zadań: listing/HEAD i stan pinów; bez zapisu i bez GET treści."""
     project = open_project(project_dir)
     selected = _selected(project, tasks)
@@ -940,22 +1250,40 @@ def check_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = None
         if cancelled:
             status, detail = "unverifiable", CANCELLED
         elif not ready:
-            status, detail = "missing", f"magazyn {root} nie istnieje; project download utworzy go i pobierze dane"
+            status, detail = (
+                "missing",
+                f"magazyn {root} nie istnieje; project download utworzy go i pobierze dane",
+            )
         else:
             status, detail, plan = _check_task(root, project.path, task, hooks)
         if plan is not None:
             for item in plan.items:
                 items.setdefault(item.archive.server_path, item)
             for slug, state in plan.series_state.items():
-                series_state[slug] = max(state, series_state.get(slug, state), key=_SEVERITY.__getitem__)
-            actions.extend(PlanAction(action.command, action.status, f"{task.name}: {action.detail}")
-                           for action in plan.actions)
+                series_state[slug] = max(
+                    state, series_state.get(slug, state), key=_SEVERITY.__getitem__
+                )
+            actions.extend(
+                PlanAction(
+                    action.command, action.status, f"{task.name}: {action.detail}"
+                )
+                for action in plan.actions
+            )
             cancelled = cancelled or plan.cancelled
         actions.append(PlanAction("project download", status, f"{task.name}: {detail}"))  # type: ignore[arg-type]
         if on_progress is not None:
-            on_progress(Progress(index, len(selected), "task", status, f"Zadanie {task.name}"))
-    return StorePlan("imgw-plan/1", root, datetime.now(UTC), tuple(items.values()), series_state,
-                     tuple(actions), cancelled)
+            on_progress(
+                Progress(index, len(selected), "task", status, f"Zadanie {task.name}")
+            )
+    return StorePlan(
+        "imgw-plan/1",
+        root,
+        datetime.now(UTC),
+        tuple(items.values()),
+        series_state,
+        tuple(actions),
+        cancelled,
+    )
 
 
 # --- pobieranie, przypinanie i odtwarzanie ----------------------------------------------------
@@ -975,60 +1303,108 @@ class _Produced:
 class _Outcome:
     status: TaskStatus
     files: tuple[OperationResult, ...]
-    task: ProjectTask | None = None  # nowy stan zadania do scalenia; None = manifest bez zmian
+    task: ProjectTask | None = (
+        None  # nowy stan zadania do scalenia; None = manifest bez zmian
+    )
 
 
-def _series_pins(root: Path, version: Path, stations: Iterable[str] | None) -> list[ProjectFile]:
+def _series_pins(
+    root: Path, version: Path, stations: Iterable[str] | None
+) -> list[ProjectFile]:
     """``series.json``, pliki wybranych (albo wszystkich) stacji oraz wejścia z sidecara wersji."""
     index = read_series_index(version)
     meta = read_meta(version)
     pins = [ProjectFile("series", Path(_store_path(root, version)), meta.sha256)]
     for code in index.stations if stations is None else stations:
         entry = index.stations[code]
-        pins.append(ProjectFile("station_series", Path(_store_path(root, version.parent / entry.file)),
-                                entry.sha256, code))
+        pins.append(
+            ProjectFile(
+                "station_series",
+                Path(_store_path(root, version.parent / entry.file)),
+                entry.sha256,
+                code,
+            )
+        )
     try:
-        pins.extend(ProjectFile("input", Path(str(source["file"])), str(source["sha256"]))
-                    for source in meta.extra["source_files"])
+        pins.extend(
+            ProjectFile("input", Path(str(source["file"])), str(source["sha256"]))
+            for source in meta.extra["source_files"]
+        )
     except (KeyError, TypeError) as exc:
-        raise IMGWDataError(f"Sidecar szeregu {version} nie wymienia poprawnie plików wejściowych") from exc
+        raise IMGWDataError(
+            f"Sidecar szeregu {version} nie wymienia poprawnie plików wejściowych"
+        ) from exc
     return pins
 
 
-def _add_sync(produced: _Produced, root: Path, task: ProjectTask, report: SyncReport, *, pin: bool) -> None:
+def _add_sync(
+    produced: _Produced, root: Path, task: ProjectTask, report: SyncReport, *, pin: bool
+) -> None:
     produced.cancelled = produced.cancelled or report.cancelled
     for item in report.items:
         if item.status not in _DONE:
             produced.cancelled = produced.cancelled or item.status == "cancelled"
-            produced.failures.append(OperationResult(f"{task.name}:{item.slot}", item.status, item.version, item.error))
+            produced.failures.append(
+                OperationResult(
+                    f"{task.name}:{item.slot}", item.status, item.version, item.error
+                )
+            )
         elif item.version is not None:
             path = _store_path(root, item.version)
             produced.statuses[path] = item.status
             if pin:
-                produced.pins.append(ProjectFile("input", Path(path), read_meta(item.version).sha256))
+                produced.pins.append(
+                    ProjectFile("input", Path(path), read_meta(item.version).sha256)
+                )
 
 
-def _add_series(produced: _Produced, root: Path, task: ProjectTask, report: SeriesReport,
-                stations: Iterable[str] | None) -> None:
+def _add_series(
+    produced: _Produced,
+    root: Path,
+    task: ProjectTask,
+    report: SeriesReport,
+    stations: Iterable[str] | None,
+) -> None:
     if report.status == "cancelled":
         produced.cancelled = True
-        produced.failures.append(OperationResult(f"{task.name}:series", "cancelled", None, CANCELLED))
+        produced.failures.append(
+            OperationResult(f"{task.name}:series", "cancelled", None, CANCELLED)
+        )
     elif report.status == "failed" or report.version is None:
-        produced.failures.append(OperationResult(f"{task.name}:series", "failed", report.version,
-                                                 "; ".join(report.problems) or "budowa szeregu nie powiodła się"))
+        produced.failures.append(
+            OperationResult(
+                f"{task.name}:series",
+                "failed",
+                report.version,
+                "; ".join(report.problems) or "budowa szeregu nie powiodła się",
+            )
+        )
     else:
         pins = _series_pins(root, report.version, stations)
-        produced.statuses.update((pin.path.as_posix(), report.status) for pin in pins if pin.role != "input")
+        produced.statuses.update(
+            (pin.path.as_posix(), report.status) for pin in pins if pin.role != "input"
+        )
         produced.pins.extend(pins)
 
 
-def _add_version(produced: _Produced, root: Path, task: ProjectTask, role: Literal["catalog", "input"],
-                 status: str, version: Path | None, problems: Iterable[str]) -> None:
+def _add_version(
+    produced: _Produced,
+    root: Path,
+    task: ProjectTask,
+    role: Literal["catalog", "input"],
+    status: str,
+    version: Path | None,
+    problems: Iterable[str],
+) -> None:
     if status == "cancelled":
         produced.cancelled = True
         produced.failures.append(_task_result(task, "cancelled", CANCELLED))
     elif status == "failed" or version is None:
-        produced.failures.append(_task_result(task, "failed", "; ".join(problems) or f"{task.command}: niepowodzenie"))
+        produced.failures.append(
+            _task_result(
+                task, "failed", "; ".join(problems) or f"{task.command}: niepowodzenie"
+            )
+        )
     else:
         path = _store_path(root, version)
         produced.statuses[path] = status
@@ -1040,20 +1416,31 @@ def _subplan(plan: StorePlan, archives: Iterable[ArchiveFile]) -> StorePlan:
     items = tuple(item for item in plan.items if item.archive.server_path in wanted)
     absent = sorted(wanted - {item.archive.server_path for item in items})
     if absent:
-        raise IMGWValidationError(f"Plan nie obejmuje archiwów zadania ({', '.join(absent[:3])}"
-                                  f"{' …' if len(absent) > 3 else ''}); uruchom ponownie project check")
+        raise IMGWValidationError(
+            f"Plan nie obejmuje archiwów zadania ({', '.join(absent[:3])}"
+            f"{' …' if len(absent) > 3 else ''}); uruchom ponownie project check"
+        )
     return replace(plan, items=items, series_state={}, actions=())
 
 
-def _produce_select(root: Path, task: ProjectTask, plan: StorePlan | None, hooks: Hooks) -> _Produced:
+def _produce_select(
+    root: Path, task: ProjectTask, plan: StorePlan | None, hooks: Hooks
+) -> _Produced:
     """series select: synchronizacja roczników zadania, budowa szeregu zbioru, walidowany wybór."""
     options = _select_options(task, root)
     dataset = options["dataset"]
     years = _archive_years(options)
     if plan is None:
-        report = sync_store(root, datasets=(dataset,), years=years, series=False, **hooks)
+        report = sync_store(
+            root, datasets=(dataset,), years=years, series=False, **hooks
+        )
     else:
-        report = sync_store(root, plan=_subplan(plan, archive_files(dataset, years=years)), series=False, **hooks)
+        report = sync_store(
+            root,
+            plan=_subplan(plan, archive_files(dataset, years=years)),
+            series=False,
+            **hooks,
+        )
     produced = _Produced()
     _add_sync(produced, root, task, report, pin=False)
     if produced.cancelled or produced.failures:
@@ -1061,15 +1448,26 @@ def _produce_select(root: Path, task: ProjectTask, plan: StorePlan | None, hooks
     series = build_series(root, dataset=dataset, **hooks)
     stations: tuple[str, ...] = ()
     if series.status in ("created", "reused") and series.version is not None:
-        entry = StoreEntry("series", f"series:{get_dataset(dataset).slug}", series.version, None, None, None)
+        entry = StoreEntry(
+            "series",
+            f"series:{get_dataset(dataset).slug}",
+            series.version,
+            None,
+            None,
+            None,
+        )
         stations = commands._select(options, entry).stations
     _add_series(produced, root, task, series, stations)
     return produced
 
 
-def _produce_command(root: Path, directory: Path, task: ProjectTask, hooks: Hooks) -> _Produced:
+def _produce_command(
+    root: Path, directory: Path, task: ProjectTask, hooks: Hooks
+) -> _Produced:
     """Pozostałe komendy: jeden dispatcher ``run_command``; przypina wersje wskazane w wyniku."""
-    result = commands.run_command(task.command, options=_command_options(task, directory, root), **hooks)
+    result = commands.run_command(
+        task.command, options=_command_options(task, directory, root), **hooks
+    )
     produced = _Produced()
     if isinstance(result, SyncReport):
         _add_sync(produced, root, task, result, pin=True)
@@ -1078,7 +1476,15 @@ def _produce_command(root: Path, directory: Path, task: ProjectTask, hooks: Hook
     elif isinstance(result, SeriesReport):
         _add_series(produced, root, task, result, None)
     elif isinstance(result, CatalogReport):
-        _add_version(produced, root, task, "catalog", result.status, result.version, result.problems)
+        _add_version(
+            produced,
+            root,
+            task,
+            "catalog",
+            result.status,
+            result.version,
+            result.problems,
+        )
     elif isinstance(result, PMaXTPStoreResult):
         _add_version(produced, root, task, "input", result.status, result.version, ())
     return produced
@@ -1088,31 +1494,64 @@ def _ordered(pins: Iterable[ProjectFile]) -> tuple[ProjectFile, ...]:
     unique: dict[str, ProjectFile] = {}
     for pin in pins:
         unique.setdefault(pin.path.as_posix(), pin)
-    return tuple(sorted(unique.values(), key=lambda pin: (_ROLES.index(pin.role), pin.path.as_posix())))
+    return tuple(
+        sorted(
+            unique.values(),
+            key=lambda pin: (_ROLES.index(pin.role), pin.path.as_posix()),
+        )
+    )
 
 
-def _pin(root: Path, directory: Path, task: ProjectTask, plan: StorePlan | None, hooks: Hooks) -> _Outcome:
+def _pin(
+    root: Path, directory: Path, task: ProjectTask, plan: StorePlan | None, hooks: Hooks
+) -> _Outcome:
     """Pierwsze przypięcie albo upgrade: nowe piny całego zadania wyłącznie po pełnym sukcesie."""
     if task.command == _SELECT:
         produced = _produce_select(root, task, plan, hooks)
     else:
         produced = _produce_command(root, directory, task, hooks)
     if produced.cancelled:
-        return _Outcome("cancelled", tuple(produced.failures) or (_task_result(task, "cancelled", CANCELLED),))
+        return _Outcome(
+            "cancelled",
+            tuple(produced.failures) or (_task_result(task, "cancelled", CANCELLED),),
+        )
     if produced.failures:
-        reasons = "; ".join(result.error or result.status for result in produced.failures)
-        _notice(hooks["on_notice"], "error", "task_failed", f"Zadanie {task.name}: {reasons}; przypięcia bez zmian")
+        reasons = "; ".join(
+            result.error or result.status for result in produced.failures
+        )
+        _notice(
+            hooks["on_notice"],
+            "error",
+            "task_failed",
+            f"Zadanie {task.name}: {reasons}; przypięcia bez zmian",
+        )
         return _Outcome("failed", tuple(produced.failures))
     # Wybór obszarem materializowano raz z konkretnej wersji katalogu: jej pin zostaje.
-    kept = [pin for pin in task.files if task.command == _SELECT and pin.role == "catalog"]
+    kept = [
+        pin for pin in task.files if task.command == _SELECT and pin.role == "catalog"
+    ]
     files = _ordered([*kept, *produced.pins])
-    results = tuple(_pin_result(task, root, pin, produced.statuses.get(pin.path.as_posix(), "unchanged"), None)
-                    for pin in files)
+    results = tuple(
+        _pin_result(
+            task,
+            root,
+            pin,
+            produced.statuses.get(pin.path.as_posix(), "unchanged"),
+            None,
+        )
+        for pin in files
+    )
     if task.pinned_at is not None and set(files) == set(task.files):
         return _Outcome("current", results)
-    pinned = replace(task, files=files, pinned_at=datetime.now(UTC).replace(microsecond=0),
-                     imgwtools_version=__version__)
-    return _Outcome("upgraded" if task.pinned_at is not None else "current", results, pinned)
+    pinned = replace(
+        task,
+        files=files,
+        pinned_at=datetime.now(UTC).replace(microsecond=0),
+        imgwtools_version=__version__,
+    )
+    return _Outcome(
+        "upgraded" if task.pinned_at is not None else "current", results, pinned
+    )
 
 
 def _archive_of(path: Path) -> ArchiveFile:
@@ -1120,7 +1559,9 @@ def _archive_of(path: Path) -> ArchiveFile:
     parts = path.parts
     server_path = "/".join((*parts[2:-3], parts[-1]))
     for descriptor in datasets():
-        if descriptor.time_unit not in _SERIES_UNITS or not server_path.startswith(f"{descriptor.server_dir}/"):
+        if descriptor.time_unit not in _SERIES_UNITS or not server_path.startswith(
+            f"{descriptor.server_dir}/"
+        ):
             continue
         for year in sorted({int(text) for text in _YEAR.findall(server_path)}):
             try:
@@ -1130,7 +1571,9 @@ def _archive_of(path: Path) -> ArchiveFile:
             for candidate in candidates:
                 if candidate.server_path == server_path:
                     return candidate
-    raise IMGWProjectError(f"Przypięty plik {path.as_posix()} nie odpowiada archiwum rejestru IMGW")
+    raise IMGWProjectError(
+        f"Przypięty plik {path.as_posix()} nie odpowiada archiwum rejestru IMGW"
+    )
 
 
 def _recreate_archive(root: Path, pin: ProjectFile, hooks: Hooks) -> str | None:
@@ -1138,34 +1581,60 @@ def _recreate_archive(root: Path, pin: ProjectFile, hooks: Hooks) -> str | None:
     key = pin.path.as_posix()
     try:
         archive = _archive_of(pin.path)
-        written = write_archive(root, archive=archive, response=_download(archive),
-                                on_notice=hooks["on_notice"], cancel=hooks["cancel"])
+        written = write_archive(
+            root,
+            archive=archive,
+            response=_download(archive),
+            on_notice=hooks["on_notice"],
+            cancel=hooks["cancel"],
+        )
     except IMGWError as exc:
         return f"Nie odtworzono {key}: {exc}"
     if written.sha256 != pin.sha256:
-        return (f"IMGW udostępnia inną treść {archive.server_path} (SHA-256 {written.sha256}) niż przypięta "
-                f"({pin.sha256}); przypięcia bez zmian, {_UPGRADE}")
+        return (
+            f"IMGW udostępnia inną treść {archive.server_path} (SHA-256 {written.sha256}) niż przypięta "
+            f"({pin.sha256}); przypięcia bez zmian, {_UPGRADE}"
+        )
     written_path = _store_path(root, written.path)
     if written_path != key:
-        return (f"Identyczne bajty zapisano jako {written_path}; przypięta wersja {key} pozostaje "
-                f"niedostępna, {_UPGRADE}")
+        return (
+            f"Identyczne bajty zapisano jako {written_path}; przypięta wersja {key} pozostaje "
+            f"niedostępna, {_UPGRADE}"
+        )
     return None
 
 
-def _recreate_series(root: Path, task: ProjectTask, slug: str, hooks: Hooks) -> str | None:
+def _recreate_series(
+    root: Path, task: ProjectTask, slug: str, hooks: Hooks
+) -> str | None:
     """Szereg odtwarza się wyłącznie, gdy bieżące wersje archiwów zbioru = przypięte wejścia."""
-    descriptor = next((item for item in datasets() if item.slug == slug and item.time_unit in _SERIES_UNITS), None)
+    descriptor = next(
+        (
+            item
+            for item in datasets()
+            if item.slug == slug and item.time_unit in _SERIES_UNITS
+        ),
+        None,
+    )
     if descriptor is None:
         return f"Nieznany zbiór szeregu {slug}"
     prefix = f"archives/versions/{descriptor.server_dir}/"
-    pinned = {(pin.path.as_posix(), pin.sha256) for pin in task.files
-              if pin.role == "input" and pin.path.as_posix().startswith(prefix)}
+    pinned = {
+        (pin.path.as_posix(), pin.sha256)
+        for pin in task.files
+        if pin.role == "input" and pin.path.as_posix().startswith(prefix)
+    }
     try:
-        current = {(item.local_path.as_posix(), item.local_sha256)
-                   for item in check_series(root, dataset=descriptor.key).items if item.local_path is not None}
+        current = {
+            (item.local_path.as_posix(), item.local_sha256)
+            for item in check_series(root, dataset=descriptor.key).items
+            if item.local_path is not None
+        }
         if not pinned or current != pinned:
-            return (f"Bieżące wersje archiwów zbioru {descriptor.key} różnią się od przypiętych wejść szeregu; "
-                    f"identycznej wersji nie można zbudować, {_UPGRADE}")
+            return (
+                f"Bieżące wersje archiwów zbioru {descriptor.key} różnią się od przypiętych wejść szeregu; "
+                f"identycznej wersji nie można zbudować, {_UPGRADE}"
+            )
         report = build_series(root, dataset=descriptor.key, **hooks)
     except IMGWError as exc:
         return f"Nie odtworzono szeregu {slug}: {exc}"
@@ -1176,8 +1645,9 @@ def _recreate_series(root: Path, task: ProjectTask, slug: str, hooks: Hooks) -> 
     return None
 
 
-def _recreate(root: Path, task: ProjectTask, missing: Iterable[ProjectFile],
-              hooks: Hooks) -> tuple[dict[ProjectFile, str], bool]:
+def _recreate(
+    root: Path, task: ProjectTask, missing: Iterable[ProjectFile], hooks: Hooks
+) -> tuple[dict[ProjectFile, str], bool]:
     """Odtwórz brakujące wersje: archiwa (GET + SHA), potem szeregi z przypiętych wejść."""
     cancel = hooks["cancel"]
     errors: dict[ProjectFile, str] = {}
@@ -1189,8 +1659,10 @@ def _recreate(root: Path, task: ProjectTask, missing: Iterable[ProjectFile],
             series.setdefault(pin.path.parts[2], []).append(pin)
             continue
         if kind != "archives":
-            errors[pin] = (f"Wersji {pin.path.as_posix()} nie można odtworzyć: etykieta katalogu/komórki "
-                           f"pochodzi z dnia pobrania; {_UPGRADE}")
+            errors[pin] = (
+                f"Wersji {pin.path.as_posix()} nie można odtworzyć: etykieta katalogu/komórki "
+                f"pochodzi z dnia pobrania; {_UPGRADE}"
+            )
             continue
         cancelled = cancelled or (cancel is not None and cancel())
         error = CANCELLED if cancelled else _recreate_archive(root, pin, hooks)
@@ -1209,7 +1681,9 @@ def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
     states = {pin: _inspect(root, pin, full=False) for pin in task.files}
     missing = {pin for pin in task.files if states[pin][0] == "missing"}
     ordered = [pin for pin in task.files if pin in missing]
-    errors, cancelled = _recreate(root, task, ordered, hooks) if ordered else ({}, False)
+    errors, cancelled = (
+        _recreate(root, task, ordered, hooks) if ordered else ({}, False)
+    )
     results: list[OperationResult] = []
     failed = changed = False
     for pin in task.files:
@@ -1220,15 +1694,48 @@ def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
                 continue
             error = errors.get(pin) or error
             failed = True
-            results.append(_pin_result(task, root, pin, "cancelled" if error == CANCELLED else "failed", error))
+            results.append(
+                _pin_result(
+                    task,
+                    root,
+                    pin,
+                    "cancelled" if error == CANCELLED else "failed",
+                    error,
+                )
+            )
         else:
             state, error = states[pin]
             changed = changed or state == "changed"
-            results.append(_pin_result(task, root, pin, "unchanged" if state == "current" else "failed", error))
-    status: TaskStatus = "cancelled" if cancelled else "failed" if failed else "changed" if changed else "current"
+            results.append(
+                _pin_result(
+                    task,
+                    root,
+                    pin,
+                    "unchanged" if state == "current" else "failed",
+                    error,
+                )
+            )
+    status: TaskStatus = (
+        "cancelled"
+        if cancelled
+        else "failed"
+        if failed
+        else "changed"
+        if changed
+        else "current"
+    )
     if status in ("failed", "changed"):
-        reasons = "; ".join(f"{result.slot}: {result.error}" for result in results if result.status == "failed")
-        _notice(hooks["on_notice"], "error", "task_failed", f"Zadanie {task.name}: {reasons}; przypięcia bez zmian")
+        reasons = "; ".join(
+            f"{result.slot}: {result.error}"
+            for result in results
+            if result.status == "failed"
+        )
+        _notice(
+            hooks["on_notice"],
+            "error",
+            "task_failed",
+            f"Zadanie {task.name}: {reasons}; przypięcia bez zmian",
+        )
     return _Outcome(status, tuple(results))
 
 
@@ -1239,22 +1746,31 @@ def _ensure_store(root: Path) -> None:
         init_store(root)
 
 
-def download_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = None,
-                     plan: StorePlan | PathArg | None = None,
-                     update: Literal["pinned", "upgrade"] = "pinned",
-                     on_progress: ProgressHook | None = None,
-                     on_notice: NoticeHook | None = None,
-                     cancel: Cancel | None = None) -> ProjectReport:
+def download_project(
+    project_dir: PathArg,
+    /,
+    *,
+    tasks: Iterable[str] | None = None,
+    plan: StorePlan | PathArg | None = None,
+    update: Literal["pinned", "upgrade"] = "pinned",
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
+) -> ProjectReport:
     """Pobierz i przypnij dane zadań; ``pinned`` nie przepina, ``upgrade`` przepina całe zadanie po sukcesie."""
     if update not in ("pinned", "upgrade"):
-        raise IMGWValidationError(f'Nieprawidłowy tryb update {update!r}; dozwolone: "pinned", "upgrade"')
+        raise IMGWValidationError(
+            f'Nieprawidłowy tryb update {update!r}; dozwolone: "pinned", "upgrade"'
+        )
     project = open_project(project_dir)
     selected = _selected(project, tasks)
     root = project.store_dir
     if plan is not None and not isinstance(plan, StorePlan):
         plan = StorePlan.from_json(plan)
     if plan is not None and Path(plan.root).expanduser().absolute() != root:
-        raise IMGWValidationError(f"Plan dotyczy innego magazynu ({plan.root}) niż projekt ({root})")
+        raise IMGWValidationError(
+            f"Plan dotyczy innego magazynu ({plan.root}) niż projekt ({root})"
+        )
     hooks = {"on_progress": on_progress, "on_notice": on_notice, "cancel": cancel}
     statuses: dict[str, TaskStatus] = {}
     results: list[OperationResult] = []
@@ -1262,7 +1778,9 @@ def download_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = N
     for index, task in enumerate(selected, start=1):
         stopped = stopped or (cancel is not None and cancel())
         if stopped:
-            outcome = _Outcome("cancelled", (_task_result(task, "cancelled", CANCELLED),))
+            outcome = _Outcome(
+                "cancelled", (_task_result(task, "cancelled", CANCELLED),)
+            )
         else:
             if index == 1:
                 _ensure_store(root)
@@ -1272,17 +1790,31 @@ def download_project(project_dir: PathArg, /, *, tasks: Iterable[str] | None = N
                 else:
                     outcome = _restore(root, task, hooks)
             except IMGWError as exc:
-                _notice(on_notice, "error", "task_failed", f"Zadanie {task.name}: {exc}")
+                _notice(
+                    on_notice, "error", "task_failed", f"Zadanie {task.name}: {exc}"
+                )
                 outcome = _Outcome("failed", (_task_result(task, "failed", str(exc)),))
             if outcome.task is not None:
                 try:
                     _commit(project.path, task, outcome.task)
                 except IMGWProjectError as exc:
-                    _notice(on_notice, "error", "project_conflict", f"Zadanie {task.name}: {exc}")
-                    outcome = _Outcome("failed", (*outcome.files, _task_result(task, "failed", str(exc))))
+                    _notice(
+                        on_notice,
+                        "error",
+                        "project_conflict",
+                        f"Zadanie {task.name}: {exc}",
+                    )
+                    outcome = _Outcome(
+                        "failed",
+                        (*outcome.files, _task_result(task, "failed", str(exc))),
+                    )
             stopped = outcome.status == "cancelled"
         statuses[task.name] = outcome.status
         results.extend(outcome.files)
         if on_progress is not None:
-            on_progress(Progress(index, len(selected), "task", outcome.status, f"Zadanie {task.name}"))
+            on_progress(
+                Progress(
+                    index, len(selected), "task", outcome.status, f"Zadanie {task.name}"
+                )
+            )
     return ProjectReport(statuses, tuple(results), stopped)

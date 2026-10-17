@@ -80,14 +80,19 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
     """Store state and the problem code of an unusable store (``None`` when supported)."""
     contracts = dict(CONTRACTS)
 
-    def unusable(code: str, text: str, *, schema: str | None = None) -> tuple[StoreInfo, str]:
+    def unusable(
+        code: str, text: str, *, schema: str | None = None
+    ) -> tuple[StoreInfo, str]:
         return StoreInfo(path, path.exists(), schema, False, contracts, (text,)), code
 
     if not path.exists():
         return unusable("missing_store", f"Katalog magazynu nie istnieje: {path}")
     marker = path / _MARKER
     if marker.is_symlink() or not marker.is_file():
-        return unusable("missing_marker", f"Brak znacznika {_MARKER}: {path} nie jest magazynem IMGW")
+        return unusable(
+            "missing_marker",
+            f"Brak znacznika {_MARKER}: {path} nie jest magazynem IMGW",
+        )
     try:
         payload = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -103,7 +108,11 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
         )
     created_by = payload.get("created_by")
     if not isinstance(created_by, str) or not created_by:
-        return unusable("invalid_marker", f"Znacznik {marker} nie ma poprawnego pola created_by", schema=schema)
+        return unusable(
+            "invalid_marker",
+            f"Znacznik {marker} nie ma poprawnego pola created_by",
+            schema=schema,
+        )
     return StoreInfo(path, True, schema, True, contracts, ()), None
 
 
@@ -162,10 +171,14 @@ def _parse_meta(payload: object) -> Meta:
     url = _text(license_, "url")
     sha = payload.get("sha256")
     if not isinstance(sha, str) or not _SHA.match(sha):
-        raise _Invalid("invalid_meta", "pole sha256 musi mieć 64 małe cyfry szesnastkowe")
+        raise _Invalid(
+            "invalid_meta", "pole sha256 musi mieć 64 małe cyfry szesnastkowe"
+        )
     size = payload.get("size_bytes")
     if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-        raise _Invalid("invalid_meta", "pole size_bytes musi być nieujemną liczbą całkowitą")
+        raise _Invalid(
+            "invalid_meta", "pole size_bytes musi być nieujemną liczbą całkowitą"
+        )
     try:
         downloaded_at = _timestamp(_text(payload, "downloaded_at"))
     except ValueError as exc:
@@ -175,33 +188,52 @@ def _parse_meta(payload: object) -> Meta:
     version = _object(extra, "version")
     _text(version, "label")
     if version.get("label_source") not in _LABEL_SOURCES:
-        raise _Invalid("invalid_meta", f"pole label_source musi być jednym z {', '.join(_LABEL_SOURCES)}")
+        raise _Invalid(
+            "invalid_meta",
+            f"pole label_source musi być jednym z {', '.join(_LABEL_SOURCES)}",
+        )
     return Meta(
-        schema, dataset, sha, size, downloaded_at,
-        License("IMGW-PIB", attribution, url), request, extra,
+        schema,
+        dataset,
+        sha,
+        size,
+        downloaded_at,
+        License("IMGW-PIB", attribution, url),
+        request,
+        extra,
     )
 
 
 def _load_meta(sidecar: Path) -> Meta:
     if sidecar.is_symlink():
-        raise _Invalid("symlink", f"dowiązanie symboliczne zamiast sidecara {sidecar.name}")
+        raise _Invalid(
+            "symlink", f"dowiązanie symboliczne zamiast sidecara {sidecar.name}"
+        )
     try:
         text = sidecar.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise _Invalid("missing_sidecar", f"brak sidecara {sidecar.name}") from exc
     except OSError as exc:
-        raise _Invalid("unreadable", f"nieczytelny sidecar {sidecar.name}: {exc}") from exc
+        raise _Invalid(
+            "unreadable", f"nieczytelny sidecar {sidecar.name}: {exc}"
+        ) from exc
     try:
         payload = json.loads(text)
     except ValueError as exc:
-        raise _Invalid("invalid_json", f"uszkodzony JSON sidecara {sidecar.name}: {exc}") from exc
+        raise _Invalid(
+            "invalid_json", f"uszkodzony JSON sidecara {sidecar.name}: {exc}"
+        ) from exc
     return _parse_meta(payload)
 
 
 def read_meta(path: PathArg, /) -> Meta:
     """Read the sidecar of a data file (or the ``*.meta.json`` itself)."""
     given = Path(path)
-    sidecar = given if given.name.endswith(_SIDECAR) else given.with_name(given.name + _SIDECAR)
+    sidecar = (
+        given
+        if given.name.endswith(_SIDECAR)
+        else given.with_name(given.name + _SIDECAR)
+    )
     try:
         return _load_meta(sidecar)
     except _Invalid as exc:
@@ -215,7 +247,9 @@ def read_meta(path: PathArg, /) -> Meta:
 # --------------------------------------------------------------------------
 
 
-def _check_version(directory: Path, name: str, *, subdirs: tuple[str, ...] = ()) -> tuple[Path, Meta]:
+def _check_version(
+    directory: Path, name: str, *, subdirs: tuple[str, ...] = ()
+) -> tuple[Path, Meta]:
     """Validate one published version directory; ``name`` is the expected main file."""
     if directory.is_symlink():
         raise _Invalid("symlink", "dowiązanie symboliczne zamiast katalogu wersji")
@@ -225,23 +259,32 @@ def _check_version(directory: Path, name: str, *, subdirs: tuple[str, ...] = ())
             raise _Invalid("symlink", f"dowiązanie symboliczne w wersji: {child.name}")
         if child.is_dir():
             if child.name not in subdirs:
-                raise _Invalid("unknown_entry", f"nieznany katalog w wersji: {child.name}")
+                raise _Invalid(
+                    "unknown_entry", f"nieznany katalog w wersji: {child.name}"
+                )
         else:
             files.add(child.name)
     if name not in files and name + _SIDECAR in files:
         raise _Invalid("missing_file", f"brak pliku głównego {name}")
     unexpected = sorted(files - {name, name + _SIDECAR})
     if unexpected:
-        raise _Invalid("unknown_entry", f"nieznane pliki w wersji: {', '.join(unexpected)}")
+        raise _Invalid(
+            "unknown_entry", f"nieznane pliki w wersji: {', '.join(unexpected)}"
+        )
     if name not in files:
         raise _Invalid("missing_file", f"brak pliku głównego {name}")
     main = directory / name
     meta = _load_meta(directory / (name + _SIDECAR))
     label = cast("Mapping[str, Any]", meta.extra["version"])["label"]
     if directory.name != f"{label}_{meta.sha256[:8]}":
-        raise _Invalid("invalid_meta", f"nazwa katalogu wersji nie odpowiada etykiecie {label} i sumie sidecara")
+        raise _Invalid(
+            "invalid_meta",
+            f"nazwa katalogu wersji nie odpowiada etykiecie {label} i sumie sidecara",
+        )
     if main.stat().st_size != meta.size_bytes:
-        raise _Invalid("size_mismatch", f"rozmiar {name} różni się od size_bytes w sidecarze")
+        raise _Invalid(
+            "size_mismatch", f"rozmiar {name} różni się od size_bytes w sidecarze"
+        )
     return main, meta
 
 
@@ -254,27 +297,51 @@ def _problem(slot: str, path: Path, code: str, text: str) -> StoreEntry:
 
 
 def _unknown(root: Path, path: Path) -> StoreEntry:
-    return _problem(_relative(root, path), path, "unknown_entry", f"Nieznany element magazynu: {_relative(root, path)}")
+    return _problem(
+        _relative(root, path),
+        path,
+        "unknown_entry",
+        f"Nieznany element magazynu: {_relative(root, path)}",
+    )
 
 
-def _entry(root: Path, kind: EntryKind, slot: str, directory: Path, name: str, **options: Any) -> StoreEntry:
+def _entry(
+    root: Path, kind: EntryKind, slot: str, directory: Path, name: str, **options: Any
+) -> StoreEntry:
     try:
         main, meta = _check_version(directory, name, **options)
         server_path = slot.removeprefix("archive:")
-        if kind == "archive" and meta.request.get("server_path", server_path) != server_path:
-            raise _Invalid("invalid_meta", "request.server_path w sidecarze nie odpowiada ścieżce wersji")
+        if (
+            kind == "archive"
+            and meta.request.get("server_path", server_path) != server_path
+        ):
+            raise _Invalid(
+                "invalid_meta",
+                "request.server_path w sidecarze nie odpowiada ścieżce wersji",
+            )
     except _Invalid as exc:
-        return _problem(slot, directory, exc.code, f"Wersja {_relative(root, directory)}: {exc}")
+        return _problem(
+            slot, directory, exc.code, f"Wersja {_relative(root, directory)}: {exc}"
+        )
     except OSError as exc:
-        return _problem(slot, directory, "unreadable", f"Wersja {_relative(root, directory)}: {exc}")
+        return _problem(
+            slot, directory, "unreadable", f"Wersja {_relative(root, directory)}: {exc}"
+        )
     return StoreEntry(kind, slot, main, meta, None, None)
 
 
 def _archive_slot(base: Path, directory: Path) -> str:
     """``archive:<server_path>`` of a version directory, named after its (possibly orphaned) main file."""
-    names = sorted(item.name.removesuffix(_SIDECAR) for item in directory.iterdir() if not item.is_dir())
+    names = sorted(
+        item.name.removesuffix(_SIDECAR)
+        for item in directory.iterdir()
+        if not item.is_dir()
+    )
     slot_dir = directory.parent
-    name = next((item for item in names if PurePosixPath(item).stem == slot_dir.name), slot_dir.name)
+    name = next(
+        (item for item in names if PurePosixPath(item).stem == slot_dir.name),
+        slot_dir.name,
+    )
     return f"archive:{slot_dir.parent.relative_to(base).as_posix()}/{name}"
 
 
@@ -282,7 +349,12 @@ def _directories(root: Path, path: Path) -> Iterator[Path | StoreEntry]:
     """Children of a structural directory; files and links there are problems."""
     for child in sorted(path.iterdir()):
         if child.is_symlink():
-            yield _problem(_relative(root, child), child, "symlink", f"Dowiązanie symboliczne w magazynie: {_relative(root, child)}")
+            yield _problem(
+                _relative(root, child),
+                child,
+                "symlink",
+                f"Dowiązanie symboliczne w magazynie: {_relative(root, child)}",
+            )
         elif not child.is_dir():
             yield _unknown(root, child)
         else:
@@ -305,7 +377,9 @@ def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEnt
         if isinstance(child, StoreEntry):
             yield child
             continue
-        has_files = any(not item.is_dir() or item.is_symlink() for item in child.iterdir())
+        has_files = any(
+            not item.is_dir() or item.is_symlink() for item in child.iterdir()
+        )
         if has_files or _VERSION_DIR.match(child.name):
             if len(child.relative_to(base).parts) < 3:
                 yield _unknown(root, child)
@@ -317,7 +391,11 @@ def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEnt
 
 
 def _series_slugs() -> set[str]:
-    return {item.slug for item in datasets() if item.time_unit in ("day", "month", "half_year")}
+    return {
+        item.slug
+        for item in datasets()
+        if item.time_unit in ("day", "month", "half_year")
+    }
 
 
 def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
@@ -328,28 +406,59 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
             yield from _scan_archives(root, versions, versions)
         elif top.name == "stations":
             for version in _directories(root, versions):
-                yield version if isinstance(version, StoreEntry) else _entry(root, "catalog", "catalog:stations", version, CATALOG_FILE)
+                yield (
+                    version
+                    if isinstance(version, StoreEntry)
+                    else _entry(
+                        root, "catalog", "catalog:stations", version, CATALOG_FILE
+                    )
+                )
         elif top.name == "series":
             for slug in _directories(root, versions):
                 if isinstance(slug, StoreEntry) or slug.name not in _series_slugs():
                     yield slug if isinstance(slug, StoreEntry) else _unknown(root, slug)
                     continue
                 for version in _directories(root, slug):
-                    yield version if isinstance(version, StoreEntry) else _entry(
-                        root, "series", f"series:{slug.name}", version, SERIES_FILE, subdirs=("stations",),
+                    yield (
+                        version
+                        if isinstance(version, StoreEntry)
+                        else _entry(
+                            root,
+                            "series",
+                            f"series:{slug.name}",
+                            version,
+                            SERIES_FILE,
+                            subdirs=("stations",),
+                        )
                     )
         else:
             for method in _directories(root, versions):
                 if isinstance(method, StoreEntry) or method.name not in ("POT", "AMP"):
-                    yield method if isinstance(method, StoreEntry) else _unknown(root, method)
+                    yield (
+                        method
+                        if isinstance(method, StoreEntry)
+                        else _unknown(root, method)
+                    )
                     continue
                 for cell in _directories(root, method):
                     if isinstance(cell, StoreEntry) or not _CELL.match(cell.name):
-                        yield cell if isinstance(cell, StoreEntry) else _unknown(root, cell)
+                        yield (
+                            cell
+                            if isinstance(cell, StoreEntry)
+                            else _unknown(root, cell)
+                        )
                         continue
                     for version in _directories(root, cell):
-                        yield version if isinstance(version, StoreEntry) else _entry(
-                            root, "pmaxtp", f"pmaxtp:{method.name}:{cell.name}", version, CELL_FILE,
+                        yield (
+                            version
+                            if isinstance(version, StoreEntry)
+                            else _entry(
+                                root,
+                                "pmaxtp",
+                                f"pmaxtp:{method.name}:{cell.name}",
+                                version,
+                                CELL_FILE,
+                            )
                         )
 
 
@@ -364,14 +473,27 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
         if child.name == _MARKER:
             continue
         if child.is_symlink():
-            yield _problem(child.name, child, "symlink", f"Dowiązanie symboliczne w magazynie: {child.name}")
+            yield _problem(
+                child.name,
+                child,
+                "symlink",
+                f"Dowiązanie symboliczne w magazynie: {child.name}",
+            )
         elif child.name == ".incoming" and child.is_dir():
             # Young staging directories are private to a running writer, never versions.
             for staging in sorted(child.iterdir()):
                 if staging.lstat().st_mtime < cutoff:
                     relative = _relative(root, staging)
-                    yield _problem(relative, staging, "stale_incoming", f"Porzucony staging starszy niż 24 h: {relative}")
-        elif child.name in ("archives", "stations", "series", "pmaxtp") and child.is_dir():
+                    yield _problem(
+                        relative,
+                        staging,
+                        "stale_incoming",
+                        f"Porzucony staging starszy niż 24 h: {relative}",
+                    )
+        elif (
+            child.name in ("archives", "stations", "series", "pmaxtp")
+            and child.is_dir()
+        ):
             yield from _scan_kind(root, child)
         else:
             yield _unknown(root, child)
@@ -380,26 +502,42 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
 def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEntry]:
     """Scan every published version and every problem offline, without writing anything."""
     if kind is not None and kind not in _KINDS:
-        raise IMGWValidationError(f"Nieznany rodzaj wpisu magazynu: {kind!r}; dozwolone {', '.join(_KINDS)}")
+        raise IMGWValidationError(
+            f"Nieznany rodzaj wpisu magazynu: {kind!r}; dozwolone {', '.join(_KINDS)}"
+        )
     path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
     return (entry for entry in _scan(path) if kind is None or entry.kind == kind)
 
 
-def _slot_location(root: Path, slot: str) -> tuple[EntryKind, Path, str | None, tuple[str, ...]]:
+def _slot_location(
+    root: Path, slot: str
+) -> tuple[EntryKind, Path, str | None, tuple[str, ...]]:
     kind, _, rest = slot.partition(":")
     if kind == "archive" and rest:
         relative = PurePosixPath(rest)
-        directory = _validate_slot(root, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}")
+        directory = _validate_slot(
+            root, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
+        )
         if relative.parent == PurePosixPath("."):
             raise IMGWValidationError(f"Niepełna ścieżka archiwum w slocie: {slot}")
         return "archive", directory, relative.name, ()
     if kind == "series" and rest in _series_slugs():
-        return "series", _validate_slot(root, f"series/versions/{rest}"), SERIES_FILE, ("stations",)
+        return (
+            "series",
+            _validate_slot(root, f"series/versions/{rest}"),
+            SERIES_FILE,
+            ("stations",),
+        )
     if slot == "catalog:stations":
         return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, ()
     method, _, cell = rest.partition(":")
     if kind == "pmaxtp" and method in ("POT", "AMP") and _CELL.match(cell):
-        return "pmaxtp", _validate_slot(root, f"pmaxtp/versions/{method}/{cell}"), CELL_FILE, ()
+        return (
+            "pmaxtp",
+            _validate_slot(root, f"pmaxtp/versions/{method}/{cell}"),
+            CELL_FILE,
+            (),
+        )
     raise IMGWValidationError(
         f"Nieprawidłowy slot {slot!r}; oczekiwano archive:<server_path>, series:<slug>, "
         "catalog:stations lub pmaxtp:<POT|AMP>:<indX>_<indY>"
@@ -415,16 +553,29 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     versions: list[tuple[Path, dict[str, Any]]] = []
     entries: dict[Path, StoreEntry] = {}
     for version in sorted(directory.iterdir()):
-        entry = _entry(path, kind, slot, version, name, subdirs=subdirs) if version.is_dir() else _unknown(path, version)
+        entry = (
+            _entry(path, kind, slot, version, name, subdirs=subdirs)
+            if version.is_dir()
+            else _unknown(path, version)
+        )
         if entry.kind == "problem" or entry.meta is None or entry.version is None:
             raise IMGWDataError(f"Uszkodzona wersja w slocie {slot}: {entry.problem}")
         meta = entry.meta
-        versions.append((entry.version, {"downloaded_at": meta.downloaded_at.isoformat(), "extra": meta.extra}))
+        versions.append(
+            (
+                entry.version,
+                {"downloaded_at": meta.downloaded_at.isoformat(), "extra": meta.extra},
+            )
+        )
         entries[entry.version] = entry
     if kind == "archive":
         current = max(
             versions,
-            key=lambda item: (_signal_time(item[1]), _timestamp(item[1]["downloaded_at"]), item[0].as_posix()),
+            key=lambda item: (
+                _signal_time(item[1]),
+                _timestamp(item[1]["downloaded_at"]),
+                item[0].as_posix(),
+            ),
             default=None,
         )
     else:
@@ -442,7 +593,9 @@ def _main_file(version: PathArg, name: str) -> Path:
     if path.is_dir():
         path = path / name
     if path.name != name:
-        raise IMGWValidationError(f"Wersja musi wskazywać katalog wersji albo plik {name}: {version}")
+        raise IMGWValidationError(
+            f"Wersja musi wskazywać katalog wersji albo plik {name}: {version}"
+        )
     return path
 
 
@@ -458,7 +611,9 @@ def _verified(path: Path) -> bytes:
         raise IMGWDataError(f"Nie można odczytać {path}: {exc}") from exc
     meta = read_meta(path)
     if hashlib.sha256(data).hexdigest() != meta.sha256 or len(data) != meta.size_bytes:
-        raise IMGWDataError(f"Suma kontrolna {path.name} nie zgadza się z sidecarem: {path}")
+        raise IMGWDataError(
+            f"Suma kontrolna {path.name} nie zgadza się z sidecarem: {path}"
+        )
     return data
 
 
@@ -481,26 +636,43 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
     document = _json(path)
     result: list[StationFeature] = []
     try:
-        if not isinstance(document, dict) or document.get("type") != "FeatureCollection":
+        if (
+            not isinstance(document, dict)
+            or document.get("type") != "FeatureCollection"
+        ):
             raise ValueError("oczekiwano FeatureCollection")
         features = document["features"]
         if not isinstance(features, list):
             raise ValueError("features musi być listą")
         for feature in features:
             code = feature["id"]
-            if feature["type"] != "Feature" or not isinstance(code, str) or not _CODE.match(code):
+            if (
+                feature["type"] != "Feature"
+                or not isinstance(code, str)
+                or not _CODE.match(code)
+            ):
                 raise ValueError(f"nieprawidłowy obiekt stacji {code!r}")
             properties = feature["properties"]
-            if not isinstance(properties, dict) or not all(isinstance(value, _SCALARS) for value in properties.values()):
-                raise ValueError(f"właściwości stacji {code} muszą być wartościami prostymi")
+            if not isinstance(properties, dict) or not all(
+                isinstance(value, _SCALARS) for value in properties.values()
+            ):
+                raise ValueError(
+                    f"właściwości stacji {code} muszą być wartościami prostymi"
+                )
             if properties.get("station_code", code) != code:
                 raise ValueError(f"station_code stacji {code} różni się od id")
             geometry = feature["geometry"]
             point: tuple[float, float] | None = None
             if geometry is not None:
                 coordinates = geometry["coordinates"]
-                if geometry["type"] != "Point" or not isinstance(coordinates, list) or len(coordinates) != 2:
-                    raise ValueError(f"geometria stacji {code} musi być punktem [lon, lat]")
+                if (
+                    geometry["type"] != "Point"
+                    or not isinstance(coordinates, list)
+                    or len(coordinates) != 2
+                ):
+                    raise ValueError(
+                        f"geometria stacji {code} musi być punktem [lon, lat]"
+                    )
                 point = (_number(coordinates[0]), _number(coordinates[1]))
             result.append(StationFeature(code, point, properties))
     except (KeyError, TypeError, ValueError) as exc:
@@ -542,8 +714,14 @@ def _coverage(code: str, key: str, value: Any) -> StationCoverage:
     if not isinstance(gaps, list):
         raise ValueError(f"gaps zmiennej {key} musi być listą")
     return StationCoverage(
-        code, variable, unit, cast("Literal['winter', 'summer', 'annual'] | None", period or None),
-        first, last, _count(value["with_value"], "with_value"), _count(value["accumulated"], "accumulated"),
+        code,
+        variable,
+        unit,
+        cast("Literal['winter', 'summer', 'annual'] | None", period or None),
+        first,
+        last,
+        _count(value["with_value"], "with_value"),
+        _count(value["accumulated"], "accumulated"),
         tuple(_span(gap) for gap in gaps),
     )
 
@@ -574,7 +752,9 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
                 raise ValueError(f"nieprawidłowy kod stacji {code!r}")
             file, sha = entry["file"], entry["sha256"]
             if not isinstance(file, str) or not _PARQUET.match(file):
-                raise ValueError(f"nieprawidłowa ścieżka Parquet stacji {code}: {file!r}")
+                raise ValueError(
+                    f"nieprawidłowa ścieżka Parquet stacji {code}: {file!r}"
+                )
             if not isinstance(sha, str) or not _SHA.match(sha):
                 raise ValueError(f"nieprawidłowa suma Parquet stacji {code}")
             parquet = path.parent / file
@@ -584,7 +764,9 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
             if not isinstance(variables, dict):
                 raise ValueError(f"variables stacji {code} musi być obiektem")
             stations[code] = StationSeriesIndex(
-                Path(file), sha, _count(entry["rows"], "rows", minimum=1),
+                Path(file),
+                sha,
+                _count(entry["rows"], "rows", minimum=1),
                 {key: _coverage(code, key, value) for key, value in variables.items()},
             )
     except (IMGWValidationError, KeyError, TypeError, ValueError) as exc:
@@ -593,16 +775,25 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
 
 
 def read_series(
-    version: PathArg, /, *, station: str, variables: Iterable[str],
-    start: date | None = None, end: date | None = None,
+    version: PathArg,
+    /,
+    *,
+    station: str,
+    variables: Iterable[str],
+    start: date | None = None,
+    end: date | None = None,
 ) -> Iterator[NormalizedRecord]:
     """Values and flags of one station between ``start`` and ``end`` (inclusive, period start date)."""
     path = _main_file(version, SERIES_FILE)
     index = read_series_index(path)
     if station not in index.stations:
-        raise IMGWValidationError(f"Stacja {station!r} nie występuje w szeregu {index.dataset}")
+        raise IMGWValidationError(
+            f"Stacja {station!r} nie występuje w szeregu {index.dataset}"
+        )
     if isinstance(variables, str):
-        raise IMGWValidationError("variables musi być listą nazw zmiennych, nie pojedynczym tekstem")
+        raise IMGWValidationError(
+            "variables musi być listą nazw zmiennych, nie pojedynczym tekstem"
+        )
     names = tuple(dict.fromkeys(variables))
     descriptor = get_dataset(index.dataset)
     unknown = [name for name in names if name not in descriptor.variables]
@@ -611,10 +802,14 @@ def read_series(
             f"Nieznane zmienne {', '.join(map(str, unknown)) or '(brak)'}; dostępne: {', '.join(descriptor.variables)}"
         )
     for bound in (start, end):
-        if bound is not None and (not isinstance(bound, date) or isinstance(bound, datetime)):
+        if bound is not None and (
+            not isinstance(bound, date) or isinstance(bound, datetime)
+        ):
             raise IMGWValidationError(f"Granica zakresu musi być datą: {bound!r}")
     if start is not None and end is not None and start > end:
-        raise IMGWValidationError(f"Początek zakresu {start} jest późniejszy niż koniec {end}")
+        raise IMGWValidationError(
+            f"Początek zakresu {start} jest późniejszy niż koniec {end}"
+        )
     pa, pq = _pyarrow()
     entry = index.stations[station]
     parquet = path.parent / entry.file
@@ -623,27 +818,54 @@ def read_series(
     except OSError as exc:
         raise IMGWDataError(f"Nie można odczytać {parquet}: {exc}") from exc
     if hashlib.sha256(data).hexdigest() != entry.sha256:
-        raise IMGWDataError(f"Suma kontrolna Parquet stacji {station} nie zgadza się ze spisem: {parquet}")
+        raise IMGWDataError(
+            f"Suma kontrolna Parquet stacji {station} nie zgadza się ze spisem: {parquet}"
+        )
     half_year = descriptor.time_unit == "half_year"
     columns = ["date", "hydro_year", *(["period"] if half_year else [])]
     for name in names:
-        columns += [f"{name}_value", f"{name}_flag", *([f"{name}_start", f"{name}_end"] if half_year else [])]
+        columns += [
+            f"{name}_value",
+            f"{name}_flag",
+            *([f"{name}_start", f"{name}_end"] if half_year else []),
+        ]
     try:
         table = pq.read_table(pa.BufferReader(data), columns=columns)
         metadata = table.schema.metadata or {}
-        if metadata.get(b"imgw_schema") != SERIES_SCHEMA.encode() or metadata.get(b"dataset") != index.dataset.encode():
+        if (
+            metadata.get(b"imgw_schema") != SERIES_SCHEMA.encode()
+            or metadata.get(b"dataset") != index.dataset.encode()
+        ):
             raise ValueError("metadane Parquet nie odpowiadają spisowi")
         if table.num_rows != entry.rows:
-            raise ValueError(f"liczba wierszy {table.num_rows} różni się od spisu ({entry.rows})")
+            raise ValueError(
+                f"liczba wierszy {table.num_rows} różni się od spisu ({entry.rows})"
+            )
         rows = table.to_pylist()
     except (pa.ArrowException, ValueError) as exc:
-        raise IMGWDataError(f"Nieprawidłowy Parquet stacji {station} ({parquet}): {exc}") from exc
-    return _records(rows, station=station, dataset=index.dataset, names=names, half_year=half_year, start=start, end=end)
+        raise IMGWDataError(
+            f"Nieprawidłowy Parquet stacji {station} ({parquet}): {exc}"
+        ) from exc
+    return _records(
+        rows,
+        station=station,
+        dataset=index.dataset,
+        names=names,
+        half_year=half_year,
+        start=start,
+        end=end,
+    )
 
 
 def _records(
-    rows: list[dict[str, Any]], *, station: str, dataset: str, names: tuple[str, ...], half_year: bool,
-    start: date | None, end: date | None,
+    rows: list[dict[str, Any]],
+    *,
+    station: str,
+    dataset: str,
+    names: tuple[str, ...],
+    half_year: bool,
+    start: date | None,
+    end: date | None,
 ) -> Iterator[NormalizedRecord]:
     for row in rows:
         day = row["date"]
@@ -653,10 +875,21 @@ def _records(
         for name in names:
             value, flag = row[f"{name}_value"], row[f"{name}_flag"]
             if flag not in _FLAGS or (value is None) != (flag == "missing"):
-                raise IMGWDataError(f"Niespójna flaga {flag!r} zmiennej {name} stacji {station} z {day}")
+                raise IMGWDataError(
+                    f"Niespójna flaga {flag!r} zmiennej {name} stacji {station} z {day}"
+                )
             measurements[name] = Measurement(value, flag)
-        extrema = {name: (row[f"{name}_start"], row[f"{name}_end"]) for name in names} if half_year else {}
+        extrema = (
+            {name: (row[f"{name}_start"], row[f"{name}_end"]) for name in names}
+            if half_year
+            else {}
+        )
         yield NormalizedRecord(
-            station, dataset, day, row["hydro_year"], row["period"] if half_year else None,
-            measurements, extrema_dates=extrema,
+            station,
+            dataset,
+            day,
+            row["hydro_year"],
+            row["period"] if half_year else None,
+            measurements,
+            extrema_dates=extrema,
         )

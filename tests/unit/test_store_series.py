@@ -30,13 +30,18 @@ def store_archives(root, dataset, years, months=None, *, signal=SIGNAL):
         source = FIXTURES / "archives" / archive.server_path
         if source.exists():
             content = source.read_bytes()
-            response = DownloadResult(content, archive.url, signal[0], signal[1], len(content))
+            response = DownloadResult(
+                content, archive.url, signal[0], signal[1], len(content)
+            )
             written.append(write_archive(root, archive=archive, response=response))
     return written
 
 
 def tree(root):
-    return {path.relative_to(root).as_posix(): path.stat().st_mtime_ns for path in sorted(root.rglob("*"))}
+    return {
+        path.relative_to(root).as_posix(): path.stat().st_mtime_ns
+        for path in sorted(root.rglob("*"))
+    }
 
 
 def read_index(report):
@@ -73,8 +78,12 @@ def test_check_series_is_offline_read_only_and_tracks_state(root):
     assert tree(root) == before
     assert plan.series_state == {"hydro_daily": "missing"}
     assert [item.status for item in plan.items] == ["current"] * 3
-    assert {item.local_sha256 for item in plan.items} == {entry.sha256 for entry in written}
-    assert {(root / item.local_path) for item in plan.items} == {entry.path for entry in written}
+    assert {item.local_sha256 for item in plan.items} == {
+        entry.sha256 for entry in written
+    }
+    assert {(root / item.local_path) for item in plan.items} == {
+        entry.path for entry in written
+    }
     assert plan.actions[0].status == "missing"
 
     assert build_series(root, dataset=HYDRO).status == "created"
@@ -82,13 +91,21 @@ def test_check_series_is_offline_read_only_and_tracks_state(root):
 
     archive = archive_files(HYDRO, years=[2024])[0]
     changed = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
-    write_archive(root, archive=archive, response=DownloadResult(changed, archive.url, '"v3"', "Mon, 19 Oct 2026 12:00:00 GMT", len(changed)))
+    write_archive(
+        root,
+        archive=archive,
+        response=DownloadResult(
+            changed, archive.url, '"v3"', "Mon, 19 Oct 2026 12:00:00 GMT", len(changed)
+        ),
+    )
     outdated = check_series(root, dataset=HYDRO)
     assert outdated.series_state == {"hydro_daily": "outdated"}
     assert outdated.actions[0].status == "newer"
 
     cancelled = check_series(root, dataset=HYDRO, cancel=lambda: True)
-    assert cancelled.cancelled and {item.error for item in cancelled.items} == {"anulowano"}
+    assert cancelled.cancelled and {item.error for item in cancelled.items} == {
+        "anulowano"
+    }
 
 
 def test_daily_hydro_snapshot_covers_every_day_and_all_stations(root):
@@ -101,46 +118,98 @@ def test_daily_hydro_snapshot_covers_every_day_and_all_stations(root):
 
     raw = report.version.read_bytes()
     index = json.loads(raw)
-    assert raw == (json.dumps(index, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+    assert (
+        raw
+        == (
+            json.dumps(index, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            + "\n"
+        ).encode()
+    )
     assert version_dir.name == f"2026-10-17_{hashlib.sha256(raw).hexdigest()[:8]}"
     assert index["schema"] == "imgw-series/1" and index["year_type"] == "hydrological"
-    assert index["periods"] == [["2021-11-01", "2021-11-30"], ["2022-11-01", "2024-10-31"]]
+    assert index["periods"] == [
+        ["2021-11-01", "2021-11-30"],
+        ["2022-11-01", "2024-10-31"],
+    ]
     # Stations need neither catalog nor coordinates; an all-missing variable keeps its entry.
     assert set(index["stations"]) == {"149190310", "149190311"}
     empty = index["stations"]["149190311"]["variables"]["Q"]
-    assert empty == {"unit": "m3/s", "first": None, "last": None, "with_value": 0, "accumulated": 0, "gaps": []}
+    assert empty == {
+        "unit": "m3/s",
+        "first": None,
+        "last": None,
+        "with_value": 0,
+        "accumulated": 0,
+        "gaps": [],
+    }
     for code, entry in index["stations"].items():
         assert entry["file"] == f"stations/{code}.parquet"
-        assert hashlib.sha256((version_dir / entry["file"]).read_bytes()).hexdigest() == entry["sha256"]
+        assert (
+            hashlib.sha256((version_dir / entry["file"]).read_bytes()).hexdigest()
+            == entry["sha256"]
+        )
 
-    meta = json.loads((version_dir / "series.json.meta.json").read_text(encoding="utf-8"))
-    assert meta["sha256"] == hashlib.sha256(raw).hexdigest() and meta["size_bytes"] == len(raw)
-    assert meta["extra"]["derived"] == "series" and meta["extra"]["series_schema"] == "imgw-series/1"
+    meta = json.loads(
+        (version_dir / "series.json.meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["sha256"] == hashlib.sha256(raw).hexdigest() and meta[
+        "size_bytes"
+    ] == len(raw)
+    assert (
+        meta["extra"]["derived"] == "series"
+        and meta["extra"]["series_schema"] == "imgw-series/1"
+    )
     assert meta["extra"]["version"] == {"label": "2026-10-17", "label_source": "inputs"}
     assert "zostały przetworzone" in meta["license"]["attribution"]
-    assert sorted((item["file"], item["sha256"], item["label"]) for item in meta["extra"]["source_files"]) == sorted(
-        (entry.path.relative_to(root).as_posix(), entry.sha256, entry.label) for entry in written
+    assert sorted(
+        (item["file"], item["sha256"], item["label"])
+        for item in meta["extra"]["source_files"]
+    ) == sorted(
+        (entry.path.relative_to(root).as_posix(), entry.sha256, entry.label)
+        for entry in written
     )
 
     table = station_table(report, "149190310")
     rows = table.to_pylist()
     first, last = date(2021, 11, 1), date(2024, 2, 29)
-    assert [row["date"] for row in rows] == [first + timedelta(days=n) for n in range((last - first).days + 1)]
+    assert [row["date"] for row in rows] == [
+        first + timedelta(days=n) for n in range((last - first).days + 1)
+    ]
     assert index["stations"]["149190310"]["rows"] == len(rows)
     by_day = {row["date"]: row for row in rows}
     assert by_day[date(2024, 2, 29)]["H_value"] == 154.0
-    assert by_day[date(2023, 10, 31)]["hydro_year"] == 2023 and by_day[date(2023, 11, 1)]["hydro_year"] == 2024
-    assert by_day[date(2021, 11, 2)]["Q_value"] is None and by_day[date(2021, 11, 2)]["H_value"] == 153.0
+    assert (
+        by_day[date(2023, 10, 31)]["hydro_year"] == 2023
+        and by_day[date(2023, 11, 1)]["hydro_year"] == 2024
+    )
+    assert (
+        by_day[date(2021, 11, 2)]["Q_value"] is None
+        and by_day[date(2021, 11, 2)]["H_value"] == 153.0
+    )
     assert by_day[date(2022, 6, 1)]["H_flag"] == "missing"
-    assert all((row[f"{v}_value"] is None) == (row[f"{v}_flag"] == "missing") for row in rows for v in "HQT")
+    assert all(
+        (row[f"{v}_value"] is None) == (row[f"{v}_flag"] == "missing")
+        for row in rows
+        for v in "HQT"
+    )
     schema = table.schema
-    assert schema.field("date").type == pa.date32() and schema.field("hydro_year").type == pa.int32()
+    assert (
+        schema.field("date").type == pa.date32()
+        and schema.field("hydro_year").type == pa.int32()
+    )
     assert schema.field("H_value").type == pa.float64()
-    assert pa.types.is_dictionary(schema.field("H_flag").type) and schema.field("H_flag").type.value_type == pa.string()
+    assert (
+        pa.types.is_dictionary(schema.field("H_flag").type)
+        and schema.field("H_flag").type.value_type == pa.string()
+    )
     assert set(table.column("H_flag").combine_chunks().dictionary.to_pylist()) == FLAGS
     assert schema.metadata[b"imgw_schema"] == b"imgw-series/1"
     assert schema.metadata[b"dataset"] == HYDRO.encode()
-    assert json.loads(schema.metadata[b"units"]) == {"H": "cm", "Q": "m3/s", "T": "degC"}
+    assert json.loads(schema.metadata[b"units"]) == {
+        "H": "cm",
+        "Q": "m3/s",
+        "T": "degC",
+    }
 
 
 def test_meteo_snapshot_has_hydrological_year_leap_day_and_accumulated(root):
@@ -148,20 +217,39 @@ def test_meteo_snapshot_has_hydrological_year_leap_day_and_accumulated(root):
     report = build_series(root, dataset="pl.imgw.meteo_climate_daily")
     index = read_index(report)
     assert index["year_type"] == "calendar"
-    assert index["periods"] == [["1995-01-01", "1995-12-31"], ["2004-02-01", "2004-02-29"]]
+    assert index["periods"] == [
+        ["1995-01-01", "1995-12-31"],
+        ["2004-02-01", "2004-02-29"],
+    ]
     rows = {row["date"]: row for row in station_table(report, "123750000").to_pylist()}
     assert len(rows) == (date(2004, 2, 29) - date(1995, 1, 1)).days + 1
-    assert rows[date(1995, 10, 31)]["hydro_year"] == 1995 and rows[date(1995, 11, 1)]["hydro_year"] == 1996
+    assert (
+        rows[date(1995, 10, 31)]["hydro_year"] == 1995
+        and rows[date(1995, 11, 1)]["hydro_year"] == 1996
+    )
     assert date(2004, 2, 29) in rows
-    assert rows[date(1995, 1, 1)]["P_flag"] == "no_phenomenon" and rows[date(1995, 1, 1)]["P_value"] == 0.0
+    assert (
+        rows[date(1995, 1, 1)]["P_flag"] == "no_phenomenon"
+        and rows[date(1995, 1, 1)]["P_value"] == 0.0
+    )
 
     store_archives(root, "pl.imgw.meteo_precip_daily", [2001], [1])
     precip = build_series(root, dataset="pl.imgw.meteo_precip_daily")
     station = read_index(precip)["stations"]["123750000"]
     table = station_table(precip, "123750000").to_pylist()
-    assert station["variables"]["P"]["accumulated"] == sum(row["P_flag"] == "accumulated" for row in table) >= 1
-    assert [column for column in station_table(precip, "123750000").column_names if column.endswith("_value")] == [
-        "P_value", "snow_cover_value", "fresh_snow_value",
+    assert (
+        station["variables"]["P"]["accumulated"]
+        == sum(row["P_flag"] == "accumulated" for row in table)
+        >= 1
+    )
+    assert [
+        column
+        for column in station_table(precip, "123750000").column_names
+        if column.endswith("_value")
+    ] == [
+        "P_value",
+        "snow_cover_value",
+        "fresh_snow_value",
     ]
 
 
@@ -173,7 +261,11 @@ def test_monthly_and_semiannual_snapshots(root):
         f"{v}_{s}_value" for v in "HQT" for s in ("min", "mean", "max")
     ]
     (row,) = table.to_pylist()
-    assert row["date"] == date(2024, 2, 1) and row["hydro_year"] == 2024 and row["Q_max_value"] == 3.9
+    assert (
+        row["date"] == date(2024, 2, 1)
+        and row["hydro_year"] == 2024
+        and row["Q_max_value"] == 3.9
+    )
 
     store_archives(root, "pl.imgw.hydro_semiannual", [2024])
     half = build_series(root, dataset="pl.imgw.hydro_semiannual")
@@ -187,7 +279,9 @@ def test_monthly_and_semiannual_snapshots(root):
     assert table.schema.field("H_max_start").type == pa.timestamp("us")
     rows = table.to_pylist()
     assert [(row["period"], row["date"], row["hydro_year"]) for row in rows] == [
-        ("winter", date(2023, 11, 1), 2024), ("summer", date(2024, 5, 1), 2024), ("annual", date(2023, 11, 1), 2024),
+        ("winter", date(2023, 11, 1), 2024),
+        ("summer", date(2024, 5, 1), 2024),
+        ("annual", date(2023, 11, 1), 2024),
     ]
     # One row merges H, Q and T from three separate archives.
     assert all(rows[0][f"{v}_min_flag"] == "value" for v in "HQT")
@@ -204,10 +298,16 @@ def test_second_build_is_reused_without_parquet_writer(root, monkeypatch):
     monkeypatch.setattr(pq, "write_table", refuse)
     monkeypatch.setattr(pq, "ParquetWriter", refuse)
     again = build_series(root, dataset=HYDRO)
-    assert again.status == "reused" and again.version == first.version and again.stations == first.stations
+    assert (
+        again.status == "reused"
+        and again.version == first.version
+        and again.stations == first.stations
+    )
 
     # Relabeling an archive (same bytes, new HTTP signal) keeps the input manifest.
-    relabeled = store_archives(root, HYDRO, [2024], signal=('"v2"', "Sun, 18 Oct 2026 12:00:00 GMT"))
+    relabeled = store_archives(
+        root, HYDRO, [2024], signal=('"v2"', "Sun, 18 Oct 2026 12:00:00 GMT")
+    )
     assert [entry.status for entry in relabeled] == ["relabeled"]
     assert build_series(root, dataset=HYDRO).status == "reused"
     assert check_series(root, dataset=HYDRO).series_state == {"hydro_daily": "current"}
@@ -217,10 +317,18 @@ def test_second_build_is_reused_without_parquet_writer(root, monkeypatch):
 def test_cancel_and_broken_input_publish_no_version(root):
     store_archives(root, HYDRO, [2023, 2024])
     calls = iter([False, False, True])
-    assert build_series(root, dataset=HYDRO, cancel=lambda: next(calls, True)).status == "cancelled"
+    assert (
+        build_series(root, dataset=HYDRO, cancel=lambda: next(calls, True)).status
+        == "cancelled"
+    )
     station_calls = iter([False, False, False, False, True])
     progress = []
-    late = build_series(root, dataset=HYDRO, cancel=lambda: next(station_calls, True), on_progress=progress.append)
+    late = build_series(
+        root,
+        dataset=HYDRO,
+        cancel=lambda: next(station_calls, True),
+        on_progress=progress.append,
+    )
     assert late.status == "cancelled"
     assert [event.unit for event in progress].count("station") == 1
     assert series_versions(root) == []
@@ -242,7 +350,9 @@ def test_validation_and_missing_pyarrow(root, monkeypatch):
     assert build_series(root, dataset=HYDRO).status == "failed"
     monkeypatch.setitem(sys.modules, "pyarrow", None)
     monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
-    with pytest.raises(IMGWStoreDependencyError, match=r"pip install imgwtools\[store\]"):
+    with pytest.raises(
+        IMGWStoreDependencyError, match=r"pip install imgwtools\[store\]"
+    ):
         build_series(root, dataset=HYDRO)
 
 
@@ -252,10 +362,18 @@ def test_core_and_store_modules_import_without_pyarrow():
         "import imgwtools, imgwtools.store.series, imgwtools.store.sync\n"
         "print('ok')\n"
     )
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
     assert result.returncode == 0, result.stderr
     clean = subprocess.run(
-        [sys.executable, "-c", "import sys, imgwtools.store.series, imgwtools.store.sync; print('pyarrow' in sys.modules)"],
-        capture_output=True, text=True, check=True,
+        [
+            sys.executable,
+            "-c",
+            "import sys, imgwtools.store.series, imgwtools.store.sync; print('pyarrow' in sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert clean.stdout.strip() == "False"

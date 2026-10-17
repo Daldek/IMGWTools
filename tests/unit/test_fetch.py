@@ -315,10 +315,13 @@ HYDRO_ZIP = STORE / "dane_hydrologiczne/dobowe/2024/codz_2024.zip"
 METEO_ZIP = STORE / "dane_meteorologiczne/dobowe/opad/2001/2001_01_o.zip"
 
 
-@pytest.mark.parametrize("archive,arguments", [
-    (HYDRO_ZIP, ("dobowe", 2024)),
-    (METEO_ZIP, ("dobowe", "opad", 2001, 1)),
-])
+@pytest.mark.parametrize(
+    "archive,arguments",
+    [
+        (HYDRO_ZIP, ("dobowe", 2024)),
+        (METEO_ZIP, ("dobowe", "opad", 2001, 1)),
+    ],
+)
 @pytest.mark.asyncio
 async def test_download_provenance_sync_and_async(monkeypatch, archive, arguments):
     payload = archive.read_bytes()
@@ -336,36 +339,71 @@ async def test_download_provenance_sync_and_async(monkeypatch, archive, argument
     transport = httpx.MockTransport(handler)
     original_sync = httpx.Client
     original_async = httpx.AsyncClient
-    monkeypatch.setattr("imgwtools.fetch.httpx.Client", lambda **kwargs: original_sync(transport=transport, **kwargs))
-    monkeypatch.setattr("imgwtools.fetch.httpx.AsyncClient", lambda **kwargs: original_async(transport=transport, **kwargs))
-    sync = download_hydro_data(*arguments) if archive == HYDRO_ZIP else download_meteo_data(*arguments)
-    async_result = await (download_hydro_data_async(*arguments) if archive == HYDRO_ZIP else download_meteo_data_async(*arguments))
-    assert sync == async_result == DownloadResult(payload, calls[0], '"same-get"', headers["Last-Modified"], len(payload))
+    monkeypatch.setattr(
+        "imgwtools.fetch.httpx.Client",
+        lambda **kwargs: original_sync(transport=transport, **kwargs),
+    )
+    monkeypatch.setattr(
+        "imgwtools.fetch.httpx.AsyncClient",
+        lambda **kwargs: original_async(transport=transport, **kwargs),
+    )
+    sync = (
+        download_hydro_data(*arguments)
+        if archive == HYDRO_ZIP
+        else download_meteo_data(*arguments)
+    )
+    async_result = await (
+        download_hydro_data_async(*arguments)
+        if archive == HYDRO_ZIP
+        else download_meteo_data_async(*arguments)
+    )
+    assert (
+        sync
+        == async_result
+        == DownloadResult(
+            payload, calls[0], '"same-get"', headers["Last-Modified"], len(payload)
+        )
+    )
     assert len(calls) == 2
 
 
-@pytest.mark.parametrize("headers, expected", [
-    ({}, None),
-    ({"Content-Length": "103"}, 103),
-])
+@pytest.mark.parametrize(
+    "headers, expected",
+    [
+        ({}, None),
+        ({"Content-Length": "103"}, 103),
+    ],
+)
 def test_missing_headers_remain_none(monkeypatch, headers, expected):
     original = httpx.Client
-    transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=httpx.ByteStream(HYDRO_ZIP.read_bytes()), headers=headers))
-    monkeypatch.setattr("imgwtools.fetch.httpx.Client", lambda **kwargs: original(transport=transport, **kwargs))
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(
+            200, stream=httpx.ByteStream(HYDRO_ZIP.read_bytes()), headers=headers
+        )
+    )
+    monkeypatch.setattr(
+        "imgwtools.fetch.httpx.Client",
+        lambda **kwargs: original(transport=transport, **kwargs),
+    )
     result = download_hydro_data("dobowe", 2024)
     assert result.etag is result.last_modified is None
     assert result.content_length == expected
 
 
-@pytest.mark.parametrize("response, exception", [
-    (httpx.Response(404), IMGWConnectionError),
-    (httpx.Response(200, content=b"not a ZIP"), IMGWDataError),
-])
+@pytest.mark.parametrize(
+    "response, exception",
+    [
+        (httpx.Response(404), IMGWConnectionError),
+        (httpx.Response(200, content=b"not a ZIP"), IMGWDataError),
+    ],
+)
 def test_download_rejects_http_and_corrupt_archive(monkeypatch, response, exception):
     original = httpx.Client
     monkeypatch.setattr(
         "imgwtools.fetch.httpx.Client",
-        lambda **kwargs: original(transport=httpx.MockTransport(lambda _: response), **kwargs),
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(lambda _: response), **kwargs
+        ),
     )
     with pytest.raises(exception):
         download_hydro_data("dobowe", 2024)

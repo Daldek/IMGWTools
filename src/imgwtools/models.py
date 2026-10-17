@@ -31,7 +31,9 @@ class NormalizedRecord:
     period: Literal["winter", "summer", "annual"] | None
     measurements: Mapping[str, Measurement]
     attributes: Mapping[str, str | None] = field(default_factory=dict)
-    extrema_dates: Mapping[str, tuple[datetime | None, datetime | None]] = field(default_factory=dict)
+    extrema_dates: Mapping[str, tuple[datetime | None, datetime | None]] = field(
+        default_factory=dict
+    )
 
 
 class PMaXTPData(BaseModel):

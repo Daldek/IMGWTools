@@ -149,8 +149,11 @@ async def generate_meteo_download_url(request: MeteoDownloadRequest):
     Zwraca bezposredni URL do serwera IMGW.
     """
     return _download_urls(
-        data_type=DataTypeEnum.METEO, interval=request.interval.value,
-        subtype=request.subtype.value, years=(request.year,), month=request.month,
+        data_type=DataTypeEnum.METEO,
+        interval=request.interval.value,
+        subtype=request.subtype.value,
+        years=(request.year,),
+        month=request.month,
         single=True,
     )[0]
 
@@ -164,9 +167,13 @@ async def generate_meteo_download_urls(
 ):
     """Generate all direct archive links in the requested year range."""
     if start_year > end_year:
-        raise HTTPException(status_code=400, detail="Rok początkowy nie może przekraczać końcowego")
+        raise HTTPException(
+            status_code=400, detail="Rok początkowy nie może przekraczać końcowego"
+        )
     urls = _download_urls(
-        data_type=DataTypeEnum.METEO, interval=interval.value,
-        subtype=subtype.value, years=range(start_year, end_year + 1),
+        data_type=DataTypeEnum.METEO,
+        interval=interval.value,
+        subtype=subtype.value,
+        years=range(start_year, end_year + 1),
     )
     return MultiDownloadURLResponse(urls=urls, count=len(urls))

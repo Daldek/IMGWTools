@@ -47,9 +47,15 @@ def _cancelled(cancel: Cancel | None) -> bool:
 
 
 def export_series(
-    version: PathArg, /, *, station: str, path: PathArg,
-    variables: Iterable[str], year_type: Literal["hydrological", "calendar"] | None = None,
-    format: Literal["csv"] = "csv", on_progress: ProgressHook | None = None,
+    version: PathArg,
+    /,
+    *,
+    station: str,
+    path: PathArg,
+    variables: Iterable[str],
+    year_type: Literal["hydrological", "calendar"] | None = None,
+    format: Literal["csv"] = "csv",
+    on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> Path:
@@ -60,11 +66,17 @@ def export_series(
     written and fsynced ``.part`` file; cancellation or failure leaves it untouched.
     """
     if format not in _FORMATS:
-        raise IMGWValidationError(f"Nieobsługiwany format eksportu {format!r}; dostępne: {', '.join(_FORMATS)}")
+        raise IMGWValidationError(
+            f"Nieobsługiwany format eksportu {format!r}; dostępne: {', '.join(_FORMATS)}"
+        )
     if year_type is not None and year_type not in _YEAR_TYPES:
-        raise IMGWValidationError(f"Nieznany year_type {year_type!r}; dozwolone: {', '.join(_YEAR_TYPES)}")
+        raise IMGWValidationError(
+            f"Nieznany year_type {year_type!r}; dozwolone: {', '.join(_YEAR_TYPES)}"
+        )
     if isinstance(variables, str):
-        raise IMGWValidationError("variables musi być listą nazw zmiennych, nie pojedynczym tekstem")
+        raise IMGWValidationError(
+            "variables musi być listą nazw zmiennych, nie pojedynczym tekstem"
+        )
     names = tuple(dict.fromkeys(variables))
     index = read_series_index(version)
     descriptor = get_dataset(index.dataset)
@@ -78,11 +90,15 @@ def export_series(
     if target.is_dir():
         raise IMGWValidationError(f"Ścieżka eksportu wskazuje katalog: {target}")
     if not target.parent.is_dir():
-        raise IMGWValidationError(f"Katalog docelowy eksportu nie istnieje: {target.parent}")
+        raise IMGWValidationError(
+            f"Katalog docelowy eksportu nie istnieje: {target.parent}"
+        )
     records = read_series(version, station=station, variables=names)
     first = next(records, None)
     if first is None:
-        raise IMGWDataError(f"Szereg stacji {station} w {index.dataset} jest pusty; eksport odrzucono, by nie utracić formuł atrybucji")
+        raise IMGWDataError(
+            f"Szereg stacji {station} w {index.dataset} jest pusty; eksport odrzucono, by nie utracić formuł atrybucji"
+        )
     if _cancelled(cancel):
         raise IMGWStoreError(_CANCELLED)
 
@@ -97,16 +113,25 @@ def export_series(
 
     def row(record: NormalizedRecord) -> list[str]:
         year = record.hydro_year if chosen == "hydrological" else record.date.year
-        cells = [record.date.isoformat(), str(year), *([record.period or ""] if half_year else [])]
+        cells = [
+            record.date.isoformat(),
+            str(year),
+            *([record.period or ""] if half_year else []),
+        ]
         for name in names:
             measurement = record.measurements[name]
-            cells += ["" if measurement.value is None else _number(measurement.value), measurement.flag]
+            cells += [
+                "" if measurement.value is None else _number(measurement.value),
+                measurement.flag,
+            ]
             if half_year:
                 start, end = record.extrema_dates.get(name, (None, None))
                 cells += [_timestamp(start), _timestamp(end)]
         return cells
 
-    descriptor_fd, part_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".part", dir=target.parent)
+    descriptor_fd, part_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".part", dir=target.parent
+    )
     part = Path(part_name)
     written = 0
     try:
@@ -122,7 +147,15 @@ def export_series(
                     if _cancelled(cancel):
                         raise IMGWStoreError(_CANCELLED)
                     if on_progress is not None:
-                        on_progress(Progress(written, total, "row", "written", f"Stacja {station}: {written} wierszy"))
+                        on_progress(
+                            Progress(
+                                written,
+                                total,
+                                "row",
+                                "written",
+                                f"Stacja {station}: {written} wierszy",
+                            )
+                        )
             stream.flush()
             os.fsync(stream.fileno())
         if _cancelled(cancel):
@@ -132,10 +165,24 @@ def export_series(
     finally:
         part.unlink(missing_ok=True)
     if on_progress is not None:
-        on_progress(Progress(written, total, "row", "written", f"Wyeksportowano szereg stacji {station} do {target}"))
+        on_progress(
+            Progress(
+                written,
+                total,
+                "row",
+                "written",
+                f"Wyeksportowano szereg stacji {station} do {target}",
+            )
+        )
     if on_notice is not None:
-        on_notice(Notice("info", "license_terms", (
-            f"{attribution[0]}. {attribution[1]}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-            "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości."
-        )))
+        on_notice(
+            Notice(
+                "info",
+                "license_terms",
+                (
+                    f"{attribution[0]}. {attribution[1]}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
+                    "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości."
+                ),
+            )
+        )
     return target

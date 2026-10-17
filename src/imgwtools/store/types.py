@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 
 if TYPE_CHECKING:
-
     from imgwtools.datasets import ArchiveFile, License
     from imgwtools.models import PMaXTPResult
 
@@ -100,7 +99,9 @@ class StorePlan:
         payload = {
             "schema": self.schema,
             "root": str(self.root),
-            "checked_at": self.checked_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "checked_at": self.checked_at.astimezone(UTC)
+            .isoformat()
+            .replace("+00:00", "Z"),
             "cancelled": self.cancelled,
             "items": [
                 {
@@ -112,7 +113,9 @@ class StorePlan:
                     "param": item.archive.param,
                     "year_type": item.archive.year_type,
                     "status": item.status,
-                    "local_path": item.local_path.as_posix() if item.local_path else None,
+                    "local_path": item.local_path.as_posix()
+                    if item.local_path
+                    else None,
                     "local_sha256": item.local_sha256,
                     "remote_etag": item.remote_etag,
                     "remote_last_modified": item.remote_last_modified,
@@ -124,7 +127,13 @@ class StorePlan:
             "series_state": dict(self.series_state),
             "actions": [asdict(action) for action in self.actions],
         }
-        target.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+        target.write_text(
+            json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         return target
 
     @classmethod
@@ -138,20 +147,34 @@ class StorePlan:
                 candidates = station_source_files()
             else:
                 candidates = archive_files(
-                    row["dataset"], years=(row["year"],),
+                    row["dataset"],
+                    years=(row["year"],),
                     months=(row["month"],) if row["month"] is not None else None,
                 )
             source = next(
-                (entry for entry in candidates if entry.server_path == row["server_path"]),
+                (
+                    entry
+                    for entry in candidates
+                    if entry.server_path == row["server_path"]
+                ),
                 None,
             )
-            if source is None or source.year_type != row["year_type"] or source.param != row["param"]:
+            if (
+                source is None
+                or source.year_type != row["year_type"]
+                or source.param != row["param"]
+            ):
                 raise ValueError(f"Nieznana ścieżka źródłowa: {row['server_path']}")
             return ArchiveFile(
-                dataset=source.dataset, server_path=source.server_path, url=row["url"],
-                year=source.year, month=source.month, param=source.param,
+                dataset=source.dataset,
+                server_path=source.server_path,
+                url=row["url"],
+                year=source.year,
+                month=source.month,
+                param=source.param,
                 year_type=source.year_type,
-                period_start=source.period_start, period_end=source.period_end,
+                period_start=source.period_start,
+                period_end=source.period_end,
             )
 
         try:
@@ -162,7 +185,9 @@ class StorePlan:
                 PlanItem(
                     archive=restore_archive(row),
                     status=row["status"],
-                    local_path=Path(row["local_path"]) if row["local_path"] is not None else None,
+                    local_path=Path(row["local_path"])
+                    if row["local_path"] is not None
+                    else None,
                     local_sha256=row["local_sha256"],
                     remote_etag=row["remote_etag"],
                     remote_last_modified=row["remote_last_modified"],
@@ -174,10 +199,17 @@ class StorePlan:
             return cls(
                 schema="imgw-plan/1",
                 root=Path(payload["root"]),
-                checked_at=datetime.fromisoformat(payload["checked_at"].replace("Z", "+00:00")),
+                checked_at=datetime.fromisoformat(
+                    payload["checked_at"].replace("Z", "+00:00")
+                ),
                 items=items,
                 series_state=payload["series_state"],
-                actions=tuple(PlanAction(**{k: action[k] for k in ("command", "status", "detail")}) for action in payload.get("actions", [])),
+                actions=tuple(
+                    PlanAction(
+                        **{k: action[k] for k in ("command", "status", "detail")}
+                    )
+                    for action in payload.get("actions", [])
+                ),
                 cancelled=payload["cancelled"],
             )
         except (OSError, ValueError, TypeError, KeyError, IMGWValidationError) as exc:
@@ -187,7 +219,15 @@ class StorePlan:
 @dataclass(frozen=True)
 class OperationResult:
     slot: str
-    status: Literal["created", "relabeled", "unchanged", "reused", "failed", "stale_plan", "cancelled"]
+    status: Literal[
+        "created",
+        "relabeled",
+        "unchanged",
+        "reused",
+        "failed",
+        "stale_plan",
+        "cancelled",
+    ]
     version: Path | None
     error: str | None
 
@@ -333,7 +373,18 @@ class ProjectTask:
 
 @dataclass(frozen=True)
 class ProjectReport:
-    tasks: Mapping[str, Literal["unpinned", "current", "missing", "changed", "upgraded", "failed", "cancelled"]]
+    tasks: Mapping[
+        str,
+        Literal[
+            "unpinned",
+            "current",
+            "missing",
+            "changed",
+            "upgraded",
+            "failed",
+            "cancelled",
+        ],
+    ]
     files: tuple[OperationResult, ...]
     cancelled: bool
 

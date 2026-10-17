@@ -42,7 +42,10 @@ _ATTRIBUTION_CODE = "license_terms"
 
 
 def _canonical(value: object) -> bytes:
-    return (json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    return (
+        json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -63,12 +66,22 @@ def _fsync_dir(path: Path) -> None:
 def _atomic_publish(staged_dir: Path, target_dir: Path) -> None:
     """Rename a whole directory, refusing replacement even of an empty directory."""
     if not sys.platform.startswith("linux"):
-        raise IMGWStoreConflictError("System plików nie zapewnia atomowego zapisu bez zastąpienia celu")
+        raise IMGWStoreConflictError(
+            "System plików nie zapewnia atomowego zapisu bez zastąpienia celu"
+        )
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
     except AttributeError as exc:
-        raise IMGWStoreConflictError("Brak atomowego renameat2 bez zastępowania wersji") from exc
-    renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+        raise IMGWStoreConflictError(
+            "Brak atomowego renameat2 bez zastępowania wersji"
+        ) from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
     renameat2.restype = ctypes.c_int
     source = os.fsencode(staged_dir)
     destination = os.fsencode(target_dir)
@@ -76,7 +89,9 @@ def _atomic_publish(staged_dir: Path, target_dir: Path) -> None:
         code = ctypes.get_errno()
         if code == errno.EEXIST:
             raise FileExistsError(code, os.strerror(code), str(target_dir))
-        raise IMGWStoreConflictError(f"Nie można atomowo opublikować wersji: {os.strerror(code)}")
+        raise IMGWStoreConflictError(
+            f"Nie można atomowo opublikować wersji: {os.strerror(code)}"
+        )
     _fsync_dir(target_dir.parent)
 
 
@@ -125,7 +140,9 @@ def _check_kartograf(path: Path) -> None:
     # beside the store is harmless unless its output points at the store.
     for ancestor in (path, *path.parents):
         if ancestor != path and (ancestor / _MARKER).exists():
-            raise IMGWStoreError(f"Magazyn IMGW jest już przodkiem katalogu: {ancestor}")
+            raise IMGWStoreError(
+                f"Magazyn IMGW jest już przodkiem katalogu: {ancestor}"
+            )
         output = _kartograf_project(ancestor / "kartograf-project.json")
         if output is not None and _overlaps(path, output):
             raise IMGWStoreError(f"Ścieżka koliduje z magazynem Kartografa: {output}")
@@ -141,9 +158,13 @@ def _check_kartograf(path: Path) -> None:
             if "kartograf-project.json" in files:
                 output = _kartograf_project(folder / "kartograf-project.json")
                 if output is not None and _overlaps(path, output):
-                    raise IMGWStoreError(f"Ścieżka koliduje z magazynem Kartografa: {output}")
+                    raise IMGWStoreError(
+                        f"Ścieżka koliduje z magazynem Kartografa: {output}"
+                    )
             if folder.name == "versions" and _has_kartograf_meta(folder):
-                raise IMGWStoreError(f"Ścieżka koliduje z wersjami Kartografa: {folder}")
+                raise IMGWStoreError(
+                    f"Ścieżka koliduje z wersjami Kartografa: {folder}"
+                )
             dirs[:] = [name for name in dirs if not (folder / name).is_symlink()]
 
 
@@ -158,7 +179,12 @@ def _has_kartograf_meta(versions: Path) -> bool:
 
 def _validate_slot(root: Path, relative: str) -> Path:
     parts = relative.split("/")
-    if not parts or any(p in (".", "..", "") for p in parts) or relative.startswith("/") or "\\" in relative:
+    if (
+        not parts
+        or any(p in (".", "..", "") for p in parts)
+        or relative.startswith("/")
+        or "\\" in relative
+    ):
         raise IMGWValidationError(f"Niebezpieczna ścieżka archiwum: {relative}")
     result = root.joinpath(*parts)
     for path in (result, *result.parents):
@@ -179,14 +205,19 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     if path.exists() and (not path.is_dir() or any(path.iterdir())):
         raise IMGWStoreError(f"Katalog nie jest pustym magazynem IMGW: {path}")
     path.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, str] = {"schema": "imgw-store/1", "created_by": f"imgwtools {__version__}"}
+    payload: dict[str, str] = {
+        "schema": "imgw-store/1",
+        "created_by": f"imgwtools {__version__}",
+    }
     if created_at is not None:
         payload["created_at"] = _utc(created_at)
     temporary = path / f".{_MARKER}.{uuid.uuid4().hex}.tmp"
     try:
         _write_json(temporary, payload)
         try:
-            os.link(temporary, marker)  # exclusive publication; never replace a competing marker
+            os.link(
+                temporary, marker
+            )  # exclusive publication; never replace a competing marker
         except FileExistsError:
             return open_store(path)
         _fsync_dir(path)
@@ -238,14 +269,21 @@ def _existing(slot: Path, name: str) -> list[tuple[Path, dict[str, Any]]]:
             if meta["schema"] != "imgw-meta/1" or digest.hexdigest() != meta["sha256"]:
                 raise ValueError("niespójna suma lub schemat")
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {directory}") from exc
+            raise IMGWStoreConflictError(
+                f"Uszkodzona wersja archiwum: {directory}"
+            ) from exc
         entries.append((directory / name, meta))
     return entries
 
 
 def write_archive(
-    root: PathArg | StoreHandle, /, *, archive: ArchiveFile, response: DownloadResult,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    root: PathArg | StoreHandle,
+    /,
+    *,
+    archive: ArchiveFile,
+    response: DownloadResult,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> VersionResult:
     """Commit an archive and provenance together, without replacing existing versions."""
@@ -255,11 +293,15 @@ def write_archive(
     descriptor = get_dataset(archive.dataset)
     _validate_slot(path, f"archives/versions/{archive.server_path}")
     relative = PurePosixPath(archive.server_path)
-    if descriptor.server_dir is None or not archive.server_path.startswith(descriptor.server_dir + "/"):
+    if descriptor.server_dir is None or not archive.server_path.startswith(
+        descriptor.server_dir + "/"
+    ):
         raise IMGWValidationError(f"Ścieżka nie odpowiada zbiorowi {archive.dataset}")
     if relative.suffix.lower() not in (".zip", ".csv"):
         raise IMGWValidationError(f"Niedozwolony typ archiwum: {relative}")
-    slot = _validate_slot(path, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}")
+    slot = _validate_slot(
+        path, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
+    )
     if cancel is not None and cancel():
         raise IMGWStoreError("Anulowano zapis archiwum")
     incoming = path / ".incoming"
@@ -274,7 +316,7 @@ def write_archive(
             # Single pass through response bytes, bounded write chunks.
             view = memoryview(response.data)
             for start in range(0, len(view), 1024 * 1024):
-                chunk = view[start:start + 1024 * 1024]
+                chunk = view[start : start + 1024 * 1024]
                 stream.write(chunk)
                 digest.update(chunk)
             stream.flush()
@@ -284,9 +326,13 @@ def write_archive(
         stamp = _utc(now)
         if response.last_modified:
             try:
-                published = parsedate_to_datetime(response.last_modified).astimezone(UTC)
+                published = parsedate_to_datetime(response.last_modified).astimezone(
+                    UTC
+                )
             except (TypeError, ValueError, OverflowError) as exc:
-                raise IMGWValidationError("Nieprawidłowy nagłówek Last-Modified") from exc
+                raise IMGWValidationError(
+                    "Nieprawidłowy nagłówek Last-Modified"
+                ) from exc
             label = published.date().isoformat()
             label_source = "last_modified"
         else:
@@ -298,7 +344,10 @@ def write_archive(
             if old_meta["sha256"] != sha:
                 continue
             old_http = old_meta["extra"]["http"]
-            if (not any(signal)) or signal == (old_http.get("etag"), old_http.get("last_modified")):
+            if (not any(signal)) or signal == (
+                old_http.get("etag"),
+                old_http.get("last_modified"),
+            ):
                 old_version = old_meta["extra"]["version"]["label"]
                 return VersionResult("unchanged", old_file, sha, old_version)
             matching = True
@@ -309,27 +358,50 @@ def write_archive(
         if cancel is not None and cancel():
             raise IMGWStoreError("Anulowano zapis archiwum")
         meta = {
-            "schema": "imgw-meta/1", "producer": "imgwtools", "producer_version": __version__,
-            "dataset": archive.dataset, "country": "PL", "provider": "IMGW-PIB",
-            "request": {"server_path": archive.server_path, "year": archive.year, "month": archive.month},
-            "license": asdict(descriptor.license), "downloaded_at": stamp,
-            "sha256": sha, "size_bytes": len(response.data),
+            "schema": "imgw-meta/1",
+            "producer": "imgwtools",
+            "producer_version": __version__,
+            "dataset": archive.dataset,
+            "country": "PL",
+            "provider": "IMGW-PIB",
+            "request": {
+                "server_path": archive.server_path,
+                "year": archive.year,
+                "month": archive.month,
+            },
+            "license": asdict(descriptor.license),
+            "downloaded_at": stamp,
+            "sha256": sha,
+            "size_bytes": len(response.data),
             "extra": {
                 "version": {"label": label, "label_source": label_source},
                 "period": {
-                    "year": archive.year, "month": archive.month, "param": archive.param,
+                    "year": archive.year,
+                    "month": archive.month,
+                    "param": archive.param,
                     "year_type": archive.year_type,
-                    "start": archive.period_start.isoformat() if archive.period_start else None,
-                    "end": archive.period_end.isoformat() if archive.period_end else None,
+                    "start": archive.period_start.isoformat()
+                    if archive.period_start
+                    else None,
+                    "end": archive.period_end.isoformat()
+                    if archive.period_end
+                    else None,
                 },
-                "http": {"url": response.url, "etag": response.etag,
-                         "last_modified": response.last_modified, "content_length": response.content_length},
+                "http": {
+                    "url": response.url,
+                    "etag": response.etag,
+                    "last_modified": response.last_modified,
+                    "content_length": response.content_length,
+                },
             },
         }
         _write_json(staging / f"{filename}.meta.json", meta)
         _fsync_dir(staging)
         slot.mkdir(parents=True, exist_ok=True)
-        _validate_slot(path, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}/{label}_{sha[:8]}")
+        _validate_slot(
+            path,
+            f"archives/versions/{relative.parent.as_posix()}/{relative.stem}/{label}_{sha[:8]}",
+        )
         target = slot / f"{label}_{sha[:8]}"
         try:
             _atomic_publish(staging, target)
@@ -341,10 +413,20 @@ def write_archive(
                         return VersionResult("unchanged", old_file, sha, label)
             raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
         if on_progress is not None:
-            on_progress(Progress(1, 1, "archive", "created", f"Zapisano archiwum {filename}"))
+            on_progress(
+                Progress(1, 1, "archive", "created", f"Zapisano archiwum {filename}")
+            )
         if on_notice is not None:
-            on_notice(Notice("info", _ATTRIBUTION_CODE, f"{descriptor.license.attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości."))
-        return VersionResult("relabeled" if matching else "created", target / filename, sha, label)
+            on_notice(
+                Notice(
+                    "info",
+                    _ATTRIBUTION_CODE,
+                    f"{descriptor.license.attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                )
+            )
+        return VersionResult(
+            "relabeled" if matching else "created", target / filename, sha, label
+        )
     finally:
         if staging.exists():
             shutil.rmtree(staging)

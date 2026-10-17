@@ -26,7 +26,9 @@ def response(*, etag='"hydro-v1"', modified="Sat, 17 Oct 2026 12:00:00 GMT", dat
 
 
 def test_archive_provenance_relabel_and_unchanged(tmp_path):
-    handle = init_store(tmp_path / "store", created_at=datetime(2026, 10, 17, tzinfo=UTC))
+    handle = init_store(
+        tmp_path / "store", created_at=datetime(2026, 10, 17, tzinfo=UTC)
+    )
     assert open_store(handle.root) == handle
     first = write_archive(handle, archive=ARCHIVE, response=response())
     assert first.status == "created"
@@ -42,12 +44,27 @@ def test_archive_provenance_relabel_and_unchanged(tmp_path):
     assert meta["extra"]["http"]["etag"] == '"hydro-v1"'
     assert meta["extra"]["period"]["year_type"] == "hydrological"
     assert meta["license"]["id"] == "IMGW-PIB"
-    assert write_archive(handle, archive=ARCHIVE, response=response()).status == "unchanged"
-    second = write_archive(handle, archive=ARCHIVE, response=response(etag='"hydro-v2"', modified="Sun, 18 Oct 2026 12:00:00 GMT"))
+    assert (
+        write_archive(handle, archive=ARCHIVE, response=response()).status
+        == "unchanged"
+    )
+    second = write_archive(
+        handle,
+        archive=ARCHIVE,
+        response=response(etag='"hydro-v2"', modified="Sun, 18 Oct 2026 12:00:00 GMT"),
+    )
     assert second.status == "relabeled"
-    assert second.path != first.path and second.path.read_bytes() == first.path.read_bytes()
+    assert (
+        second.path != first.path
+        and second.path.read_bytes() == first.path.read_bytes()
+    )
     assert first.path.stat().st_nlink == second.path.stat().st_nlink == 1
-    assert write_archive(handle, archive=ARCHIVE, response=response(etag=None, modified=None)).status == "unchanged"
+    assert (
+        write_archive(
+            handle, archive=ARCHIVE, response=response(etag=None, modified=None)
+        ).status
+        == "unchanged"
+    )
 
 
 def test_same_day_distinct_signals_and_concurrent_writers(tmp_path):
@@ -56,7 +73,14 @@ def test_same_day_distinct_signals_and_concurrent_writers(tmp_path):
     two = write_archive(root, archive=ARCHIVE, response=response(etag='"second"'))
     assert two.status == "relabeled" and "+" in two.label
     with ThreadPoolExecutor(max_workers=2) as pool:
-        outcomes = list(pool.map(lambda _: write_archive(root, archive=ARCHIVE, response=response(etag='"third"')), range(2)))
+        outcomes = list(
+            pool.map(
+                lambda _: write_archive(
+                    root, archive=ARCHIVE, response=response(etag='"third"')
+                ),
+                range(2),
+            )
+        )
     assert {item.status for item in outcomes} == {"relabeled", "unchanged"}
     assert len({one.path, two.path, outcomes[0].path}) == 3
 
@@ -64,7 +88,13 @@ def test_same_day_distinct_signals_and_concurrent_writers(tmp_path):
 def test_existing_empty_target_never_replaced(tmp_path):
     root = init_store(tmp_path / "store")
     expected = hashlib.sha256(DATA).hexdigest()[:8]
-    target = root.root / "archives/versions" / Path(ARCHIVE.server_path).parent / "codz_2024" / f"2026-10-17_{expected}"
+    target = (
+        root.root
+        / "archives/versions"
+        / Path(ARCHIVE.server_path).parent
+        / "codz_2024"
+        / f"2026-10-17_{expected}"
+    )
     target.mkdir(parents=True)
     with pytest.raises(IMGWStoreConflictError):
         write_archive(root, archive=ARCHIVE, response=response())
@@ -102,7 +132,9 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
     assert old.exists()  # no operation began, so nothing was cleaned
     write_archive(root, archive=ARCHIVE, response=response())
     assert not old.exists() and new.exists()
-    assert len(fsynced) >= 4  # marker, archive, sidecar, stage directory, published parent
+    assert (
+        len(fsynced) >= 4
+    )  # marker, archive, sidecar, stage directory, published parent
 
 
 def test_sidecar_failure_cannot_publish_half_version(tmp_path, monkeypatch):
@@ -124,7 +156,9 @@ def test_sidecar_failure_cannot_publish_half_version(tmp_path, monkeypatch):
 def test_nested_kartograf_detection_without_import(tmp_path):
     foreign = tmp_path / "kartograf"
     foreign.mkdir()
-    (foreign / "kartograf-project.json").write_text(json.dumps({"output_dir": "results"}))
+    (foreign / "kartograf-project.json").write_text(
+        json.dumps({"output_dir": "results"})
+    )
     with pytest.raises(IMGWStoreError, match="Kartografa"):
         init_store(foreign / "results" / "imgw")
     unrelated = init_store(foreign / "separate")
