@@ -4,6 +4,7 @@ Unit tests for imgwtools.urls module (URL builders).
 
 import pytest
 
+from imgwtools.datasets import archive_files
 from imgwtools.urls import (
     IMGW_API_URL,
     IMGW_PMAXTP_URL,
@@ -74,8 +75,23 @@ class TestBuildHydroUrl:
         result = build_hydro_url(
             HydroInterval.SEMI_ANNUAL, 2023, param=HydroParam.DEPTH
         )
-
         assert "polr_H_2023.zip" in result.url
+
+
+    @pytest.mark.parametrize("interval,dataset,year,month,param", [
+        (HydroInterval.DAILY, "hydro_daily", 2022, 2, None),
+        (HydroInterval.DAILY, "hydro_daily", 2024, 2, None),
+        (HydroInterval.MONTHLY, "hydro_monthly", 2024, None, None),
+        (HydroInterval.SEMI_ANNUAL, "hydro_semiannual", 2024, None, HydroParam.FLOW),
+    ])
+    def test_store_url_matches_registry(self, interval, dataset, year, month, param):
+        archive = archive_files(f"pl.imgw.{dataset}", years=[year], months=[month] if month else None)
+        if param:
+            archive = tuple(item for item in archive if item.param == param.value)
+        assert build_hydro_url(interval, year, month=month, param=param).url == archive[0].url
+
+    def test_phenomena_legacy_url_remains_supported(self):
+        assert build_hydro_url(HydroInterval.DAILY, 2024, month=13).filename == "zjaw_2024.zip"
 
 
 class TestBuildMeteoUrl:
@@ -160,6 +176,14 @@ class TestBuildMeteoUrl:
         """No synop archives exist before 1960."""
         with pytest.raises(ValueError, match="1960"):
             build_meteo_url(MeteoInterval.MONTHLY, MeteoSubtype.SYNOP, 1955)
+
+    @pytest.mark.parametrize("subtype,dataset", [
+        (MeteoSubtype.CLIMATE, "meteo_climate_daily"),
+        (MeteoSubtype.PRECIPITATION, "meteo_precip_daily"),
+    ])
+    def test_daily_store_url_matches_registry(self, subtype, dataset):
+        archive = archive_files(f"pl.imgw.{dataset}", years=[2004], months=[2])[0]
+        assert build_meteo_url(MeteoInterval.DAILY, subtype, 2004, 2).url == archive.url
 
 
 class TestBuildPmaxtpUrl:

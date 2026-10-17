@@ -2,8 +2,15 @@
 Unit tests for imgwtools.models module.
 """
 
+from dataclasses import FrozenInstanceError
+from datetime import date
+
+import pytest
+
 from imgwtools.models import (
     HydroCurrentData,
+    Measurement,
+    NormalizedRecord,
     PMaXTPData,
     PMaXTPResult,
     SynopData,
@@ -225,3 +232,20 @@ class TestWarningData:
         assert data.level == 3
         assert data.region == "mazowieckie"
         assert data.description == "Burze z gradem"
+
+
+def test_normalized_measurement_flag_and_record_are_frozen():
+    record = NormalizedRecord(
+        station_code="123456789",
+        dataset="pl.imgw.hydro_daily",
+        date=date(2024, 2, 29),
+        hydro_year=2024,
+        period=None,
+        measurements={"Q": Measurement(None, "missing"), "H": Measurement(12.0, "value")},
+    )
+    assert record.measurements["Q"].value is None
+    assert record.measurements["H"].value == 12.0
+    with pytest.raises(FrozenInstanceError):
+        record.hydro_year = 2025
+    with pytest.raises(FrozenInstanceError):
+        record.measurements["Q"].flag = "value"

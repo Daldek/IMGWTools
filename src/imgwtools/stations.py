@@ -63,6 +63,8 @@ class HydroStation(BaseModel):
     name: str = Field(alias="station_name")
     river: str | None = Field(default=None, alias="river_name")
     latitude: float | None = None
+    hydrographic_code: str | None = None
+    river_order: int | None = None
     longitude: float | None = None
     water_state: str | None = Field(
         default=None,
@@ -314,20 +316,24 @@ def _parse_hydro_stations_csv(content: str) -> list[HydroStation]:
             name = row[1].strip().strip('"')
 
             river = None
+            hydrographic_code = None
             if len(row) > 2:
                 river_raw = row[2].strip().strip('"')
-                # Parse "Odra (1)" format - extract river name
-                match = re.match(r"^(.+?)\s*\(\d+\)$", river_raw)
+                match = re.match(r"^(.+?)\s*\((\d+)\)$", river_raw)
                 if match:
                     river = match.group(1).strip()
+                    hydrographic_code = match.group(2)
                 else:
-                    river = river_raw if river_raw else None
-
+                    river = river_raw or None
+            order = row[3].strip() if len(row) > 3 else ""
+            river_order = int(order) if order.isdecimal() else None
             stations.append(
                 HydroStation(
                     station_code=station_id,
                     station_name=name,
                     river_name=river,
+                    hydrographic_code=hydrographic_code,
+                    river_order=river_order,
                 )
             )
         except (IndexError, ValueError):
@@ -378,7 +384,7 @@ def _parse_map_stations_response(data: dict | list) -> list[HydroStation]:
                 HydroStation(
                     station_code=str(item.get("id", "")),
                     station_name=item.get("n", item.get("name", "")),
-                    river_name=item.get("riverName"),
+                    river_name=item.get("rzeka"),
                     latitude=item.get("la", item.get("lat")),
                     longitude=item.get("lo", item.get("lon")),
                     water_state=item.get("s", item.get("waterStateStatus")),

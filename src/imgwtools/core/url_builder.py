@@ -8,14 +8,14 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-class DataType(str, Enum):
+class DataType(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Type of IMGW data."""
 
     HYDRO = "dane_hydrologiczne"
     METEO = "dane_meteorologiczne"
 
 
-class HydroInterval(str, Enum):
+class HydroInterval(str, Enum):  # noqa: UP042
     """Interval for hydrological data."""
 
     DAILY = "dobowe"
@@ -23,7 +23,7 @@ class HydroInterval(str, Enum):
     SEMI_ANNUAL = "polroczne_i_roczne"
 
 
-class MeteoInterval(str, Enum):
+class MeteoInterval(str, Enum):  # noqa: UP042
     """Interval for meteorological data."""
 
     DAILY = "dobowe"
@@ -31,7 +31,7 @@ class MeteoInterval(str, Enum):
     HOURLY = "terminowe"
 
 
-class MeteoSubtype(str, Enum):
+class MeteoSubtype(str, Enum):  # noqa: UP042
     """Subtype of meteorological data."""
 
     CLIMATE = "klimat"
@@ -39,7 +39,7 @@ class MeteoSubtype(str, Enum):
     SYNOP = "synop"
 
 
-class HydroParam(str, Enum):
+class HydroParam(str, Enum):  # noqa: UP042
     """Parameter for semi-annual/annual hydrological data."""
 
     TEMPERATURE = "T"
@@ -47,7 +47,7 @@ class HydroParam(str, Enum):
     DEPTH = "H"
 
 
-class PMaXTPMethod(str, Enum):
+class PMaXTPMethod(str, Enum):  # noqa: UP042
     """Method for PMAXTP data."""
 
     POT = "POT"  # Peak Over Threshold
@@ -144,34 +144,32 @@ def build_hydro_url(
     """
     base = f"{IMGW_PUBLIC_DATA_URL}/{DataType.HYDRO.value}"
 
-    if interval == HydroInterval.DAILY:
-        if month == 13:
-            # Phenomena data - always yearly file
-            filename = f"zjaw_{year}.zip"
-        elif year >= 2023:
-            # From 2023: single file per year (no monthly split)
-            # Month parameter is ignored for year >= 2023
-            filename = f"codz_{year}.zip"
-        else:
-            # Before 2023: monthly files
-            if month is None:
-                raise ValueError("Month is required for daily data before 2023")
-            month_str = f"{month:02d}"
-            filename = f"codz_{year}_{month_str}.zip"
-
+    if interval == HydroInterval.DAILY and month == 13:
+        # Legacy phenomenon files are outside the store datasets.
+        filename = f"zjaw_{year}.zip"
         url = f"{base}/{interval.value}/{year}/{filename}"
+    elif interval in (HydroInterval.DAILY, HydroInterval.MONTHLY, HydroInterval.SEMI_ANNUAL):
+        from imgwtools.datasets import archive_files
+        from imgwtools.exceptions import IMGWValidationError
 
-    elif interval == HydroInterval.MONTHLY:
-        filename = f"mies_{year}.zip"
-        url = f"{base}/{interval.value}/{year}/{filename}"
-
-    elif interval == HydroInterval.SEMI_ANNUAL:
-        if param is None:
+        if interval == HydroInterval.DAILY and year < 2023 and month is None:
+            raise ValueError("Month is required for daily data before 2023")
+        if interval == HydroInterval.SEMI_ANNUAL and param is None:
             raise ValueError("Parameter (T, Q, H) is required for semi-annual data")
-
-        filename = f"polr_{param.value}_{year}.zip"
-        url = f"{base}/{interval.value}/{year}/{filename}"
-
+        dataset = {
+            HydroInterval.DAILY: "pl.imgw.hydro_daily",
+            HydroInterval.MONTHLY: "pl.imgw.hydro_monthly",
+            HydroInterval.SEMI_ANNUAL: "pl.imgw.hydro_semiannual",
+        }[interval]
+        try:
+            files = archive_files(dataset, years=[year], months=[month] if month is not None else None)
+        except IMGWValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        archive = next((item for item in files if param is None or item.param == param.value), None)
+        if archive is None:
+            raise ValueError(f"Unknown parameter: {param}")
+        url = archive.url
+        filename = archive.server_path.rsplit("/", 1)[-1]
     else:
         raise ValueError(f"Unknown interval: {interval}")
 
@@ -248,28 +246,42 @@ def build_meteo_url(
     if subtype == MeteoSubtype.SYNOP and year < 1960:
         raise ValueError("Synop archives are available from 1960 onward")
 
-    # Get subtype abbreviation
-    subtype_abbr = subtype.value[0]  # k, o, s
+    # Supported daily datasets use the canonical registry for layout.
+    if interval == MeteoInterval.DAILY and subtype in (
+        MeteoSubtype.CLIMATE,
+        MeteoSubtype.PRECIPITATION,
+    ):
+        from imgwtools.datasets import archive_files
+        from imgwtools.exceptions import IMGWValidationError
 
-    # Get folder name (5-year range for 1951-2000, year for 2001+)
-    folder = _get_meteo_folder(year, subtype)
-
-    if interval == MeteoInterval.MONTHLY:
-        # Monthly: one file per folder, prefixed with the folder name
-        # (e.g. 1996_2000_m_s.zip until 2000, 2023_m_s.zip from 2001)
-        filename = f"{folder}_m_{subtype_abbr}.zip"
-    elif year <= 2000:
-        # Daily/hourly klimat and opad, 1951-2000: yearly files
-        filename = f"{year}_{subtype_abbr}.zip"
-    elif interval in (MeteoInterval.DAILY, MeteoInterval.HOURLY):
-        # Daily/hourly klimat and opad, 2001+: monthly files
-        if month is None:
+        if year >= 2001 and month is None:
             raise ValueError("Month is required for daily/hourly data from 2001+")
-        filename = f"{year}_{month:02d}_{subtype_abbr}.zip"
+        dataset = (
+            "pl.imgw.meteo_climate_daily"
+            if subtype == MeteoSubtype.CLIMATE
+            else "pl.imgw.meteo_precip_daily"
+        )
+        try:
+            archive = archive_files(dataset, years=[year], months=[month] if month is not None else None)[0]
+        except IMGWValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        filename = archive.server_path.rsplit("/", 1)[-1]
+        url = archive.url
     else:
-        raise ValueError(f"Unknown interval: {interval}")
-
-    url = f"{base}/{interval.value}/{subtype.value}/{folder}/{filename}"
+        # Monthly/terminowe and synop URLs remain live legacy APIs.
+        subtype_abbr = subtype.value[0]
+        folder = _get_meteo_folder(year, subtype)
+        if interval == MeteoInterval.MONTHLY:
+            filename = f"{folder}_m_{subtype_abbr}.zip"
+        elif year <= 2000:
+            filename = f"{year}_{subtype_abbr}.zip"
+        elif interval == MeteoInterval.HOURLY:
+            if month is None:
+                raise ValueError("Month is required for daily/hourly data from 2001+")
+            filename = f"{year}_{month:02d}_{subtype_abbr}.zip"
+        else:
+            raise ValueError(f"Unknown interval: {interval}")
+        url = f"{base}/{interval.value}/{subtype.value}/{folder}/{filename}"
 
     return DownloadURL(
         url=url,

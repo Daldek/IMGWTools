@@ -7,7 +7,10 @@ Data is fetched directly from IMGW servers - nothing is stored locally.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from io import BytesIO
 from typing import TYPE_CHECKING, Literal
+from zipfile import BadZipFile, ZipFile
 
 import httpx
 
@@ -46,6 +49,37 @@ POLAND_LON_MAX = 24.5
 
 DEFAULT_TIMEOUT = 30.0
 DOWNLOAD_TIMEOUT = 120.0
+
+
+@dataclass(frozen=True)
+class DownloadResult:
+    """Archive bytes and provenance from a single HTTP GET."""
+
+    data: bytes
+    url: str
+    etag: str | None
+    last_modified: str | None
+    content_length: int | None
+
+
+def _download_result(response: httpx.Response) -> DownloadResult:
+    data = response.content
+    try:
+        ZipFile(BytesIO(data)).close()
+    except BadZipFile as exc:
+        raise IMGWDataError(f"Niepoprawne archiwum ZIP z adresu {response.url}") from exc
+    length = response.headers.get("Content-Length")
+    try:
+        content_length = int(length) if length is not None else None
+    except ValueError as exc:
+        raise IMGWDataError(f"Niepoprawny nagłówek Content-Length: {length}") from exc
+    return DownloadResult(
+        data=data,
+        url=str(response.url),
+        etag=response.headers.get("ETag"),
+        last_modified=response.headers.get("Last-Modified"),
+        content_length=content_length,
+    )
 
 
 def _validate_poland_coords(latitude: float, longitude: float) -> None:
@@ -495,7 +529,7 @@ def download_hydro_data(
     param: Literal["T", "Q", "H"] | None = None,
     *,
     timeout: float = DOWNLOAD_TIMEOUT,
-) -> bytes:
+) -> DownloadResult:
     """
     Download hydrological archive data as ZIP bytes.
 
@@ -518,24 +552,26 @@ def download_hydro_data(
 
     Returns
     -------
-    bytes
-        ZIP file content.
+    DownloadResult
+        Original ZIP bytes and response headers.
 
     Raises
     ------
     IMGWConnectionError
         If download fails.
+    IMGWDataError
+        If the downloaded data is not a ZIP archive.
     ValueError
         If required parameters are missing.
 
     Examples
     --------
     >>> # Download daily data for 2023
-    >>> zip_data = download_hydro_data("dobowe", 2023)
+    >>> response = download_hydro_data("dobowe", 2023)
     >>>
     >>> # Parse the downloaded data
     >>> from imgwtools import parse_zip_file
-    >>> for station, record in parse_zip_file(zip_data, "dobowe"):
+    >>> for station, record in parse_zip_file(response.data, "dobowe"):
     ...     print(f"{station.station_name}: {record.water_level_cm} cm")
     """
     hydro_interval = HydroInterval(interval)
@@ -547,15 +583,15 @@ def download_hydro_data(
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
             response = client.get(url_info.url)
             response.raise_for_status()
-            return response.content
+            return _download_result(response)
     except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"Download timeout: {e}") from e
+        raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
     except httpx.HTTPStatusError as e:
         raise IMGWConnectionError(
-            f"Download failed ({e.response.status_code}): {url_info.url}"
+            f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
         ) from e
     except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Download error: {e}") from e
+        raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
 
 
 async def download_hydro_data_async(
@@ -565,7 +601,7 @@ async def download_hydro_data_async(
     param: Literal["T", "Q", "H"] | None = None,
     *,
     timeout: float = DOWNLOAD_TIMEOUT,
-) -> bytes:
+) -> DownloadResult:
     """
     Async version of download_hydro_data.
 
@@ -580,15 +616,15 @@ async def download_hydro_data_async(
         try:
             response = await client.get(url_info.url)
             response.raise_for_status()
-            return response.content
+            return _download_result(response)
         except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"Download timeout: {e}") from e
+            raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
         except httpx.HTTPStatusError as e:
             raise IMGWConnectionError(
-                f"Download failed ({e.response.status_code}): {url_info.url}"
+                f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
             ) from e
         except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Download error: {e}") from e
+            raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
 
 
 def download_meteo_data(
@@ -598,7 +634,7 @@ def download_meteo_data(
     month: int | None = None,
     *,
     timeout: float = DOWNLOAD_TIMEOUT,
-) -> bytes:
+) -> DownloadResult:
     """
     Download meteorological archive data as ZIP bytes.
 
@@ -619,20 +655,24 @@ def download_meteo_data(
 
     Returns
     -------
-    bytes
-        ZIP file content.
+    DownloadResult
+        Original ZIP bytes and response headers.
 
     Raises
     ------
     IMGWConnectionError
         If download fails.
+    IMGWDataError
+        If the downloaded data is not a ZIP archive.
     ValueError
         If required parameters are missing.
 
     Examples
     --------
     >>> # Download monthly precipitation data
-    >>> zip_data = download_meteo_data("miesieczne", "opad", 2023)
+    >>> response = download_meteo_data("miesieczne", "opad", 2023)
+    >>> response.data[:2]
+    b'PK'
     """
     meteo_interval = MeteoInterval(interval)
     meteo_subtype = MeteoSubtype(subtype)
@@ -643,15 +683,15 @@ def download_meteo_data(
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
             response = client.get(url_info.url)
             response.raise_for_status()
-            return response.content
+            return _download_result(response)
     except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"Download timeout: {e}") from e
+        raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
     except httpx.HTTPStatusError as e:
         raise IMGWConnectionError(
-            f"Download failed ({e.response.status_code}): {url_info.url}"
+            f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
         ) from e
     except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Download error: {e}") from e
+        raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
 
 
 async def download_meteo_data_async(
@@ -661,7 +701,7 @@ async def download_meteo_data_async(
     month: int | None = None,
     *,
     timeout: float = DOWNLOAD_TIMEOUT,
-) -> bytes:
+) -> DownloadResult:
     """
     Async version of download_meteo_data.
 
@@ -676,12 +716,12 @@ async def download_meteo_data_async(
         try:
             response = await client.get(url_info.url)
             response.raise_for_status()
-            return response.content
+            return _download_result(response)
         except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"Download timeout: {e}") from e
+            raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
         except httpx.HTTPStatusError as e:
             raise IMGWConnectionError(
-                f"Download failed ({e.response.status_code}): {url_info.url}"
+                f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
             ) from e
         except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Download error: {e}") from e
+            raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
