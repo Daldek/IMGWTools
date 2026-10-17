@@ -53,7 +53,7 @@ def test_recordings_have_fixed_hashes_dates_and_distinct_http_signals():
     assert len(interactions) == len(recording["interactions"])
     assert {"hydro_listing", "meteo_listing", "hydro_head", "hydro_get", "meteo_head", "meteo_get", "no_headers", "missing_year", "changed_after_check", "same_bytes_new_signal", "new_bytes_head", "new_bytes_get", "network_timeout", "hydro_current", "meteo_current", "pmaxtp_pot_first", "pmaxtp_pot_same_cell", "pmaxtp_amp"} <= interactions.keys()
     assert interactions["hydro_head"]["headers"]["ETag"] != interactions["changed_after_check"]["headers"]["ETag"]
-    assert interactions["pmaxtp_pot_first"]["json"]["indX"] == interactions["pmaxtp_pot_same_cell"]["json"]["indX"]
+    assert interactions["pmaxtp_pot_first"]["json"]["point"]["indX"] == interactions["pmaxtp_pot_same_cell"]["json"]["point"]["indX"]
     for case in ("hydro_get", "meteo_get", "same_bytes_new_signal", "new_bytes_get"):
         entry = interactions[case]
         data = (ARCHIVES / entry["archive"]).read_bytes() if "archive" in entry else (ROOT / entry["variant"]).read_bytes()

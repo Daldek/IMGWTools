@@ -415,6 +415,8 @@ python -m imgwtools.reference_data
 
 Pobrane pliki trafiają do `data/` i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu).
 
+Jedyny dołączony do pakietu zbiór geograficzny to obrys granicy Polski `src/imgwtools/_data/poland_border_wgs84.geojson` (kontrola położeń w katalogu stacji) z Natural Earth 1:10m Admin 0 – Countries v5.1.2 — domena publiczna ([warunki](https://www.naturalearthdata.com/about/terms-of-use/)), nie dane IMGW-PIB.
+
 ---
 
 ## Zmiany w wersji 2.2.0
