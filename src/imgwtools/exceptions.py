@@ -50,3 +50,26 @@ class IMGWValidationError(IMGWError):
     """
 
     pass
+
+
+class IMGWStoreError(IMGWError):
+    """Niepoprawny lub nieobsługiwany katalog magazynu IMGW."""
+
+
+class IMGWStoreConflictError(IMGWStoreError):
+    """Kolizja wersji lub brak gwarancji atomowego zapisu."""
+
+
+class IMGWStoreDependencyError(IMGWStoreError):
+    """Brak opcjonalnej zależności Parquet: pip install imgwtools[store]."""
+
+    def __init__(self, message: str = "Zainstaluj dodatek: pip install imgwtools[store]"):
+        super().__init__(message)
+
+
+class IMGWPlanStaleError(IMGWError):
+    """Plan pobierania jest nieaktualny."""
+
+
+class IMGWProjectError(IMGWError):
+    """Niepoprawny manifest projektu, blokada lub przypięta wersja."""

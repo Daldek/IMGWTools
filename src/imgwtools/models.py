@@ -6,9 +6,32 @@ These models provide type-safe access to data returned by IMGW APIs.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+Flag = Literal["value", "missing", "no_phenomenon", "accumulated"]
+
+
+@dataclass(frozen=True)
+class Measurement:
+    value: float | None
+    flag: Flag
+
+
+@dataclass(frozen=True)
+class NormalizedRecord:
+    station_code: str
+    dataset: str
+    date: date
+    hydro_year: int
+    period: Literal["winter", "summer", "annual"] | None
+    measurements: Mapping[str, Measurement]
+    attributes: Mapping[str, str | None] = field(default_factory=dict)
+    extrema_dates: Mapping[str, tuple[datetime | None, datetime | None]] = field(default_factory=dict)
 
 
 class PMaXTPData(BaseModel):
@@ -299,3 +322,55 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (ValueError, TypeError):
         return None
+
+
+class HydroArchiveStation(BaseModel):
+    """Station metadata found in hydrological archive CSV files."""
+
+    station_code: str
+    station_name: str
+    river_name: str | None = None
+    hydrographic_code: str | None = None
+    river_order: int | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class HydroDailyRecord(BaseModel):
+    station_code: str
+    station_name: str | None = None
+    river_name: str | None = None
+    hydro_year: int
+    hydro_month: int = Field(ge=1, le=12)
+    day: int = Field(ge=1, le=31)
+    calendar_month: int | None = Field(default=None, ge=1, le=12)
+    water_level_cm: float | None = None
+    flow_m3s: float | None = None
+    water_temp_c: float | None = None
+    measurement_date: str | None = None
+
+
+class HydroMonthlyRecord(BaseModel):
+    station_code: str
+    station_name: str | None = None
+    river_name: str | None = None
+    hydro_year: int
+    hydro_month: int = Field(ge=1, le=12)
+    calendar_month: int | None = Field(default=None, ge=1, le=12)
+    extremum: str
+    water_level_cm: float | None = None
+    flow_m3s: float | None = None
+    water_temp_c: float | None = None
+
+
+class HydroSemiAnnualRecord(BaseModel):
+    station_code: str
+    station_name: str | None = None
+    river_name: str | None = None
+    hydro_year: int
+    period: str
+    param: str
+    extremum: str
+    value: float | None = None
+    extremum_start_date: str | None = None
+    extremum_end_date: str | None = None
