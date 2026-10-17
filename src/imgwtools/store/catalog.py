@@ -580,11 +580,11 @@ def _catalog_bytes(
     problems: list[str],
     rejections: list[str],
 ) -> tuple[bytes, int, int, dict[str, int]]:
-    for kind, api in apis.items():
+    for api_kind, api in apis.items():
         for code in api:
             if not (len(code) == 9 and code.isdecimal()):
                 problems.append(
-                    f"API {kind}: pominięto niepoprawny kod stacji '{code}'"
+                    f"API {api_kind}: pominięto niepoprawny kod stacji '{code}'"
                 )
     codes = {
         kind: {
@@ -701,10 +701,51 @@ def check_catalog(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
-    """Compare catalog sources with the store using HEAD and local hashes only.
+    """
+    Compare catalog sources with the store using HEAD and local hashes only.
 
-    Station lists are checked with ``HEAD``; the public station APIs expose no stable
-    signal and are reported as ``unverifiable``. Nothing is downloaded or written.
+    Station lists are checked with ``HEAD``; the public station APIs expose no
+    stable signal and are reported as ``unverifiable``. Location files are
+    compared by SHA-256 with the entries recorded in the current catalog sidecar.
+    Nothing is downloaded or written.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Root of an existing IMGW store.
+    user_locations : str, os.PathLike or None, optional
+        User CSV ``station_code,lon,lat,source`` whose SHA-256 is compared with
+        the one recorded in the catalog.
+    on_progress : ProgressHook or None, optional
+        Called after each station list and once at the end with the overall
+        catalog status.
+    on_notice : NoticeHook or None, optional
+        Receives a ``source_unverifiable`` warning for each public station API.
+    cancel : Cancel or None, optional
+        Polled before each station list; once it returns ``True`` the remaining
+        lists are reported as ``unverifiable`` with error ``"anulowano"``.
+
+    Returns
+    -------
+    StorePlan
+        Plan with one item per station list (``current``, ``newer``, ``missing``,
+        ``unverifiable`` or ``check_failed``) and ``store catalog`` actions: one
+        ``unverifiable`` per public API, one per location file (``current``, or
+        ``newer`` when the file appeared, disappeared or changed; ``missing``
+        without a catalog) and a final catalog action that is ``missing`` without
+        a catalog, ``newer`` when any source changed, otherwise ``unverifiable``.
+
+    Raises
+    ------
+    IMGWStoreError
+        If ``root`` is not a supported IMGW store or a version path contains a
+        symbolic link.
+    IMGWStoreConflictError
+        If a stored list or catalog version is corrupted.
+    IMGWValidationError
+        If a location file exists but cannot be read.
+    IMGWDataError
+        If a station list responds with an invalid ``Content-Length`` header.
     """
     handle = _handle(root)
     user = _user_file(user_locations)
@@ -759,7 +800,9 @@ def check_catalog(
                 if new
             ]
             if current is None:
-                status = "missing"
+                status: Literal["current", "newer", "missing", "unverifiable"] = (
+                    "missing"
+                )
             elif not pairs:
                 status = "unverifiable"
             elif all(new == old for new, old in pairs):
@@ -818,16 +861,16 @@ def check_catalog(
     for source, data, path in local_files:
         digest = hashlib.sha256(data).hexdigest() if data is not None else None
         if catalog is None:
-            status: Literal["current", "newer", "missing"] = "missing"
+            file_status: Literal["current", "newer", "missing"] = "missing"
         else:
-            status = "current" if recorded.get(source) == digest else "newer"
+            file_status = "current" if recorded.get(source) == digest else "newer"
         detail = (
             f"sha256 {digest}"
             if digest is not None
             else f"brak pliku {path.as_posix()}"
         )
         actions.append(
-            PlanAction("store catalog", status, f"plik położeń {source}: {detail}")
+            PlanAction("store catalog", file_status, f"plik położeń {source}: {detail}")
         )
     if catalog is None:
         overall: Literal["missing", "newer", "unverifiable"] = "missing"
@@ -870,13 +913,54 @@ def build_catalog(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> CatalogReport:
-    """Build ``stations.geojson`` from station lists, public APIs and location files.
+    """
+    Build ``stations.geojson`` from station lists, public APIs and location files.
 
-    Missing station lists are downloaded and stored with ``write_archive`` first. Location
-    precedence: API → local static file (``settings.data_dir``) → user CSV
-    ``station_code,lon,lat,source``. A missing static file is not an error: it is reported
-    in ``problems`` and recorded in the sidecar as ``available: false``.
+    Missing station lists are downloaded and stored with ``write_archive`` first;
+    the public hydro and meteo APIs are always downloaded. Location precedence:
+    API, then the local static file (``settings.data_dir``), then the user CSV
+    ``station_code,lon,lat,source``. A missing static file is not an error: it is
+    reported in ``problems`` and recorded in the sidecar as ``available: false``.
     Identical content (same SHA-256) yields ``unchanged`` without a new version.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Root of an existing IMGW store.
+    user_locations : str, os.PathLike or None, optional
+        User CSV ``station_code,lon,lat,source`` with fallback station locations.
+    on_progress : ProgressHook or None, optional
+        Called after each build step (station lists, APIs, assembly, publication).
+    on_notice : NoticeHook or None, optional
+        Receives catalog problems, rejected locations, location source summaries,
+        stations without location, writer notices of downloaded lists and the
+        ``license_terms`` notice when a new version is created.
+    cancel : Cancel or None, optional
+        Polled between steps; once it returns ``True`` the build stops with a
+        ``cancelled`` report and no catalog version is published.
+
+    Returns
+    -------
+    CatalogReport
+        Status ``created``, ``unchanged`` or ``cancelled``, the path of the
+        current ``stations.geojson``, the station count, the number of stations
+        without location and the problems found in the sources.
+
+    Raises
+    ------
+    IMGWStoreError
+        If ``root`` is not a supported IMGW store or collides with a Kartograf
+        store or project.
+    IMGWConnectionError
+        If a station list or public API cannot be downloaded.
+    IMGWDataError
+        If an API response is not a JSON list of objects, or a station code
+        appears in both the hydro and meteo families.
+    IMGWValidationError
+        If a location file exists but cannot be read.
+    IMGWStoreConflictError
+        If a stored version is corrupted or the new version cannot be published
+        atomically.
     """
     handle = _handle(root)
     _check_kartograf(handle.root)

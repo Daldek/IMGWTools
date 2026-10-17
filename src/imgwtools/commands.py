@@ -20,7 +20,7 @@ from datetime import UTC, date, datetime
 from functools import partial
 from pathlib import Path, PurePosixPath
 from types import ModuleType
-from typing import Any
+from typing import Any, NoReturn
 
 from imgwtools import fetch as _fetch
 from imgwtools import store as _store
@@ -30,7 +30,7 @@ from imgwtools.core.url_builder import (
     MeteoSubtype,
     build_meteo_url,
 )
-from imgwtools.datasets import archive_files, datasets, get_dataset
+from imgwtools.datasets import ArchiveFile, archive_files, datasets, get_dataset
 from imgwtools.exceptions import IMGWError, IMGWStoreError, IMGWValidationError
 from imgwtools.models import PMaXTPResult
 from imgwtools.store.pmaxtp import _validate_point
@@ -41,6 +41,7 @@ from imgwtools.store.types import (
     DataCommand,
     Notice,
     NoticeHook,
+    PathArg,
     PlanAction,
     PMaXTPStoreResult,
     Progress,
@@ -480,14 +481,22 @@ _BY_NAME = {command.name: command for command in _COMMANDS}
 
 
 def data_commands() -> tuple[DataCommand, ...]:
-    """Wszystkie komendy czytające lub piszące dane, z opcjami i polskimi opisami ``--help``."""
+    """
+    Return the catalog of every command that reads or writes data.
+
+    Returns
+    -------
+    tuple of DataCommand
+        Commands with their options and Polish ``--help`` descriptions, in
+        catalog order.
+    """
     return _COMMANDS
 
 
 # --- walidacja -----------------------------------------------------------------------------
 
 
-def _fail(message: str) -> Any:
+def _fail(message: str) -> NoReturn:
     raise IMGWValidationError(message)
 
 
@@ -542,7 +551,7 @@ def _list(option: CommandOption, value: object) -> tuple[object, ...]:
     for item in items:
         if not isinstance(item, str) or not item.strip():
             _fail(f"Opcja {name} wymaga tekstowych wartości: {item!r}")
-        text = item.strip()  # type: ignore[union-attr]
+        text = item.strip()
         if option.choices and text not in option.choices:
             _fail(
                 f"Nieprawidłowa wartość {text!r} opcji {name}; dozwolone: {', '.join(option.choices)}"
@@ -581,7 +590,7 @@ def _text(name: str, value: object) -> object:
                 ) from exc
         if not isinstance(value, Mapping):
             _fail("Opcje zadania muszą być obiektem JSON")
-        return dict(value)  # type: ignore[arg-type]
+        return dict(value)
     if not isinstance(value, str) or not value.strip():
         return _fail(f"Opcja {name} wymaga niepustego tekstu: {value!r}")
     if name == "station" and not _STATION.fullmatch(value):
@@ -608,7 +617,7 @@ def _value(option: CommandOption, value: object) -> object | None:
         text = os.fspath(value) if isinstance(value, str | os.PathLike) else None
         if not isinstance(text, str) or not text.strip() or "\0" in text:
             _fail(f"Opcja {name} wymaga ścieżki: {value!r}")
-        return Path(text)  # type: ignore[arg-type]
+        return Path(text)
     if option.type == "choice":
         if not isinstance(value, str) or value not in option.choices:
             _fail(
@@ -620,8 +629,8 @@ def _value(option: CommandOption, value: object) -> object | None:
     return _text(name, value)
 
 
-def _absolute(path: object) -> Path:
-    return Path(os.fspath(path)).expanduser().absolute()  # type: ignore[arg-type]
+def _absolute(path: PathArg) -> Path:
+    return Path(os.fspath(path)).expanduser().absolute()
 
 
 def _inside(child: Path, parent: Path) -> bool:
@@ -748,7 +757,33 @@ def _validate(
 def validate_command(
     command: str, /, *, options: Mapping[str, object]
 ) -> dict[str, object]:
-    """Znormalizuj i sprawdź opcje komendy bez sieci; obce komendy, opcje i wartości → błąd."""
+    """
+    Normalize and validate command options without network access.
+
+    ``list`` options accept comma-separated text, a sequence or a single number;
+    years accept ``a-b`` ranges; ``lat``/``lon`` normalize to ``float``. ``None``
+    values and false ``bool`` flags are omitted, so formatting the result with
+    `format_command` and validating it again yields identical options.
+
+    Parameters
+    ----------
+    command : str
+        Catalog command name, e.g. ``"series select"``.
+    options : Mapping[str, object]
+        Option values keyed by their Python (``snake_case``) names.
+
+    Returns
+    -------
+    dict of {str : object}
+        Normalized options in catalog order (``Path`` objects, tuples, sorted
+        years and months, de-duplicated stations and variables).
+
+    Raises
+    ------
+    IMGWValidationError
+        If the command, an option name or an option value is unknown or invalid,
+        or a required option is missing.
+    """
     return _validate(command, options, task=False)
 
 
@@ -775,7 +810,30 @@ def _argument(value: object) -> str:
 
 
 def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
-    """Stabilny zapis komendy CLI (``shlex.quote``) z dokładnie podanymi, znormalizowanymi opcjami."""
+    """
+    Format a command as a stable, ``shlex``-quoted CLI invocation.
+
+    Only the given options are emitted, after normalization; no hidden options
+    are added.
+
+    Parameters
+    ----------
+    command : str
+        Catalog command name.
+    options : Mapping[str, object]
+        Option values keyed by their Python (``snake_case``) names.
+
+    Returns
+    -------
+    str
+        Command line starting with ``imgw``, e.g.
+        ``imgw store info --root /data/imgw``.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the command or its options are invalid (see `validate_command`).
+    """
     normalized = validate_command(command, options=options)
     words = ["imgw", *command.split()]
     for option in _BY_NAME[command].options:
@@ -797,6 +855,18 @@ def _server_path(url: str) -> str:
     return url[len(prefix) :]
 
 
+def _archive_download(
+    command: str, interval: Any, subtype: Any, file: ArchiveFile
+) -> Callable[[], Any]:
+    """Public ``download_*`` call for one enumerated archive file."""
+    year, param = file.year, file.param
+    if year is None or (param is not None and param not in ("T", "Q", "H")):
+        raise IMGWValidationError(f"Nieobsługiwane archiwum: {file.server_path}")
+    if command == "fetch hydro":
+        return partial(_fetch.download_hydro_data, interval, year, file.month, param)
+    return partial(_fetch.download_meteo_data, interval, subtype, year, file.month)
+
+
 def _fetch_jobs(
     command: str, options: Options
 ) -> list[tuple[str, str, Callable[[], Any]]]:
@@ -813,14 +883,8 @@ def _fetch_jobs(
             (
                 file.server_path,
                 file.url,
-                partial(
-                    _fetch.download_hydro_data,
-                    interval,
-                    file.year,
-                    file.month,
-                    file.param,
-                ),
-            )  # type: ignore[arg-type]
+                _archive_download(command, interval, None, file),
+            )
             for file in files
         ]
     interval = options.get("interval", "miesieczne")
@@ -831,11 +895,9 @@ def _fetch_jobs(
             (
                 file.server_path,
                 file.url,
-                partial(
-                    _fetch.download_meteo_data, interval, subtype, file.year, file.month
-                ),
+                _archive_download(command, interval, subtype, file),
             )
-            for file in archive_files(key, years=years, months=months)  # type: ignore[arg-type]
+            for file in archive_files(key, years=years, months=months)
         ]
     jobs: dict[str, tuple[str, str, Callable[[], Any]]] = {}
     for year in years:
@@ -946,7 +1008,7 @@ def _check_fetch(command: str, options: Options, hooks: Hooks) -> StorePlan:
 # --- dispatch ------------------------------------------------------------------------------
 
 
-def _plan(root: object, actions: Iterable[PlanAction]) -> StorePlan:
+def _plan(root: PathArg, actions: Iterable[PlanAction]) -> StorePlan:
     return StorePlan(
         "imgw-plan/1", _absolute(root), datetime.now(UTC), (), {}, tuple(actions)
     )
@@ -1338,7 +1400,39 @@ def check_command(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
-    """Plan komendy bez mutacji i bez pobierania treści (``check_*`` albo przewidywane ``PlanAction``)."""
+    """
+    Plan a command without mutating anything or downloading content.
+
+    Commands with their own check use it (e.g. ``store sync`` → `check_store`,
+    ``series build`` → `check_series`, ``project download`` → `check_project`);
+    the others return planned `PlanAction` items with the expected paths and
+    validation results.
+
+    Parameters
+    ----------
+    command : str
+        Catalog command name.
+    options : Mapping[str, object]
+        Option values, identical to those accepted by `run_command`.
+    on_progress : ProgressHook or None, optional
+        Progress callback forwarded to the underlying check.
+    on_notice : NoticeHook or None, optional
+        Notice callback forwarded to the underlying check.
+    cancel : Cancel or None, optional
+        Cancellation callback forwarded to the underlying check.
+
+    Returns
+    -------
+    StorePlan
+        ``imgw-plan/1`` plan of the command.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the command or its options are invalid (see `validate_command`).
+    IMGWError
+        Errors of the underlying public check function are propagated.
+    """
     normalized = validate_command(command, options=options)
     return _CHECK[command](normalized, _hooks(on_progress, on_notice, cancel))
 
@@ -1366,6 +1460,37 @@ def run_command(
     | ProjectReport
     | Path
 ):
-    """Wykonaj komendę katalogu przez dokładnie jedno publiczne API z tymi samymi hookami."""
+    """
+    Run a catalog command through exactly one public API function.
+
+    Parameters
+    ----------
+    command : str
+        Catalog command name.
+    options : Mapping[str, object]
+        Option values keyed by their Python (``snake_case``) names.
+    on_progress : ProgressHook or None, optional
+        Progress callback forwarded to the public function.
+    on_notice : NoticeHook or None, optional
+        Notice callback forwarded to the public function.
+    cancel : Cancel or None, optional
+        Cancellation callback forwarded to the public function.
+
+    Returns
+    -------
+    object
+        Result of the dispatched public function: `StoreHandle`, `StoreInfo`,
+        tuple of `StoreEntry`, `StorePlan`, `SyncReport`, `SeriesReport`,
+        `SeriesSelection`, `CatalogReport`, `PMaXTPStoreResult`, `PMaXTPResult`,
+        `Project`, `ProjectReport` or `Path` (``fetch hydro|meteo`` return the
+        output directory).
+
+    Raises
+    ------
+    IMGWValidationError
+        If the command or its options are invalid (see `validate_command`).
+    IMGWError
+        Errors of the dispatched public function are propagated.
+    """
     normalized = validate_command(command, options=options)
     return _RUN[command](normalized, _hooks(on_progress, on_notice, cancel))

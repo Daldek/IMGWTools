@@ -303,7 +303,43 @@ def check_series(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
-    """Offline twin of :func:`build_series`: inputs it would read and the series state."""
+    """
+    Report offline what :func:`build_series` would read and the series state.
+
+    Reads only local sidecars; no network access and no writes.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Root of an existing IMGW store.
+    dataset : str
+        Full key (``pl.imgw.*``) of a measurement series dataset.
+    on_progress : ProgressHook or None, optional
+        Called for each current input archive.
+    on_notice : NoticeHook or None, optional
+        Receives an ``archive_failed`` error for every unreadable archive slot.
+    cancel : Cancel or None, optional
+        Polled before each input; once it returns ``True`` the remaining inputs are
+        listed as ``unverifiable`` with error ``"anulowano"``.
+
+    Returns
+    -------
+    StorePlan
+        Plan whose items are the current input archive versions (status
+        ``current``, HTTP signals copied from their sidecars), whose
+        ``series_state`` maps the dataset slug to ``current``, ``outdated`` or
+        ``missing``, and whose ``series build`` actions carry the series status
+        (``current``, ``newer`` for an outdated series, or ``missing``), one
+        ``check_failed`` action per unreadable slot and a ``missing`` action when
+        the store holds no archive of the dataset.
+
+    Raises
+    ------
+    IMGWStoreError
+        If ``root`` is not a supported IMGW store.
+    IMGWValidationError
+        If ``dataset`` is unknown or does not produce measurement series.
+    """
     path = _root(root)
     descriptor = _series_descriptor(dataset)
     inputs, problems = _scan_inputs(path, descriptor)
@@ -341,13 +377,12 @@ def check_series(
         "outdated": f"Szereg {descriptor.slug} wymaga przebudowy",
         "missing": f"Brak szeregu {descriptor.slug}",
     }[state]
-    actions = [
-        PlanAction(
-            "series build",
-            {"current": "current", "outdated": "newer", "missing": "missing"}[state],
-            detail,
-        )
-    ]
+    action_status: dict[SeriesState, Literal["current", "newer", "missing"]] = {
+        "current": "current",
+        "outdated": "newer",
+        "missing": "missing",
+    }
+    actions = [PlanAction("series build", action_status[state], detail)]
     for problem in problems:
         actions.append(PlanAction("series build", "check_failed", problem))
         if on_notice is not None:
@@ -551,7 +586,53 @@ def build_series(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> SeriesReport:
-    """Snapshot every station of the current archive versions as one series version."""
+    """
+    Snapshot every station of the current archive versions as one series version.
+
+    Reads exactly the current version of every archive slot of the dataset and
+    writes one Parquet file per station plus ``series.json`` (``imgw-series/1``),
+    published atomically as a new version. When an existing version was built
+    from the same input manifest (slot and full SHA-256 of every input) it is
+    returned as ``reused`` without invoking the Parquet writer. An unreadable input
+    fails the whole build; an incomplete snapshot is never published.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Root of an existing IMGW store.
+    dataset : str
+        Full key (``pl.imgw.*``) of a measurement series dataset.
+    on_progress : ProgressHook or None, optional
+        Called after each parsed archive and each written station file, or once
+        for a reused version.
+    on_notice : NoticeHook or None, optional
+        Receives ``archive_failed`` errors for unreadable inputs and the
+        ``license_terms`` notice when a new version is created.
+    cancel : Cancel or None, optional
+        Polled between steps; once it returns ``True`` the build stops with a
+        ``cancelled`` report and nothing is published.
+
+    Returns
+    -------
+    SeriesReport
+        Status ``created``, ``reused``, ``cancelled`` or ``failed``; ``version`` is
+        the path of ``series.json``, ``source_files`` the absolute paths of the input
+        archive versions (for ``reused``, the inputs recorded in the reused
+        version's sidecar) and ``problems`` the reasons of a failure.
+
+    Raises
+    ------
+    IMGWStoreError
+        If ``root`` is not a supported IMGW store or collides with a Kartograf
+        store or project.
+    IMGWValidationError
+        If ``dataset`` is unknown or does not produce measurement series.
+    IMGWStoreDependencyError
+        If ``pyarrow>=15`` is not installed.
+    IMGWStoreConflictError
+        If the version cannot be published atomically or its directory collides
+        with a different version.
+    """
     path = _root(root)
     descriptor = _series_descriptor(dataset)
     pa, pq = _pyarrow()

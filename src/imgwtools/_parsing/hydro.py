@@ -5,6 +5,7 @@ import io
 import re
 from collections.abc import Iterator
 from datetime import date, datetime
+from typing import Literal, overload
 
 from imgwtools._parsing.common import (
     EXTREMUM_MAP,
@@ -45,6 +46,55 @@ def _base(row: list[str]) -> tuple[HydroArchiveStation, int]:
     )
     year = int(row[3])
     return station, year
+
+
+@overload
+def _parse(
+    content: str | bytes,
+    interval: Literal["dobowe"],
+    encoding: str = ...,
+    *,
+    filename: str | None = ...,
+    strict: bool = ...,
+) -> Iterator[tuple[HydroArchiveStation, HydroDailyRecord]]: ...
+
+
+@overload
+def _parse(
+    content: str | bytes,
+    interval: Literal["miesieczne"],
+    encoding: str = ...,
+    *,
+    filename: str | None = ...,
+    strict: bool = ...,
+) -> Iterator[tuple[HydroArchiveStation, HydroMonthlyRecord]]: ...
+
+
+@overload
+def _parse(
+    content: str | bytes,
+    interval: Literal["polroczne_i_roczne"],
+    encoding: str = ...,
+    *,
+    filename: str | None = ...,
+    strict: bool = ...,
+) -> Iterator[tuple[HydroArchiveStation, HydroSemiAnnualRecord]]: ...
+
+
+@overload
+def _parse(
+    content: str | bytes,
+    interval: str,
+    encoding: str = ...,
+    *,
+    filename: str | None = ...,
+    strict: bool = ...,
+) -> Iterator[
+    tuple[
+        HydroArchiveStation,
+        HydroDailyRecord | HydroMonthlyRecord | HydroSemiAnnualRecord,
+    ]
+]: ...
 
 
 def _parse(
@@ -172,8 +222,8 @@ def parse_daily_csv(
     ----------
     content : str or bytes
         CSV content.
-    encoding : str
-        Character encoding (default CP1250).
+    encoding : str, optional
+        Character encoding used when ``content`` is bytes (default CP1250).
 
     Yields
     ------
@@ -205,8 +255,8 @@ def parse_monthly_csv(
     ----------
     content : str or bytes
         CSV content.
-    encoding : str
-        Character encoding (default CP1250).
+    encoding : str, optional
+        Character encoding used when ``content`` is bytes (default CP1250).
 
     Yields
     ------
@@ -238,8 +288,8 @@ def parse_semi_annual_csv(
     ----------
     content : str or bytes
         CSV content.
-    encoding : str
-        Character encoding (default CP1250).
+    encoding : str, optional
+        Character encoding used when ``content`` is bytes (default CP1250).
 
     Yields
     ------
@@ -325,8 +375,8 @@ def parse_stations_csv(
     ----------
     content : str or bytes
         CSV content.
-    encoding : str
-        Character encoding (default CP1250).
+    encoding : str, optional
+        Character encoding used when ``content`` is bytes (default CP1250).
 
     Yields
     ------
@@ -356,6 +406,49 @@ def _measurement(value: float | None) -> Measurement:
 def normalize_hydro_archive(
     dataset: str, archive_name: str, data: bytes
 ) -> Iterator[NormalizedRecord]:
+    """
+    Normalize a hydrological IMGW archive into common measurement records.
+
+    Every CSV member is parsed strictly. Each value becomes a
+    ``Measurement`` flagged ``"value"`` or, when absent or equal to the IMGW
+    missing-data code, ``"missing"``.
+
+    - Daily data: one record per station and day, dated with the calendar
+      date, with variables ``H``, ``Q`` and ``T``.
+    - Monthly data: one record per station and month, dated with the first
+      day of the calendar month, with variables ``H_min``, ``H_mean``,
+      ``H_max`` (and likewise for ``Q`` and ``T``) merged from the separate
+      min/mean/max rows. Monthly records are yielded after all members have
+      been read.
+    - Semi-annual data: one record per station, period, parameter and
+      extremum, dated with the period start (November 1 for winter and
+      annual, May 1 for summer), carrying ``period``, a single variable such
+      as ``Q_max`` and its extremum start/end datetimes in ``extrema_dates``.
+
+    Parameters
+    ----------
+    dataset : str
+        Dataset key of the archive (``"pl.imgw.hydro_daily"``,
+        ``"pl.imgw.hydro_monthly"`` or ``"pl.imgw.hydro_semiannual"``); stored
+        on every yielded record.
+    archive_name : str
+        Archive name used in error messages.
+    data : bytes
+        ZIP archive content.
+
+    Yields
+    ------
+    NormalizedRecord
+        Normalized hydrological record.
+
+    Raises
+    ------
+    KeyError
+        If ``dataset`` is not a hydrological dataset key.
+    IMGWDataError
+        If the archive is unreadable or unsafe, a data row is malformed, or
+        one monthly variable receives two different values.
+    """
     interval = {
         "pl.imgw.hydro_daily": "dobowe",
         "pl.imgw.hydro_monthly": "miesieczne",
@@ -367,7 +460,9 @@ def normalize_hydro_archive(
             content, interval, filename=f"{archive_name}/{member}", strict=True
         ):
             if isinstance(record, HydroDailyRecord):
-                measured = date.fromisoformat(record.measurement_date)
+                measured = hydro_to_calendar_date(
+                    record.hydro_year, record.hydro_month, record.day
+                )
                 values = {
                     key: _measurement(getattr(record, attr))
                     for key, attr in (
@@ -412,11 +507,14 @@ def normalize_hydro_archive(
                     values,
                 )
             else:
-                start = {
-                    "winter": date(record.hydro_year - 1, 11, 1),
-                    "summer": date(record.hydro_year, 5, 1),
-                    "annual": date(record.hydro_year - 1, 11, 1),
-                }[record.period]
+                starts: dict[
+                    str, tuple[Literal["winter", "summer", "annual"], date]
+                ] = {
+                    "winter": ("winter", date(record.hydro_year - 1, 11, 1)),
+                    "summer": ("summer", date(record.hydro_year, 5, 1)),
+                    "annual": ("annual", date(record.hydro_year - 1, 11, 1)),
+                }
+                period, start = starts[record.period]
                 column = f"{record.param}_{record.extremum}"
                 start_date = (
                     datetime.fromisoformat(record.extremum_start_date)
@@ -433,7 +531,7 @@ def normalize_hydro_archive(
                     dataset,
                     start,
                     record.hydro_year,
-                    record.period,
+                    period,
                     {column: _measurement(record.value)},
                     extrema_dates={column: (start_date, end_date)},
                 )

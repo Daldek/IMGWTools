@@ -196,7 +196,36 @@ def _validate_slot(root: Path, relative: str) -> Path:
 
 
 def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> StoreHandle:
-    """Create a new store marker only in an empty, non-conflicting directory."""
+    """
+    Create a new store marker only in an empty, non-conflicting directory.
+
+    The marker ``imgw-store.json`` is published atomically and never replaces
+    a competing marker. If the root already holds a marker (including one
+    created concurrently), the existing store is opened instead.
+
+    Parameters
+    ----------
+    root : str or os.PathLike
+        Store root directory; created (with parents) if it does not exist.
+    created_at : datetime.datetime or None, optional
+        Timezone-aware creation time recorded in the marker as UTC; omitted
+        from the marker when ``None``.
+
+    Returns
+    -------
+    StoreHandle
+        Handle of the created or already existing store.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..`` or ``created_at`` is naive.
+    IMGWStoreError
+        If the root path contains a symbolic link, the directory is not empty
+        and has no marker, it overlaps another IMGW store or a Kartograf
+        store, a relevant marker is unreadable, or the existing marker is not
+        a supported store.
+    """
     path = _safe_root(root)
     _check_kartograf(path)
     marker = path / _MARKER
@@ -227,7 +256,27 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
 
 
 def open_store(root: PathArg, /) -> StoreHandle:
-    """Open a known store without creating files or changing its contents."""
+    """
+    Open a known store without creating files or changing its contents.
+
+    Parameters
+    ----------
+    root : str or os.PathLike
+        Store root directory containing an ``imgw-store/1`` marker.
+
+    Returns
+    -------
+    StoreHandle
+        Handle of the opened store.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..``.
+    IMGWStoreError
+        If the root path contains a symbolic link or the marker is missing,
+        unreadable or of an unsupported schema.
+    """
     path = _safe_root(root)
     if _marker(path / _MARKER) != "imgw-store/1":
         raise IMGWStoreError(f"Brak znacznika lub nieobsługiwany magazyn IMGW: {path}")
@@ -286,7 +335,54 @@ def write_archive(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> VersionResult:
-    """Commit an archive and provenance together, without replacing existing versions."""
+    """
+    Commit an archive and provenance together, without replacing existing versions.
+
+    The original bytes and their ``*.meta.json`` sidecar are staged in
+    ``.incoming`` and published as a whole version directory
+    ``<label>_<sha8>`` by a single no-replace rename. The label is the UTC
+    date of ``Last-Modified`` (or of the download when absent); identical
+    content with a different HTTP signal on the same day gets a stable
+    ``+<8 hex>`` suffix.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    archive : ArchiveFile
+        Archive descriptor; its ``server_path`` must lie in the dataset's
+        server directory and end with ``.zip`` or ``.csv``.
+    response : DownloadResult
+        Downloaded bytes and HTTP headers (``ETag``, ``Last-Modified``).
+    on_progress : ProgressHook or None, optional
+        Called once with a ``created`` progress event after publication.
+    on_notice : NoticeHook or None, optional
+        Called with the ``license_terms`` notice after publication.
+    cancel : Cancel or None, optional
+        Polled before and after staging; returning ``True`` aborts the write.
+
+    Returns
+    -------
+    VersionResult
+        ``status`` is ``"created"`` for new content, ``"relabeled"`` for
+        already stored content with a new HTTP signal, or ``"unchanged"``
+        when content and signal match an existing version.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the dataset is unknown, the server path does not match the
+        dataset or has a disallowed extension, the path is unsafe, or the
+        ``Last-Modified`` header is invalid.
+    IMGWStoreError
+        If the root is not a supported store, a path contains a symbolic
+        link, the store overlaps a Kartograf store, or the write is
+        cancelled.
+    IMGWStoreConflictError
+        If an existing version in the slot is corrupted, the version
+        directory collides with different content, or the file system cannot
+        publish atomically without replacement.
+    """
     handle = open_store(root.root if isinstance(root, StoreHandle) else root)
     path = handle.root
     _check_kartograf(path)

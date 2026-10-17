@@ -117,7 +117,31 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
 
 
 def store_info(root: PathArg, /) -> StoreInfo:
-    """Describe a store root without raising for an unknown or missing marker."""
+    """
+    Describe a store root without raising for an unknown or missing marker.
+
+    An unknown store schema (e.g. ``imgw-store/2``), a missing or unreadable
+    marker and a marker without ``created_by`` all yield ``supported=False``
+    with the reason in ``problems`` instead of an exception.
+
+    Parameters
+    ----------
+    root : str or os.PathLike
+        Store root directory; made absolute before inspection.
+
+    Returns
+    -------
+    StoreInfo
+        Existence of the root, marker schema, support flag, the contract
+        versions supported by this library and the detected problems.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..``.
+    IMGWStoreError
+        If a component of the root path is a symbolic link.
+    """
     return _inspect(_safe_root(root))[0]
 
 
@@ -227,7 +251,30 @@ def _load_meta(sidecar: Path) -> Meta:
 
 
 def read_meta(path: PathArg, /) -> Meta:
-    """Read the sidecar of a data file (or the ``*.meta.json`` itself)."""
+    """
+    Read the sidecar of a data file (or the ``*.meta.json`` itself).
+
+    Required ``imgw-meta/1`` fields are validated; additional fields are
+    tolerated.
+
+    Parameters
+    ----------
+    path : str or os.PathLike
+        Main data file of a version or its ``<file>.meta.json`` sidecar.
+
+    Returns
+    -------
+    Meta
+        Parsed sidecar metadata.
+
+    Raises
+    ------
+    IMGWStoreError
+        If the sidecar does not exist.
+    IMGWDataError
+        If the sidecar is a symbolic link, unreadable, not valid JSON or does
+        not satisfy ``imgw-meta/1``.
+    """
     given = Path(path)
     sidecar = (
         given
@@ -500,7 +547,34 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
 
 
 def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEntry]:
-    """Scan every published version and every problem offline, without writing anything."""
+    """
+    Scan every published version and every problem offline, without writing anything.
+
+    Unknown directories, missing sidecars, corrupted JSON, unknown schemas,
+    size mismatches and ``.incoming`` stagings older than 24 hours are
+    reported as separate ``StoreEntry(kind="problem")`` entries; younger
+    stagings are private and are not versions. Files are not hashed during
+    the scan (only their size is compared with ``size_bytes``).
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    kind : {"archive", "series", "catalog", "pmaxtp", "problem"} or None, optional
+        Return only entries of this kind; ``None`` returns all entries.
+
+    Returns
+    -------
+    Iterator[StoreEntry]
+        Lazily scanned published versions and problems.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``kind`` is not a known entry kind or the root path contains ``..``.
+    IMGWStoreError
+        If a component of the root path is a symbolic link.
+    """
     if kind is not None and kind not in _KINDS:
         raise IMGWValidationError(
             f"Nieznany rodzaj wpisu magazynu: {kind!r}; dozwolone {', '.join(_KINDS)}"
@@ -511,7 +585,7 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
 
 def _slot_location(
     root: Path, slot: str
-) -> tuple[EntryKind, Path, str | None, tuple[str, ...]]:
+) -> tuple[EntryKind, Path, str, tuple[str, ...]]:
     kind, _, rest = slot.partition(":")
     if kind == "archive" and rest:
         relative = PurePosixPath(rest)
@@ -545,7 +619,38 @@ def _slot_location(
 
 
 def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
-    """Current published version of a slot; a broken version in the slot is an error."""
+    """
+    Current published version of a slot; a broken version in the slot is an error.
+
+    Archive versions are ordered by ``Last-Modified``, then ``downloaded_at``,
+    then path; derived versions (series, catalog, PMAXTP) by
+    ``downloaded_at``, then path. Staging directories are never returned.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    slot : str
+        Slot identifier: ``archive:<server_path>``, ``series:<slug>``,
+        ``catalog:stations`` or ``pmaxtp:<POT|AMP>:<indX>_<indY>``.
+
+    Returns
+    -------
+    StoreEntry or None
+        Entry of the current version, or ``None`` if the slot has no
+        versions.
+
+    Raises
+    ------
+    IMGWStoreError
+        If the root is not a supported store or a slot path component is a
+        symbolic link.
+    IMGWValidationError
+        If ``slot`` is malformed or the root path contains ``..``.
+    IMGWDataError
+        If any version in the slot is broken (an older version is never
+        silently selected instead).
+    """
     path = _open(root)
     kind, directory, name, subdirs = _slot_location(path, slot)
     if not directory.is_dir():
@@ -631,7 +736,34 @@ def _number(value: object) -> float:
 
 
 def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
-    """Every station of a catalog version, including stations without geometry."""
+    """
+    Every station of a catalog version, including stations without geometry.
+
+    The ``stations.geojson`` bytes are verified against the SHA-256 and size
+    recorded in the sidecar.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        Catalog version directory or its ``stations.geojson`` file.
+
+    Returns
+    -------
+    tuple of StationFeature
+        Stations in file order; ``geometry`` is ``None`` for stations without
+        a location.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``version`` points to neither a version directory nor
+        ``stations.geojson``.
+    IMGWStoreError
+        If the catalog file or its sidecar does not exist.
+    IMGWDataError
+        If the file is unreadable, a symbolic link, does not match its
+        sidecar, or is not a valid station FeatureCollection.
+    """
     path = _main_file(version, CATALOG_FILE)
     document = _json(path)
     result: list[StationFeature] = []
@@ -727,7 +859,34 @@ def _coverage(code: str, key: str, value: Any) -> StationCoverage:
 
 
 def read_series_index(version: PathArg, /) -> SeriesIndex:
-    """Validate ``series.json`` and its Parquet paths without pyarrow or reading Parquet bytes."""
+    """
+    Validate ``series.json`` and its Parquet paths without pyarrow or reading Parquet bytes.
+
+    The ``series.json`` bytes are verified against the sidecar; each station
+    Parquet file must exist as a regular file, but its contents are not read.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        Series version directory or its ``series.json`` file.
+
+    Returns
+    -------
+    SeriesIndex
+        Dataset, year type, periods and per-station Parquet index.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``version`` points to neither a version directory nor
+        ``series.json``.
+    IMGWStoreError
+        If ``series.json`` or its sidecar does not exist.
+    IMGWDataError
+        If the file is unreadable, a symbolic link, does not match its
+        sidecar, or is not a valid ``imgw-series/1`` index (including missing
+        Parquet files).
+    """
     path = _main_file(version, SERIES_FILE)
     document = _json(path)
     try:
@@ -783,7 +942,48 @@ def read_series(
     start: date | None = None,
     end: date | None = None,
 ) -> Iterator[NormalizedRecord]:
-    """Values and flags of one station between ``start`` and ``end`` (inclusive, period start date)."""
+    """
+    Values and flags of one station between ``start`` and ``end`` (inclusive, period start date).
+
+    Arguments, the series index and the SHA-256 of the station Parquet file
+    are validated before the iterator is returned. For monthly and
+    half-year series the range filter applies to the period start
+    (``date``). Days or months filled in by the builder are returned with
+    the ``missing`` flag.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        Series version directory or its ``series.json`` file.
+    station : str
+        Nine-digit station code present in the series.
+    variables : Iterable[str]
+        Non-empty collection of dataset variable names; duplicates are
+        merged, a single string is rejected.
+    start : datetime.date or None, optional
+        First period start date to include; ``None`` means no lower bound.
+    end : datetime.date or None, optional
+        Last period start date to include; ``None`` means no upper bound.
+
+    Returns
+    -------
+    Iterator[NormalizedRecord]
+        Records of the station in Parquet row order.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``version`` is not a series version, the station is not in the
+        series, ``variables`` is empty, a string or contains unknown names,
+        a bound is not a ``date`` or ``start`` is later than ``end``.
+    IMGWStoreError
+        If ``series.json`` or its sidecar does not exist.
+    IMGWStoreDependencyError
+        If ``pyarrow>=15`` is not installed.
+    IMGWDataError
+        If the index or Parquet file is unreadable, corrupted or does not
+        match its checksum or metadata.
+    """
     path = _main_file(version, SERIES_FILE)
     index = read_series_index(path)
     if station not in index.stations:

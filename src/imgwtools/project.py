@@ -111,6 +111,10 @@ TaskStatus = Literal[
 ]
 PinState = Literal["current", "missing", "changed"]
 Hooks = Mapping[str, Any]
+_ResultStatus = Literal[
+    "created", "relabeled", "unchanged", "reused", "failed", "stale_plan", "cancelled"
+]
+_PlanStatus = Literal["current", "newer", "missing", "unverifiable", "check_failed"]
 
 _SELECT = "series select"
 # Opcje zadania series select zapisane w manifeście zawsze jawnie.
@@ -218,7 +222,7 @@ def _object(
 
 
 def _relative(value: object, base: Path, name: str) -> str:
-    """Bezpieczna ścieżka względna POSIX w ``base``: bez ``..``, ``\\`` i dowiązań symbolicznych."""
+    r"""Bezpieczna ścieżka względna POSIX w ``base``: bez ``..``, ``\`` i dowiązań symbolicznych."""
     text = value.as_posix() if isinstance(value, Path) else value
     if (
         not isinstance(text, str)
@@ -245,9 +249,9 @@ def _relative(value: object, base: Path, name: str) -> str:
     return text
 
 
-def _input_relative(value: object, base: Path, name: str) -> str:
+def _input_relative(value: PathArg, base: Path, name: str) -> str:
     """Ścieżka z wywołania: względna wobec ``base`` albo bezwzględna wewnątrz ``base``."""
-    path = Path(os.fspath(value))  # type: ignore[arg-type]
+    path = Path(os.fspath(value))
     if path.is_absolute():
         if ".." in path.parts:
             raise IMGWValidationError(f"{name} nie może zawierać '..': {value}")
@@ -679,7 +683,37 @@ def _notice(
 
 
 def init_project(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
-    """Utwórz ``imgw-project.json`` bez zadań; istniejący manifest z tym samym magazynem zostaje bez zmian."""
+    """
+    Create an ``imgw-project.json`` manifest without tasks.
+
+    A relative ``store_dir`` is resolved against the project directory and stored
+    relative; an absolute one is stored absolute. The project directory is created
+    when missing. An existing manifest pointing at the same store is returned
+    unchanged without writing.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    store_dir : str or os.PathLike
+        IMGW store directory. If it exists it must be a supported IMGW store or an
+        empty directory, and the project directory must not lie inside it.
+
+    Returns
+    -------
+    Project
+        The created (or already existing) project.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` or ``store_dir`` is not a non-empty path.
+    IMGWProjectError
+        If the store directory is invalid, the project directory lies inside the
+        store, the directory or manifest cannot be written, the manifest lock is
+        held, or an existing manifest points at a different store (change it with
+        `set_project_store`).
+    """
     directory = _directory(project_dir)
     text, root = _store_argument(directory, store_dir)
     _check_store(root, directory)
@@ -707,12 +741,62 @@ def init_project(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
 
 
 def open_project(project_dir: PathArg, /) -> Project:
-    """Odczytaj manifest offline, ściśle walidując klucze, typy, opcje i ścieżki."""
+    """
+    Read the project manifest offline with strict validation.
+
+    Unknown structural keys, wrong types, invalid command options and unsafe paths
+    (``..``, symbolic links, escaping the root) are rejected. Unknown entries under
+    ``extensions`` are kept.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding ``imgw-project.json``.
+
+    Returns
+    -------
+    Project
+        The validated project with absolute ``path`` and ``store_dir``.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` is not a non-empty path.
+    IMGWProjectError
+        If the manifest is missing, unreadable, a symbolic link or invalid.
+    """
     return _load(_directory(project_dir)).project
 
 
 def set_project_store(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
-    """Wskaż nowy magazyn po weryfikacji pełnych SHA wszystkich przypiętych plików; piny bez zmian."""
+    """
+    Point the project at a different store, keeping every pin unchanged.
+
+    The full SHA-256 of every pinned file (including the ``catalog`` pins of
+    unpinned tasks) is verified in the new store before the manifest is updated.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    store_dir : str or os.PathLike
+        New store directory; relative paths are resolved against the project
+        directory and stored relative.
+
+    Returns
+    -------
+    Project
+        The project with the new ``store_dir``.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` or ``store_dir`` is not a non-empty path.
+    IMGWProjectError
+        If the manifest is missing or invalid, the new store is invalid, it does
+        not contain identical pinned files, the manifest changed during
+        verification, or the manifest cannot be locked or written.
+    """
     directory = _directory(project_dir)
     before = _load(directory)
     text, root = _store_argument(directory, store_dir)
@@ -891,7 +975,48 @@ def add_project_task(
     options: Mapping[str, object],
     geometry: PathArg | None = None,
 ) -> Project:
-    """Dodaj nieprzypięte zadanie; wybór obszarem materializuje jawną listę stacji z bieżącego katalogu."""
+    """
+    Add an unpinned task to the project manifest.
+
+    The task options are validated with the command catalog (without ``root``,
+    which follows from ``store_dir``) and stored in manifest form. For
+    ``series select`` the options ``dataset``, ``stations``, ``variables``,
+    ``years`` and ``year_type`` are always stored explicitly; missing
+    ``variables`` mean all dataset variables and missing ``year_type`` the ZIP
+    numbering of the dataset. A ``geometry`` area selection materializes an
+    explicit station list from the current ``stations.geojson`` version, records
+    ``geometry_sha256`` and pins that catalog version immediately.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    name : str
+        Unique task name, 1-64 characters ``[a-z0-9][a-z0-9_-]*``.
+    command : str
+        Catalog command of the task (any data command except ``store init`` and
+        ``project *``).
+    options : Mapping[str, object]
+        Options of the task command, or a JSON object string.
+    geometry : str or os.PathLike or None, optional
+        GeoJSON file (Polygon, MultiPolygon, Feature or FeatureCollection, WGS84)
+        inside the project directory selecting stations by area; only for
+        ``series select``, where ``stations`` then become optional.
+
+    Returns
+    -------
+    Project
+        The project including the new task.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the command, its options or the geometry file are invalid, or the area
+        selection matches no catalog station.
+    IMGWProjectError
+        If the manifest is missing or invalid, a task with this name already
+        exists, or the manifest cannot be locked or written.
+    """
     directory = _directory(project_dir)
     before = _load(directory).project
     request = commands.validate_command(
@@ -917,7 +1042,31 @@ def add_project_task(
 
 
 def remove_project_task(project_dir: PathArg, /, *, name: str) -> Project:
-    """Usuń zadanie z manifestu (wersje w magazynie pozostają nietknięte)."""
+    """
+    Remove a task from the project manifest.
+
+    Versions in the store are left untouched.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    name : str
+        Name of the task to remove.
+
+    Returns
+    -------
+    Project
+        The project without the task.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` is not a non-empty path.
+    IMGWProjectError
+        If the manifest is missing or invalid, the task does not exist, or the
+        manifest cannot be locked or written.
+    """
     directory = _directory(project_dir)
 
     def change(current: _Manifest) -> _Manifest:
@@ -996,18 +1145,24 @@ def _inspect(
 
 
 def _pin_result(
-    task: ProjectTask, root: Path, pin: ProjectFile, status: str, error: str | None
+    task: ProjectTask,
+    root: Path,
+    pin: ProjectFile,
+    status: _ResultStatus,
+    error: str | None,
 ) -> OperationResult:
     return OperationResult(
         f"{task.name}:{pin.path.as_posix()}",
-        status,  # type: ignore[arg-type]
+        status,
         root.joinpath(*pin.path.parts),
         error,
     )
 
 
-def _task_result(task: ProjectTask, status: str, error: str | None) -> OperationResult:
-    return OperationResult(f"{task.name}:{PROJECT_FILE}", status, None, error)  # type: ignore[arg-type]
+def _task_result(
+    task: ProjectTask, status: _ResultStatus, error: str | None
+) -> OperationResult:
+    return OperationResult(f"{task.name}:{PROJECT_FILE}", status, None, error)
 
 
 def _state(task: ProjectTask, states: Iterable[str]) -> TaskStatus:
@@ -1022,7 +1177,33 @@ def _state(task: ProjectTask, states: Iterable[str]) -> TaskStatus:
 def get_project_status(
     project_dir: PathArg, /, *, tasks: Iterable[str] | None = None
 ) -> ProjectReport:
-    """Stan przypiętych plików offline: istnienie i rozmiar wg sidecarów, bez haszowania."""
+    """
+    Report the state of pinned files offline, without hashing.
+
+    Each pinned file is checked for existence and for the size and SHA-256 stored
+    in its sidecar; station Parquet files are checked for existence only.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    tasks : Iterable[str] or None, optional
+        Names of the tasks to check; ``None`` means all tasks.
+
+    Returns
+    -------
+    ProjectReport
+        Status per task (``unpinned``, ``current``, ``missing`` or ``changed``;
+        ``changed`` takes precedence over ``missing``) and one result per pinned
+        file (``unchanged`` or ``failed`` with an error).
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` is not a path or ``tasks`` is not a collection of names.
+    IMGWProjectError
+        If the manifest is missing or invalid, or ``tasks`` names unknown tasks.
+    """
     project = open_project(project_dir)
     statuses: dict[str, TaskStatus] = {}
     results: list[OperationResult] = []
@@ -1053,7 +1234,42 @@ def verify_project(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> ProjectReport:
-    """Pełne SHA-256 przypiętych plików oraz zgodność sidecarów i spisów szeregów, offline."""
+    """
+    Verify pinned files offline by full SHA-256.
+
+    In addition to `get_project_status`, the full SHA-256 of every pinned file,
+    the consistency of its sidecar and, for station files, the ``series.json``
+    index of the series version are checked.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    tasks : Iterable[str] or None, optional
+        Names of the tasks to verify; ``None`` means all tasks.
+    on_progress : ProgressHook or None, optional
+        Called after each verified file with ``Progress(unit="file")``.
+    on_notice : NoticeHook or None, optional
+        Receives an ``error`` notice with code ``pin_mismatch`` for each file
+        that does not match its pin.
+    cancel : Cancel or None, optional
+        Checked before each file; once it returns true the remaining files are
+        reported as ``cancelled``.
+
+    Returns
+    -------
+    ProjectReport
+        Status per task (``unpinned``, ``current``, ``missing``, ``changed`` or
+        ``cancelled``) and one result per pinned file (``unchanged``, ``failed``
+        or ``cancelled``); ``cancelled`` is true when verification was stopped.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` is not a path or ``tasks`` is not a collection of names.
+    IMGWProjectError
+        If the manifest is missing or invalid, or ``tasks`` names unknown tasks.
+    """
     project = open_project(project_dir)
     selected = _selected(project, tasks)
     root = project.store_dir
@@ -1145,7 +1361,7 @@ def _archive_years(options: Mapping[str, Any]) -> tuple[int, ...]:
 
 def _check_task(
     root: Path, directory: Path, task: ProjectTask, hooks: Hooks
-) -> tuple[str, str, StorePlan | None]:
+) -> tuple[_PlanStatus, str, StorePlan | None]:
     states = [_inspect(root, pin, full=False) for pin in task.files]
     try:
         if task.command == _SELECT:
@@ -1234,7 +1450,43 @@ def check_project(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
-    """Plan ``imgw-plan/1`` zadań: listing/HEAD i stan pinów; bez zapisu i bez GET treści."""
+    """
+    Plan the project tasks as ``imgw-plan/1`` without writing or downloading.
+
+    Only listings, HEAD requests and the state of pins are used. A ``series
+    select`` task is checked with `check_store` over the archive years covering
+    its selection; other tasks with `check_command`. Each task adds one
+    ``project download`` action with status ``check_failed`` (check error or
+    changed pin), ``missing`` (unpinned task, missing pins or missing store),
+    ``newer`` (newer or missing data, applied only by an upgrade),
+    ``unverifiable`` or ``current``.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    tasks : Iterable[str] or None, optional
+        Names of the tasks to check; ``None`` means all tasks.
+    on_progress : ProgressHook or None, optional
+        Called after each task with ``Progress(unit="task")``.
+    on_notice : NoticeHook or None, optional
+        Receives notices of the underlying store checks.
+    cancel : Cancel or None, optional
+        Checked before each task; the remaining tasks are reported as
+        ``unverifiable`` and the plan as cancelled.
+
+    Returns
+    -------
+    StorePlan
+        Combined plan with ``root`` equal to the project store.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``project_dir`` is not a path or ``tasks`` is not a collection of names.
+    IMGWProjectError
+        If the manifest is missing or invalid, or ``tasks`` names unknown tasks.
+    """
     project = open_project(project_dir)
     selected = _selected(project, tasks)
     root = project.store_dir
@@ -1270,7 +1522,7 @@ def check_project(
                 for action in plan.actions
             )
             cancelled = cancelled or plan.cancelled
-        actions.append(PlanAction("project download", status, f"{task.name}: {detail}"))  # type: ignore[arg-type]
+        actions.append(PlanAction("project download", status, f"{task.name}: {detail}"))
         if on_progress is not None:
             on_progress(
                 Progress(index, len(selected), "task", status, f"Zadanie {task.name}")
@@ -1294,7 +1546,7 @@ class _Produced:
     """Wynik operacji zadania: pliki do przypięcia, statusy operacji per ścieżka, błędy."""
 
     pins: list[ProjectFile] = field(default_factory=list)
-    statuses: dict[str, str] = field(default_factory=dict)
+    statuses: dict[str, _ResultStatus] = field(default_factory=dict)
     failures: list[OperationResult] = field(default_factory=list)
     cancelled: bool = False
 
@@ -1326,9 +1578,12 @@ def _series_pins(
             )
         )
     try:
+        sources = meta.extra["source_files"]
+        if not isinstance(sources, Iterable):
+            raise TypeError(f"source_files nie jest listą: {sources!r}")
         pins.extend(
             ProjectFile("input", Path(str(source["file"])), str(source["sha256"]))
-            for source in meta.extra["source_files"]
+            for source in sources
         )
     except (KeyError, TypeError) as exc:
         raise IMGWDataError(
@@ -1392,7 +1647,7 @@ def _add_version(
     root: Path,
     task: ProjectTask,
     role: Literal["catalog", "input"],
-    status: str,
+    status: _ResultStatus,
     version: Path | None,
     problems: Iterable[str],
 ) -> None:
@@ -1426,7 +1681,7 @@ def _subplan(plan: StorePlan, archives: Iterable[ArchiveFile]) -> StorePlan:
 def _produce_select(
     root: Path, task: ProjectTask, plan: StorePlan | None, hooks: Hooks
 ) -> _Produced:
-    """series select: synchronizacja roczników zadania, budowa szeregu zbioru, walidowany wybór."""
+    """Komenda ``series select``: synchronizacja roczników zadania, budowa szeregu zbioru, walidowany wybór."""
     options = _select_options(task, root)
     dataset = options["dataset"]
     years = _archive_years(options)
@@ -1757,7 +2012,60 @@ def download_project(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> ProjectReport:
-    """Pobierz i przypnij dane zadań; ``pinned`` nie przepina, ``upgrade`` przepina całe zadanie po sukcesie."""
+    """
+    Download the data of project tasks and pin the resulting store versions.
+
+    Unpinned tasks, and every task with ``update="upgrade"``, are produced and
+    pinned: ``series select`` synchronizes the archive years covering the
+    selection, builds the dataset series and pins ``series.json``, the selected
+    station files and the input archives; other commands run through
+    `run_command` with ``root=store_dir`` and pin the versions named in their
+    result. New pins replace the whole task only after full success. With
+    ``update="pinned"`` an already pinned task keeps its pins: missing archives
+    are downloaded again and missing series rebuilt only when the result is
+    identical to the pin; catalog and PMAXTP versions are not recreated. Each
+    task result is merged into the current manifest under the lock; a task
+    changed meanwhile by another process fails with ``project_conflict``.
+
+    Parameters
+    ----------
+    project_dir : str or os.PathLike
+        Project directory holding the manifest.
+    tasks : Iterable[str] or None, optional
+        Names of the tasks to download; ``None`` means all tasks.
+    plan : StorePlan or str or os.PathLike or None, optional
+        Fresh ``imgw-plan/1`` plan (object or JSON file) of the same store; only
+        its items for the archives of a ``series select`` task are used.
+    update : {"pinned", "upgrade"}, optional
+        ``"pinned"`` never re-pins pinned tasks; ``"upgrade"`` re-pins whole
+        tasks after full success.
+    on_progress : ProgressHook or None, optional
+        Called after each task with ``Progress(unit="task")`` and forwarded to
+        the underlying operations.
+    on_notice : NoticeHook or None, optional
+        Receives ``error`` notices with codes ``task_failed`` and
+        ``project_conflict`` and the notices of the underlying operations.
+    cancel : Cancel or None, optional
+        Checked before each task and by the underlying operations; the
+        remaining tasks are reported as ``cancelled``.
+
+    Returns
+    -------
+    ProjectReport
+        Status per task (``current``, ``upgraded``, ``changed``, ``failed`` or
+        ``cancelled``) and the per-file results; ``cancelled`` is true when the
+        run was stopped.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``update`` is invalid, ``plan`` concerns a different store, or
+        ``project_dir``/``tasks`` are invalid.
+    IMGWProjectError
+        If the manifest is missing or invalid, or ``tasks`` names unknown tasks.
+    IMGWStoreError
+        If the store directory cannot be opened or initialized.
+    """
     if update not in ("pinned", "upgrade"):
         raise IMGWValidationError(
             f'Nieprawidłowy tryb update {update!r}; dozwolone: "pinned", "upgrade"'

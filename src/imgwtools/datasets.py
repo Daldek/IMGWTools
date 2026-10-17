@@ -13,6 +13,19 @@ from imgwtools.exceptions import IMGWValidationError
 
 @dataclass(frozen=True)
 class License:
+    """
+    License and attribution terms of IMGW-PIB data.
+
+    Attributes
+    ----------
+    id : {"IMGW-PIB"}
+        License identifier.
+    attribution : str
+        Required attribution formula (in Polish).
+    url : str
+        URL of the IMGW-PIB terms of use.
+    """
+
     id: Literal["IMGW-PIB"]
     attribution: str
     url: str
@@ -20,6 +33,32 @@ class License:
 
 @dataclass(frozen=True)
 class DatasetDescriptor:
+    """
+    Registry entry describing a supported IMGW dataset.
+
+    Attributes
+    ----------
+    key : str
+        Full namespaced dataset key, e.g. ``"pl.imgw.hydro_daily"``.
+    slug : str
+        Short name used in series paths, e.g. ``"hydro_daily"``.
+    server_dir : str or None
+        Directory on the IMGW public data server, e.g.
+        ``"dane_hydrologiczne/dobowe"``; None for PMAXTP.
+    parser : str or None
+        Name of the registered public parser function; None for PMAXTP.
+    variables : Mapping of str to str
+        Variable codes mapped to their units, e.g. ``{"H": "cm"}``.
+    time_unit : {"day", "month", "half_year", "station_list", "cell"}
+        Time resolution of a record, or the auxiliary source type.
+    year_type : {"hydrological", "calendar", "none"}
+        Year numbering of the archives.
+    update_signal : {"http", "none"}
+        Whether freshness can be checked by HTTP headers.
+    license : License
+        License and attribution of the data.
+    """
+
     key: str
     slug: str
     server_dir: str | None
@@ -33,6 +72,34 @@ class DatasetDescriptor:
 
 @dataclass(frozen=True)
 class ArchiveFile:
+    """
+    Single physical IMGW source file (ZIP archive or station CSV).
+
+    Attributes
+    ----------
+    dataset : str
+        Full key of the dataset the file belongs to.
+    server_path : str
+        File path relative to the IMGW public data root.
+    url : str
+        Full download URL.
+    year : int or None
+        Archive year (hydrological or calendar per ``year_type``); None for
+        station lists.
+    month : int or None
+        Month of a monthly file (for hydrological data 1 = November of the
+        previous year, 12 = October); None for yearly files.
+    param : str or None
+        Parameter of a semi-annual archive (``"H"``, ``"Q"`` or ``"T"``),
+        None otherwise.
+    year_type : {"hydrological", "calendar", "none"}
+        Year numbering of ``year``.
+    period_start : date or None
+        First calendar day covered by the file; None for station lists.
+    period_end : date or None
+        Last calendar day covered by the file; None for station lists.
+    """
+
     dataset: str
     server_path: str
     url: str
@@ -159,12 +226,37 @@ _BY_KEY = {descriptor.key: descriptor for descriptor in _DATASETS}
 
 
 def datasets() -> tuple[DatasetDescriptor, ...]:
-    """Return all supported measurement and auxiliary source descriptors."""
+    """
+    Return all supported measurement and auxiliary source descriptors.
+
+    Returns
+    -------
+    tuple of DatasetDescriptor
+        Five measurement datasets, two station lists and PMAXTP.
+    """
     return _DATASETS
 
 
 def get_dataset(dataset: str, /) -> DatasetDescriptor:
-    """Find a dataset by its full, namespaced key."""
+    """
+    Find a dataset by its full, namespaced key.
+
+    Parameters
+    ----------
+    dataset : str
+        Full dataset key, e.g. ``"pl.imgw.hydro_daily"``; slugs are not
+        accepted.
+
+    Returns
+    -------
+    DatasetDescriptor
+        Descriptor of the dataset.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the key is unknown.
+    """
     try:
         return _BY_KEY[dataset]
     except (KeyError, TypeError) as exc:
@@ -225,7 +317,38 @@ def _archive(
 def archive_files(
     dataset: str, /, *, years: Iterable[int], months: Iterable[int] | None = None
 ) -> tuple[ArchiveFile, ...]:
-    """Enumerate distinct physical IMGW archives without accessing the network."""
+    """
+    Enumerate distinct physical IMGW archives without accessing the network.
+
+    Years and months are deduplicated and sorted. Months select only
+    physically monthly files (daily hydro before 2023, daily meteo from
+    2001); for yearly archives one file per year is returned. Years are not
+    limited by the current year; whether a file is published is decided by
+    the server.
+
+    Parameters
+    ----------
+    dataset : str
+        Full dataset key of a measurement dataset.
+    years : iterable of int
+        Archive years (hydrological or calendar per the dataset); the
+        minimum is 1951, or 1950 for ``pl.imgw.meteo_precip_daily``.
+    months : iterable of int or None, optional
+        Months 1-12 (for hydrological data 1 = November of the previous
+        year); None selects all months.
+
+    Returns
+    -------
+    tuple of ArchiveFile
+        Archives ordered by year, then by month or parameter.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the dataset key is unknown, the dataset has no yearly archives
+        (station lists, PMAXTP), or the years or months are empty, not
+        integers or out of range.
+    """
     descriptor = get_dataset(dataset)
     if descriptor.time_unit in ("station_list", "cell"):
         raise IMGWValidationError(f"Zbiór {dataset} nie udostępnia archiwów rocznych")
@@ -308,7 +431,16 @@ def archive_files(
 
 
 def station_source_files() -> tuple[ArchiveFile, ArchiveFile]:
-    """Return the two station CSV sources as archive descriptors."""
+    """
+    Return the two station CSV sources as archive descriptors.
+
+    Returns
+    -------
+    tuple of (ArchiveFile, ArchiveFile)
+        Hydrological (``lista_stacji_hydro.csv``) and meteorological
+        (``wykaz_stacji.csv``) station lists, with ``year=None`` and
+        ``year_type="none"``.
+    """
     hydro = get_dataset("pl.imgw.hydro_stations")
     meteo = get_dataset("pl.imgw.meteo_stations")
     return (

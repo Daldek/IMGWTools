@@ -43,10 +43,38 @@ def _gaps(missing: list[date], *, time_unit: str) -> tuple[tuple[date, date], ..
 def summarize_coverage(
     records: Iterable[NormalizedRecord], /, *, dataset: str
 ) -> list[StationCoverage]:
-    """Summarize each station/variable; absent archive months stay unknown.
+    """
+    Summarize the coverage of each station and variable of a series dataset.
 
-    Records identify observed months, not all possessed archive periods. The
-    series builder determines its ``periods`` from the actual archive files.
+    Records identify observed months, not all possessed archive periods, so
+    archive months absent from ``records`` stay unknown rather than counted as
+    gaps. The series builder determines its ``periods`` from the actual archive
+    files.
+
+    Parameters
+    ----------
+    records : Iterable[NormalizedRecord]
+        Normalized records of a single dataset.
+    dataset : str
+        Dataset key with a ``day``, ``month`` or ``half_year`` time unit, e.g.
+        ``"pl.imgw.hydro_daily"``.
+
+    Returns
+    -------
+    list of StationCoverage
+        One entry per station, variable (and half-year period for semi-annual
+        data), sorted by station: first and last date with a value, the number
+        of values and accumulated values, and the gaps of known missing units
+        between them.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the dataset is unknown or has no measurement series, or a record
+        belongs to another dataset.
+    IMGWDataError
+        If a record contains an unknown variable or conflicting values for the
+        same station, variable and date.
     """
     descriptor = get_dataset(dataset)
     if descriptor.time_unit not in ("day", "month", "half_year"):
