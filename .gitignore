@@ -29,3 +29,6 @@ htmlcov/
 *.db
 *.db-shm
 *.db-wal
+
+# Specs (never committed)
+docs/superpowers/
