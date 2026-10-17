@@ -381,7 +381,14 @@ def _rules_pmaxtp(options: Options) -> None:
 
 
 def _rules_project_add(options: Options) -> None:
-    options["options"] = _validate(options["command"], options["options"], task=True)
+    command = options["command"]
+    if "geometry" in options and command != "series select":
+        _fail("Wybór obszarem (geometry) dotyczy wyłącznie zadań series select")
+    # Przy wyborze obszarem stacje materializuje add_project_task z bieżącego katalogu stacji.
+    task = _validate(command, options["options"], task=True, area="geometry" in options)
+    if command == "series select" and "years" not in task:
+        _fail("Zadanie series select w projekcie wymaga jawnej opcji years")
+    options["options"] = task
 
 
 def _rules_fetch_hydro(options: Options) -> None:
@@ -406,7 +413,7 @@ _RULES: dict[str, Callable[[Options], None]] = {
 }
 
 
-def _validate(command: object, options: object, *, task: bool) -> Options:
+def _validate(command: object, options: object, *, task: bool, area: bool = False) -> Options:
     spec = _BY_NAME.get(command) if isinstance(command, str) else None
     if spec is None:
         return _fail(f"Nieznana komenda {command!r}; dostępne: {', '.join(_BY_NAME)}")
@@ -423,7 +430,7 @@ def _validate(command: object, options: object, *, task: bool) -> Options:
         value = options.get(option.name)
         normalized = None if value is None else _value(option, value)
         if normalized is None:
-            if option.required and not (task and option.name == "root"):
+            if option.required and not (task and (option.name == "root" or (area and option.name == "stations"))):
                 _fail(f"Brak wymaganej opcji {option.name} ({option.flag}) komendy {spec.name}")
             continue
         result[option.name] = normalized

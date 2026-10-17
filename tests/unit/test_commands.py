@@ -1,9 +1,8 @@
 """Command catalog §10: offline validation, stable formatting, write-free checks, one dispatcher."""
 
 import importlib
+import json
 import shlex
-import sys
-import types
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,8 +17,14 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
-from imgwtools.exceptions import IMGWValidationError
+from imgwtools.exceptions import IMGWProjectError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
+from imgwtools.project import (
+    add_project_task,
+    get_project_status,
+    open_project,
+    verify_project,
+)
 from imgwtools.store.types import Notice, SeriesSelection, StorePlan
 from imgwtools.testing import build_fixture_store
 
@@ -144,6 +149,11 @@ def test_validate_command_normalizes_values():
         "options": {"dataset": DAILY, "stations": STATION, "years": "2020-2021"},
     })
     assert added["options"] == {"dataset": DAILY, "stations": (STATION,), "years": (2020, 2021)}
+    by_area = validate_command("project add", options={
+        "project_dir": "p", "name": "t", "command": "series select", "geometry": "obszar.geojson",
+        "options": {"dataset": DAILY, "years": 2024},
+    })
+    assert by_area["options"] == {"dataset": DAILY, "years": (2024,)}
 
 
 @pytest.mark.parametrize(("command", "options"), [
@@ -175,6 +185,10 @@ def test_validate_command_normalizes_values():
                      "options": {"root": "/s", "dataset": DAILY, "stations": STATION}}),
     ("project add", {"project_dir": "p", "name": "t", "command": "series select",
                      "options": {"dataset": DAILY, "stations": STATION, "colour": "red"}}),
+    ("project add", {"project_dir": "p", "name": "t", "command": "series select",
+                     "options": {"dataset": DAILY, "stations": STATION}}),
+    ("project add", {"project_dir": "p", "name": "t", "command": "store info", "options": "{}",
+                     "geometry": "obszar.geojson"}),
     ("project download", {"project_dir": "p", "update": "latest"}),
     ("fetch hydro", {"year": "2024", "interval": "dobowe", "param": "Q"}),
     ("fetch hydro", {"year": "2024-2020"}),
@@ -205,7 +219,7 @@ def test_check_command_never_writes_or_downloads(offline, fixture_root, tmp_path
         ("pmaxtp read", {"root": fixture_root, "method": "POT", "ind_x": 1, "ind_y": 2}, "missing"),
         ("project init", {"project_dir": project, "store_dir": fixture_root}, "missing"),
         ("project add", {"project_dir": project, "name": "t", "command": "series select",
-                         "options": {"dataset": DAILY, "stations": STATION}}, "check_failed"),
+                         "options": {"dataset": DAILY, "stations": STATION, "years": 2024}}, "check_failed"),
         ("project status", {"project_dir": project}, "current"),
         ("fetch hydro", {"interval": "dobowe", "year": 2024, "output": tmp_path / "out"}, "missing"),
         ("fetch meteo", {"year": "1996-2001", "output": tmp_path / "out"}, "missing"),
@@ -247,9 +261,9 @@ RUN_CASES = [
      {"method": "POT", "ind_x": 1, "ind_y": 2, "version": None}),
     ("project init", {"project_dir": "p", "store_dir": "s"}, "init_project", (Path("p"),), {"store_dir": Path("s")}),
     ("project add", {"project_dir": "p", "name": "t", "command": "series select",
-                     "options": {"dataset": DAILY, "stations": STATION}}, "add_project_task", (Path("p"),),
-     {"name": "t", "command": "series select", "options": {"dataset": DAILY, "stations": (STATION,)},
-      "geometry": None}),
+                     "options": {"dataset": DAILY, "stations": STATION, "years": 2024}}, "add_project_task",
+     (Path("p"),), {"name": "t", "command": "series select",
+                    "options": {"dataset": DAILY, "stations": (STATION,), "years": (2024,)}, "geometry": None}),
     ("project remove", {"project_dir": "p", "name": "t"}, "remove_project_task", (Path("p"),), {"name": "t"}),
     ("project set-store", {"project_dir": "p", "store_dir": "s"}, "set_project_store", (Path("p"),),
      {"store_dir": Path("s")}),
@@ -293,11 +307,10 @@ def public_api(monkeypatch, tmp_path):
         recorder(store, name)
     recorder(store, "iter_store", iter(()))
     recorder(importlib.import_module("imgwtools.store.export"), "export_series")
-    project = types.ModuleType("imgwtools.project")
+    project = importlib.import_module("imgwtools.project")
     for name in ("init_project", "add_project_task", "remove_project_task", "set_project_store",
                  "download_project", "check_project", "get_project_status", "verify_project", "open_project"):
         recorder(project, name)
-    monkeypatch.setitem(sys.modules, "imgwtools.project", project)
     download = DownloadResult(b"PK", "https://example.invalid", None, None, 2)
     for name in ("download_hydro_data", "download_meteo_data"):
         recorder(fetch, name, download)
@@ -336,6 +349,29 @@ def test_series_select_validates_selection_against_current_series(offline, fixtu
     for options in ({"stations": "999999999"}, {"stations": STATION, "years": 1990}):
         with pytest.raises(IMGWValidationError):
             run_command("series select", options={"root": fixture_root, "dataset": DAILY, **options})
+
+
+def test_project_commands_run_on_a_real_manifest_like_the_python_api(offline, fixture_root, tmp_path):
+    project = tmp_path / "project"
+    created = run_command("project init", options={"project_dir": project, "store_dir": fixture_root})
+    assert created == open_project(project) and created.store_dir == fixture_root
+    assert check_command("project init", options={"project_dir": project, "store_dir": fixture_root}).actions[0].status == "current"
+    added = run_command("project add", options={
+        "project_dir": project, "name": "raba", "command": "series select",
+        "options": json.dumps({"dataset": DAILY, "stations": STATION, "years": "2024"}),
+    })
+    assert added.tasks[0].options == {"dataset": DAILY, "stations": [STATION], "variables": ["H", "Q", "T"],
+                                      "years": [2024], "year_type": "hydrological"}
+    with pytest.raises(IMGWProjectError, match="już istnieje"):
+        run_command("project add", options={"project_dir": project, "name": "raba", "command": "store info",
+                                            "options": "{}"})
+    add_project_task(project, name="info", command="store info", options={})
+    removed = run_command("project remove", options={"project_dir": project, "name": "info"})
+    assert [task.name for task in removed.tasks] == ["raba"]
+    assert run_command("project status", options={"project_dir": project}) == get_project_status(project)
+    assert run_command("project verify", options={"project_dir": project, "tasks": "raba"}) == verify_project(
+        project, tasks=["raba"])
+    assert run_command("project set-store", options={"project_dir": project, "store_dir": fixture_root}) == removed
 
 
 def test_series_export_reports_same_progress_and_notices_as_direct_call(offline, fixture_root, tmp_path):
