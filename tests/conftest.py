@@ -5,6 +5,20 @@ Shared pytest fixtures for IMGWTools tests.
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolated_data_dir(tmp_path_factory, monkeypatch):
+    """Point ``settings.data_dir`` at an empty directory for every test.
+
+    Local IMGW-PIB reference data (``python -m imgwtools.reference_data``) must not
+    leak into tests; a test that needs such a file writes it into this directory.
+    """
+    from imgwtools.config import settings
+
+    data_dir = tmp_path_factory.mktemp("data")
+    monkeypatch.setattr(settings, "data_dir", data_dir)
+    return data_dir
+
+
 # Sample PMAXTP API response
 @pytest.fixture
 def pmaxtp_api_response():

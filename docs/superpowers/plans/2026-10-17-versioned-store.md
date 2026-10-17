@@ -82,7 +82,7 @@
 ### Fala 2 — niezależne produkty tego samego writera
 
 **T11 — Wersjonowany katalog stacji.**  
-**Pliki:** utwórz `src/imgwtools/store/catalog.py`, `src/imgwtools/_data/poland_border_wgs84.geojson` (własny zasób polygonu z istniejącego `data/shp/polska.*`, dołączony do wheel), `tests/unit/test_store_catalog.py`.
+**Pliki:** utwórz `src/imgwtools/store/catalog.py`, `src/imgwtools/_data/poland_border_wgs84.geojson` (obrys Polski z Natural Earth 1:10m Admin 0, domena publiczna, dołączony do wheel; dane IMGW-PIB i `data/shp` nie trafiają do repozytorium, plik statyczny położeń czytany z `settings.data_dir`), `tests/unit/test_store_catalog.py`.
 **Zależy od:** T01, T04, T05, T07.  
 **Test akceptacji:** komplet kodów hydro+meteo także historycznych i `geometry:null`, CSV list zapisane najpierw jako archiwa; API > statyczny > user, niepoprawny punkt `0,0`/poza Polską z powodem, punkty przy granicy sprawdzone z polygonem bez pyproj/pyshp/GDAL w runtime, niepewność 2 vs 4 miejsca, prefiks kodu hydrograficznego; GeoJSON RFC 7946 i źródła/SHA w sidecarze; identyczna treść następnego dnia → `unchanged`; `check_catalog` nie pobiera treści i nie pisze; brak zależności od hydro-back.
 
