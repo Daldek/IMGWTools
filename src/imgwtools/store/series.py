@@ -19,7 +19,6 @@ from typing import Any, Literal
 
 from imgwtools._parsing import normalize_archive
 from imgwtools._version import __version__
-from imgwtools.coverage import summarize_coverage
 from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
@@ -473,6 +472,9 @@ def build_series(
                 records.append(record)
             if on_progress is not None:
                 on_progress(Progress(index, len(inputs), "archive", "parsed", f"Odczytano {item.version.relative}"))
+        # Lazy import: imgwtools.coverage imports store.types, which loads this package.
+        from imgwtools.coverage import summarize_coverage
+
         coverage = summarize_coverage(records, dataset=dataset)
     except (IMGWDataError, IMGWValidationError, OSError) as exc:
         if on_notice is not None:

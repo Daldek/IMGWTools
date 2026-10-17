@@ -38,7 +38,7 @@ from imgwtools.store.types import (
 )
 
 _MARKER = "imgw-store.json"
-_ATTRIBUTION_CODE = "warunki_licencji"
+_ATTRIBUTION_CODE = "license_terms"
 
 
 def _canonical(value: object) -> bytes:
