@@ -199,7 +199,7 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 ### Infrastruktura i jakość kodu
 
-- [ ] Fallbackowe listy stacji zaszyte w kodzie zamiast ładowane z CSV: `src/imgwtools/api/routes/hydro.py:38` oraz `src/imgwtools/api/routes/meteo.py:34` (oba `# TODO: Load from CSV file`).
+- [ ] Fallbackowe listy stacji zaszyte w kodzie zamiast ładowane z CSV: `src/imgwtools/api/routes/hydro.py:38` oraz `src/imgwtools/api/routes/meteo.py:31` (oba `# TODO: Load from CSV file`).
 
 ### Zrobione (archiwum)
 

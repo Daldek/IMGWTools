@@ -3,7 +3,9 @@
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
+from imgwtools.api.routes.download import _download_urls
 from imgwtools.api.schemas import (
+    DataTypeEnum,
     DownloadURLResponse,
     MeteoCurrentData,
     MeteoDownloadRequest,
@@ -11,12 +13,7 @@ from imgwtools.api.schemas import (
     Station,
     StationList,
 )
-from imgwtools.core.url_builder import (
-    MeteoInterval,
-    MeteoSubtype,
-    build_api_url,
-    build_meteo_url,
-)
+from imgwtools.core.url_builder import MeteoInterval, MeteoSubtype, build_api_url
 
 router = APIRouter()
 
@@ -151,91 +148,25 @@ async def generate_meteo_download_url(request: MeteoDownloadRequest):
 
     Zwraca bezposredni URL do serwera IMGW.
     """
-    try:
-        interval = MeteoInterval(request.interval.value)
-        subtype = MeteoSubtype(request.subtype.value)
-
-        result = build_meteo_url(
-            interval=interval,
-            subtype=subtype,
-            year=request.year,
-            month=request.month,
-        )
-
-        return DownloadURLResponse(
-            url=result.url,
-            filename=result.filename,
-            data_type=result.data_type,
-            interval=result.interval,
-            year=result.year,
-            month=result.month,
-        )
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return _download_urls(
+        data_type=DataTypeEnum.METEO, interval=request.interval.value,
+        subtype=request.subtype.value, years=(request.year,), month=request.month,
+        single=True,
+    )[0]
 
 
 @router.post("/download-urls", response_model=MultiDownloadURLResponse)
 async def generate_meteo_download_urls(
     interval: MeteoInterval,
     subtype: MeteoSubtype,
-    start_year: int = Query(..., ge=2001, le=2024),
-    end_year: int = Query(..., ge=2001, le=2024),
+    start_year: int = Query(..., ge=1950, le=9999),
+    end_year: int = Query(..., ge=1950, le=9999),
 ):
-    """
-    Generuj wiele linkow do pobrania danych meteorologicznych.
-
-    Zwraca liste bezposrednich URL-ow do serwera IMGW dla zakresu lat.
-    """
+    """Generate all direct archive links in the requested year range."""
     if start_year > end_year:
-        raise HTTPException(status_code=400, detail="start_year must be <= end_year")
-
-    urls = []
-
-    for year in range(start_year, end_year + 1):
-        try:
-            if year <= 2000:
-                # 1951-2000: yearly files (no monthly split)
-                result = build_meteo_url(interval=interval, subtype=subtype, year=year)
-                urls.append(
-                    DownloadURLResponse(
-                        url=result.url,
-                        filename=result.filename,
-                        data_type=result.data_type,
-                        interval=result.interval,
-                        year=result.year,
-                        month=result.month,
-                    )
-                )
-            elif interval in [MeteoInterval.DAILY, MeteoInterval.HOURLY]:
-                # 2001+: generate for each month
-                for month in range(1, 13):
-                    result = build_meteo_url(
-                        interval=interval, subtype=subtype, year=year, month=month
-                    )
-                    urls.append(
-                        DownloadURLResponse(
-                            url=result.url,
-                            filename=result.filename,
-                            data_type=result.data_type,
-                            interval=result.interval,
-                            year=result.year,
-                            month=result.month,
-                        )
-                    )
-            else:
-                result = build_meteo_url(interval=interval, subtype=subtype, year=year)
-                urls.append(
-                    DownloadURLResponse(
-                        url=result.url,
-                        filename=result.filename,
-                        data_type=result.data_type,
-                        interval=result.interval,
-                        year=result.year,
-                        month=result.month,
-                    )
-                )
-        except ValueError:
-            continue  # Skip invalid combinations
-
+        raise HTTPException(status_code=400, detail="Rok początkowy nie może przekraczać końcowego")
+    urls = _download_urls(
+        data_type=DataTypeEnum.METEO, interval=interval.value,
+        subtype=subtype.value, years=range(start_year, end_year + 1),
+    )
     return MultiDownloadURLResponse(urls=urls, count=len(urls))

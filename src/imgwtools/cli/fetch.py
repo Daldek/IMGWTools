@@ -1,70 +1,83 @@
 """Fetch command for downloading IMGW data."""
 
-from pathlib import Path
+import os
+import uuid
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
 
 import httpx
 import typer
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from imgwtools.core.url_builder import (
-    HydroInterval,
-    HydroParam,
-    MeteoInterval,
-    MeteoSubtype,
+    IMGW_PUBLIC_DATA_URL,
     PMaXTPMethod,
     build_api_url,
-    build_hydro_url,
-    build_meteo_url,
     build_pmaxtp_url,
 )
+from imgwtools.datasets import ArchiveFile, archive_files
+from imgwtools.exceptions import IMGWError, IMGWValidationError
+from imgwtools.fetch import DownloadResult, download_hydro_data, download_meteo_data
 
 app = typer.Typer(help="Pobieranie danych z IMGW")
 console = Console()
 
 
-def download_file(url: str, output_path: Path, filename: str) -> bool:
-    """Download a file from URL to output path."""
-    output_file = output_path / filename
+def _years(text: str) -> range:
+    try:
+        bounds = text.split("-")
+        if len(bounds) not in (1, 2):
+            raise ValueError
+        start, end = int(bounds[0]), int(bounds[-1])
+        if end < start:
+            raise ValueError
+        return range(start, end + 1)
+    except ValueError as exc:
+        raise IMGWValidationError(f"Nieprawidłowy zakres lat: {text}") from exc
 
-    if output_file.exists():
-        console.print(f"[yellow]Plik {filename} juz istnieje, pomijam[/yellow]")
-        return False
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        console=console,
-    ) as progress:
-        task = progress.add_task(f"Pobieranie {filename}...", total=100)
+def _server_path(url: str) -> str:
+    """Resolve legacy archive paths from the successful download URL."""
+    parsed = urlsplit(url)
+    base = urlsplit(IMGW_PUBLIC_DATA_URL)
+    if (parsed.scheme, parsed.netloc) != (base.scheme, base.netloc):
+        raise IMGWValidationError(f"Nieznany serwer IMGW: {url}")
+    prefix = base.path.rstrip("/") + "/"
+    path = unquote(parsed.path)
+    if not path.startswith(prefix):
+        raise IMGWValidationError(f"Nieznana ścieżka IMGW: {url}")
+    return path[len(prefix):]
 
-        try:
-            with httpx.stream(
-                "GET", url, timeout=60.0, follow_redirects=True
-            ) as response:
-                response.raise_for_status()
-                total = int(response.headers.get("content-length", 0))
 
-                with open(output_file, "wb") as f:
-                    downloaded = 0
-                    for chunk in response.iter_bytes(chunk_size=8192):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            progress.update(task, completed=(downloaded / total) * 100)
+def _save_archive(output: Path, server_path: str, result: DownloadResult) -> Path:
+    """Write a validated download to a unique part file, then publish it."""
+    relative = PurePosixPath(server_path)
+    if (
+        not server_path or relative.is_absolute()
+        or any(part in (".", "..", "") for part in server_path.split("/"))
+        or "\\" in server_path or relative.suffix != ".zip"
+    ):
+        raise IMGWValidationError(f"Niebezpieczna ścieżka archiwum: {server_path}")
+    destination = output.joinpath(*relative.parts)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    part = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.part")
+    try:
+        with part.open("xb") as stream:
+            stream.write(result.data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(part, destination)
+    finally:
+        part.unlink(missing_ok=True)
+    console.print(f"[green]Pobrano: {destination}[/green]")
+    return destination
 
-            progress.update(task, completed=100)
-            console.print(f"[green]Pobrano: {output_file}[/green]")
-            return True
 
-        except httpx.HTTPStatusError as e:
-            console.print(f"[red]Blad HTTP {e.response.status_code}: {url}[/red]")
-            return False
-        except httpx.HTTPError as e:
-            console.print(f"[red]Blad polaczenia: {e}[/red]")
-            return False
+def _download_hydro(archive: ArchiveFile, interval: str, output: Path) -> None:
+    assert archive.year is not None
+    result = download_hydro_data(interval, archive.year, archive.month, archive.param)
+    _save_archive(output, archive.server_path, result)
+
 
 
 @app.command("hydro")
@@ -107,76 +120,31 @@ def fetch_hydro(
         imgw fetch hydro --interval dobowe --year 2023 --month 1
         imgw fetch hydro --interval polroczne_i_roczne --year 2020-2023 --param Q
     """
-    # Parse year range
-    if "-" in year:
-        start_year, end_year = map(int, year.split("-"))
-    else:
-        start_year = end_year = int(year)
-
-    # Create output directory
-    output.mkdir(parents=True, exist_ok=True)
-
-    # Convert parameters
-    try:
-        hydro_interval = HydroInterval(interval)
-    except ValueError:
-        console.print(f"[red]Nieprawidlowy interwal: {interval}[/red]")
+    dataset = {
+        "dobowe": "pl.imgw.hydro_daily",
+        "miesieczne": "pl.imgw.hydro_monthly",
+        "polroczne_i_roczne": "pl.imgw.hydro_semiannual",
+    }.get(interval)
+    if dataset is None or (param is not None and (interval != "polroczne_i_roczne" or param not in ("H", "Q", "T"))):
+        console.print("[red]Nieprawidłowy interwał lub parametr hydrologiczny[/red]")
         raise typer.Exit(1)
-
-    hydro_param = HydroParam(param) if param else None
-
-    console.print("[bold]Pobieranie danych hydrologicznych[/bold]")
-    console.print(f"Interwal: {interval}")
-    console.print(f"Lata: {start_year}-{end_year}")
-    console.print(f"Katalog: {output}")
-    console.print()
-
+    try:
+        files = archive_files(dataset, years=_years(year), months=(month,) if month is not None else None)
+    except IMGWValidationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    if param is not None:
+        files = tuple(file for file in files if file.param == param)
     downloaded = 0
     failed = 0
-
-    for y in range(start_year, end_year + 1):
-        if hydro_interval == HydroInterval.DAILY:
-            if y >= 2023:
-                # From 2023: single file per year
-                try:
-                    result = build_hydro_url(hydro_interval, y)
-                    if download_file(result.url, output, result.filename):
-                        downloaded += 1
-                except ValueError as e:
-                    console.print(f"[yellow]Pomijam {y}: {e}[/yellow]")
-                    failed += 1
-            else:
-                # Before 2023: monthly files
-                months = [month] if month else range(1, 14)  # 13 = phenomena
-                for m in months:
-                    try:
-                        result = build_hydro_url(hydro_interval, y, m, hydro_param)
-                        if download_file(result.url, output, result.filename):
-                            downloaded += 1
-                    except ValueError as e:
-                        console.print(f"[yellow]Pomijam {y}/{m}: {e}[/yellow]")
-                        failed += 1
-        else:
-            if hydro_interval == HydroInterval.SEMI_ANNUAL and not hydro_param:
-                # Download all parameters
-                for p in [HydroParam.FLOW, HydroParam.DEPTH, HydroParam.TEMPERATURE]:
-                    try:
-                        result = build_hydro_url(hydro_interval, y, param=p)
-                        if download_file(result.url, output, result.filename):
-                            downloaded += 1
-                    except ValueError:
-                        failed += 1
-            else:
-                try:
-                    result = build_hydro_url(hydro_interval, y, param=hydro_param)
-                    if download_file(result.url, output, result.filename):
-                        downloaded += 1
-                except ValueError as e:
-                    console.print(f"[yellow]Pomijam {y}: {e}[/yellow]")
-                    failed += 1
-
-    console.print()
-    console.print(f"[bold green]Pobrano: {downloaded} plikow[/bold green]")
+    for archive in files:
+        try:
+            _download_hydro(archive, interval, output)
+            downloaded += 1
+        except (IMGWError, ValueError, OSError) as exc:
+            console.print(f"[red]Nie pobrano {archive.server_path}: {exc}[/red]")
+            failed += 1
+    console.print(f"[bold green]Pobrano: {downloaded} plików[/bold green]")
     if failed:
         console.print(f"[yellow]Niepowodzenia: {failed}[/yellow]")
 
@@ -221,64 +189,46 @@ def fetch_meteo(
         imgw fetch meteo --interval dobowe --subtype klimat --year 2023 --month 1
         imgw fetch meteo --interval miesieczne --subtype synop --year 2020-2023
     """
-    # Parse year range
-    if "-" in year:
-        start_year, end_year = map(int, year.split("-"))
-    else:
-        start_year = end_year = int(year)
-
-    # Create output directory
-    output.mkdir(parents=True, exist_ok=True)
-
-    # Convert parameters
-    try:
-        meteo_interval = MeteoInterval(interval)
-        meteo_subtype = MeteoSubtype(subtype)
-    except ValueError as e:
-        console.print(f"[red]Nieprawidlowy parametr: {e}[/red]")
+    if interval not in ("dobowe", "miesieczne", "terminowe") or subtype not in ("klimat", "opad", "synop"):
+        console.print("[red]Nieprawidłowy interwał lub podtyp meteorologiczny[/red]")
         raise typer.Exit(1)
-
-    console.print("[bold]Pobieranie danych meteorologicznych[/bold]")
-    console.print(f"Interwal: {interval}")
-    console.print(f"Podtyp: {subtype}")
-    console.print(f"Lata: {start_year}-{end_year}")
-    console.print(f"Katalog: {output}")
-    console.print()
-
+    if (interval == "terminowe" and subtype == "opad") or (
+        interval in ("dobowe", "terminowe") and subtype == "synop"
+    ):
+        console.print("[red]Ten rodzaj archiwum nie jest publikowany jako plik zbiorczy IMGW[/red]")
+        raise typer.Exit(1)
+    try:
+        years = _years(year)
+        if interval == "dobowe":
+            key = f"pl.imgw.meteo_{'climate' if subtype == 'klimat' else 'precip'}_daily"
+            files = archive_files(key, years=years, months=(month,) if month is not None else None)
+            jobs = ((archive.year, archive.month, archive.server_path) for archive in files)
+        else:
+            if month is not None and not 1 <= month <= 12:
+                raise IMGWValidationError(f"Nieprawidłowy miesiąc: {month}")
+            jobs = (
+                (y, m, None)
+                for y in years
+                for m in (
+                    range(1, 13) if interval == "terminowe" and y >= 2001 and month is None
+                    else (month,) if interval == "terminowe" and y >= 2001
+                    else (None,)
+                )
+            )
+    except IMGWValidationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
     downloaded = 0
     failed = 0
-
-    for y in range(start_year, end_year + 1):
-        if y <= 2000:
-            # 1951-2000: yearly files (no monthly split)
-            try:
-                result = build_meteo_url(meteo_interval, meteo_subtype, y)
-                if download_file(result.url, output, result.filename):
-                    downloaded += 1
-            except ValueError as e:
-                console.print(f"[yellow]Pomijam {y}: {e}[/yellow]")
-                failed += 1
-        elif meteo_interval in [MeteoInterval.DAILY, MeteoInterval.HOURLY]:
-            # 2001+: monthly files
-            months = [month] if month else range(1, 13)
-            for m in months:
-                try:
-                    result = build_meteo_url(meteo_interval, meteo_subtype, y, m)
-                    if download_file(result.url, output, result.filename):
-                        downloaded += 1
-                except ValueError:
-                    failed += 1
-        else:
-            try:
-                result = build_meteo_url(meteo_interval, meteo_subtype, y)
-                if download_file(result.url, output, result.filename):
-                    downloaded += 1
-            except ValueError as e:
-                console.print(f"[yellow]Pomijam {y}: {e}[/yellow]")
-                failed += 1
-
-    console.print()
-    console.print(f"[bold green]Pobrano: {downloaded} plikow[/bold green]")
+    for y, m, server_path in jobs:
+        try:
+            result = download_meteo_data(interval, subtype, y, m)
+            _save_archive(output, server_path or _server_path(result.url), result)
+            downloaded += 1
+        except (IMGWError, ValueError, OSError) as exc:
+            console.print(f"[red]Nie pobrano danych {y}/{m}: {exc}[/red]")
+            failed += 1
+    console.print(f"[bold green]Pobrano: {downloaded} plików[/bold green]")
     if failed:
         console.print(f"[yellow]Niepowodzenia: {failed}[/yellow]")
 
