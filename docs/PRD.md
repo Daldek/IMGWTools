@@ -204,10 +204,4 @@ The following are explicitly out of scope for this project:
 
 ## 11. Future Enhancements (Backlog)
 
-1. **API Key Enforcement** - Middleware to validate X-API-Key header
-2. **Per-Key Rate Limiting** - Track and limit requests per API key
-3. **GeoJSON Export** - Return data in GIS-compatible format
-4. **Data Charts** - Visualize time series data
-5. **CSV Direct Export** - Export data directly as CSV
-6. **Request Logging** - Track API usage for analytics
-7. **Caching Layer** - Redis cache for frequently accessed data
+The backlog is maintained exclusively in `docs/PROGRESS.md` (section "Backlog") — the single source of truth for pending work.
