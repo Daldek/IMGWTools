@@ -1,0 +1,42 @@
+{
+  "recorded_at": "2026-10-17T12:00:00Z",
+  "base_url": "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne",
+  "interactions": [
+    {
+      "case": "hydro_stations_get",
+      "method": "GET",
+      "path": "dane_hydrologiczne/lista_stacji_hydro.csv",
+      "status": 200,
+      "headers": {
+        "ETag": "\"hydro-list-v1\"",
+        "Last-Modified": "Sat, 17 Oct 2026 12:00:00 GMT",
+        "Content-Length": "118"
+      },
+      "archive": "dane_hydrologiczne/lista_stacji_hydro.csv"
+    },
+    {
+      "case": "meteo_stations_get",
+      "method": "GET",
+      "path": "dane_meteorologiczne/wykaz_stacji.csv",
+      "status": 200,
+      "headers": {
+        "ETag": "\"meteo-list-v1\"",
+        "Last-Modified": "Sat, 17 Oct 2026 12:00:00 GMT",
+        "Content-Length": "56"
+      },
+      "archive": "dane_meteorologiczne/wykaz_stacji.csv"
+    },
+    {
+      "case": "meteo_1995_get",
+      "method": "GET",
+      "path": "dane_meteorologiczne/dobowe/opad/1991_1995/1995_o.zip",
+      "status": 200,
+      "headers": {
+        "ETag": "\"meteo-1995-v1\"",
+        "Last-Modified": "Sun, 18 Oct 2026 12:00:00 GMT",
+        "Content-Length": "171"
+      },
+      "archive": "dane_meteorologiczne/dobowe/opad/1991_1995/1995_o.zip"
+    }
+  ]
+}
