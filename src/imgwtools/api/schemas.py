@@ -6,14 +6,14 @@ from pydantic import BaseModel, Field
 
 
 # Enums for API
-class DataTypeEnum(str, Enum):
+class DataTypeEnum(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Type of IMGW dataset exposed by the API."""
 
     HYDRO = "hydro"
     METEO = "meteo"
 
 
-class HydroIntervalEnum(str, Enum):
+class HydroIntervalEnum(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Interval for hydrological data."""
 
     DAILY = "dobowe"
@@ -21,7 +21,7 @@ class HydroIntervalEnum(str, Enum):
     SEMI_ANNUAL = "polroczne_i_roczne"
 
 
-class MeteoIntervalEnum(str, Enum):
+class MeteoIntervalEnum(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Interval for meteorological data."""
 
     DAILY = "dobowe"
@@ -29,7 +29,7 @@ class MeteoIntervalEnum(str, Enum):
     HOURLY = "terminowe"
 
 
-class MeteoSubtypeEnum(str, Enum):
+class MeteoSubtypeEnum(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Subtype of meteorological data."""
 
     CLIMATE = "klimat"
@@ -37,7 +37,7 @@ class MeteoSubtypeEnum(str, Enum):
     SYNOP = "synop"
 
 
-class HydroParamEnum(str, Enum):
+class HydroParamEnum(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Parameter for semi-annual/annual hydrological data."""
 
     TEMPERATURE = "T"
@@ -45,7 +45,7 @@ class HydroParamEnum(str, Enum):
     DEPTH = "H"
 
 
-class PMaXTPMethodEnum(str, Enum):
+class PMaXTPMethodEnum(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
     """Method for PMAXTP data."""
 
     POT = "POT"
@@ -107,7 +107,7 @@ class MeteoDownloadRequest(BaseModel):
 
     interval: MeteoIntervalEnum
     subtype: MeteoSubtypeEnum
-    year: int = Field(..., ge=2001, le=2024)
+    year: int = Field(..., ge=1950)
     month: int | None = Field(default=None, ge=1, le=12)
 
 
