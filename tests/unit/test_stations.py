@@ -37,6 +37,13 @@ class TestParseHydroStationsCsv:
 
         assert stations[0].river == "Wisła"
 
+
+    def test_preserves_hydrographic_code_and_river_order(self):
+        stations = _parse_hydro_stations_csv('149190310,Raba,Raba (2138),1\n149190311,Most,Odra (0012),7')
+        assert [(station.hydrographic_code, station.river_order) for station in stations] == [
+            ("2138", 1), ("0012", 7)
+        ]
+        assert stations[0].river == "Raba"
     def test_parse_empty_river(self):
         """Test parsing station without river."""
         csv = '"123","Station Name",""'
@@ -85,6 +92,12 @@ class TestParseMapStationsResponse:
         assert stations[0].latitude == 50.4333
         assert stations[0].longitude == 16.6500
         assert stations[0].water_state == "low"
+
+    def test_map_reads_real_rzeka_field(self):
+        stations = _parse_map_stations_response(
+            [{"id": "149190310", "n": "Raba", "rzeka": "Raba", "riverName": "wrong"}]
+        )
+        assert stations[0].river == "Raba"
 
     def test_parse_alarm_station(self, map_stations_api_response):
         """Test parsing station with alarm state."""
