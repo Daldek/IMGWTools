@@ -63,7 +63,9 @@ Method = Literal["POT", "AMP"]
 
 def _validate_method(method: object) -> Method:
     if method not in _METHODS:
-        raise IMGWValidationError(f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT lub AMP")
+        raise IMGWValidationError(
+            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT lub AMP"
+        )
     return method  # type: ignore[return-value]
 
 
@@ -72,13 +74,21 @@ def _validate_point(latitude: float, longitude: float) -> None:
         ("Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
         ("Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
     ):
-        if isinstance(value, bool) or not isinstance(value, int | float) or not low <= value <= high:
-            raise IMGWValidationError(f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not low <= value <= high
+        ):
+            raise IMGWValidationError(
+                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})"
+            )
 
 
 def _validate_index(name: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise IMGWValidationError(f"Indeks komórki {name} musi być nieujemną liczbą całkowitą: {value!r}")
+        raise IMGWValidationError(
+            f"Indeks komórki {name} musi być nieujemną liczbą całkowitą: {value!r}"
+        )
     return value
 
 
@@ -104,7 +114,9 @@ def _table(name: str, value: object) -> dict[str, dict[str, float]]:
         values: dict[str, float] = {}
         for probability, number in row.items():
             if isinstance(number, bool) or not isinstance(number, int | float):
-                raise IMGWDataError(f"Odpowiedź PMAXTP: wartość {name}[{duration}][{probability}] nie jest liczbą")
+                raise IMGWDataError(
+                    f"Odpowiedź PMAXTP: wartość {name}[{duration}][{probability}] nie jest liczbą"
+                )
             values[str(probability)] = number
         table[str(duration)] = values
     return table
@@ -124,22 +136,34 @@ def _cell_document(payload: object, method: Method) -> dict[str, Any]:
         ind_x = _validate_index("indX", point["indX"])
         ind_y = _validate_index("indY", point["indY"])
     except (KeyError, IMGWValidationError) as exc:
-        raise IMGWDataError("Odpowiedź PMAXTP bez poprawnych indeksów komórki indX/indY") from exc
+        raise IMGWDataError(
+            "Odpowiedź PMAXTP bez poprawnych indeksów komórki indX/indY"
+        ) from exc
     center = {"lon": point.get("dataLon"), "lat": point.get("dataLat")}
-    if any(isinstance(v, bool) or not isinstance(v, int | float) for v in center.values()):
+    if any(
+        isinstance(v, bool) or not isinstance(v, int | float) for v in center.values()
+    ):
         raise IMGWDataError("Odpowiedź PMAXTP bez środka komórki dataLon/dataLat")
     if not isinstance(data, Mapping) or not data:
         raise IMGWDataError("Odpowiedź PMAXTP bez danych (puste data)")
     return {
-        "schema": CELL_SCHEMA, "method": method, "ind_x": ind_x, "ind_y": ind_y,
-        "center": center, "data": {name: _table(name, data.get(name)) for name in _TABLES},
+        "schema": CELL_SCHEMA,
+        "method": method,
+        "ind_x": ind_x,
+        "ind_y": ind_y,
+        "center": center,
+        "data": {name: _table(name, data.get(name)) for name in _TABLES},
     }
 
 
-def _result(document: Mapping[str, Any], *, latitude: float, longitude: float) -> PMaXTPResult:
+def _result(
+    document: Mapping[str, Any], *, latitude: float, longitude: float
+) -> PMaXTPResult:
     data = document["data"]
     return PMaXTPResult(
-        method=document["method"], latitude=latitude, longitude=longitude,
+        method=document["method"],
+        latitude=latitude,
+        longitude=longitude,
         data=PMaXTPData(ks=data["ks"], sg=data["sg"], rb=data["rb"]),
     )
 
@@ -150,15 +174,24 @@ def _license() -> dict[str, str]:
     return license_
 
 
-def _current_cell(root: Path, method: Method, ind_x: int, ind_y: int) -> tuple[Path, dict[str, Any]] | None:
+def _current_cell(
+    root: Path, method: Method, ind_x: int, ind_y: int
+) -> tuple[Path, dict[str, Any]] | None:
     slot = _validate_slot(root, _slot(method, ind_x, ind_y))
     return _newest_downloaded(_existing(slot, CELL_FILE))
 
 
 def check_pmaxtp(
-    root: RootArg, /, *, method: Literal["POT", "AMP"], latitude: float, longitude: float,
-    ind_x: int | None = None, ind_y: int | None = None,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    root: RootArg,
+    /,
+    *,
+    method: Literal["POT", "AMP"],
+    latitude: float,
+    longitude: float,
+    ind_x: int | None = None,
+    ind_y: int | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
     """Describe the planned PMAXTP sync without any HTTP request or write.
@@ -173,7 +206,9 @@ def check_pmaxtp(
     now = datetime.now(UTC)
     if _cancelled(cancel):
         action = PlanAction("pmaxtp sync", "unverifiable", "anulowano")
-        return StorePlan("imgw-plan/1", handle.root, now, (), {}, (action,), cancelled=True)
+        return StorePlan(
+            "imgw-plan/1", handle.root, now, (), {}, (action,), cancelled=True
+        )
     if cell is None:
         detail = (
             f"{method} {latitude:.4f},{longitude:.4f}: komórka nieznana bez pobrania — "
@@ -182,7 +217,8 @@ def check_pmaxtp(
     else:
         current = _current_cell(handle.root, method, *cell)
         where = (
-            f"lokalna wersja {current[0].relative_to(handle.root).as_posix()}" if current
+            f"lokalna wersja {current[0].relative_to(handle.root).as_posix()}"
+            if current
             else "brak lokalnej wersji"
         )
         detail = (
@@ -194,15 +230,26 @@ def check_pmaxtp(
     if on_progress is not None:
         on_progress(Progress(1, 1, "cell", "unverifiable", detail))
     return StorePlan(
-        schema="imgw-plan/1", root=handle.root, checked_at=now, items=(), series_state={},
+        schema="imgw-plan/1",
+        root=handle.root,
+        checked_at=now,
+        items=(),
+        series_state={},
         actions=(PlanAction("pmaxtp sync", "unverifiable", detail),),
     )
 
 
 def sync_pmaxtp(
-    root: RootArg, /, *, method: Literal["POT", "AMP"], latitude: float, longitude: float,
-    ind_x: int | None = None, ind_y: int | None = None,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    root: RootArg,
+    /,
+    *,
+    method: Literal["POT", "AMP"],
+    latitude: float,
+    longitude: float,
+    ind_x: int | None = None,
+    ind_y: int | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> PMaXTPStoreResult:
     """Fetch PMAXTP once and store it under the cell indices returned by the API.
@@ -237,37 +284,80 @@ def sync_pmaxtp(
     current = _current_cell(handle.root, method, *cell)
     if current is not None and current[1]["sha256"] == sha:
         if on_progress is not None:
-            on_progress(Progress(1, 1, "cell", "unchanged", f"Komórka PMAXTP {cell[0]}_{cell[1]} bez zmian"))
+            on_progress(
+                Progress(
+                    1,
+                    1,
+                    "cell",
+                    "unchanged",
+                    f"Komórka PMAXTP {cell[0]}_{cell[1]} bez zmian",
+                )
+            )
         return PMaXTPStoreResult("unchanged", current[0], cell[0], cell[1], result)
     now = datetime.now(UTC)
     label = now.date().isoformat()
     meta = {
-        "schema": "imgw-meta/1", "producer": "imgwtools", "producer_version": __version__,
-        "dataset": PMAXTP_DATASET, "country": "PL", "provider": "IMGW-PIB",
+        "schema": "imgw-meta/1",
+        "producer": "imgwtools",
+        "producer_version": __version__,
+        "dataset": PMAXTP_DATASET,
+        "country": "PL",
+        "provider": "IMGW-PIB",
         "request": {
-            "method": method, "ind_x": cell[0], "ind_y": cell[1],
-            "latitude": latitude, "longitude": longitude, "url": str(response.url),
+            "method": method,
+            "ind_x": cell[0],
+            "ind_y": cell[1],
+            "latitude": latitude,
+            "longitude": longitude,
+            "url": str(response.url),
         },
-        "license": _license(), "downloaded_at": _utc(now), "sha256": sha, "size_bytes": len(data),
-        "extra": {"version": {"label": label, "label_source": "downloaded"}, "derived": "pmaxtp"},
+        "license": _license(),
+        "downloaded_at": _utc(now),
+        "sha256": sha,
+        "size_bytes": len(data),
+        "extra": {
+            "version": {"label": label, "label_source": "downloaded"},
+            "derived": "pmaxtp",
+        },
     }
     path, created = _publish_version(
-        handle.root, slot=_slot(method, *cell), name=CELL_FILE, data=data, meta=meta, label=label,
+        handle.root,
+        slot=_slot(method, *cell),
+        name=CELL_FILE,
+        data=data,
+        meta=meta,
+        label=label,
     )
     status: Literal["created", "unchanged"] = "created" if created else "unchanged"
     if on_progress is not None:
-        on_progress(Progress(1, 1, "cell", status, f"Komórka PMAXTP {cell[0]}_{cell[1]}: {path.parent.name}"))
+        on_progress(
+            Progress(
+                1,
+                1,
+                "cell",
+                status,
+                f"Komórka PMAXTP {cell[0]}_{cell[1]}: {path.parent.name}",
+            )
+        )
     if created and on_notice is not None:
-        on_notice(Notice(
-            "info", LICENSE_NOTICE,
-            f"{_license()['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-            "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
-        ))
+        on_notice(
+            Notice(
+                "info",
+                LICENSE_NOTICE,
+                f"{_license()['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
+                "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+            )
+        )
     return PMaXTPStoreResult(status, path, cell[0], cell[1], result)
 
 
 def read_pmaxtp(
-    root: RootArg, /, *, method: Literal["POT", "AMP"], ind_x: int, ind_y: int,
+    root: RootArg,
+    /,
+    *,
+    method: Literal["POT", "AMP"],
+    ind_x: int,
+    ind_y: int,
     version: PathArg | None = None,
 ) -> PMaXTPResult:
     """Read a stored cell offline; ``version`` selects a version directory or its ``cell.json``.
@@ -282,14 +372,18 @@ def read_pmaxtp(
     if version is None:
         current = _current_cell(handle.root, method, *cell)
         if current is None:
-            raise IMGWStoreError(f"Brak zapisanej komórki PMAXTP {method} {cell[0]}_{cell[1]}")
+            raise IMGWStoreError(
+                f"Brak zapisanej komórki PMAXTP {method} {cell[0]}_{cell[1]}"
+            )
         path = current[0]
     else:
         given = Path(version)
         given = given if given.is_absolute() else handle.root / given
         given = given / CELL_FILE if given.name != CELL_FILE else given
         if given.parent.parent != slot:
-            raise IMGWValidationError(f"Wersja {version} nie należy do komórki {method} {cell[0]}_{cell[1]}")
+            raise IMGWValidationError(
+                f"Wersja {version} nie należy do komórki {method} {cell[0]}_{cell[1]}"
+            )
         matches = [entry for entry in _existing(slot, CELL_FILE) if entry[0] == given]
         if not matches:
             raise IMGWStoreError(f"Brak wersji komórki PMAXTP: {version}")
@@ -298,9 +392,14 @@ def read_pmaxtp(
         document = json.loads(path.read_text(encoding="utf-8"))
         if document.get("schema") != CELL_SCHEMA:
             raise ValueError(f"nieobsługiwany schemat {document.get('schema')!r}")
-        if (document["method"], document["ind_x"], document["ind_y"]) != (method, *cell):
+        if (document["method"], document["ind_x"], document["ind_y"]) != (
+            method,
+            *cell,
+        ):
             raise ValueError("metoda lub indeksy niezgodne ze ścieżką")
         center = document["center"]
-        return _result(document, latitude=float(center["lat"]), longitude=float(center["lon"]))
+        return _result(
+            document, latitude=float(center["lat"]), longitude=float(center["lon"])
+        )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise IMGWDataError(f"Uszkodzona komórka PMAXTP {path}: {exc}") from exc

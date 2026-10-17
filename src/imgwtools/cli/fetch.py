@@ -46,16 +46,18 @@ def _server_path(url: str) -> str:
     path = unquote(parsed.path)
     if not path.startswith(prefix):
         raise IMGWValidationError(f"Nieznana ścieżka IMGW: {url}")
-    return path[len(prefix):]
+    return path[len(prefix) :]
 
 
 def _save_archive(output: Path, server_path: str, result: DownloadResult) -> Path:
     """Write a validated download to a unique part file, then publish it."""
     relative = PurePosixPath(server_path)
     if (
-        not server_path or relative.is_absolute()
+        not server_path
+        or relative.is_absolute()
         or any(part in (".", "..", "") for part in server_path.split("/"))
-        or "\\" in server_path or relative.suffix != ".zip"
+        or "\\" in server_path
+        or relative.suffix != ".zip"
     ):
         raise IMGWValidationError(f"Niebezpieczna ścieżka archiwum: {server_path}")
     destination = output.joinpath(*relative.parts)
@@ -77,7 +79,6 @@ def _download_hydro(archive: ArchiveFile, interval: str, output: Path) -> None:
     assert archive.year is not None
     result = download_hydro_data(interval, archive.year, archive.month, archive.param)
     _save_archive(output, archive.server_path, result)
-
 
 
 @app.command("hydro")
@@ -125,11 +126,16 @@ def fetch_hydro(
         "miesieczne": "pl.imgw.hydro_monthly",
         "polroczne_i_roczne": "pl.imgw.hydro_semiannual",
     }.get(interval)
-    if dataset is None or (param is not None and (interval != "polroczne_i_roczne" or param not in ("H", "Q", "T"))):
+    if dataset is None or (
+        param is not None
+        and (interval != "polroczne_i_roczne" or param not in ("H", "Q", "T"))
+    ):
         console.print("[red]Nieprawidłowy interwał lub parametr hydrologiczny[/red]")
         raise typer.Exit(1)
     try:
-        files = archive_files(dataset, years=_years(year), months=(month,) if month is not None else None)
+        files = archive_files(
+            dataset, years=_years(year), months=(month,) if month is not None else None
+        )
     except IMGWValidationError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -189,20 +195,32 @@ def fetch_meteo(
         imgw fetch meteo --interval dobowe --subtype klimat --year 2023 --month 1
         imgw fetch meteo --interval miesieczne --subtype synop --year 2020-2023
     """
-    if interval not in ("dobowe", "miesieczne", "terminowe") or subtype not in ("klimat", "opad", "synop"):
+    if interval not in ("dobowe", "miesieczne", "terminowe") or subtype not in (
+        "klimat",
+        "opad",
+        "synop",
+    ):
         console.print("[red]Nieprawidłowy interwał lub podtyp meteorologiczny[/red]")
         raise typer.Exit(1)
     if (interval == "terminowe" and subtype == "opad") or (
         interval in ("dobowe", "terminowe") and subtype == "synop"
     ):
-        console.print("[red]Ten rodzaj archiwum nie jest publikowany jako plik zbiorczy IMGW[/red]")
+        console.print(
+            "[red]Ten rodzaj archiwum nie jest publikowany jako plik zbiorczy IMGW[/red]"
+        )
         raise typer.Exit(1)
     try:
         years = _years(year)
         if interval == "dobowe":
-            key = f"pl.imgw.meteo_{'climate' if subtype == 'klimat' else 'precip'}_daily"
-            files = archive_files(key, years=years, months=(month,) if month is not None else None)
-            jobs = ((archive.year, archive.month, archive.server_path) for archive in files)
+            key = (
+                f"pl.imgw.meteo_{'climate' if subtype == 'klimat' else 'precip'}_daily"
+            )
+            files = archive_files(
+                key, years=years, months=(month,) if month is not None else None
+            )
+            jobs = (
+                (archive.year, archive.month, archive.server_path) for archive in files
+            )
         else:
             if month is not None and not 1 <= month <= 12:
                 raise IMGWValidationError(f"Nieprawidłowy miesiąc: {month}")
@@ -210,8 +228,10 @@ def fetch_meteo(
                 (y, m, None)
                 for y in years
                 for m in (
-                    range(1, 13) if interval == "terminowe" and y >= 2001 and month is None
-                    else (month,) if interval == "terminowe" and y >= 2001
+                    range(1, 13)
+                    if interval == "terminowe" and y >= 2001 and month is None
+                    else (month,)
+                    if interval == "terminowe" and y >= 2001
                     else (None,)
                 )
             )

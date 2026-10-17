@@ -16,15 +16,30 @@ def value(amount, flag="value"):
 
 
 def by_variable(records, dataset):
-    return {(item.station, item.variable, item.period): item for item in summarize_coverage(records, dataset=dataset)}
+    return {
+        (item.station, item.variable, item.period): item
+        for item in summarize_coverage(records, dataset=dataset)
+    }
 
 
 def test_hydro_daily_separate_variables_leap_year_and_year_boundary():
     dataset = "pl.imgw.hydro_daily"
     records = [
-        row(dataset, date(2023, 10, 31), {"Q": value(0), "H": value(100), "T": value(None, "missing")}),
-        row(dataset, date(2023, 11, 1), {"Q": value(None, "missing"), "H": value(99), "T": value(None, "missing")}),
-        row(dataset, date(2024, 2, 28), {"Q": value(2, "accumulated"), "H": value(None, "missing")}),
+        row(
+            dataset,
+            date(2023, 10, 31),
+            {"Q": value(0), "H": value(100), "T": value(None, "missing")},
+        ),
+        row(
+            dataset,
+            date(2023, 11, 1),
+            {"Q": value(None, "missing"), "H": value(99), "T": value(None, "missing")},
+        ),
+        row(
+            dataset,
+            date(2024, 2, 28),
+            {"Q": value(2, "accumulated"), "H": value(None, "missing")},
+        ),
         row(dataset, date(2024, 3, 1), {"Q": value(4), "H": value(101)}),
     ]
     coverage = by_variable(records, dataset)
@@ -48,7 +63,11 @@ def test_hydro_daily_separate_variables_leap_year_and_year_boundary():
 def test_meteo_daily_zero_and_accumulated_keep_missing_month_unknown():
     dataset = "pl.imgw.meteo_precip_daily"
     records = [
-        row(dataset, date(2024, 1, 30), {"P": value(0, "no_phenomenon"), "fresh_snow": value(None, "missing")}),
+        row(
+            dataset,
+            date(2024, 1, 30),
+            {"P": value(0, "no_phenomenon"), "fresh_snow": value(None, "missing")},
+        ),
         row(dataset, date(2024, 2, 2), {"P": value(11, "accumulated")}),
         row(dataset, date(2024, 4, 1), {"P": value(3)}),
     ]
@@ -79,7 +98,12 @@ def test_hydro_half_year_periods_remain_distinct_with_empty_variables():
     dataset = "pl.imgw.hydro_semiannual"
     records = [
         row(dataset, date(2023, 11, 1), {"Q_min": value(2)}, period="winter"),
-        row(dataset, date(2024, 5, 1), {"Q_min": value(None, "missing")}, period="summer"),
+        row(
+            dataset,
+            date(2024, 5, 1),
+            {"Q_min": value(None, "missing")},
+            period="summer",
+        ),
         row(dataset, date(2023, 11, 1), {"Q_min": value(3)}, period="annual"),
         row(dataset, date(2024, 11, 1), {"Q_min": value(4)}, period="winter"),
     ]
@@ -94,12 +118,22 @@ def test_hydro_half_year_periods_remain_distinct_with_empty_variables():
 def test_meteo_climate_tmax_and_precip_are_independent_across_february_29():
     dataset = "pl.imgw.meteo_climate_daily"
     records = [
-        row(dataset, date(2024, 2, 28), {"Tmax": value(-2), "P": value(None, "missing")}),
-        row(dataset, date(2024, 2, 29), {"Tmax": value(None, "missing"), "P": value(0, "no_phenomenon")}),
-        row(dataset, date(2024, 3, 1), {"Tmax": value(3), "P": value(5, "accumulated")}),
+        row(
+            dataset, date(2024, 2, 28), {"Tmax": value(-2), "P": value(None, "missing")}
+        ),
+        row(
+            dataset,
+            date(2024, 2, 29),
+            {"Tmax": value(None, "missing"), "P": value(0, "no_phenomenon")},
+        ),
+        row(
+            dataset, date(2024, 3, 1), {"Tmax": value(3), "P": value(5, "accumulated")}
+        ),
     ]
     coverage = by_variable(records, dataset)
-    assert coverage["123456789", "Tmax", None].gaps == ((date(2024, 2, 29), date(2024, 2, 29)),)
+    assert coverage["123456789", "Tmax", None].gaps == (
+        (date(2024, 2, 29), date(2024, 2, 29)),
+    )
     assert coverage["123456789", "Tmax", None].with_value == 2
     assert coverage["123456789", "P", None].first == date(2024, 2, 29)
     assert coverage["123456789", "P", None].with_value == 2
@@ -110,7 +144,12 @@ def test_half_year_gap_spans_missing_same_period_in_successive_years():
     dataset = "pl.imgw.hydro_semiannual"
     records = [
         row(dataset, date(2022, 11, 1), {"Q_max": value(1)}, period="winter"),
-        row(dataset, date(2023, 11, 1), {"Q_max": value(None, "missing")}, period="winter"),
+        row(
+            dataset,
+            date(2023, 11, 1),
+            {"Q_max": value(None, "missing")},
+            period="winter",
+        ),
         row(dataset, date(2024, 11, 1), {"Q_max": value(2)}, period="winter"),
     ]
     q = by_variable(records, dataset)["123456789", "Q_max", "winter"]

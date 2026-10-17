@@ -56,12 +56,20 @@ from imgwtools.store.types import (
     SyncReport,
 )
 
-__all__ = ["check_command", "data_commands", "format_command", "run_command", "validate_command"]
+__all__ = [
+    "check_command",
+    "data_commands",
+    "format_command",
+    "run_command",
+    "validate_command",
+]
 
 PROJECT_FILE = "imgw-project.json"
 _STORE_MARKER = "imgw-store.json"
 _DEFAULT_OUTPUT = Path("./data/downloaded")
-_SERIES_DATASETS = tuple(d.key for d in datasets() if d.time_unit in ("day", "month", "half_year"))
+_SERIES_DATASETS = tuple(
+    d.key for d in datasets() if d.time_unit in ("day", "month", "half_year")
+)
 _YEAR_TYPES = ("hydrological", "calendar")
 _STATION = re.compile(r"[0-9]{9}")
 _TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
@@ -74,129 +82,399 @@ _HYDRO_INTERVALS = {
 }
 # Komendy, które zadanie projektu może zapisać w manifeście (bez komend samego projektu).
 _TASK_COMMANDS = (
-    "store info", "store scan", "store check", "store sync", "store catalog",
-    "series build", "series export", "series select",
-    "pmaxtp check", "pmaxtp sync", "pmaxtp read",
-    "fetch hydro", "fetch meteo",
+    "store info",
+    "store scan",
+    "store check",
+    "store sync",
+    "store catalog",
+    "series build",
+    "series export",
+    "series select",
+    "pmaxtp check",
+    "pmaxtp sync",
+    "pmaxtp read",
+    "fetch hydro",
+    "fetch meteo",
 )
 
 Options = dict[str, Any]
 Hooks = dict[str, Any]
 
 
-def _opt(name: str, type_: Any, help_: str, *, required: bool = False, choices: Iterable[str] = ()) -> CommandOption:
-    return CommandOption(name, type_, required, "--" + name.replace("_", "-"), tuple(choices), help_)
+def _opt(
+    name: str,
+    type_: Any,
+    help_: str,
+    *,
+    required: bool = False,
+    choices: Iterable[str] = (),
+) -> CommandOption:
+    return CommandOption(
+        name, type_, required, "--" + name.replace("_", "-"), tuple(choices), help_
+    )
 
 
-_ROOT = _opt("root", "path", "Katalog główny magazynu IMGW (jawna ścieżka, absolutyzowana na wejściu)", required=True)
-_PROJECT_DIR = _opt("project_dir", "path", "Katalog projektu z manifestem imgw-project.json", required=True)
-_TASKS = _opt("tasks", "list", "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)")
-_METHOD = _opt("method", "choice", "Metoda PMAXTP: POT albo AMP", required=True, choices=("POT", "AMP"))
-_LAT = _opt("lat", "str", "Szerokość geograficzna punktu (WGS84, stopnie dziesiętne)", required=True)
-_LON = _opt("lon", "str", "Długość geograficzna punktu (WGS84, stopnie dziesiętne)", required=True)
+_ROOT = _opt(
+    "root",
+    "path",
+    "Katalog główny magazynu IMGW (jawna ścieżka, absolutyzowana na wejściu)",
+    required=True,
+)
+_PROJECT_DIR = _opt(
+    "project_dir",
+    "path",
+    "Katalog projektu z manifestem imgw-project.json",
+    required=True,
+)
+_TASKS = _opt(
+    "tasks",
+    "list",
+    "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)",
+)
+_METHOD = _opt(
+    "method",
+    "choice",
+    "Metoda PMAXTP: POT albo AMP",
+    required=True,
+    choices=("POT", "AMP"),
+)
+_LAT = _opt(
+    "lat",
+    "str",
+    "Szerokość geograficzna punktu (WGS84, stopnie dziesiętne)",
+    required=True,
+)
+_LON = _opt(
+    "lon",
+    "str",
+    "Długość geograficzna punktu (WGS84, stopnie dziesiętne)",
+    required=True,
+)
 _IND_X = _opt("ind_x", "int", "Oczekiwany indeks X komórki siatki (razem z --ind-y)")
 _IND_Y = _opt("ind_y", "int", "Oczekiwany indeks Y komórki siatki (razem z --ind-x)")
-_YEAR_TYPE = _opt("year_type", "choice", "Rodzaj roku: hydrological (XI–X) albo calendar; domyślnie wg spisu szeregu",
-                  choices=_YEAR_TYPES)
-_SERIES_DATASET = _opt("dataset", "choice", "Klucz zbioru, np. pl.imgw.hydro_daily", required=True,
-                       choices=_SERIES_DATASETS)
-_DATASETS = _opt("dataset", "list", "Klucze zbiorów rozdzielone przecinkami, np. pl.imgw.hydro_daily",
-                 choices=_SERIES_DATASETS)
-_STORE_YEARS = _opt("years", "list", "Roczniki: lista lub zakresy, np. 2023-2025 albo 2020,2022")
-_MONTHS = _opt("months", "list", "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie)")
-_FETCH_YEAR = _opt("year", "str", "Rok lub zakres lat, np. 2020 albo 2020-2023", required=True)
+_YEAR_TYPE = _opt(
+    "year_type",
+    "choice",
+    "Rodzaj roku: hydrological (XI–X) albo calendar; domyślnie wg spisu szeregu",
+    choices=_YEAR_TYPES,
+)
+_SERIES_DATASET = _opt(
+    "dataset",
+    "choice",
+    "Klucz zbioru, np. pl.imgw.hydro_daily",
+    required=True,
+    choices=_SERIES_DATASETS,
+)
+_DATASETS = _opt(
+    "dataset",
+    "list",
+    "Klucze zbiorów rozdzielone przecinkami, np. pl.imgw.hydro_daily",
+    choices=_SERIES_DATASETS,
+)
+_STORE_YEARS = _opt(
+    "years", "list", "Roczniki: lista lub zakresy, np. 2023-2025 albo 2020,2022"
+)
+_MONTHS = _opt(
+    "months", "list", "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie)"
+)
+_FETCH_YEAR = _opt(
+    "year", "str", "Rok lub zakres lat, np. 2020 albo 2020-2023", required=True
+)
 _FETCH_MONTH = _opt("month", "int", "Miesiąc 1–12")
-_OUTPUT = _opt("output", "path", "Katalog wyjściowy odzwierciedlający ścieżki serwera (domyślnie ./data/downloaded)")
+_OUTPUT = _opt(
+    "output",
+    "path",
+    "Katalog wyjściowy odzwierciedlający ścieżki serwera (domyślnie ./data/downloaded)",
+)
 
 _COMMANDS = (
-    DataCommand("store init", "Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu.", (_ROOT,)),
-    DataCommand("store info", "Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu).", (_ROOT,)),
-    DataCommand("store scan", "Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu).", (
-        _ROOT, _opt("kind", "choice", "Rodzaj wpisów: archive, series, catalog, pmaxtp albo problem",
-                    choices=("archive", "series", "catalog", "pmaxtp", "problem")),
-    )),
-    DataCommand("store check", "Sprawdź aktualność archiwów IMGW (listing i HEAD, bez pobierania danych).", (
-        _ROOT, replace(_DATASETS, required=True), replace(_STORE_YEARS, required=True), _MONTHS,
-        _opt("plan", "path", "Plik planu imgw-plan/1 do zapisania poza magazynem"),
-    )),
-    DataCommand("store sync", "Pobierz nowe lub brakujące archiwa IMGW do magazynu według planu albo wyboru zbiorów.", (
-        _ROOT, _opt("plan", "path", "Plik planu imgw-plan/1 z komendy store check (zamiast --dataset/--years)"),
-        _DATASETS, _STORE_YEARS, _MONTHS, _opt("no_series", "bool", "Nie buduj szeregów po synchronizacji"),
-    )),
-    DataCommand("store catalog", "Zbuduj wersjonowany katalog stacji stations.geojson.", (
-        _ROOT, _opt("user_locations", "path", "Plik CSV UTF-8 użytkownika z kolumnami station_code,lon,lat,source"),
-    )),
-    DataCommand("series build", "Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.", (
-        _ROOT, _SERIES_DATASET,
-    )),
-    DataCommand("series export", "Wyeksportuj szereg jednej stacji do pliku CSV z atrybucją IMGW-PIB.", (
-        _opt("version", "path", "Wersja szeregu: katalog wersji albo plik series.json", required=True),
-        _opt("station", "str", "Kod stacji (9 cyfr)", required=True),
-        _opt("path", "path", "Docelowy plik CSV (poza magazynem)", required=True),
-        _opt("variables", "list", "Zmienne rozdzielone przecinkami, np. H,Q", required=True),
-        _YEAR_TYPE,
-        _opt("format", "choice", "Format eksportu (tylko csv)", choices=("csv",)),
-    )),
-    DataCommand("series select", "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście projektu).", (
-        _ROOT, _SERIES_DATASET,
-        _opt("stations", "list", "Kody stacji (9 cyfr) rozdzielone przecinkami", required=True),
-        _opt("variables", "list", "Zmienne rozdzielone przecinkami (domyślnie wszystkie zmienne zbioru)"),
-        _opt("years", "list", "Roczniki: lista lub zakresy, np. 2020-2023 (domyślnie wszystkie w szeregu)"),
-        _YEAR_TYPE,
-    )),
-    DataCommand("pmaxtp check", "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.", (
-        _ROOT, _METHOD, _LAT, _LON, _IND_X, _IND_Y,
-    )),
-    DataCommand("pmaxtp sync", "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.", (
-        _ROOT, _METHOD, _LAT, _LON, _IND_X, _IND_Y,
-    )),
-    DataCommand("pmaxtp read", "Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).", (
-        _ROOT, _METHOD, replace(_IND_X, required=True, help="Indeks X komórki siatki"),
-        replace(_IND_Y, required=True, help="Indeks Y komórki siatki"),
-        _opt("version", "path", "Wersja komórki: katalog wersji albo cell.json (domyślnie bieżąca)"),
-    )),
-    DataCommand("project init", "Utwórz manifest projektu imgw-project.json wskazujący magazyn.", (
-        _PROJECT_DIR, _opt("store_dir", "path", "Katalog magazynu IMGW projektu", required=True),
-    )),
-    DataCommand("project add", "Dodaj zadanie do manifestu projektu.", (
-        _PROJECT_DIR,
-        _opt("name", "str", "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra", required=True),
-        _opt("command", "choice", "Komenda zadania z katalogu, zwykle series select", required=True,
-             choices=_TASK_COMMANDS),
-        _opt("options", "str", "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z projektu)",
-             required=True),
-        _opt("geometry", "path", "Plik zapisanego wyboru obszaru (geometria) dla zadania"),
-    )),
-    DataCommand("project remove", "Usuń zadanie z manifestu projektu.", (
-        _PROJECT_DIR, _opt("name", "str", "Nazwa usuwanego zadania", required=True),
-    )),
-    DataCommand("project set-store", "Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików.", (
-        _PROJECT_DIR, _opt("store_dir", "path", "Nowy katalog magazynu IMGW", required=True),
-    )),
-    DataCommand("project download", "Pobierz i przypnij dane zadań projektu.", (
-        _PROJECT_DIR, _TASKS,
-        _opt("plan", "path", "Plik planu imgw-plan/1 z komendy project check"),
-        _opt("update", "choice", "Tryb: pinned (odtwórz przypięte wersje) albo upgrade (zmień piny)",
-             choices=("pinned", "upgrade")),
-    )),
-    DataCommand("project check", "Sprawdź aktualność danych zadań projektu bez zapisu do magazynu.", (
-        _PROJECT_DIR, _TASKS, _opt("plan", "path", "Plik planu imgw-plan/1 do zapisania poza magazynem"),
-    )),
-    DataCommand("project status", "Pokaż stan przypiętych plików zadań projektu (offline).", (_PROJECT_DIR, _TASKS)),
-    DataCommand("project verify", "Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline).", (_PROJECT_DIR, _TASKS)),
-    DataCommand("fetch hydro", "Pobierz archiwa hydrologiczne IMGW do katalogu odzwierciedlającego ścieżki serwera.", (
-        _opt("interval", "choice", "Interwał: dobowe, miesieczne albo polroczne_i_roczne (domyślnie polroczne_i_roczne)",
-             choices=tuple(_HYDRO_INTERVALS)),
-        _FETCH_YEAR, _FETCH_MONTH,
-        _opt("param", "choice", "Parametr danych półrocznych: H, Q albo T", choices=("H", "Q", "T")),
-        _OUTPUT,
-    )),
-    DataCommand("fetch meteo", "Pobierz archiwa meteorologiczne IMGW do katalogu odzwierciedlającego ścieżki serwera.", (
-        _opt("interval", "choice", "Interwał: dobowe, miesieczne albo terminowe (domyślnie miesieczne)",
-             choices=("dobowe", "miesieczne", "terminowe")),
-        _opt("subtype", "choice", "Podtyp: klimat, opad albo synop (domyślnie synop)", choices=("klimat", "opad", "synop")),
-        _FETCH_YEAR, _FETCH_MONTH, _OUTPUT,
-    )),
+    DataCommand(
+        "store init",
+        "Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu.",
+        (_ROOT,),
+    ),
+    DataCommand(
+        "store info",
+        "Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu).",
+        (_ROOT,),
+    ),
+    DataCommand(
+        "store scan",
+        "Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu).",
+        (
+            _ROOT,
+            _opt(
+                "kind",
+                "choice",
+                "Rodzaj wpisów: archive, series, catalog, pmaxtp albo problem",
+                choices=("archive", "series", "catalog", "pmaxtp", "problem"),
+            ),
+        ),
+    ),
+    DataCommand(
+        "store check",
+        "Sprawdź aktualność archiwów IMGW (listing i HEAD, bez pobierania danych).",
+        (
+            _ROOT,
+            replace(_DATASETS, required=True),
+            replace(_STORE_YEARS, required=True),
+            _MONTHS,
+            _opt("plan", "path", "Plik planu imgw-plan/1 do zapisania poza magazynem"),
+        ),
+    ),
+    DataCommand(
+        "store sync",
+        "Pobierz nowe lub brakujące archiwa IMGW do magazynu według planu albo wyboru zbiorów.",
+        (
+            _ROOT,
+            _opt(
+                "plan",
+                "path",
+                "Plik planu imgw-plan/1 z komendy store check (zamiast --dataset/--years)",
+            ),
+            _DATASETS,
+            _STORE_YEARS,
+            _MONTHS,
+            _opt("no_series", "bool", "Nie buduj szeregów po synchronizacji"),
+        ),
+    ),
+    DataCommand(
+        "store catalog",
+        "Zbuduj wersjonowany katalog stacji stations.geojson.",
+        (
+            _ROOT,
+            _opt(
+                "user_locations",
+                "path",
+                "Plik CSV UTF-8 użytkownika z kolumnami station_code,lon,lat,source",
+            ),
+        ),
+    ),
+    DataCommand(
+        "series build",
+        "Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.",
+        (
+            _ROOT,
+            _SERIES_DATASET,
+        ),
+    ),
+    DataCommand(
+        "series export",
+        "Wyeksportuj szereg jednej stacji do pliku CSV z atrybucją IMGW-PIB.",
+        (
+            _opt(
+                "version",
+                "path",
+                "Wersja szeregu: katalog wersji albo plik series.json",
+                required=True,
+            ),
+            _opt("station", "str", "Kod stacji (9 cyfr)", required=True),
+            _opt("path", "path", "Docelowy plik CSV (poza magazynem)", required=True),
+            _opt(
+                "variables",
+                "list",
+                "Zmienne rozdzielone przecinkami, np. H,Q",
+                required=True,
+            ),
+            _YEAR_TYPE,
+            _opt("format", "choice", "Format eksportu (tylko csv)", choices=("csv",)),
+        ),
+    ),
+    DataCommand(
+        "series select",
+        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście projektu).",
+        (
+            _ROOT,
+            _SERIES_DATASET,
+            _opt(
+                "stations",
+                "list",
+                "Kody stacji (9 cyfr) rozdzielone przecinkami",
+                required=True,
+            ),
+            _opt(
+                "variables",
+                "list",
+                "Zmienne rozdzielone przecinkami (domyślnie wszystkie zmienne zbioru)",
+            ),
+            _opt(
+                "years",
+                "list",
+                "Roczniki: lista lub zakresy, np. 2020-2023 (domyślnie wszystkie w szeregu)",
+            ),
+            _YEAR_TYPE,
+        ),
+    ),
+    DataCommand(
+        "pmaxtp check",
+        "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.",
+        (
+            _ROOT,
+            _METHOD,
+            _LAT,
+            _LON,
+            _IND_X,
+            _IND_Y,
+        ),
+    ),
+    DataCommand(
+        "pmaxtp sync",
+        "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.",
+        (
+            _ROOT,
+            _METHOD,
+            _LAT,
+            _LON,
+            _IND_X,
+            _IND_Y,
+        ),
+    ),
+    DataCommand(
+        "pmaxtp read",
+        "Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).",
+        (
+            _ROOT,
+            _METHOD,
+            replace(_IND_X, required=True, help="Indeks X komórki siatki"),
+            replace(_IND_Y, required=True, help="Indeks Y komórki siatki"),
+            _opt(
+                "version",
+                "path",
+                "Wersja komórki: katalog wersji albo cell.json (domyślnie bieżąca)",
+            ),
+        ),
+    ),
+    DataCommand(
+        "project init",
+        "Utwórz manifest projektu imgw-project.json wskazujący magazyn.",
+        (
+            _PROJECT_DIR,
+            _opt("store_dir", "path", "Katalog magazynu IMGW projektu", required=True),
+        ),
+    ),
+    DataCommand(
+        "project add",
+        "Dodaj zadanie do manifestu projektu.",
+        (
+            _PROJECT_DIR,
+            _opt(
+                "name",
+                "str",
+                "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra",
+                required=True,
+            ),
+            _opt(
+                "command",
+                "choice",
+                "Komenda zadania z katalogu, zwykle series select",
+                required=True,
+                choices=_TASK_COMMANDS,
+            ),
+            _opt(
+                "options",
+                "str",
+                "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z projektu)",
+                required=True,
+            ),
+            _opt(
+                "geometry",
+                "path",
+                "Plik zapisanego wyboru obszaru (geometria) dla zadania",
+            ),
+        ),
+    ),
+    DataCommand(
+        "project remove",
+        "Usuń zadanie z manifestu projektu.",
+        (
+            _PROJECT_DIR,
+            _opt("name", "str", "Nazwa usuwanego zadania", required=True),
+        ),
+    ),
+    DataCommand(
+        "project set-store",
+        "Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików.",
+        (
+            _PROJECT_DIR,
+            _opt("store_dir", "path", "Nowy katalog magazynu IMGW", required=True),
+        ),
+    ),
+    DataCommand(
+        "project download",
+        "Pobierz i przypnij dane zadań projektu.",
+        (
+            _PROJECT_DIR,
+            _TASKS,
+            _opt("plan", "path", "Plik planu imgw-plan/1 z komendy project check"),
+            _opt(
+                "update",
+                "choice",
+                "Tryb: pinned (odtwórz przypięte wersje) albo upgrade (zmień piny)",
+                choices=("pinned", "upgrade"),
+            ),
+        ),
+    ),
+    DataCommand(
+        "project check",
+        "Sprawdź aktualność danych zadań projektu bez zapisu do magazynu.",
+        (
+            _PROJECT_DIR,
+            _TASKS,
+            _opt("plan", "path", "Plik planu imgw-plan/1 do zapisania poza magazynem"),
+        ),
+    ),
+    DataCommand(
+        "project status",
+        "Pokaż stan przypiętych plików zadań projektu (offline).",
+        (_PROJECT_DIR, _TASKS),
+    ),
+    DataCommand(
+        "project verify",
+        "Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline).",
+        (_PROJECT_DIR, _TASKS),
+    ),
+    DataCommand(
+        "fetch hydro",
+        "Pobierz archiwa hydrologiczne IMGW do katalogu odzwierciedlającego ścieżki serwera.",
+        (
+            _opt(
+                "interval",
+                "choice",
+                "Interwał: dobowe, miesieczne albo polroczne_i_roczne (domyślnie polroczne_i_roczne)",
+                choices=tuple(_HYDRO_INTERVALS),
+            ),
+            _FETCH_YEAR,
+            _FETCH_MONTH,
+            _opt(
+                "param",
+                "choice",
+                "Parametr danych półrocznych: H, Q albo T",
+                choices=("H", "Q", "T"),
+            ),
+            _OUTPUT,
+        ),
+    ),
+    DataCommand(
+        "fetch meteo",
+        "Pobierz archiwa meteorologiczne IMGW do katalogu odzwierciedlającego ścieżki serwera.",
+        (
+            _opt(
+                "interval",
+                "choice",
+                "Interwał: dobowe, miesieczne albo terminowe (domyślnie miesieczne)",
+                choices=("dobowe", "miesieczne", "terminowe"),
+            ),
+            _opt(
+                "subtype",
+                "choice",
+                "Podtyp: klimat, opad albo synop (domyślnie synop)",
+                choices=("klimat", "opad", "synop"),
+            ),
+            _FETCH_YEAR,
+            _FETCH_MONTH,
+            _OUTPUT,
+        ),
+    ),
 )
 _BY_NAME = {command.name: command for command in _COMMANDS}
 
@@ -252,7 +530,9 @@ def _list(option: CommandOption, value: object) -> tuple[object, ...]:
     name = option.name
     items = _items(name, value)
     if name == "years":
-        return tuple(sorted({year for item in items for year in _year_range(name, item)}))
+        return tuple(
+            sorted({year for item in items for year in _year_range(name, item)})
+        )
     if name == "months":
         months = {_int(name, item) for item in items}
         if any(not 1 <= month <= 12 for month in months):
@@ -264,7 +544,9 @@ def _list(option: CommandOption, value: object) -> tuple[object, ...]:
             _fail(f"Opcja {name} wymaga tekstowych wartości: {item!r}")
         text = item.strip()  # type: ignore[union-attr]
         if option.choices and text not in option.choices:
-            _fail(f"Nieprawidłowa wartość {text!r} opcji {name}; dozwolone: {', '.join(option.choices)}")
+            _fail(
+                f"Nieprawidłowa wartość {text!r} opcji {name}; dozwolone: {', '.join(option.choices)}"
+            )
         if name == "stations" and not _STATION.fullmatch(text):
             _fail(f"Kod stacji musi mieć dokładnie 9 cyfr: {text!r}")
         if name == "tasks" and not _TASK_NAME.fullmatch(text):
@@ -294,7 +576,9 @@ def _text(name: str, value: object) -> object:
             try:
                 value = json.loads(value)
             except ValueError as exc:
-                raise IMGWValidationError(f"Opcje zadania muszą być obiektem JSON: {exc}") from exc
+                raise IMGWValidationError(
+                    f"Opcje zadania muszą być obiektem JSON: {exc}"
+                ) from exc
         if not isinstance(value, Mapping):
             _fail("Opcje zadania muszą być obiektem JSON")
         return dict(value)  # type: ignore[arg-type]
@@ -327,7 +611,9 @@ def _value(option: CommandOption, value: object) -> object | None:
         return Path(text)  # type: ignore[arg-type]
     if option.type == "choice":
         if not isinstance(value, str) or value not in option.choices:
-            _fail(f"Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: {', '.join(option.choices)}")
+            _fail(
+                f"Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: {', '.join(option.choices)}"
+            )
         return value
     if option.type == "list":
         return _list(option, value)
@@ -350,7 +636,11 @@ def _check_selectors(options: Options) -> None:
 
 def _rules_store_check(options: Options) -> None:
     _check_selectors(options)
-    if "plan" in options and "root" in options and _inside(options["plan"], options["root"]):
+    if (
+        "plan" in options
+        and "root" in options
+        and _inside(options["plan"], options["root"])
+    ):
         _fail("Plan imgw-plan/1 musi być zapisany poza magazynem")
 
 
@@ -367,9 +657,15 @@ def _rules_store_sync(options: Options) -> None:
 
 def _rules_series_select(options: Options) -> None:
     descriptor = get_dataset(options["dataset"])
-    unknown = [name for name in options.get("variables", ()) if name not in descriptor.variables]
+    unknown = [
+        name
+        for name in options.get("variables", ())
+        if name not in descriptor.variables
+    ]
     if unknown:
-        _fail(f"Nieznane zmienne {', '.join(unknown)}; dostępne: {', '.join(descriptor.variables)}")
+        _fail(
+            f"Nieznane zmienne {', '.join(unknown)}; dostępne: {', '.join(descriptor.variables)}"
+        )
     if descriptor.time_unit == "half_year" and options.get("year_type") == "calendar":
         _fail("Szereg półroczny obsługuje wyłącznie rok hydrologiczny")
 
@@ -392,7 +688,10 @@ def _rules_project_add(options: Options) -> None:
 
 
 def _rules_fetch_hydro(options: Options) -> None:
-    if "param" in options and options.get("interval", "polroczne_i_roczne") != "polroczne_i_roczne":
+    if (
+        "param" in options
+        and options.get("interval", "polroczne_i_roczne") != "polroczne_i_roczne"
+    ):
         _fail("Parametr H/Q/T dotyczy tylko interwału polroczne_i_roczne")
     _fetch_jobs("fetch hydro", options)
 
@@ -413,7 +712,9 @@ _RULES: dict[str, Callable[[Options], None]] = {
 }
 
 
-def _validate(command: object, options: object, *, task: bool, area: bool = False) -> Options:
+def _validate(
+    command: object, options: object, *, task: bool, area: bool = False
+) -> Options:
     spec = _BY_NAME.get(command) if isinstance(command, str) else None
     if spec is None:
         return _fail(f"Nieznana komenda {command!r}; dostępne: {', '.join(_BY_NAME)}")
@@ -430,8 +731,12 @@ def _validate(command: object, options: object, *, task: bool, area: bool = Fals
         value = options.get(option.name)
         normalized = None if value is None else _value(option, value)
         if normalized is None:
-            if option.required and not (task and (option.name == "root" or (area and option.name == "stations"))):
-                _fail(f"Brak wymaganej opcji {option.name} ({option.flag}) komendy {spec.name}")
+            if option.required and not (
+                task and (option.name == "root" or (area and option.name == "stations"))
+            ):
+                _fail(
+                    f"Brak wymaganej opcji {option.name} ({option.flag}) komendy {spec.name}"
+                )
             continue
         result[option.name] = normalized
     rules = _RULES.get(spec.name)
@@ -440,7 +745,9 @@ def _validate(command: object, options: object, *, task: bool, area: bool = Fals
     return result
 
 
-def validate_command(command: str, /, *, options: Mapping[str, object]) -> dict[str, object]:
+def validate_command(
+    command: str, /, *, options: Mapping[str, object]
+) -> dict[str, object]:
     """Znormalizuj i sprawdź opcje komendy bez sieci; obce komendy, opcje i wartości → błąd."""
     return _validate(command, options, task=False)
 
@@ -459,7 +766,9 @@ def _argument(value: object) -> str:
     if isinstance(value, tuple):
         return ",".join(str(item) for item in value)
     if isinstance(value, Mapping):
-        return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return json.dumps(
+            _jsonable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
     if isinstance(value, float):
         return repr(value)
     return str(value)
@@ -485,10 +794,12 @@ def _server_path(url: str) -> str:
     prefix = IMGW_PUBLIC_DATA_URL + "/"
     if not url.startswith(prefix):
         _fail(f"Nieznana ścieżka IMGW: {url}")
-    return url[len(prefix):]
+    return url[len(prefix) :]
 
 
-def _fetch_jobs(command: str, options: Options) -> list[tuple[str, str, Callable[[], Any]]]:
+def _fetch_jobs(
+    command: str, options: Options
+) -> list[tuple[str, str, Callable[[], Any]]]:
     """Pliki do pobrania wyliczone offline: (server_path, url, publiczne ``download_*``)."""
     years = _year_range("year", options["year"])
     month = options.get("month")
@@ -499,8 +810,17 @@ def _fetch_jobs(command: str, options: Options) -> list[tuple[str, str, Callable
         if "param" in options:
             files = tuple(file for file in files if file.param == options["param"])
         return [
-            (file.server_path, file.url,
-             partial(_fetch.download_hydro_data, interval, file.year, file.month, file.param))  # type: ignore[arg-type]
+            (
+                file.server_path,
+                file.url,
+                partial(
+                    _fetch.download_hydro_data,
+                    interval,
+                    file.year,
+                    file.month,
+                    file.param,
+                ),
+            )  # type: ignore[arg-type]
             for file in files
         ]
     interval = options.get("interval", "miesieczne")
@@ -508,28 +828,48 @@ def _fetch_jobs(command: str, options: Options) -> list[tuple[str, str, Callable
     if interval == "dobowe" and subtype in ("klimat", "opad"):
         key = f"pl.imgw.meteo_{'climate' if subtype == 'klimat' else 'precip'}_daily"
         return [
-            (file.server_path, file.url, partial(_fetch.download_meteo_data, interval, subtype, file.year, file.month))
+            (
+                file.server_path,
+                file.url,
+                partial(
+                    _fetch.download_meteo_data, interval, subtype, file.year, file.month
+                ),
+            )
             for file in archive_files(key, years=years, months=months)  # type: ignore[arg-type]
         ]
     jobs: dict[str, tuple[str, str, Callable[[], Any]]] = {}
     for year in years:
         hourly = interval == "terminowe" and year >= 2001
-        for selected in (range(1, 13) if month is None else (month,)) if hourly else (None,):
+        for selected in (
+            (range(1, 13) if month is None else (month,)) if hourly else (None,)
+        ):
             try:
-                url = build_meteo_url(MeteoInterval(interval), MeteoSubtype(subtype), year, selected).url
+                url = build_meteo_url(
+                    MeteoInterval(interval), MeteoSubtype(subtype), year, selected
+                ).url
             except ValueError as exc:
                 raise IMGWValidationError(
                     f"Archiwum meteorologiczne {interval}/{subtype} {year} nie jest publikowane jako plik zbiorczy: {exc}"
                 ) from exc
-            jobs.setdefault(url, (_server_path(url), url,
-                                  partial(_fetch.download_meteo_data, interval, subtype, year, selected)))
+            jobs.setdefault(
+                url,
+                (
+                    _server_path(url),
+                    url,
+                    partial(
+                        _fetch.download_meteo_data, interval, subtype, year, selected
+                    ),
+                ),
+            )
     return list(jobs.values())
 
 
 def _destination(output: Path, server_path: str) -> Path:
     relative = PurePosixPath(server_path)
     if (
-        relative.is_absolute() or relative.suffix != ".zip" or "\\" in server_path
+        relative.is_absolute()
+        or relative.suffix != ".zip"
+        or "\\" in server_path
         or any(part in (".", "..", "") for part in server_path.split("/"))
     ):
         _fail(f"Niebezpieczna ścieżka archiwum: {server_path}")
@@ -552,23 +892,41 @@ def _save(destination: Path, data: bytes) -> Path:
 
 def _run_fetch(command: str, options: Options, hooks: Hooks) -> Path:
     output = _absolute(options.get("output", _DEFAULT_OUTPUT))
-    on_progress, on_notice, cancel = hooks["on_progress"], hooks["on_notice"], hooks["cancel"]
+    on_progress, on_notice, cancel = (
+        hooks["on_progress"],
+        hooks["on_notice"],
+        hooks["cancel"],
+    )
     jobs = _fetch_jobs(command, options)
     for index, (server_path, _url, download) in enumerate(jobs, 1):
         if cancel is not None and cancel():
             if on_notice is not None:
-                on_notice(Notice("warning", "cancelled", f"Anulowano pobieranie; pominięto {len(jobs) - index + 1} plików"))
+                on_notice(
+                    Notice(
+                        "warning",
+                        "cancelled",
+                        f"Anulowano pobieranie; pominięto {len(jobs) - index + 1} plików",
+                    )
+                )
             break
         try:
             target = _save(_destination(output, server_path), download().data)
         except (IMGWError, OSError) as exc:
             if on_notice is not None:
-                on_notice(Notice("error", "download_failed", f"Nie pobrano {server_path}: {exc}"))
+                on_notice(
+                    Notice(
+                        "error", "download_failed", f"Nie pobrano {server_path}: {exc}"
+                    )
+                )
             if on_progress is not None:
-                on_progress(Progress(index, len(jobs), "archive", "failed", server_path))
+                on_progress(
+                    Progress(index, len(jobs), "archive", "failed", server_path)
+                )
             continue
         if on_progress is not None:
-            on_progress(Progress(index, len(jobs), "archive", "downloaded", f"Pobrano {target}"))
+            on_progress(
+                Progress(index, len(jobs), "archive", "downloaded", f"Pobrano {target}")
+            )
     return output
 
 
@@ -578,7 +936,9 @@ def _check_fetch(command: str, options: Options, hooks: Hooks) -> StorePlan:
     for server_path, url, _download in _fetch_jobs(command, options):
         target = _destination(output, server_path)
         status = "unverifiable" if target.exists() else "missing"
-        detail = f"{url} → {target}" + (" (istniejący plik zostanie zastąpiony)" if target.exists() else "")
+        detail = f"{url} → {target}" + (
+            " (istniejący plik zostanie zastąpiony)" if target.exists() else ""
+        )
         actions.append(PlanAction(command, status, detail))
     return _plan(output, actions)
 
@@ -587,7 +947,9 @@ def _check_fetch(command: str, options: Options, hooks: Hooks) -> StorePlan:
 
 
 def _plan(root: object, actions: Iterable[PlanAction]) -> StorePlan:
-    return StorePlan("imgw-plan/1", _absolute(root), datetime.now(UTC), (), {}, tuple(actions))
+    return StorePlan(
+        "imgw-plan/1", _absolute(root), datetime.now(UTC), (), {}, tuple(actions)
+    )
 
 
 def _project() -> ModuleType:
@@ -595,14 +957,26 @@ def _project() -> ModuleType:
 
 
 def _cell(options: Options) -> Options:
-    return {"method": options["method"], "latitude": options["lat"], "longitude": options["lon"],
-            "ind_x": options.get("ind_x"), "ind_y": options.get("ind_y")}
+    return {
+        "method": options["method"],
+        "latitude": options["lat"],
+        "longitude": options["lon"],
+        "ind_x": options.get("ind_x"),
+        "ind_y": options.get("ind_y"),
+    }
 
 
 def _period_years(periods: Iterable[tuple[date, date]], year_type: str) -> set[int]:
     def year(day: date) -> int:
-        return day.year + 1 if year_type == "hydrological" and day.month >= 11 else day.year
-    return {number for start, end in periods for number in range(year(start), year(end) + 1)}
+        return (
+            day.year + 1
+            if year_type == "hydrological" and day.month >= 11
+            else day.year
+        )
+
+    return {
+        number for start, end in periods for number in range(year(start), year(end) + 1)
+    }
 
 
 def _series_entry(options: Options) -> StoreEntry | None:
@@ -613,7 +987,9 @@ def _series_entry(options: Options) -> StoreEntry | None:
 def _select(options: Options, entry: StoreEntry | None) -> SeriesSelection:
     dataset = options["dataset"]
     if entry is None or entry.version is None:
-        raise IMGWStoreError(f"Brak szeregu {dataset} w magazynie; najpierw uruchom series build")
+        raise IMGWStoreError(
+            f"Brak szeregu {dataset} w magazynie; najpierw uruchom series build"
+        )
     index = _store.read_series_index(entry.version)
     missing = [code for code in options["stations"] if code not in index.stations]
     if missing:
@@ -625,21 +1001,30 @@ def _select(options: Options, entry: StoreEntry | None) -> SeriesSelection:
     if outside:
         _fail(f"Lata spoza szeregu {dataset} ({year_type}): {', '.join(outside)}")
     variables = options.get("variables") or tuple(get_dataset(dataset).variables)
-    return SeriesSelection(dataset, entry.version, options["stations"], variables, years, year_type)
+    return SeriesSelection(
+        dataset, entry.version, options["stations"], variables, years, year_type
+    )
 
 
 def _check_select(options: Options, hooks: Hooks) -> StorePlan:
     try:
         entry = _series_entry(options)
         if entry is None:
-            action = PlanAction("series select", "missing",
-                                f"Brak szeregu {options['dataset']} w magazynie; najpierw series build")
+            action = PlanAction(
+                "series select",
+                "missing",
+                f"Brak szeregu {options['dataset']} w magazynie; najpierw series build",
+            )
         else:
             selection = _select(options, entry)
-            action = PlanAction("series select", "current", (
-                f"{selection.version}: stacje {', '.join(selection.stations)}; zmienne {', '.join(selection.variables)}; "
-                f"lata {', '.join(map(str, selection.years))} ({selection.year_type})"
-            ))
+            action = PlanAction(
+                "series select",
+                "current",
+                (
+                    f"{selection.version}: stacje {', '.join(selection.stations)}; zmienne {', '.join(selection.variables)}; "
+                    f"lata {', '.join(map(str, selection.years))} ({selection.year_type})"
+                ),
+            )
     except IMGWError as exc:
         action = PlanAction("series select", "check_failed", str(exc))
     return _plan(options["root"], [action])
@@ -656,8 +1041,13 @@ def _store_root(version: Path) -> Path:
 def _run_export(options: Options, hooks: Hooks) -> Path:
     export = importlib.import_module("imgwtools.store.export")
     return export.export_series(
-        options["version"], station=options["station"], path=options["path"], variables=options["variables"],
-        year_type=options.get("year_type"), format=options.get("format", "csv"), **hooks,
+        options["version"],
+        station=options["station"],
+        path=options["path"],
+        variables=options["variables"],
+        year_type=options.get("year_type"),
+        format=options.get("format", "csv"),
+        **hooks,
     )
 
 
@@ -668,26 +1058,39 @@ def _check_export(options: Options, hooks: Hooks) -> StorePlan:
         index = _store.read_series_index(options["version"])
         descriptor = get_dataset(index.dataset)
         if options["station"] not in index.stations:
-            _fail(f"Stacja {options['station']} nie występuje w szeregu {index.dataset}")
+            _fail(
+                f"Stacja {options['station']} nie występuje w szeregu {index.dataset}"
+            )
         unknown = [name for name in variables if name not in descriptor.variables]
         if unknown:
-            _fail(f"Nieznane zmienne {', '.join(unknown)}; dostępne: {', '.join(descriptor.variables)}")
+            _fail(
+                f"Nieznane zmienne {', '.join(unknown)}; dostępne: {', '.join(descriptor.variables)}"
+            )
         year_type = options.get("year_type", index.year_type)
         if descriptor.time_unit == "half_year" and year_type == "calendar":
             _fail("Szereg półroczny obsługuje wyłącznie rok hydrologiczny")
     except IMGWError as exc:
         action = PlanAction("series export", "check_failed", str(exc))
     else:
-        action = PlanAction("series export", "newer" if target.exists() else "missing", (
-            f"Eksport CSV stacji {options['station']} ({', '.join(variables)}; rok {year_type}) do {target}"
-            + (" (istniejący plik zostanie zastąpiony)" if target.exists() else "")
-        ))
+        action = PlanAction(
+            "series export",
+            "newer" if target.exists() else "missing",
+            (
+                f"Eksport CSV stacji {options['station']} ({', '.join(variables)}; rok {year_type}) do {target}"
+                + (" (istniejący plik zostanie zastąpiony)" if target.exists() else "")
+            ),
+        )
     return _plan(_store_root(options["version"]), [action])
 
 
 def _run_store_check(options: Options, hooks: Hooks) -> StorePlan:
-    plan = _store.check_store(options["root"], datasets=options["dataset"], years=options["years"],
-                              months=options.get("months"), **hooks)
+    plan = _store.check_store(
+        options["root"],
+        datasets=options["dataset"],
+        years=options["years"],
+        months=options.get("months"),
+        **hooks,
+    )
     if "plan" in options:
         plan.to_json(options["plan"])
     return plan
@@ -695,8 +1098,13 @@ def _run_store_check(options: Options, hooks: Hooks) -> StorePlan:
 
 def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
     if "plan" not in options:
-        return _store.check_store(options["root"], datasets=options["dataset"], years=options["years"],
-                                  months=options.get("months"), **hooks)
+        return _store.check_store(
+            options["root"],
+            datasets=options["dataset"],
+            years=options["years"],
+            months=options.get("months"),
+            **hooks,
+        )
     plan = StorePlan.from_json(options["plan"])
     if _absolute(plan.root) != _absolute(options["root"]):
         _fail(f"Plan dotyczy innego magazynu: {plan.root}")
@@ -707,12 +1115,22 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
     root = _absolute(options["root"])
     info = _store.store_info(root)
     if info.supported:
-        action = PlanAction("store init", "current", f"Magazyn IMGW już istnieje: {root}")
+        action = PlanAction(
+            "store init", "current", f"Magazyn IMGW już istnieje: {root}"
+        )
     elif not root.exists() or (root.is_dir() and not any(root.iterdir())):
-        action = PlanAction("store init", "missing", f"Zostanie utworzony znacznik {_STORE_MARKER} w {root}")
+        action = PlanAction(
+            "store init",
+            "missing",
+            f"Zostanie utworzony znacznik {_STORE_MARKER} w {root}",
+        )
     else:
-        action = PlanAction("store init", "check_failed",
-                            "; ".join(info.problems) or f"Katalog {root} nie jest pustym magazynem IMGW")
+        action = PlanAction(
+            "store init",
+            "check_failed",
+            "; ".join(info.problems)
+            or f"Katalog {root} nie jest pustym magazynem IMGW",
+        )
     return _plan(root, [action])
 
 
@@ -721,7 +1139,11 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
     cell = f"{options['method']}:{options['ind_x']}_{options['ind_y']}"
     try:
         if "version" in options:
-            version = options["version"] if options["version"].is_absolute() else root / options["version"]
+            version = (
+                options["version"]
+                if options["version"].is_absolute()
+                else root / options["version"]
+            )
             found = version if version.exists() else None
         else:
             entry = _store.current_version(root, slot=f"pmaxtp:{cell}")
@@ -729,14 +1151,29 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
     except IMGWError as exc:
         action = PlanAction("pmaxtp read", "check_failed", str(exc))
     else:
-        action = (PlanAction("pmaxtp read", "current", f"Odczyt komórki {cell} z {found}") if found is not None
-                  else PlanAction("pmaxtp read", "missing", f"Brak zapisanej komórki PMAXTP {cell}"))
+        action = (
+            PlanAction("pmaxtp read", "current", f"Odczyt komórki {cell} z {found}")
+            if found is not None
+            else PlanAction(
+                "pmaxtp read", "missing", f"Brak zapisanej komórki PMAXTP {cell}"
+            )
+        )
     return _plan(root, [action])
 
 
 def _read_only(command: str, key: str) -> Callable[[Options, Hooks], StorePlan]:
     def check(options: Options, hooks: Hooks) -> StorePlan:
-        return _plan(options[key], [PlanAction(command, "current", f"Operacja tylko do odczytu: {_absolute(options[key])}")])
+        return _plan(
+            options[key],
+            [
+                PlanAction(
+                    command,
+                    "current",
+                    f"Operacja tylko do odczytu: {_absolute(options[key])}",
+                )
+            ],
+        )
+
     return check
 
 
@@ -744,25 +1181,41 @@ def _check_manifest(command: str) -> Callable[[Options, Hooks], StorePlan]:
     def check(options: Options, hooks: Hooks) -> StorePlan:
         manifest = _absolute(options["project_dir"]) / PROJECT_FILE
         if command == "project init":
-            action = (PlanAction(command, "current", f"Manifest projektu już istnieje: {manifest}") if manifest.exists()
-                      else PlanAction(command, "missing", f"Zostanie utworzony manifest {manifest}"))
+            action = (
+                PlanAction(
+                    command, "current", f"Manifest projektu już istnieje: {manifest}"
+                )
+                if manifest.exists()
+                else PlanAction(
+                    command, "missing", f"Zostanie utworzony manifest {manifest}"
+                )
+            )
         elif manifest.is_file():
-            action = PlanAction(command, "newer", f"Zostanie zaktualizowany manifest {manifest}")
+            action = PlanAction(
+                command, "newer", f"Zostanie zaktualizowany manifest {manifest}"
+            )
         else:
-            action = PlanAction(command, "check_failed", f"Brak manifestu projektu {manifest}")
+            action = PlanAction(
+                command, "check_failed", f"Brak manifestu projektu {manifest}"
+            )
         return _plan(options["project_dir"], [action])
+
     return check
 
 
 def _run_project_check(options: Options, hooks: Hooks) -> StorePlan:
-    plan = _project().check_project(options["project_dir"], tasks=options.get("tasks"), **hooks)
+    plan = _project().check_project(
+        options["project_dir"], tasks=options.get("tasks"), **hooks
+    )
     if "plan" in options:
         plan.to_json(options["plan"])
     return plan
 
 
 def _check_project(options: Options, hooks: Hooks) -> StorePlan:
-    return _project().check_project(options["project_dir"], tasks=options.get("tasks"), **hooks)
+    return _project().check_project(
+        options["project_dir"], tasks=options.get("tasks"), **hooks
+    )
 
 
 def _check_pmaxtp(options: Options, hooks: Hooks) -> StorePlan:
@@ -777,26 +1230,61 @@ _RUN: dict[str, Runner] = {
     "store scan": lambda o, h: tuple(_store.iter_store(o["root"], kind=o.get("kind"))),
     "store check": _run_store_check,
     "store sync": lambda o, h: _store.sync_store(
-        o["root"], datasets=o.get("dataset"), years=o.get("years"), months=o.get("months"), plan=o.get("plan"),
-        series=not o.get("no_series", False), **h),
-    "store catalog": lambda o, h: _store.build_catalog(o["root"], user_locations=o.get("user_locations"), **h),
-    "series build": lambda o, h: _store.build_series(o["root"], dataset=o["dataset"], **h),
+        o["root"],
+        datasets=o.get("dataset"),
+        years=o.get("years"),
+        months=o.get("months"),
+        plan=o.get("plan"),
+        series=not o.get("no_series", False),
+        **h,
+    ),
+    "store catalog": lambda o, h: _store.build_catalog(
+        o["root"], user_locations=o.get("user_locations"), **h
+    ),
+    "series build": lambda o, h: _store.build_series(
+        o["root"], dataset=o["dataset"], **h
+    ),
     "series export": _run_export,
     "series select": lambda o, h: _select(o, _series_entry(o)),
     "pmaxtp check": _check_pmaxtp,
     "pmaxtp sync": lambda o, h: _store.sync_pmaxtp(o["root"], **_cell(o), **h),
     "pmaxtp read": lambda o, h: _store.read_pmaxtp(
-        o["root"], method=o["method"], ind_x=o["ind_x"], ind_y=o["ind_y"], version=o.get("version")),
-    "project init": lambda o, h: _project().init_project(o["project_dir"], store_dir=o["store_dir"]),
+        o["root"],
+        method=o["method"],
+        ind_x=o["ind_x"],
+        ind_y=o["ind_y"],
+        version=o.get("version"),
+    ),
+    "project init": lambda o, h: _project().init_project(
+        o["project_dir"], store_dir=o["store_dir"]
+    ),
     "project add": lambda o, h: _project().add_project_task(
-        o["project_dir"], name=o["name"], command=o["command"], options=o["options"], geometry=o.get("geometry")),
-    "project remove": lambda o, h: _project().remove_project_task(o["project_dir"], name=o["name"]),
-    "project set-store": lambda o, h: _project().set_project_store(o["project_dir"], store_dir=o["store_dir"]),
+        o["project_dir"],
+        name=o["name"],
+        command=o["command"],
+        options=o["options"],
+        geometry=o.get("geometry"),
+    ),
+    "project remove": lambda o, h: _project().remove_project_task(
+        o["project_dir"], name=o["name"]
+    ),
+    "project set-store": lambda o, h: _project().set_project_store(
+        o["project_dir"], store_dir=o["store_dir"]
+    ),
     "project download": lambda o, h: _project().download_project(
-        o["project_dir"], tasks=o.get("tasks"), plan=o.get("plan"), update=o.get("update", "pinned"), **h),
+        o["project_dir"],
+        tasks=o.get("tasks"),
+        plan=o.get("plan"),
+        update=o.get("update", "pinned"),
+        **h,
+    ),
     "project check": _run_project_check,
-    "project status": lambda o, h: _project().get_project_status(o["project_dir"], tasks=o.get("tasks")),
-    "project verify": lambda o, h: _project().verify_project(o["project_dir"], tasks=o.get("tasks"), **h),
+    "project status": lambda o, h: _project().get_project_status(
+        o["project_dir"], tasks=o.get("tasks")
+    ),
+    "project verify": lambda o, h: _project().verify_project(
+        o["project_dir"], tasks=o.get("tasks"), **h
+    ),
     "fetch hydro": partial(_run_fetch, "fetch hydro"),
     "fetch meteo": partial(_run_fetch, "fetch meteo"),
 }
@@ -805,11 +1293,16 @@ _CHECK: dict[str, Runner] = {
     "store init": _check_store_init,
     "store info": _read_only("store info", "root"),
     "store scan": _read_only("store scan", "root"),
-    "store check": lambda o, h: _store.check_store(o["root"], datasets=o["dataset"], years=o["years"],
-                                                   months=o.get("months"), **h),
+    "store check": lambda o, h: _store.check_store(
+        o["root"], datasets=o["dataset"], years=o["years"], months=o.get("months"), **h
+    ),
     "store sync": _check_store_sync,
-    "store catalog": lambda o, h: _store.check_catalog(o["root"], user_locations=o.get("user_locations"), **h),
-    "series build": lambda o, h: _store.check_series(o["root"], dataset=o["dataset"], **h),
+    "store catalog": lambda o, h: _store.check_catalog(
+        o["root"], user_locations=o.get("user_locations"), **h
+    ),
+    "series build": lambda o, h: _store.check_series(
+        o["root"], dataset=o["dataset"], **h
+    ),
     "series export": _check_export,
     "series select": _check_select,
     "pmaxtp check": _check_pmaxtp,
@@ -828,13 +1321,22 @@ _CHECK: dict[str, Runner] = {
 }
 
 
-def _hooks(on_progress: ProgressHook | None, on_notice: NoticeHook | None, cancel: Cancel | None) -> Hooks:
+def _hooks(
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> Hooks:
     return {"on_progress": on_progress, "on_notice": on_notice, "cancel": cancel}
 
 
 def check_command(
-    command: str, /, *, options: Mapping[str, object],
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None, cancel: Cancel | None = None,
+    command: str,
+    /,
+    *,
+    options: Mapping[str, object],
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
 ) -> StorePlan:
     """Plan komendy bez mutacji i bez pobierania treści (``check_*`` albo przewidywane ``PlanAction``)."""
     normalized = validate_command(command, options=options)
@@ -842,10 +1344,28 @@ def check_command(
 
 
 def run_command(
-    command: str, /, *, options: Mapping[str, object],
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None, cancel: Cancel | None = None,
-) -> (StoreHandle | StoreInfo | tuple[StoreEntry, ...] | StorePlan | SyncReport | SeriesReport | SeriesSelection
-      | CatalogReport | PMaXTPStoreResult | PMaXTPResult | Project | ProjectReport | Path):
+    command: str,
+    /,
+    *,
+    options: Mapping[str, object],
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
+) -> (
+    StoreHandle
+    | StoreInfo
+    | tuple[StoreEntry, ...]
+    | StorePlan
+    | SyncReport
+    | SeriesReport
+    | SeriesSelection
+    | CatalogReport
+    | PMaXTPStoreResult
+    | PMaXTPResult
+    | Project
+    | ProjectReport
+    | Path
+):
     """Wykonaj komendę katalogu przez dokładnie jedno publiczne API z tymi samymi hookami."""
     normalized = validate_command(command, options=options)
     return _RUN[command](normalized, _hooks(on_progress, on_notice, cancel))

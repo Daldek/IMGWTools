@@ -78,10 +78,21 @@ LICENSE_NOTICE = "license_terms"
 MIN_UNCERTAINTY_M = 150.0
 _METRES_PER_DEGREE = 111_320.0
 _PROPERTY_ORDER = (
-    "station_code", "kind", "meteo_kind", "name", "river", "hydrographic_code",
-    "river_order", "location_source", "location_uncertainty_m",
-    "location_missing_reason", "active", "established_year", "gauge_zero_m",
-    "river_km", "elevation_m",
+    "station_code",
+    "kind",
+    "meteo_kind",
+    "name",
+    "river",
+    "hydrographic_code",
+    "river_order",
+    "location_source",
+    "location_uncertainty_m",
+    "location_missing_reason",
+    "active",
+    "established_year",
+    "gauge_zero_m",
+    "river_km",
+    "elevation_m",
 )
 
 MissingReason = Literal["none", "zero", "outside_country"]
@@ -96,13 +107,25 @@ def _timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _newest_downloaded(entries: Iterable[tuple[Path, dict[str, Any]]]) -> tuple[Path, dict[str, Any]] | None:
+def _newest_downloaded(
+    entries: Iterable[tuple[Path, dict[str, Any]]],
+) -> tuple[Path, dict[str, Any]] | None:
     """Current derived version: newest ``downloaded_at``, ties by path."""
-    return max(entries, key=lambda entry: (_timestamp(entry[1]["downloaded_at"]), entry[0].as_posix()), default=None)
+    return max(
+        entries,
+        key=lambda entry: (_timestamp(entry[1]["downloaded_at"]), entry[0].as_posix()),
+        default=None,
+    )
 
 
 def _publish_version(
-    root: Path, *, slot: str, name: str, data: bytes, meta: dict[str, Any], label: str,
+    root: Path,
+    *,
+    slot: str,
+    name: str,
+    data: bytes,
+    meta: dict[str, Any],
+    label: str,
 ) -> tuple[Path, bool]:
     """Stage ``name`` + sidecar and publish ``<slot>/<label>_<sha8>`` without replacement.
 
@@ -174,7 +197,9 @@ class _Border:
         self.min_lat = min(min(e[1], e[3]) for e in edges)
         self.max_lat = max(max(e[1], e[3]) for e in edges)
         self.step = (self.max_lat - self.min_lat) / self._BANDS
-        self.bands: list[list[tuple[float, float, float, float]]] = [[] for _ in range(self._BANDS)]
+        self.bands: list[list[tuple[float, float, float, float]]] = [
+            [] for _ in range(self._BANDS)
+        ]
         for edge in edges:
             low, high = sorted((edge[1], edge[3]))
             for band in range(self._band(low), self._band(high) + 1):
@@ -184,11 +209,15 @@ class _Border:
         return min(self._BANDS - 1, max(0, int((lat - self.min_lat) / self.step)))
 
     def contains(self, lon: float, lat: float) -> bool:
-        if not (self.min_lon <= lon <= self.max_lon and self.min_lat <= lat <= self.max_lat):
+        if not (
+            self.min_lon <= lon <= self.max_lon and self.min_lat <= lat <= self.max_lat
+        ):
             return False
         inside = False
         for x1, y1, x2, y2 in self.bands[self._band(lat)]:
-            if (y1 > lat) != (y2 > lat) and lon < x1 + (lat - y1) * (x2 - x1) / (y2 - y1):
+            if (y1 > lat) != (y2 > lat) and lon < x1 + (lat - y1) * (x2 - x1) / (
+                y2 - y1
+            ):
                 inside = not inside
         return inside
 
@@ -207,7 +236,11 @@ class _Border:
                 ax, ay = (x1 - lon) * scale_lon, (y1 - lat) * _METRES_PER_DEGREE
                 dx, dy = (x2 - x1) * scale_lon, (y2 - y1) * _METRES_PER_DEGREE
                 length = dx * dx + dy * dy
-                t = 0.0 if length == 0 else min(1.0, max(0.0, -(ax * dx + ay * dy) / length))
+                t = (
+                    0.0
+                    if length == 0
+                    else min(1.0, max(0.0, -(ax * dx + ay * dy) / length))
+                )
                 if (ax + t * dx) ** 2 + (ay + t * dy) ** 2 <= limit:
                     return True
         return False
@@ -219,7 +252,11 @@ def _border() -> _Border:
     rings: list[list[list[float]]] = []
     for feature in document["features"]:
         geometry = feature["geometry"]
-        polygons = [geometry["coordinates"]] if geometry["type"] == "Polygon" else geometry["coordinates"]
+        polygons = (
+            [geometry["coordinates"]]
+            if geometry["type"] == "Polygon"
+            else geometry["coordinates"]
+        )
         for polygon in polygons:
             rings.extend(polygon)
     return _Border(rings)
@@ -242,19 +279,26 @@ def _number(value: object) -> tuple[float, int] | None:
 
 def _uncertainty_m(lat: float, lon_decimals: int, lat_decimals: int) -> float:
     """max(150 m, half of the source rounding step in metres at the station latitude)."""
-    lat_half = 0.5 * 10.0 ** -lat_decimals * _METRES_PER_DEGREE
-    lon_half = 0.5 * 10.0 ** -lon_decimals * _METRES_PER_DEGREE * math.cos(math.radians(lat))
+    lat_half = 0.5 * 10.0**-lat_decimals * _METRES_PER_DEGREE
+    lon_half = (
+        0.5 * 10.0**-lon_decimals * _METRES_PER_DEGREE * math.cos(math.radians(lat))
+    )
     return round(max(MIN_UNCERTAINTY_M, lat_half, lon_half), 1)
 
 
-def _evaluate(lon_raw: object, lat_raw: object) -> tuple[tuple[float, float], float] | MissingReason:
+def _evaluate(
+    lon_raw: object, lat_raw: object
+) -> tuple[tuple[float, float], float] | MissingReason:
     lon, lat = _number(lon_raw), _number(lat_raw)
     if lon is None or lat is None:
         return "none"
     if lon[0] == 0 and lat[0] == 0:
         return "zero"
     border = _border()
-    if not (border.contains(lon[0], lat[0]) or border.near(lon[0], lat[0], BORDER_TOLERANCE_M)):
+    if not (
+        border.contains(lon[0], lat[0])
+        or border.near(lon[0], lat[0], BORDER_TOLERANCE_M)
+    ):
         return "outside_country"
     return (lon[0], lat[0]), _uncertainty_m(lat[0], lon[1], lat[1])
 
@@ -273,7 +317,9 @@ def _http(method: str, url: str, *, timeout: float = DEFAULT_TIMEOUT) -> httpx.R
     except httpx.TimeoutException as exc:
         raise IMGWConnectionError(f"Przekroczono czas oczekiwania na {url}") from exc
     except httpx.HTTPStatusError as exc:
-        raise IMGWConnectionError(f"Błąd HTTP {exc.response.status_code} dla {url}") from exc
+        raise IMGWConnectionError(
+            f"Błąd HTTP {exc.response.status_code} dla {url}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise IMGWConnectionError(f"Błąd połączenia z {url}: {exc}") from exc
 
@@ -301,33 +347,53 @@ def _archive_slot(archive: ArchiveFile) -> str:
     return f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
 
 
-def _current_archive(root: Path, archive: ArchiveFile) -> tuple[Path, dict[str, Any]] | None:
+def _current_archive(
+    root: Path, archive: ArchiveFile
+) -> tuple[Path, dict[str, Any]] | None:
     """Current archive version: newest Last-Modified, then downloaded_at, then path."""
     slot = _validate_slot(root, _archive_slot(archive))
     entries = _existing(slot, PurePosixPath(archive.server_path).name)
     return max(
         entries,
-        key=lambda entry: (_signal_time(entry[1]), _timestamp(entry[1]["downloaded_at"]), entry[0].as_posix()),
+        key=lambda entry: (
+            _signal_time(entry[1]),
+            _timestamp(entry[1]["downloaded_at"]),
+            entry[0].as_posix(),
+        ),
         default=None,
     )
 
 
 def _station_list(
-    handle: StoreHandle, archive: ArchiveFile, *,
-    on_progress: ProgressHook | None, on_notice: NoticeHook | None,
+    handle: StoreHandle,
+    archive: ArchiveFile,
+    *,
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
 ) -> tuple[bytes, dict[str, Any]]:
     """Use the stored list, or download it and store it as an archive first."""
     current = _current_archive(handle.root, archive)
     if current is None:
         response = _http("GET", archive.url)
         result = DownloadResult(
-            data=response.content, url=str(response.url), etag=response.headers.get("ETag"),
-            last_modified=response.headers.get("Last-Modified"), content_length=_content_length(response),
+            data=response.content,
+            url=str(response.url),
+            etag=response.headers.get("ETag"),
+            last_modified=response.headers.get("Last-Modified"),
+            content_length=_content_length(response),
         )
-        write_archive(handle, archive=archive, response=result, on_progress=on_progress, on_notice=on_notice)
+        write_archive(
+            handle,
+            archive=archive,
+            response=result,
+            on_progress=on_progress,
+            on_notice=on_notice,
+        )
         current = _current_archive(handle.root, archive)
         if current is None:  # pragma: no cover - write_archive always leaves a version
-            raise IMGWStoreConflictError(f"Brak zapisanej wersji listy {archive.server_path}")
+            raise IMGWStoreConflictError(
+                f"Brak zapisanej wersji listy {archive.server_path}"
+            )
     path, meta = current
     data = path.read_bytes()
     return data, {
@@ -339,14 +405,18 @@ def _station_list(
     }
 
 
-def _api(url: str, source: str, code_key: str) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+def _api(
+    url: str, source: str, code_key: str
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     response = _http("GET", url)
     fetched_at = _utc(datetime.now(UTC))
     try:
         payload = response.json()
     except ValueError as exc:
         raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {url}") from exc
-    if not isinstance(payload, list) or not all(isinstance(row, dict) for row in payload):
+    if not isinstance(payload, list) or not all(
+        isinstance(row, dict) for row in payload
+    ):
         raise IMGWDataError(f"Nieoczekiwany format odpowiedzi z {url}")
     rows: dict[str, dict[str, Any]] = {}
     for row in payload:
@@ -354,33 +424,51 @@ def _api(url: str, source: str, code_key: str) -> tuple[dict[str, dict[str, Any]
         if code:
             rows[code] = row
     return rows, {
-        "source": source, "url": url, "file": None, "fetched_at": fetched_at,
-        "count": len(rows), "sha256": hashlib.sha256(response.content).hexdigest(),
+        "source": source,
+        "url": url,
+        "file": None,
+        "fetched_at": fetched_at,
+        "count": len(rows),
+        "sha256": hashlib.sha256(response.content).hexdigest(),
     }
 
 
-def _read_locations(data: bytes, *, user: bool) -> tuple[dict[str, tuple[str, str, str | None]], list[str]]:
+def _read_locations(
+    data: bytes, *, user: bool
+) -> tuple[dict[str, tuple[str, str, str | None]], list[str]]:
     """Read ``code -> (lon, lat, source label)`` from the static or user CSV."""
     text = data.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
     columns = ("station_code", "lon", "lat", "source") if user else ("id", "X", "Y")
     fields = tuple(name.strip() for name in reader.fieldnames or ())
-    if fields[:len(columns)] != columns:
+    if fields[: len(columns)] != columns:
         raise IMGWValidationError(
             f"Plik położeń musi mieć kolumny {','.join(columns)}; znaleziono {','.join(fields) or 'brak'}"
         )
     result: dict[str, tuple[str, str, str | None]] = {}
     problems: list[str] = []
     for line, row in enumerate(reader, start=2):
-        row = {(key or "").strip(): (value or "").strip() for key, value in row.items() if key}
+        row = {
+            (key or "").strip(): (value or "").strip()
+            for key, value in row.items()
+            if key
+        }
         code = row[columns[0]]
         if not (len(code) == 9 and code.isdecimal()):
-            problems.append(f"Wiersz {line}: niepoprawny kod stacji '{code}' w pliku położeń")
+            problems.append(
+                f"Wiersz {line}: niepoprawny kod stacji '{code}' w pliku położeń"
+            )
             continue
         if code in result:
-            problems.append(f"Wiersz {line}: powtórzony kod stacji {code} w pliku położeń")
+            problems.append(
+                f"Wiersz {line}: powtórzony kod stacji {code} w pliku położeń"
+            )
             continue
-        result[code] = (row[columns[1]], row[columns[2]], (row.get("source") or None) if user else None)
+        result[code] = (
+            row[columns[1]],
+            row[columns[2]],
+            (row.get("source") or None) if user else None,
+        )
     return result, problems
 
 
@@ -402,8 +490,12 @@ def _optional_int(value: object) -> int | None:
 
 
 def _feature(
-    code: str, *, kind: Literal["hydro", "meteo"], listed: Mapping[str, Any] | None,
-    api: Mapping[str, Any] | None, candidates: list[tuple[str, object, object]],
+    code: str,
+    *,
+    kind: Literal["hydro", "meteo"],
+    listed: Mapping[str, Any] | None,
+    api: Mapping[str, Any] | None,
+    candidates: list[tuple[str, object, object]],
     rejections: list[str],
 ) -> tuple[dict[str, Any], str | None]:
     geometry: dict[str, Any] | None = None
@@ -415,7 +507,9 @@ def _feature(
         verdict = _evaluate(lon, lat)
         if isinstance(verdict, str):
             if verdict != "none":
-                rejections.append(f"{code}: odrzucono punkt źródła {source} ({lon}, {lat}) — {verdict}")
+                rejections.append(
+                    f"{code}: odrzucono punkt źródła {source} ({lon}, {lat}) — {verdict}"
+                )
                 first_rejection = first_rejection or verdict
             continue
         (point_lon, point_lat), uncertainty = verdict
@@ -430,7 +524,8 @@ def _feature(
         "station_code": code,
         "kind": kind,
         "meteo_kind": None,
-        "name": (listed or {}).get("name") or str(api_row.get("stacja") or api_row.get("nazwa_stacji") or ""),
+        "name": (listed or {}).get("name")
+        or str(api_row.get("stacja") or api_row.get("nazwa_stacji") or ""),
         "river": str(river) if river else None,
         "hydrographic_code": (listed or {}).get("hydrographic_code"),
         "river_order": (listed or {}).get("river_order"),
@@ -444,16 +539,24 @@ def _feature(
         "elevation_m": _optional_float(api_row.get("wysokosc_npm")),
     }
     feature = {
-        "type": "Feature", "id": code, "geometry": geometry,
+        "type": "Feature",
+        "id": code,
+        "geometry": geometry,
         "properties": {key: properties[key] for key in _PROPERTY_ORDER},
     }
     return feature, location_source
 
 
-def _list_rows(data: bytes, *, kind: Literal["hydro", "meteo"], problems: list[str]) -> dict[str, dict[str, Any]]:
+def _list_rows(
+    data: bytes, *, kind: Literal["hydro", "meteo"], problems: list[str]
+) -> dict[str, dict[str, Any]]:
     text = _decode_content(data)
     rows: dict[str, dict[str, Any]] = {}
-    parsed: list[Any] = _parse_hydro_stations_csv(text) if kind == "hydro" else _parse_meteo_stations_csv(text)
+    parsed: list[Any] = (
+        _parse_hydro_stations_csv(text)
+        if kind == "hydro"
+        else _parse_meteo_stations_csv(text)
+    )
     for station in parsed:
         code = station.station_id.strip()
         if not (len(code) == 9 and code.isdecimal()):
@@ -469,16 +572,26 @@ def _list_rows(data: bytes, *, kind: Literal["hydro", "meteo"], problems: list[s
 
 
 def _catalog_bytes(
-    *, lists: Mapping[str, Mapping[str, Mapping[str, Any]]], apis: Mapping[str, Mapping[str, Mapping[str, Any]]],
-    static: Mapping[str, tuple[str, str, str | None]], user: Mapping[str, tuple[str, str, str | None]],
-    problems: list[str], rejections: list[str],
+    *,
+    lists: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    apis: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    static: Mapping[str, tuple[str, str, str | None]],
+    user: Mapping[str, tuple[str, str, str | None]],
+    problems: list[str],
+    rejections: list[str],
 ) -> tuple[bytes, int, int, dict[str, int]]:
     for kind, api in apis.items():
         for code in api:
             if not (len(code) == 9 and code.isdecimal()):
-                problems.append(f"API {kind}: pominięto niepoprawny kod stacji '{code}'")
+                problems.append(
+                    f"API {kind}: pominięto niepoprawny kod stacji '{code}'"
+                )
     codes = {
-        kind: {code for code in (*lists[kind], *apis[kind]) if len(code) == 9 and code.isdecimal()}
+        kind: {
+            code
+            for code in (*lists[kind], *apis[kind])
+            if len(code) == 9 and code.isdecimal()
+        }
         for kind in ("hydro", "meteo")
     }
     shared = sorted(codes["hydro"] & codes["meteo"])
@@ -490,7 +603,9 @@ def _catalog_bytes(
     for label, source in (("statycznym", static), ("użytkownika", user)):
         unknown = sorted(set(source) - known)
         if unknown:
-            problems.append(f"Plik położeń {label}: {len(unknown)} kodów spoza list i API (np. {unknown[0]})")
+            problems.append(
+                f"Plik położeń {label}: {len(unknown)} kodów spoza list i API (np. {unknown[0]})"
+            )
     features = []
     used: dict[str, int] = {}
     without = 0
@@ -505,7 +620,12 @@ def _catalog_bytes(
         if code in user:
             candidates.append(("user", user[code][0], user[code][1]))
         feature, source = _feature(
-            code, kind=kind, listed=lists[kind].get(code), api=api, candidates=candidates, rejections=rejections,
+            code,
+            kind=kind,
+            listed=lists[kind].get(code),
+            api=api,
+            candidates=candidates,
+            rejections=rejections,
         )
         if source is None:
             without += 1
@@ -523,8 +643,12 @@ def _catalog_bytes(
 
 def _local_source(data: bytes, *, source: str, file: str, count: int) -> dict[str, Any]:
     return {
-        "source": source, "url": None, "file": file, "fetched_at": None,
-        "count": count, "sha256": hashlib.sha256(data).hexdigest(),
+        "source": source,
+        "url": None,
+        "file": file,
+        "fetched_at": None,
+        "count": count,
+        "sha256": hashlib.sha256(data).hexdigest(),
     }
 
 
@@ -535,7 +659,9 @@ def _user_file(user_locations: PathArg | None) -> tuple[Path, bytes] | None:
     try:
         return path, path.read_bytes()
     except OSError as exc:
-        raise IMGWValidationError(f"Nie można odczytać pliku położeń użytkownika: {path}") from exc
+        raise IMGWValidationError(
+            f"Nie można odczytać pliku położeń użytkownika: {path}"
+        ) from exc
 
 
 def _static_file() -> tuple[Path, bytes | None]:
@@ -556,7 +682,9 @@ def _static_file() -> tuple[Path, bytes | None]:
     except FileNotFoundError:
         return path, None
     except OSError as exc:
-        raise IMGWValidationError(f"Nie można odczytać lokalnego pliku położeń: {path}") from exc
+        raise IMGWValidationError(
+            f"Nie można odczytać lokalnego pliku położeń: {path}"
+        ) from exc
 
 
 def _current_catalog(root: Path) -> tuple[Path, dict[str, Any]] | None:
@@ -565,8 +693,12 @@ def _current_catalog(root: Path) -> tuple[Path, dict[str, Any]] | None:
 
 
 def check_catalog(
-    root: RootArg, /, *, user_locations: PathArg | None = None,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    root: RootArg,
+    /,
+    *,
+    user_locations: PathArg | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
     """Compare catalog sources with the store using HEAD and local hashes only.
@@ -590,21 +722,42 @@ def check_catalog(
     for index, archive in enumerate(sources, start=1):
         if _cancelled(cancel):
             cancelled = True
-            items.append(PlanItem(archive, "unverifiable", None, None, None, None, None, "anulowano"))
+            items.append(
+                PlanItem(
+                    archive, "unverifiable", None, None, None, None, None, "anulowano"
+                )
+            )
             continue
         current = _current_archive(handle.root, archive)
         local_path, local_sha, old_http = (
-            (current[0], current[1]["sha256"], current[1]["extra"].get("http", {})) if current else (None, None, {})
+            (current[0], current[1]["sha256"], current[1]["extra"].get("http", {}))
+            if current
+            else (None, None, {})
         )
         try:
             response = _http("HEAD", archive.url)
         except IMGWConnectionError as exc:
-            items.append(PlanItem(archive, "check_failed", local_path, local_sha, None, None, None, str(exc)))
+            items.append(
+                PlanItem(
+                    archive,
+                    "check_failed",
+                    local_path,
+                    local_sha,
+                    None,
+                    None,
+                    None,
+                    str(exc),
+                )
+            )
         else:
             etag = response.headers.get("ETag")
             modified = response.headers.get("Last-Modified")
             length = _content_length(response)
-            pairs = [(new, old_http.get(key)) for key, new in (("etag", etag), ("last_modified", modified)) if new]
+            pairs = [
+                (new, old_http.get(key))
+                for key, new in (("etag", etag), ("last_modified", modified))
+                if new
+            ]
             if current is None:
                 status = "missing"
             elif not pairs:
@@ -613,19 +766,53 @@ def check_catalog(
                 status = "current"
             else:
                 status = "newer"
-            reason = "brak porównywalnego sygnału ETag/Last-Modified" if status == "unverifiable" else None
-            items.append(PlanItem(archive, status, local_path, local_sha, etag, modified, length, reason))
+            reason = (
+                "brak porównywalnego sygnału ETag/Last-Modified"
+                if status == "unverifiable"
+                else None
+            )
+            items.append(
+                PlanItem(
+                    archive,
+                    status,
+                    local_path,
+                    local_sha,
+                    etag,
+                    modified,
+                    length,
+                    reason,
+                )
+            )
         if on_progress is not None:
-            on_progress(Progress(index, total, "source", items[-1].status, f"Sprawdzono {archive.server_path}"))
+            on_progress(
+                Progress(
+                    index,
+                    total,
+                    "source",
+                    items[-1].status,
+                    f"Sprawdzono {archive.server_path}",
+                )
+            )
     for url in (HYDRO_API_URL, METEO_API_URL):
-        actions.append(PlanAction(
-            "store catalog", "unverifiable",
-            f"{url}: publiczne API nie udostępnia stabilnego sygnału aktualności; sprawdzenie wymaga pobrania",
-        ))
+        actions.append(
+            PlanAction(
+                "store catalog",
+                "unverifiable",
+                f"{url}: publiczne API nie udostępnia stabilnego sygnału aktualności; sprawdzenie wymaga pobrania",
+            )
+        )
         if on_notice is not None:
-            on_notice(Notice("warning", "source_unverifiable", f"Nie można sprawdzić aktualności {url} bez pobrania"))
+            on_notice(
+                Notice(
+                    "warning",
+                    "source_unverifiable",
+                    f"Nie można sprawdzić aktualności {url} bez pobrania",
+                )
+            )
     static_path, static_bytes = _static_file()
-    local_files: list[tuple[str, bytes | None, Path]] = [("static", static_bytes, static_path)]
+    local_files: list[tuple[str, bytes | None, Path]] = [
+        ("static", static_bytes, static_path)
+    ]
     if user is not None:
         local_files.append(("user", user[1], user[0]))
     for source, data, path in local_files:
@@ -634,8 +821,14 @@ def check_catalog(
             status: Literal["current", "newer", "missing"] = "missing"
         else:
             status = "current" if recorded.get(source) == digest else "newer"
-        detail = f"sha256 {digest}" if digest is not None else f"brak pliku {path.as_posix()}"
-        actions.append(PlanAction("store catalog", status, f"plik położeń {source}: {detail}"))
+        detail = (
+            f"sha256 {digest}"
+            if digest is not None
+            else f"brak pliku {path.as_posix()}"
+        )
+        actions.append(
+            PlanAction("store catalog", status, f"plik położeń {source}: {detail}")
+        )
     if catalog is None:
         overall: Literal["missing", "newer", "unverifiable"] = "missing"
     elif any(item.status in ("newer", "missing") for item in items) or any(
@@ -644,21 +837,37 @@ def check_catalog(
         overall = "newer"
     else:
         overall = "unverifiable"
-    actions.append(PlanAction(
-        "store catalog", overall,
-        f"katalog stacji: {catalog[0].relative_to(handle.root).as_posix() if catalog else 'brak wersji'}",
-    ))
+    actions.append(
+        PlanAction(
+            "store catalog",
+            overall,
+            f"katalog stacji: {catalog[0].relative_to(handle.root).as_posix() if catalog else 'brak wersji'}",
+        )
+    )
     if on_progress is not None:
-        on_progress(Progress(total, total, "source", overall, "Sprawdzono źródła katalogu stacji"))
+        on_progress(
+            Progress(
+                total, total, "source", overall, "Sprawdzono źródła katalogu stacji"
+            )
+        )
     return StorePlan(
-        schema="imgw-plan/1", root=handle.root, checked_at=datetime.now(UTC), items=tuple(items),
-        series_state={}, actions=tuple(actions), cancelled=cancelled,
+        schema="imgw-plan/1",
+        root=handle.root,
+        checked_at=datetime.now(UTC),
+        items=tuple(items),
+        series_state={},
+        actions=tuple(actions),
+        cancelled=cancelled,
     )
 
 
 def build_catalog(
-    root: RootArg, /, *, user_locations: PathArg | None = None,
-    on_progress: ProgressHook | None = None, on_notice: NoticeHook | None = None,
+    root: RootArg,
+    /,
+    *,
+    user_locations: PathArg | None = None,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> CatalogReport:
     """Build ``stations.geojson`` from station lists, public APIs and location files.
@@ -688,13 +897,19 @@ def build_catalog(
     for step, archive in enumerate(station_source_files(), start=1):
         if (report := stopped()) is not None:
             return report
-        data, source = _station_list(handle, archive, on_progress=None, on_notice=on_notice)
+        data, source = _station_list(
+            handle, archive, on_progress=None, on_notice=on_notice
+        )
         lists.append(data)
         sources.append(source)
         progress(step, "done", f"Lista stacji {archive.server_path}")
     apis = []
     for step, (url, source, key) in enumerate(
-        ((HYDRO_API_URL, "api_hydro", "id_stacji"), (METEO_API_URL, "api_meteo", "kod_stacji")), start=3,
+        (
+            (HYDRO_API_URL, "api_hydro", "id_stacji"),
+            (METEO_API_URL, "api_meteo", "kod_stacji"),
+        ),
+        start=3,
     ):
         if (report := stopped()) is not None:
             return report
@@ -719,24 +934,42 @@ def build_catalog(
             f"Brak lokalnego pliku położeń {static_path.as_posix()}; źródło static pominięte "
             "(dane IMGW-PIB pobiera python -m imgwtools.reference_data)"
         )
-        sources.append({
-            "source": "static", "url": None, "file": STATIC_LOCATIONS, "fetched_at": None,
-            "count": 0, "sha256": None, "available": False,
-        })
+        sources.append(
+            {
+                "source": "static",
+                "url": None,
+                "file": STATIC_LOCATIONS,
+                "fetched_at": None,
+                "count": 0,
+                "sha256": None,
+                "available": False,
+            }
+        )
     else:
         static, static_problems = _read_locations(static_bytes, user=False)
         problems.extend(static_problems)
         sources.append(
-            _local_source(static_bytes, source="static", file=STATIC_LOCATIONS, count=len(static)) | {"available": True}
+            _local_source(
+                static_bytes, source="static", file=STATIC_LOCATIONS, count=len(static)
+            )
+            | {"available": True}
         )
     user_rows: dict[str, tuple[str, str, str | None]] = {}
     if user is not None:
         user_rows, user_problems = _read_locations(user[1], user=True)
         problems.extend(user_problems)
-        sources.append(_local_source(user[1], source="user", file=user[0].name, count=len(user_rows)))
+        sources.append(
+            _local_source(
+                user[1], source="user", file=user[0].name, count=len(user_rows)
+            )
+        )
     data, count, without, used = _catalog_bytes(
-        lists=parsed_lists, apis={"hydro": apis[0], "meteo": apis[1]},
-        static=static, user=user_rows, problems=problems, rejections=rejections,
+        lists=parsed_lists,
+        apis={"hydro": apis[0], "meteo": apis[1]},
+        static=static,
+        user=user_rows,
+        problems=problems,
+        rejections=rejections,
     )
     progress(5, "done", f"Zbudowano katalog {count} stacji")
     if on_notice is not None:
@@ -745,13 +978,29 @@ def build_catalog(
         for rejection in rejections:
             on_notice(Notice("warning", "location_rejected", rejection))
         for source, number in sorted(used.items()):
-            on_notice(Notice("info", "location_source", f"Położenie z {source}: {number} stacji"))
+            on_notice(
+                Notice(
+                    "info", "location_source", f"Położenie z {source}: {number} stacji"
+                )
+            )
         if user is not None:
             labels = sorted({label for _, _, label in user_rows.values() if label})
             if labels:
-                on_notice(Notice("info", "location_source", f"Źródła w pliku użytkownika: {', '.join(labels)}"))
+                on_notice(
+                    Notice(
+                        "info",
+                        "location_source",
+                        f"Źródła w pliku użytkownika: {', '.join(labels)}",
+                    )
+                )
         if without:
-            on_notice(Notice("warning", "station_without_location", f"{without} stacji bez położenia (geometry=null)"))
+            on_notice(
+                Notice(
+                    "warning",
+                    "station_without_location",
+                    f"{without} stacji bez położenia (geometry=null)",
+                )
+            )
     if (report := stopped()) is not None:
         return report
     problems.extend(rejections)
@@ -763,25 +1012,41 @@ def build_catalog(
     now = datetime.now(UTC)
     label = now.date().isoformat()
     meta = {
-        "schema": "imgw-meta/1", "producer": "imgwtools", "producer_version": __version__,
-        "dataset": CATALOG_DATASET, "country": "PL", "provider": "IMGW-PIB",
+        "schema": "imgw-meta/1",
+        "producer": "imgwtools",
+        "producer_version": __version__,
+        "dataset": CATALOG_DATASET,
+        "country": "PL",
+        "provider": "IMGW-PIB",
         "request": {"user_locations": user[0].name if user else None},
         "license": asdict(get_dataset("pl.imgw.hydro_stations").license),
-        "downloaded_at": _utc(now), "sha256": sha, "size_bytes": len(data),
+        "downloaded_at": _utc(now),
+        "sha256": sha,
+        "size_bytes": len(data),
         "extra": {
             "version": {"label": label, "label_source": "downloaded"},
             "derived": "catalog",
             "catalog": sources,
         },
     }
-    path, created = _publish_version(handle.root, slot=CATALOG_SLOT, name=CATALOG_FILE, data=data, meta=meta, label=label)
+    path, created = _publish_version(
+        handle.root,
+        slot=CATALOG_SLOT,
+        name=CATALOG_FILE,
+        data=data,
+        meta=meta,
+        label=label,
+    )
     status: Literal["created", "unchanged"] = "created" if created else "unchanged"
     progress(total, status, f"Katalog stacji: {path.parent.name}")
     if created and on_notice is not None:
         license_ = get_dataset("pl.imgw.hydro_stations").license
-        on_notice(Notice(
-            "info", LICENSE_NOTICE,
-            f"{license_.attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-            "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
-        ))
+        on_notice(
+            Notice(
+                "info",
+                LICENSE_NOTICE,
+                f"{license_.attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
+                "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+            )
+        )
     return CatalogReport(status, path, count, without, tuple(problems))

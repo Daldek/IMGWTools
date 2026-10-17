@@ -18,7 +18,9 @@ HYDRO_TO_CALENDAR_MONTH = {1: 11, 2: 12, **{index + 2: index for index in range(
 
 
 def hydro_to_calendar_date(hydro_year: int, hydro_month: int, day: int) -> date:
-    return date(hydro_year - (hydro_month <= 2), HYDRO_TO_CALENDAR_MONTH[hydro_month], day)
+    return date(
+        hydro_year - (hydro_month <= 2), HYDRO_TO_CALENDAR_MONTH[hydro_month], day
+    )
 
 
 def is_missing_value(value: float | None, value_type: str) -> bool:
@@ -65,18 +67,25 @@ def _iter_rows(content: str, delimiter: str) -> Iterator[list[str]]:
         yield row
 
 
-def archive_csv_members(data: bytes, *, kind: str | None = None, filename: str = "archiwum ZIP") -> Iterator[tuple[str, bytes]]:
+def archive_csv_members(
+    data: bytes, *, kind: str | None = None, filename: str = "archiwum ZIP"
+) -> Iterator[tuple[str, bytes]]:
     """Read CSV members without extracting paths, with compressed-bomb limits."""
     try:
         with ZipFile(io.BytesIO(data)) as archive:
             members = archive.infolist()
-            if len(members) > 1000 or sum(item.file_size for item in members) > 256 * 1024 * 1024:
+            if (
+                len(members) > 1000
+                or sum(item.file_size for item in members) > 256 * 1024 * 1024
+            ):
                 raise IMGWDataError(f"Zbyt duże archiwum {filename}")
             for member in members:
                 name = member.filename
                 if name.startswith("/") or ".." in name.split("/") or "\\" in name:
                     raise IMGWDataError(f"Niedozwolona ścieżka w {filename}: {name}")
-                if not name.lower().endswith(".csv") or (kind and kind not in name.lower()):
+                if not name.lower().endswith(".csv") or (
+                    kind and kind not in name.lower()
+                ):
                     continue
                 if member.file_size > 64 * 1024 * 1024:
                     raise IMGWDataError(f"Zbyt duży CSV w {filename}: {name}")

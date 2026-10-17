@@ -42,13 +42,29 @@ NEW = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
 V1 = {"ETag": '"hydro-v1"', "Last-Modified": "Sat, 17 Oct 2026 12:00:00 GMT"}
 V2 = {"ETag": '"hydro-v2"', "Last-Modified": "Sun, 18 Oct 2026 12:00:00 GMT"}
 V3 = {"ETag": '"hydro-v3"', "Last-Modified": "Mon, 19 Oct 2026 12:00:00 GMT"}
-SELECT = {"dataset": DAILY, "stations": [RABA], "variables": ["H", "Q"], "years": [2024], "year_type": "hydrological"}
+SELECT = {
+    "dataset": DAILY,
+    "stations": [RABA],
+    "variables": ["H", "Q"],
+    "years": [2024],
+    "year_type": "hydrological",
+}
 # Obejmuje Rabę Górną (hydro, 20.1/49.7) i Warszawę (meteo, 21.01/52.23).
-AREA = {"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": [
-    [[19.9, 49.5], [21.5, 49.5], [21.5, 52.5], [19.9, 52.5], [19.9, 49.5]],
-]}}
-PIN = {"role": "input", "sha256": "0" * 64,
-       "path": "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024/2026-10-17_688646cd/codz_2024.zip"}
+AREA = {
+    "type": "Feature",
+    "properties": {},
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [[19.9, 49.5], [21.5, 49.5], [21.5, 52.5], [19.9, 52.5], [19.9, 49.5]],
+        ],
+    },
+}
+PIN = {
+    "role": "input",
+    "sha256": "0" * 64,
+    "path": "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024/2026-10-17_688646cd/codz_2024.zip",
+}
 
 
 class Imgw:
@@ -56,14 +72,23 @@ class Imgw:
 
     def __init__(self, mock):
         mock.get(f"{IMGW_PUBLIC_DATA_URL}/dane_hydrologiczne/dobowe/2024/").mock(
-            return_value=httpx.Response(200, text='<a href="codz_2024.zip">codz_2024.zip</a>'))
+            return_value=httpx.Response(
+                200, text='<a href="codz_2024.zip">codz_2024.zip</a>'
+            )
+        )
         self.head = mock.head(H2024.url)
         self.get = mock.get(H2024.url)
         self.publish(V1, OLD)
 
     def publish(self, headers, content):
-        self.head.mock(return_value=httpx.Response(200, headers={**headers, "Content-Length": str(len(content))}))
-        self.get.mock(return_value=httpx.Response(200, headers=headers, content=content))
+        self.head.mock(
+            return_value=httpx.Response(
+                200, headers={**headers, "Content-Length": str(len(content))}
+            )
+        )
+        self.get.mock(
+            return_value=httpx.Response(200, headers=headers, content=content)
+        )
 
     @property
     def calls(self):
@@ -101,7 +126,10 @@ def write(project, document):
 
 def snapshot(root):
     return {
-        path.relative_to(root).as_posix(): (path.stat().st_mtime_ns, path.read_bytes() if path.is_file() else None)
+        path.relative_to(root).as_posix(): (
+            path.stat().st_mtime_ns,
+            path.read_bytes() if path.is_file() else None,
+        )
         for path in sorted(root.rglob("*"))
     }
 
@@ -116,12 +144,18 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(tmp_path, fixture_root):
+def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
+    tmp_path, fixture_root
+):
     project = tmp_path / "project"
     created = init_project(project, store_dir="../store")
 
-    assert (project / PROJECT_FILE).read_bytes() == b'{"schema":"imgw-project/1","store_dir":"../store","tasks":[]}\n'
-    assert created == open_project(project) == Project(project, tmp_path / "store", (), {})
+    assert (
+        project / PROJECT_FILE
+    ).read_bytes() == b'{"schema":"imgw-project/1","store_dir":"../store","tasks":[]}\n'
+    assert (
+        created == open_project(project) == Project(project, tmp_path / "store", (), {})
+    )
     before = snapshot(project)
     assert init_project(project, store_dir=tmp_path / "store") == created
     assert snapshot(project) == before
@@ -129,7 +163,9 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(tmp
         init_project(project, store_dir=fixture_root)
 
     absolute = init_project(tmp_path / "other", store_dir=fixture_root)
-    assert absolute.store_dir == fixture_root and manifest(tmp_path / "other")["store_dir"] == str(fixture_root)
+    assert absolute.store_dir == fixture_root and manifest(tmp_path / "other")[
+        "store_dir"
+    ] == str(fixture_root)
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     (foreign / "notes.txt").write_text("x")
@@ -141,37 +177,81 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(tmp
     assert not (tmp_path / "third").exists() and not (store / "project").exists()
 
 
-@pytest.mark.parametrize(("mutate", "message"), [
-    (lambda d: d.update(note=1), "nieznane klucze 'note'"),
-    (lambda d: d["tasks"][0].update(note=1), r"tasks\[0\]: nieznane klucze 'note'"),
-    (lambda d: d["tasks"][0]["files"][0].update(size=1), r"files\[0\]: nieznane klucze 'size'"),
-    (lambda d: d.update(schema="imgw-project/2"), "imgw-project/2"),
-    (lambda d: d.update(extensions=[]), "extensions"),
-    (lambda d: d["tasks"][0].update(name="Raba"), "nazwa zadania"),
-    (lambda d: d["tasks"][0].update(command="store init"), "store init"),
-    (lambda d: d["tasks"][0]["options"].update(root="/x"), "root"),
-    (lambda d: d["tasks"][0]["options"].update(stations=["12345"]), "9 cyfr"),
-    (lambda d: d["tasks"][0]["options"].pop("year_type"), "jawnych opcji: year_type"),
-    (lambda d: d["tasks"][0]["options"].update(geometry="../obszar.geojson"), r"'\.\.'"),
-    (lambda d: d["tasks"][0].update(geometry_sha256={"obszar.geojson": "0" * 64}), "geometry_sha256"),
-    (lambda d: d["tasks"][0].update(pinned_at=None), "pinned_at i imgwtools_version"),
-    (lambda d: d["tasks"][0].update(pinned_at="2026-10-17T12:00:00"), "strefę czasową"),
-    (lambda d: d["tasks"][0]["files"][0].update(path="archives/versions/../../imgw-store.json"), r"'\.\.'"),
-    (lambda d: d["tasks"][0]["files"][0].update(path="/etc/passwd"), "względną POSIX"),
-    (lambda d: d["tasks"][0]["files"][0].update(path="imgw-store.json"), "versions"),
-    (lambda d: d["tasks"][0]["files"][0].update(sha256="ABC"), "SHA-256"),
-    (lambda d: d["tasks"][0]["files"][0].update(role="station_series"), "station"),
-    (lambda d: d["tasks"][0]["files"].append(dict(PIN)), "powtórzona ścieżka"),
-    (lambda d: d["tasks"].append(dict(d["tasks"][0])), "powtórzona nazwa"),
-])
-def test_open_project_rejects_unknown_keys_bad_values_and_unsafe_paths(tmp_path, mutate, message):
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda d: d.update(note=1), "nieznane klucze 'note'"),
+        (lambda d: d["tasks"][0].update(note=1), r"tasks\[0\]: nieznane klucze 'note'"),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(size=1),
+            r"files\[0\]: nieznane klucze 'size'",
+        ),
+        (lambda d: d.update(schema="imgw-project/2"), "imgw-project/2"),
+        (lambda d: d.update(extensions=[]), "extensions"),
+        (lambda d: d["tasks"][0].update(name="Raba"), "nazwa zadania"),
+        (lambda d: d["tasks"][0].update(command="store init"), "store init"),
+        (lambda d: d["tasks"][0]["options"].update(root="/x"), "root"),
+        (lambda d: d["tasks"][0]["options"].update(stations=["12345"]), "9 cyfr"),
+        (
+            lambda d: d["tasks"][0]["options"].pop("year_type"),
+            "jawnych opcji: year_type",
+        ),
+        (
+            lambda d: d["tasks"][0]["options"].update(geometry="../obszar.geojson"),
+            r"'\.\.'",
+        ),
+        (
+            lambda d: d["tasks"][0].update(
+                geometry_sha256={"obszar.geojson": "0" * 64}
+            ),
+            "geometry_sha256",
+        ),
+        (
+            lambda d: d["tasks"][0].update(pinned_at=None),
+            "pinned_at i imgwtools_version",
+        ),
+        (
+            lambda d: d["tasks"][0].update(pinned_at="2026-10-17T12:00:00"),
+            "strefę czasową",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(
+                path="archives/versions/../../imgw-store.json"
+            ),
+            r"'\.\.'",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(path="/etc/passwd"),
+            "względną POSIX",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(path="imgw-store.json"),
+            "versions",
+        ),
+        (lambda d: d["tasks"][0]["files"][0].update(sha256="ABC"), "SHA-256"),
+        (lambda d: d["tasks"][0]["files"][0].update(role="station_series"), "station"),
+        (lambda d: d["tasks"][0]["files"].append(dict(PIN)), "powtórzona ścieżka"),
+        (lambda d: d["tasks"].append(dict(d["tasks"][0])), "powtórzona nazwa"),
+    ],
+)
+def test_open_project_rejects_unknown_keys_bad_values_and_unsafe_paths(
+    tmp_path, mutate, message
+):
     project = tmp_path / "project"
     project.mkdir()
-    task = {"name": "raba", "command": "series select", "options": dict(SELECT), "pinned_at": "2026-10-17T12:00:00Z",
-            "imgwtools_version": "3.0.0", "files": [dict(PIN)]}
+    task = {
+        "name": "raba",
+        "command": "series select",
+        "options": dict(SELECT),
+        "pinned_at": "2026-10-17T12:00:00Z",
+        "imgwtools_version": "3.0.0",
+        "files": [dict(PIN)],
+    }
     document = {"schema": "imgw-project/1", "store_dir": "../store", "tasks": [task]}
     write(project, document)
-    assert open_project(project).tasks[0].pinned_at == datetime(2026, 10, 17, 12, tzinfo=UTC)
+    assert open_project(project).tasks[0].pinned_at == datetime(
+        2026, 10, 17, 12, tzinfo=UTC
+    )
 
     mutate(document)
     write(project, document)
@@ -182,10 +262,14 @@ def test_open_project_rejects_unknown_keys_bad_values_and_unsafe_paths(tmp_path,
 def test_open_project_rejects_duplicate_json_keys_and_non_finite_numbers(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
-    (project / PROJECT_FILE).write_text('{"schema":"imgw-project/1","store_dir":"s","store_dir":"t","tasks":[]}')
+    (project / PROJECT_FILE).write_text(
+        '{"schema":"imgw-project/1","store_dir":"s","store_dir":"t","tasks":[]}'
+    )
     with pytest.raises(IMGWProjectError, match="powtórzony klucz"):
         open_project(project)
-    (project / PROJECT_FILE).write_text('{"schema":"imgw-project/1","store_dir":"s","tasks":[],"extensions":{"x":NaN}}')
+    (project / PROJECT_FILE).write_text(
+        '{"schema":"imgw-project/1","store_dir":"s","tasks":[],"extensions":{"x":NaN}}'
+    )
     with pytest.raises(IMGWProjectError, match="NaN"):
         open_project(project)
 
@@ -195,10 +279,22 @@ def test_symlinks_in_pinned_and_project_paths_are_rejected(tmp_path, fixture_roo
     shutil.copytree(fixture_root, store)
     project = tmp_path / "project"
     init_project(project, store_dir="../store")
-    (store / "archives" / "versions" / "link").symlink_to(store / "archives" / "versions" / "dane_hydrologiczne")
+    (store / "archives" / "versions" / "link").symlink_to(
+        store / "archives" / "versions" / "dane_hydrologiczne"
+    )
     document = manifest(project)
-    document["tasks"] = [{"name": "raba", "command": "series select", "options": SELECT, "pinned_at": None,
-                          "imgwtools_version": None, "files": [{**PIN, "path": PIN["path"].replace("dane_hydrologiczne", "link")}]}]
+    document["tasks"] = [
+        {
+            "name": "raba",
+            "command": "series select",
+            "options": SELECT,
+            "pinned_at": None,
+            "imgwtools_version": None,
+            "files": [
+                {**PIN, "path": PIN["path"].replace("dane_hydrologiczne", "link")}
+            ],
+        }
+    ]
     write(project, document)
     with pytest.raises(IMGWProjectError, match="Dowiązanie symboliczne"):
         open_project(project)
@@ -210,27 +306,51 @@ def test_symlinks_in_pinned_and_project_paths_are_rejected(tmp_path, fixture_roo
     (elsewhere / "obszar.geojson").write_text(json.dumps(AREA))
     (project / "obszary").symlink_to(elsewhere)
     options = {"dataset": DAILY, "years": [2024]}
-    for geometry, message in [("obszary/obszar.geojson", "Dowiązanie symboliczne"),
-                              (elsewhere / "obszar.geojson", "musi leżeć w katalogu"),
-                              ("../elsewhere/obszar.geojson", r"'\.\.'")]:
+    for geometry, message in [
+        ("obszary/obszar.geojson", "Dowiązanie symboliczne"),
+        (elsewhere / "obszar.geojson", "musi leżeć w katalogu"),
+        ("../elsewhere/obszar.geojson", r"'\.\.'"),
+    ]:
         with pytest.raises(IMGWValidationError, match=message):
-            add_project_task(project, name="obszar", command="series select", options=options, geometry=geometry)
+            add_project_task(
+                project,
+                name="obszar",
+                command="series select",
+                options=options,
+                geometry=geometry,
+            )
     assert open_project(project).tasks == ()
 
 
-def test_add_materializes_explicit_options_and_writes_keep_extensions(tmp_path, fixture_root):
+def test_add_materializes_explicit_options_and_writes_keep_extensions(
+    tmp_path, fixture_root
+):
     project = tmp_path / "project"
     init_project(project, store_dir=fixture_root)
     document = manifest(project)
     document["extensions"] = {"hydrograf": {"warstwa": "raba"}}
     write(project, document)
 
-    added = add_project_task(project, name="raba", command="series select",
-                             options={"dataset": DAILY, "stations": RABA, "years": "2023-2024"})
+    added = add_project_task(
+        project,
+        name="raba",
+        command="series select",
+        options={"dataset": DAILY, "stations": RABA, "years": "2023-2024"},
+    )
     (task,) = added.tasks
-    assert task.options == {"dataset": DAILY, "stations": [RABA], "variables": ["H", "Q", "T"],
-                            "years": [2023, 2024], "year_type": "hydrological"}
-    assert (task.pinned_at, task.imgwtools_version, task.geometry_sha256, task.files) == (None, None, None, ())
+    assert task.options == {
+        "dataset": DAILY,
+        "stations": [RABA],
+        "variables": ["H", "Q", "T"],
+        "years": [2023, 2024],
+        "year_type": "hydrological",
+    }
+    assert (
+        task.pinned_at,
+        task.imgwtools_version,
+        task.geometry_sha256,
+        task.files,
+    ) == (None, None, None, ())
     add_project_task(project, name="info", command="store info", options={})
     assert manifest(project)["extensions"] == {"hydrograf": {"warstwa": "raba"}}
 
@@ -241,20 +361,28 @@ def test_add_materializes_explicit_options_and_writes_keep_extensions(tmp_path, 
         ("bez-lat", "series select", {"dataset": DAILY, "stations": RABA}),
         ("Zla", "store info", {}),
         ("proj", "project init", {}),
-        ("zly-kod", "series select", {"dataset": DAILY, "stations": "123", "years": 2024}),
+        (
+            "zly-kod",
+            "series select",
+            {"dataset": DAILY, "stations": "123", "years": 2024},
+        ),
         ("z-root", "store info", {"root": "/x"}),
     ]:
         with pytest.raises(IMGWValidationError):
             add_project_task(project, name=name, command=command, options=options)
     assert (project / PROJECT_FILE).read_bytes() == before
 
-    assert [task.name for task in remove_project_task(project, name="raba").tasks] == ["info"]
+    assert [task.name for task in remove_project_task(project, name="raba").tasks] == [
+        "info"
+    ]
     with pytest.raises(IMGWProjectError, match="Brak zadania"):
         remove_project_task(project, name="raba")
     assert open_project(project).extensions == {"hydrograf": {"warstwa": "raba"}}
 
 
-def test_area_selection_hashes_geometry_and_stores_an_explicit_station_list(tmp_path, fixture_root):
+def test_area_selection_hashes_geometry_and_stores_an_explicit_station_list(
+    tmp_path, fixture_root
+):
     project = tmp_path / "project"
     init_project(project, store_dir=fixture_root)
     area = project / "obszary" / "raba.geojson"
@@ -262,31 +390,68 @@ def test_area_selection_hashes_geometry_and_stores_an_explicit_station_list(tmp_
     area.write_text(json.dumps(AREA))
 
     # Bez położenia (BEZ_Q) stację wybiera się po kodzie; Warszawa (meteo) nie należy do zbioru hydro.
-    added = add_project_task(project, name="raba", command="series select",
-                             options={"dataset": DAILY, "stations": [BEZ_Q], "years": [2024]}, geometry=area)
+    added = add_project_task(
+        project,
+        name="raba",
+        command="series select",
+        options={"dataset": DAILY, "stations": [BEZ_Q], "years": [2024]},
+        geometry=area,
+    )
     (task,) = added.tasks
     catalog = current_version(fixture_root, slot="catalog:stations")
     assert task.options["stations"] == [RABA, BEZ_Q]
     assert task.options["geometry"] == "obszary/raba.geojson"
     assert task.geometry_sha256 == {"obszary/raba.geojson": sha(area.read_bytes())}
-    assert task.files == (ProjectFile("catalog", catalog.version.relative_to(fixture_root), catalog.meta.sha256),)
+    assert task.files == (
+        ProjectFile(
+            "catalog", catalog.version.relative_to(fixture_root), catalog.meta.sha256
+        ),
+    )
     assert get_project_status(project).tasks == {"raba": "unpinned"}
 
     (project / "obszar.geojson").write_text(json.dumps(AREA))
-    area.write_text(json.dumps({"type": "Polygon", "coordinates": [[[15, 52], [15.1, 52], [15.1, 52.1], [15, 52]]]}))
+    area.write_text(
+        json.dumps(
+            {
+                "type": "Polygon",
+                "coordinates": [[[15, 52], [15.1, 52], [15.1, 52.1], [15, 52]]],
+            }
+        )
+    )
     assert open_project(project).tasks == added.tasks  # wybór zmaterializowany raz
-    meteo = add_project_task(project, name="opad", command="series select",
-                             options={"dataset": "pl.imgw.meteo_precip_daily", "years": [2001]}, geometry="obszar.geojson")
+    meteo = add_project_task(
+        project,
+        name="opad",
+        command="series select",
+        options={"dataset": "pl.imgw.meteo_precip_daily", "years": [2001]},
+        geometry="obszar.geojson",
+    )
     assert meteo.tasks[-1].options["stations"] == ["123750000"]
     with pytest.raises(IMGWValidationError, match="nie objął żadnej stacji"):
-        add_project_task(project, name="pusty", command="series select",
-                         options={"dataset": DAILY, "years": [2024]}, geometry=area)
+        add_project_task(
+            project,
+            name="pusty",
+            command="series select",
+            options={"dataset": DAILY, "years": [2024]},
+            geometry=area,
+        )
     (project / "zly.geojson").write_text('{"type": "Point", "coordinates": [20, 50]}')
     with pytest.raises(IMGWValidationError, match="Polygon"):
-        add_project_task(project, name="punkt", command="series select",
-                         options={"dataset": DAILY, "years": [2024]}, geometry="zly.geojson")
+        add_project_task(
+            project,
+            name="punkt",
+            command="series select",
+            options={"dataset": DAILY, "years": [2024]},
+            geometry="zly.geojson",
+        )
     with pytest.raises(IMGWValidationError, match="series select"):
-        add_project_task(project, name="info", command="store info", options={}, geometry="zly.geojson")
+        add_project_task(
+            project,
+            name="info",
+            command="store info",
+            options={},
+            geometry="zly.geojson",
+        )
 
 
 def test_download_pins_selection_and_status_verify_detect_changes(pinned):
@@ -297,16 +462,29 @@ def test_download_pins_selection_and_status_verify_detect_changes(pinned):
     assert task.pinned_at is not None and task.imgwtools_version == __version__
     assert [pin.role for pin in task.files] == ["series", "station_series", "input"]
     assert station.station == RABA and station.path.parent.parent == series.path.parent
-    assert archive.sha256 == sha(OLD) and archive.path.parts[:2] == ("archives", "versions")
+    assert archive.sha256 == sha(OLD) and archive.path.parts[:2] == (
+        "archives",
+        "versions",
+    )
     assert all(sha((store / pin.path).read_bytes()) == pin.sha256 for pin in task.files)
-    assert get_project_status(pinned).tasks == verify_project(pinned).tasks == {"raba": "current"}
+    assert (
+        get_project_status(pinned).tasks
+        == verify_project(pinned).tasks
+        == {"raba": "current"}
+    )
 
     flip_last_byte(store / station.path)  # ten sam rozmiar: tylko pełne SHA to wykrywa
     assert get_project_status(pinned).tasks == {"raba": "current"}
     notices = []
     report = verify_project(pinned, on_notice=notices.append)
-    assert report.tasks == {"raba": "changed"} and [notice.code for notice in notices] == ["pin_mismatch"]
-    assert [result.status for result in report.files] == ["unchanged", "failed", "unchanged"]
+    assert report.tasks == {"raba": "changed"} and [
+        notice.code for notice in notices
+    ] == ["pin_mismatch"]
+    assert [result.status for result in report.files] == [
+        "unchanged",
+        "failed",
+        "unchanged",
+    ]
     (store / series.path).unlink()
     assert get_project_status(pinned).tasks == {"raba": "missing"}
 
@@ -319,8 +497,12 @@ def test_check_writes_nothing_and_only_upgrade_changes_pins(pinned, imgw):
 
     plan = check_project(pinned)
     assert plan.schema == "imgw-plan/1" and plan.root == store
-    assert [(action.command, action.status) for action in plan.actions] == [("project download", "newer")]
-    assert [(item.archive.server_path, item.status) for item in plan.items] == [(H2024.server_path, "newer")]
+    assert [(action.command, action.status) for action in plan.actions] == [
+        ("project download", "newer")
+    ]
+    assert [(item.archive.server_path, item.status) for item in plan.items] == [
+        (H2024.server_path, "newer")
+    ]
     assert snapshot(pinned.parent) == before and imgw.get.call_count == gets
 
     calls = imgw.calls
@@ -332,7 +514,9 @@ def test_check_writes_nothing_and_only_upgrade_changes_pins(pinned, imgw):
     (task,) = open_project(pinned).tasks
     assert {pin.role for pin in task.files} == {"series", "station_series", "input"}
     assert next(pin for pin in task.files if pin.role == "input").sha256 == sha(NEW)
-    assert not set(task.files) & set(pins) and all((store / pin.path).is_file() for pin in pins)
+    assert not set(task.files) & set(pins) and all(
+        (store / pin.path).is_file() for pin in pins
+    )
     assert verify_project(pinned).tasks == {"raba": "current"}
 
 
@@ -359,7 +543,9 @@ def test_restore_recreates_only_identical_bytes_and_never_repins(pinned, imgw):
     shutil.rmtree(store)
 
     report = download_project(pinned)
-    assert report.tasks == {"raba": "current"} and {result.status for result in report.files} == {"created"}
+    assert report.tasks == {"raba": "current"} and {
+        result.status for result in report.files
+    } == {"created"}
     assert (pinned / PROJECT_FILE).read_bytes() == before
     assert verify_project(pinned).tasks == {"raba": "current"}
 
@@ -369,8 +555,13 @@ def test_restore_recreates_only_identical_bytes_and_never_repins(pinned, imgw):
     report = download_project(pinned, on_notice=notices.append)
     assert report.tasks == {"raba": "failed"}
     errors = {result.slot.split("/")[0]: result.error for result in report.files}
-    assert "inną treść" in errors["raba:archives"] and "przypiętych wejść" in errors["raba:series"]
-    assert {result.status for result in report.files} == {"failed"} and "task_failed" in {n.code for n in notices}
+    assert (
+        "inną treść" in errors["raba:archives"]
+        and "przypiętych wejść" in errors["raba:series"]
+    )
+    assert {result.status for result in report.files} == {
+        "failed"
+    } and "task_failed" in {n.code for n in notices}
     assert (pinned / PROJECT_FILE).read_bytes() == before
     assert get_project_status(pinned).tasks == {"raba": "missing"}
 
@@ -381,8 +572,13 @@ def test_set_store_moves_to_a_verified_copy_and_refuses_other_stores(pinned, tmp
     shutil.copytree(tmp_path / "store", moved)
 
     project = set_project_store(pinned, store_dir="../archiwum/imgw")
-    assert project.store_dir == moved and manifest(pinned)["store_dir"] == "../archiwum/imgw"
-    assert project.tasks == pins and get_project_status(pinned).tasks == {"raba": "current"}
+    assert (
+        project.store_dir == moved
+        and manifest(pinned)["store_dir"] == "../archiwum/imgw"
+    )
+    assert project.tasks == pins and get_project_status(pinned).tasks == {
+        "raba": "current"
+    }
 
     before = (pinned / PROJECT_FILE).read_bytes()
     tampered = tmp_path / "tampered"
@@ -391,8 +587,11 @@ def test_set_store_moves_to_a_verified_copy_and_refuses_other_stores(pinned, tmp
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     (foreign / "x.txt").write_text("x")
-    for store, message in [(init_store(tmp_path / "empty").root, "brak przypiętego pliku"),
-                           (tampered, "SHA-256"), (foreign, "magazynem IMGW")]:
+    for store, message in [
+        (init_store(tmp_path / "empty").root, "brak przypiętego pliku"),
+        (tampered, "SHA-256"),
+        (foreign, "magazynem IMGW"),
+    ]:
         with pytest.raises(IMGWProjectError, match=message):
             set_project_store(pinned, store_dir=store)
     assert (pinned / PROJECT_FILE).read_bytes() == before
@@ -402,7 +601,12 @@ def test_two_tasks_downloaded_concurrently_both_keep_their_pins(tmp_path, imgw):
     project = tmp_path / "project"
     init_project(project, store_dir="../store")
     add_project_task(project, name="a", command="series select", options=SELECT)
-    add_project_task(project, name="b", command="series select", options={**SELECT, "stations": [BEZ_Q]})
+    add_project_task(
+        project,
+        name="b",
+        command="series select",
+        options={**SELECT, "stations": [BEZ_Q]},
+    )
     nested = []
 
     def other_process(progress):
@@ -428,22 +632,44 @@ def test_conflicting_change_of_the_same_task_is_an_explicit_error(tmp_path, imgw
     def other_process(progress):
         if progress.unit == "archive" and not changed:
             changed.append(remove_project_task(project, name="a"))
-            add_project_task(project, name="a", command="series select", options={**SELECT, "stations": [BEZ_Q]})
+            add_project_task(
+                project,
+                name="a",
+                command="series select",
+                options={**SELECT, "stations": [BEZ_Q]},
+            )
 
     notices = []
-    report = download_project(project, on_progress=other_process, on_notice=notices.append)
+    report = download_project(
+        project, on_progress=other_process, on_notice=notices.append
+    )
     assert report.tasks == {"a": "failed"} and "Konflikt" in report.files[-1].error
     assert "project_conflict" in {notice.code for notice in notices}
     (task,) = open_project(project).tasks
-    assert task.options["stations"] == [BEZ_Q] and task.pinned_at is None and task.files == ()
+    assert (
+        task.options["stations"] == [BEZ_Q]
+        and task.pinned_at is None
+        and task.files == ()
+    )
 
 
-def test_lock_serializes_writers_and_a_stale_lock_is_never_taken_over(tmp_path, fixture_root, monkeypatch):
+def test_lock_serializes_writers_and_a_stale_lock_is_never_taken_over(
+    tmp_path, fixture_root, monkeypatch
+):
     project = tmp_path / "project"
     init_project(project, store_dir=fixture_root)
     with ThreadPoolExecutor(8) as pool:
-        list(pool.map(lambda i: add_project_task(project, name=f"t{i}", command="store info", options={}), range(8)))
-    assert sorted(task.name for task in open_project(project).tasks) == [f"t{i}" for i in range(8)]
+        list(
+            pool.map(
+                lambda i: add_project_task(
+                    project, name=f"t{i}", command="store info", options={}
+                ),
+                range(8),
+            )
+        )
+    assert sorted(task.name for task in open_project(project).tasks) == [
+        f"t{i}" for i in range(8)
+    ]
 
     lock = project / LOCK_NAME
     lock.mkdir()  # pozostałość przerwanego procesu
@@ -456,23 +682,37 @@ def test_lock_serializes_writers_and_a_stale_lock_is_never_taken_over(tmp_path, 
     assert len(remove_project_task(project, name="t0").tasks) == 7
 
 
-def test_project_beside_kartograf_manifest_touches_only_its_own_file(tmp_path, fixture_root):
+def test_project_beside_kartograf_manifest_touches_only_its_own_file(
+    tmp_path, fixture_root
+):
     project = tmp_path / "project"
     project.mkdir()
     kartograf = project / "kartograf-project.json"
-    kartograf.write_text('{"schema":"kartograf-project/1","output_dir":"kartograf","tasks":[]}\n')
+    kartograf.write_text(
+        '{"schema":"kartograf-project/1","output_dir":"kartograf","tasks":[]}\n'
+    )
     before = (kartograf.stat().st_mtime_ns, kartograf.read_bytes())
 
     init_project(project, store_dir=fixture_root)
     add_project_task(project, name="info", command="store info", options={})
-    add_project_task(project, name="raba", command="series select", options={"dataset": DAILY, "stations": RABA, "years": 2024})
-    assert [action.status for action in check_project(project, tasks=["info"]).actions] == ["current", "missing"]
+    add_project_task(
+        project,
+        name="raba",
+        command="series select",
+        options={"dataset": DAILY, "stations": RABA, "years": 2024},
+    )
+    assert [
+        action.status for action in check_project(project, tasks=["info"]).actions
+    ] == ["current", "missing"]
     get_project_status(project)
     verify_project(project)
     remove_project_task(project, name="info")
 
     assert (kartograf.stat().st_mtime_ns, kartograf.read_bytes()) == before
-    assert sorted(path.name for path in project.iterdir()) == ["imgw-project.json", "kartograf-project.json"]
+    assert sorted(path.name for path in project.iterdir()) == [
+        "imgw-project.json",
+        "kartograf-project.json",
+    ]
 
 
 def test_cancel_before_work_leaves_store_manifest_and_network_untouched(tmp_path, imgw):
@@ -484,5 +724,7 @@ def test_cancel_before_work_leaves_store_manifest_and_network_untouched(tmp_path
     report = download_project(project, cancel=lambda: True)
     assert report.cancelled and report.tasks == {"a": "cancelled"}
     plan = check_project(project, cancel=lambda: True)
-    assert plan.cancelled and [action.status for action in plan.actions] == ["unverifiable"]
+    assert plan.cancelled and [action.status for action in plan.actions] == [
+        "unverifiable"
+    ]
     assert imgw.calls == (0, 0) and snapshot(tmp_path) == before

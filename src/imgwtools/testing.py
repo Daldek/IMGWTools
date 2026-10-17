@@ -41,8 +41,15 @@ _METEO = "pl.imgw.meteo_precip_daily"
 _UNKNOWN_LABEL = "2026-10-20"
 # Recorded answers in the order the scenario requests them; repeated URLs are queued.
 _SCENARIO = (
-    "hydro_get", "same_bytes_new_signal", "new_bytes_get", "meteo_get", "meteo_1995_get",
-    "hydro_stations_get", "meteo_stations_get", "hydro_current", "meteo_current",
+    "hydro_get",
+    "same_bytes_new_signal",
+    "new_bytes_get",
+    "meteo_get",
+    "meteo_1995_get",
+    "hydro_stations_get",
+    "meteo_stations_get",
+    "hydro_current",
+    "meteo_current",
 )
 # Recorder patching is process-global; serialize concurrent builders.
 _HTTP_LOCK = threading.Lock()
@@ -60,9 +67,13 @@ def fixture_files() -> Traversable:
 def _interactions() -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for name in _RECORDINGS:
-        document = json.loads(fixture_files().joinpath(name).read_text(encoding="utf-8"))
+        document = json.loads(
+            fixture_files().joinpath(name).read_text(encoding="utf-8")
+        )
         for interaction in document["interactions"]:
-            interaction.setdefault("url", f"{document.get('base_url')}/{interaction.get('path')}")
+            interaction.setdefault(
+                "url", f"{document.get('base_url')}/{interaction.get('path')}"
+            )
             result[interaction["case"]] = interaction
     return result
 
@@ -71,9 +82,13 @@ def _body(interaction: Mapping[str, Any]) -> tuple[bytes, dict[str, str]]:
     headers = dict(interaction.get("headers") or {})
     if "json" in interaction:
         headers.setdefault("Content-Type", "application/json")
-        return json.dumps(interaction["json"], ensure_ascii=False).encode("utf-8"), headers
+        return json.dumps(interaction["json"], ensure_ascii=False).encode(
+            "utf-8"
+        ), headers
     if "archive" in interaction:
-        resource = fixture_files().joinpath("archives", *interaction["archive"].split("/"))
+        resource = fixture_files().joinpath(
+            "archives", *interaction["archive"].split("/")
+        )
     elif "variant" in interaction:
         resource = fixture_files().joinpath(*interaction["variant"].split("/"))
     else:
@@ -81,7 +96,9 @@ def _body(interaction: Mapping[str, Any]) -> tuple[bytes, dict[str, str]]:
     data = resource.read_bytes()
     expected = interaction.get("sha256")
     if expected is not None and hashlib.sha256(data).hexdigest() != expected:
-        raise IMGWDataError(f"Suma nagrania {interaction['case']} nie zgadza się z plikiem fixtury")
+        raise IMGWDataError(
+            f"Suma nagrania {interaction['case']} nie zgadza się z plikiem fixtury"
+        )
     return data, headers
 
 
@@ -92,15 +109,24 @@ def _recorded_http(cases: Iterator[str] | tuple[str, ...]) -> Iterator[None]:
     queues: dict[tuple[str, str], deque[Mapping[str, Any]]] = {}
     for case in cases:
         interaction = recorded[case]
-        queues.setdefault((interaction["method"], interaction["url"]), deque()).append(interaction)
+        queues.setdefault((interaction["method"], interaction["url"]), deque()).append(
+            interaction
+        )
 
-    def handle(transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+    def handle(
+        transport: httpx.HTTPTransport, request: httpx.Request
+    ) -> httpx.Response:
         queue = queues.get((request.method, str(request.url)))
         if not queue:
-            raise httpx.ConnectError(f"Brak nagranej odpowiedzi dla {request.method} {request.url}", request=request)
+            raise httpx.ConnectError(
+                f"Brak nagranej odpowiedzi dla {request.method} {request.url}",
+                request=request,
+            )
         interaction = queue.popleft()
         content, headers = _body(interaction)
-        return httpx.Response(interaction["status"], headers=headers, content=content, request=request)
+        return httpx.Response(
+            interaction["status"], headers=headers, content=content, request=request
+        )
 
     with _HTTP_LOCK:
         original = httpx.HTTPTransport.handle_request
@@ -116,7 +142,9 @@ def _recorded_http(cases: Iterator[str] | tuple[str, ...]) -> Iterator[None]:
 
 def _expect(step: str, status: str, expected: str) -> None:
     if status != expected:
-        raise IMGWDataError(f"Fixtura: krok {step} zakończył się statusem {status}, oczekiwano {expected}")
+        raise IMGWDataError(
+            f"Fixtura: krok {step} zakończył się statusem {status}, oczekiwano {expected}"
+        )
 
 
 @contextmanager
@@ -138,17 +166,30 @@ def _add_unknown_version(root: Path) -> None:
     """Series version of an unknown major schema, which writers refuse to produce."""
     data = _canonical({"schema": "imgw-series/2", "dataset": _HYDRO})
     sha = hashlib.sha256(data).hexdigest()
-    target = root / "series" / "versions" / "hydro_daily" / f"{_UNKNOWN_LABEL}_{sha[:8]}"
+    target = (
+        root / "series" / "versions" / "hydro_daily" / f"{_UNKNOWN_LABEL}_{sha[:8]}"
+    )
     target.mkdir(parents=True)
     (target / "series.json").write_bytes(data)
-    (target / "series.json.meta.json").write_bytes(_canonical({
-        "schema": "imgw-meta/2", "producer": "imgwtools", "dataset": _HYDRO,
-        "sha256": sha, "size_bytes": len(data),
-        "extra": {"version": {"label": _UNKNOWN_LABEL, "label_source": "downloaded"}},
-    }))
+    (target / "series.json.meta.json").write_bytes(
+        _canonical(
+            {
+                "schema": "imgw-meta/2",
+                "producer": "imgwtools",
+                "dataset": _HYDRO,
+                "sha256": sha,
+                "size_bytes": len(data),
+                "extra": {
+                    "version": {"label": _UNKNOWN_LABEL, "label_source": "downloaded"}
+                },
+            }
+        )
+    )
 
 
-def build_fixture_store(root: PathArg, *, variant: FixtureVariant = "complete") -> StoreHandle:
+def build_fixture_store(
+    root: PathArg, *, variant: FixtureVariant = "complete"
+) -> StoreHandle:
     """Build an offline fixture store with the public writers in an empty ``root``.
 
     ``complete`` contains:
@@ -179,18 +220,36 @@ def build_fixture_store(root: PathArg, *, variant: FixtureVariant = "complete") 
     (meteo_2001,) = archive_files(_METEO, years=(2001,), months=(1,))
     (meteo_1995,) = archive_files(_METEO, years=(1995,))
     with _recorded_http(_SCENARIO):
-        old = write_archive(handle, archive=hydro, response=download_hydro_data("dobowe", 2024))
+        old = write_archive(
+            handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
+        )
         _expect("codz_2024 v1", old.status, "created")
-        _expect("szereg hydro v1", build_series(handle, dataset=_HYDRO).status, "created")
-        relabeled = write_archive(handle, archive=hydro, response=download_hydro_data("dobowe", 2024))
+        _expect(
+            "szereg hydro v1", build_series(handle, dataset=_HYDRO).status, "created"
+        )
+        relabeled = write_archive(
+            handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
+        )
         _expect("codz_2024 v2", relabeled.status, "relabeled")
-        newer = write_archive(handle, archive=hydro, response=download_hydro_data("dobowe", 2024))
+        newer = write_archive(
+            handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
+        )
         _expect("codz_2024 v3", newer.status, "created")
-        _expect("szereg hydro v2", build_series(handle, dataset=_HYDRO).status, "created")
-        meteo = write_archive(handle, archive=meteo_2001, response=download_meteo_data("dobowe", "opad", 2001, 1))
+        _expect(
+            "szereg hydro v2", build_series(handle, dataset=_HYDRO).status, "created"
+        )
+        meteo = write_archive(
+            handle,
+            archive=meteo_2001,
+            response=download_meteo_data("dobowe", "opad", 2001, 1),
+        )
         _expect("2001_01_o", meteo.status, "created")
         _expect("szereg meteo", build_series(handle, dataset=_METEO).status, "created")
-        late = write_archive(handle, archive=meteo_1995, response=download_meteo_data("dobowe", "opad", 1995))
+        late = write_archive(
+            handle,
+            archive=meteo_1995,
+            response=download_meteo_data("dobowe", "opad", 1995),
+        )
         _expect("1995_o", late.status, "created")
         with _without_reference_data():
             catalog = build_catalog(handle)

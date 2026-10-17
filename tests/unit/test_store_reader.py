@@ -41,7 +41,9 @@ from imgwtools.store import (
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
     item["case"]: item
-    for item in json.loads((FIXTURES / "recordings.json").read_text(encoding="utf-8"))["interactions"]
+    for item in json.loads((FIXTURES / "recordings.json").read_text(encoding="utf-8"))[
+        "interactions"
+    ]
 }
 SIGNAL = ('"v1"', "Sat, 17 Oct 2026 12:00:00 GMT")
 DAILY = "pl.imgw.hydro_daily"
@@ -56,7 +58,9 @@ def store_archives(root, dataset, years, months=None, *, signal=SIGNAL):
         source = FIXTURES / "archives" / archive.server_path
         if source.exists():
             content = source.read_bytes()
-            response = DownloadResult(content, archive.url, signal[0], signal[1], len(content))
+            response = DownloadResult(
+                content, archive.url, signal[0], signal[1], len(content)
+            )
             written.append(write_archive(root, archive=archive, response=response))
     return written
 
@@ -65,16 +69,25 @@ def record_catalog_sources(router):
     headers = {"ETag": '"list-v1"', "Last-Modified": SIGNAL[1]}
     for archive in station_source_files():
         body = (FIXTURES / "archives" / archive.server_path).read_bytes()
-        router.get(archive.url).mock(return_value=httpx.Response(200, content=body, headers=headers))
+        router.get(archive.url).mock(
+            return_value=httpx.Response(200, content=body, headers=headers)
+        )
     for case in ("hydro_current", "meteo_current"):
-        router.get(RECORDINGS[case]["url"]).mock(return_value=httpx.Response(200, json=RECORDINGS[case]["json"]))
+        router.get(RECORDINGS[case]["url"]).mock(
+            return_value=httpx.Response(200, json=RECORDINGS[case]["json"])
+        )
     pmaxtp = RECORDINGS["pmaxtp_pot_first"]
-    router.get(pmaxtp["url"]).mock(return_value=httpx.Response(pmaxtp["status"], json=pmaxtp["json"]))
+    router.get(pmaxtp["url"]).mock(
+        return_value=httpx.Response(pmaxtp["status"], json=pmaxtp["json"])
+    )
 
 
 def tree(root):
     return {
-        path.relative_to(root).as_posix(): (path.stat().st_mtime_ns, path.read_bytes() if path.is_file() else None)
+        path.relative_to(root).as_posix(): (
+            path.stat().st_mtime_ns,
+            path.read_bytes() if path.is_file() else None,
+        )
         for path in sorted(root.rglob("*"))
     }
 
@@ -88,8 +101,16 @@ def set_read_only(root, read_only):
 
 
 def parser_records(dataset, server_path):
-    (archive,) = [item for item in archive_files(dataset, years=[2024]) if item.server_path == server_path]
-    return list(normalize_archive(archive, data=(FIXTURES / "archives" / server_path).read_bytes()))
+    (archive,) = [
+        item
+        for item in archive_files(dataset, years=[2024])
+        if item.server_path == server_path
+    ]
+    return list(
+        normalize_archive(
+            archive, data=(FIXTURES / "archives" / server_path).read_bytes()
+        )
+    )
 
 
 @pytest.fixture(scope="module")
@@ -99,7 +120,10 @@ def complete(tmp_path_factory):
     store_archives(root, DAILY, [2023, 2024])
     store_archives(root, "pl.imgw.hydro_monthly", [2024])
     store_archives(root, HALF, [2024])
-    reports = {dataset: build_series(root, dataset=dataset) for dataset in (DAILY, "pl.imgw.hydro_monthly", HALF)}
+    reports = {
+        dataset: build_series(root, dataset=dataset)
+        for dataset in (DAILY, "pl.imgw.hydro_monthly", HALF)
+    }
     with respx.mock(assert_all_called=False) as router:
         record_catalog_sources(router)
         catalog = build_catalog(root)
@@ -123,46 +147,92 @@ def root(tmp_path):
     return init_store(tmp_path / "store").root
 
 
-def test_every_reader_works_on_read_only_store_without_writes_or_network(complete, offline):
+def test_every_reader_works_on_read_only_store_without_writes_or_network(
+    complete, offline
+):
     root, reports, catalog, cell = complete
     before = tree(root)
 
     info = store_info(root)
-    assert (info.exists, info.schema, info.supported, info.problems) == (True, "imgw-store/1", True, ())
-    assert info.contracts["series"] == "imgw-series/1" and info.contracts["pmaxtp"] == "imgw-pmaxtp/1"
+    assert (info.exists, info.schema, info.supported, info.problems) == (
+        True,
+        "imgw-store/1",
+        True,
+        (),
+    )
+    assert (
+        info.contracts["series"] == "imgw-series/1"
+        and info.contracts["pmaxtp"] == "imgw-pmaxtp/1"
+    )
 
     entries = list(iter_store(root))
     assert [entry for entry in entries if entry.kind == "problem"] == []
     slots = {entry.slot: entry for entry in entries}
-    assert {entry.kind for entry in entries} == {"archive", "series", "catalog", "pmaxtp"}
-    assert {"series:hydro_daily", "series:hydro_monthly", "series:hydro_semiannual", "catalog:stations",
-            "pmaxtp:POT:751_317", DAILY_2024, "archive:dane_hydrologiczne/lista_stacji_hydro.csv"} <= set(slots)
-    assert len(entries) == 13  # 2 daily + 1 monthly + 3 semi-annual + 2 station lists, 3 series, catalog, cell
+    assert {entry.kind for entry in entries} == {
+        "archive",
+        "series",
+        "catalog",
+        "pmaxtp",
+    }
+    assert {
+        "series:hydro_daily",
+        "series:hydro_monthly",
+        "series:hydro_semiannual",
+        "catalog:stations",
+        "pmaxtp:POT:751_317",
+        DAILY_2024,
+        "archive:dane_hydrologiczne/lista_stacji_hydro.csv",
+    } <= set(slots)
+    assert (
+        len(entries) == 13
+    )  # 2 daily + 1 monthly + 3 semi-annual + 2 station lists, 3 series, catalog, cell
     assert [entry.slot for entry in iter_store(root, kind="series")] == [
-        "series:hydro_daily", "series:hydro_monthly", "series:hydro_semiannual",
+        "series:hydro_daily",
+        "series:hydro_monthly",
+        "series:hydro_semiannual",
     ]
 
-    assert current_version(root, slot="series:hydro_daily").version == reports[DAILY].version
+    assert (
+        current_version(root, slot="series:hydro_daily").version
+        == reports[DAILY].version
+    )
     assert current_version(root, slot="catalog:stations").version == catalog.version
     pmaxtp_entry = current_version(root, slot="pmaxtp:POT:751_317")
-    assert pmaxtp_entry.version == cell.version and pmaxtp_entry.meta.dataset == "pl.imgw.pmaxtp"
+    assert (
+        pmaxtp_entry.version == cell.version
+        and pmaxtp_entry.meta.dataset == "pl.imgw.pmaxtp"
+    )
     archive_entry = current_version(root, slot=DAILY_2024)
     assert archive_entry == slots[DAILY_2024]
-    assert read_meta(archive_entry.version) == read_meta(f"{archive_entry.version}.meta.json") == archive_entry.meta
+    assert (
+        read_meta(archive_entry.version)
+        == read_meta(f"{archive_entry.version}.meta.json")
+        == archive_entry.meta
+    )
 
     features = read_catalog(catalog.version)
     assert len(features) == catalog.station_count
-    assert sum(feature.geometry is None for feature in features) == catalog.without_location
+    assert (
+        sum(feature.geometry is None for feature in features)
+        == catalog.without_location
+    )
     assert read_catalog(catalog.version.parent) == features
 
     index = read_series_index(reports[DAILY].version)
     assert index.dataset == DAILY and index.year_type == "hydrological"
-    records = list(read_series(reports[DAILY].version, station=STATION, variables=["H", "Q"]))
+    records = list(
+        read_series(reports[DAILY].version, station=STATION, variables=["H", "Q"])
+    )
     assert len(records) == index.stations[STATION].rows
 
     # read_pmaxtp (T14) interoperates with the version returned by current_version.
     stored = read_pmaxtp(root, method="POT", ind_x=751, ind_y=317)
-    assert read_pmaxtp(root, method="POT", ind_x=751, ind_y=317, version=pmaxtp_entry.version) == stored
+    assert (
+        read_pmaxtp(
+            root, method="POT", ind_x=751, ind_y=317, version=pmaxtp_entry.version
+        )
+        == stored
+    )
     assert stored.data.get_precipitation(15, 50) == 13.34
 
     assert tree(root) == before
@@ -170,33 +240,88 @@ def test_every_reader_works_on_read_only_store_without_writes_or_network(complet
 
 def test_series_range_matches_parser_records(complete, offline):
     root, reports, _, _ = complete
-    parsed = {r.date: r for r in parser_records(DAILY, "dane_hydrologiczne/dobowe/2024/codz_2024.zip") if r.station_code == STATION}
+    parsed = {
+        r.date: r
+        for r in parser_records(DAILY, "dane_hydrologiczne/dobowe/2024/codz_2024.zip")
+        if r.station_code == STATION
+    }
     days = sorted(parsed)
     start, end = days[0], days[-1]
-    records = list(read_series(reports[DAILY].version, station=STATION, variables=("H", "Q", "T"), start=start, end=end))
+    records = list(
+        read_series(
+            reports[DAILY].version,
+            station=STATION,
+            variables=("H", "Q", "T"),
+            start=start,
+            end=end,
+        )
+    )
     # Inclusive bounds, continuous calendar between them, parser values/flags at every parsed day.
-    assert [r.date for r in records] == [start + timedelta(days=n) for n in range((end - start).days + 1)]
+    assert [r.date for r in records] == [
+        start + timedelta(days=n) for n in range((end - start).days + 1)
+    ]
     by_day = {r.date: r for r in records}
     assert all(by_day[day].measurements == parsed[day].measurements for day in days)
-    assert all(by_day[day].hydro_year == parsed[day].hydro_year and by_day[day].period is None for day in days)
-    assert all(r.measurements["H"].flag == "missing" for r in records if r.date not in parsed)
+    assert all(
+        by_day[day].hydro_year == parsed[day].hydro_year and by_day[day].period is None
+        for day in days
+    )
+    assert all(
+        r.measurements["H"].flag == "missing" for r in records if r.date not in parsed
+    )
 
     later = start + timedelta(days=1)
-    only_h = list(read_series(reports[DAILY].version, station=STATION, variables=["H"], start=later, end=later))
+    only_h = list(
+        read_series(
+            reports[DAILY].version,
+            station=STATION,
+            variables=["H"],
+            start=later,
+            end=later,
+        )
+    )
     assert [(r.date, set(r.measurements)) for r in only_h] == [(later, {"H"})]
-    tail = list(read_series(reports[DAILY].version, station=STATION, variables=["H"], start=end))
+    tail = list(
+        read_series(reports[DAILY].version, station=STATION, variables=["H"], start=end)
+    )
     assert [r.date for r in tail] == [end]
-    assert list(read_series(reports[DAILY].version, station=STATION, variables=["H"], start=date(1990, 1, 1), end=date(1990, 1, 2))) == []
+    assert (
+        list(
+            read_series(
+                reports[DAILY].version,
+                station=STATION,
+                variables=["H"],
+                start=date(1990, 1, 1),
+                end=date(1990, 1, 2),
+            )
+        )
+        == []
+    )
 
 
 def test_half_year_filter_uses_period_start_and_keeps_extrema(complete, offline):
     root, reports, _, _ = complete
-    summer = list(read_series(reports[HALF].version, station=STATION, variables=["H_max"], start=date(2024, 5, 1), end=date(2024, 5, 1)))
-    assert [(r.date, r.period, r.hydro_year) for r in summer] == [(date(2024, 5, 1), "summer", 2024)]
-    whole = list(read_series(reports[HALF].version, station=STATION, variables=["H_max"]))
+    summer = list(
+        read_series(
+            reports[HALF].version,
+            station=STATION,
+            variables=["H_max"],
+            start=date(2024, 5, 1),
+            end=date(2024, 5, 1),
+        )
+    )
+    assert [(r.date, r.period, r.hydro_year) for r in summer] == [
+        (date(2024, 5, 1), "summer", 2024)
+    ]
+    whole = list(
+        read_series(reports[HALF].version, station=STATION, variables=["H_max"])
+    )
     assert [r.period for r in whole] == ["winter", "summer", "annual"]
     parsed = {
-        (r.date, r.period): r for r in parser_records(HALF, "dane_hydrologiczne/polroczne_i_roczne/2024/polr_H_2024.zip")
+        (r.date, r.period): r
+        for r in parser_records(
+            HALF, "dane_hydrologiczne/polroczne_i_roczne/2024/polr_H_2024.zip"
+        )
         if r.station_code == STATION and "H_max" in r.measurements
     }
     assert parsed
@@ -226,7 +351,12 @@ def test_series_validation_and_tampered_parquet(root):
         {"station": STATION, "variables": ["Tmax"]},
         {"station": STATION, "variables": "H"},
         {"station": STATION, "variables": []},
-        {"station": STATION, "variables": ["H"], "start": date(2024, 2, 1), "end": date(2024, 1, 1)},
+        {
+            "station": STATION,
+            "variables": ["H"],
+            "start": date(2024, 2, 1),
+            "end": date(2024, 1, 1),
+        },
     ):
         with pytest.raises(IMGWValidationError):
             read_series(version, **kwargs)
@@ -277,9 +407,13 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
     shutil.copy(newest.path, no_sidecar / newest.path.name)
     missing_field = newest.path.parent.with_name("2026-01-02_cafebabe")
     shutil.copytree(newest.path.parent, missing_field)
-    broken = json.loads((missing_field / "codz_2024.zip.meta.json").read_text(encoding="utf-8"))
+    broken = json.loads(
+        (missing_field / "codz_2024.zip.meta.json").read_text(encoding="utf-8")
+    )
     del broken["size_bytes"]
-    (missing_field / "codz_2024.zip.meta.json").write_text(json.dumps(broken), encoding="utf-8")
+    (missing_field / "codz_2024.zip.meta.json").write_text(
+        json.dumps(broken), encoding="utf-8"
+    )
 
     Path(f"{middle.path}.meta.json").write_text("{broken", encoding="utf-8")
     old_meta = json.loads(Path(f"{oldest.path}.meta.json").read_text(encoding="utf-8"))
@@ -294,7 +428,9 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
     os.utime(stale, (day_ago, day_ago))
     before = tree(root)
 
-    problems = {(entry.slot, entry.problem_code) for entry in iter_store(root, kind="problem")}
+    problems = {
+        (entry.slot, entry.problem_code) for entry in iter_store(root, kind="problem")
+    }
     assert problems == {
         (DAILY_2024, "missing_sidecar"),
         (DAILY_2024, "invalid_meta"),
@@ -322,15 +458,39 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
 def test_current_version_follows_last_modified_rule(root):
     (archive,) = archive_files(DAILY, years=[2024])
     changed = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
-    newer = write_archive(root, archive=archive, response=DownloadResult(
-        changed, archive.url, '"v2"', "Mon, 19 Oct 2026 12:00:00 GMT", len(changed),
-    ))
+    newer = write_archive(
+        root,
+        archive=archive,
+        response=DownloadResult(
+            changed,
+            archive.url,
+            '"v2"',
+            "Mon, 19 Oct 2026 12:00:00 GMT",
+            len(changed),
+        ),
+    )
     store_archives(root, DAILY, [2024])  # downloaded later, but published earlier
     entry = current_version(root, slot=DAILY_2024)
-    assert entry.kind == "archive" and entry.version == newer.path and entry.meta.sha256 == newer.sha256
+    assert (
+        entry.kind == "archive"
+        and entry.version == newer.path
+        and entry.meta.sha256 == newer.sha256
+    )
     assert current_version(root, slot="series:hydro_daily") is None
-    assert current_version(root, slot="archive:dane_hydrologiczne/dobowe/2030/codz_2030.zip") is None
-    for slot in ("series:unknown", "catalog:other", "pmaxtp:XYZ:1_2", "archive:../x.zip", "archive:codz.zip", "foo"):
+    assert (
+        current_version(
+            root, slot="archive:dane_hydrologiczne/dobowe/2030/codz_2030.zip"
+        )
+        is None
+    )
+    for slot in (
+        "series:unknown",
+        "catalog:other",
+        "pmaxtp:XYZ:1_2",
+        "archive:../x.zip",
+        "archive:codz.zip",
+        "foo",
+    ):
         with pytest.raises(IMGWValidationError):
             current_version(root, slot=slot)
 
@@ -338,7 +498,9 @@ def test_current_version_follows_last_modified_rule(root):
 def test_unknown_store_version_is_reported_not_raised(tmp_path):
     future = tmp_path / "future"
     future.mkdir()
-    (future / "imgw-store.json").write_text('{"schema":"imgw-store/2","created_by":"imgwtools 9"}', encoding="utf-8")
+    (future / "imgw-store.json").write_text(
+        '{"schema":"imgw-store/2","created_by":"imgwtools 9"}', encoding="utf-8"
+    )
     info = store_info(future)
     assert (info.exists, info.schema, info.supported) == (True, "imgw-store/2", False)
     assert "imgw-store/2" in info.problems[0]
@@ -361,7 +523,12 @@ def test_read_meta_rejects_wrong_required_field_types(root):
     sidecar = Path(f"{written.path}.meta.json")
     original = json.loads(sidecar.read_text(encoding="utf-8"))
     assert read_meta(sidecar).license.id == "IMGW-PIB"
-    for key, value in (("sha256", "X" * 64), ("size_bytes", "12"), ("downloaded_at", "wczoraj"), ("request", [])):
+    for key, value in (
+        ("sha256", "X" * 64),
+        ("size_bytes", "12"),
+        ("downloaded_at", "wczoraj"),
+        ("request", []),
+    ):
         sidecar.write_text(json.dumps({**original, key: value}), encoding="utf-8")
         with pytest.raises(IMGWDataError):
             read_meta(written.path)

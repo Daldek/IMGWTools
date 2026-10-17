@@ -405,7 +405,17 @@ def test_parse_zip_file_monthly_wrapped_2024():
 
 
 def _archive(dataset, path, year, month=None):
-    return ArchiveFile(dataset, path, "https://imgw.example/" + path, year, month, None, "calendar" if "meteo" in dataset else "hydrological", None, None)
+    return ArchiveFile(
+        dataset,
+        path,
+        "https://imgw.example/" + path,
+        year,
+        month,
+        None,
+        "calendar" if "meteo" in dataset else "hydrological",
+        None,
+        None,
+    )
 
 
 def test_normalized_hydro_leap_day_missing_q_and_year_boundary():
@@ -431,7 +441,17 @@ def test_normalized_monthly_aggregates_extrema_without_losing_missing():
     archive = _archive("pl.imgw.hydro_monthly", "miesieczne/mies_2024.zip", 2024)
     (record,) = list(normalize_archive(archive, data=_make_zip("mies_2024.csv", rows)))
     assert record.date.isoformat() == "2024-02-01"
-    assert set(record.measurements) == {"H_min", "H_mean", "H_max", "Q_min", "Q_mean", "Q_max", "T_min", "T_mean", "T_max"}
+    assert set(record.measurements) == {
+        "H_min",
+        "H_mean",
+        "H_max",
+        "Q_min",
+        "Q_mean",
+        "Q_max",
+        "T_min",
+        "T_mean",
+        "T_max",
+    }
     assert record.measurements["H_max"].value == 150
     assert record.measurements["Q_min"].flag == "missing"
 
@@ -439,7 +459,9 @@ def test_normalized_monthly_aggregates_extrema_without_losing_missing():
 def test_normalized_semiannual_retains_parameter_period_and_dates():
     rows = "123456789;SAN ESCOBAR;Ławica;2024;13;Q;3;123.456;2024;2;29;12;30;2024;2;29;13;00\n"
     archive = _archive("pl.imgw.hydro_semiannual", "polroczne/polr_Q_2024.zip", 2024)
-    (record,) = list(normalize_archive(archive, data=_make_zip("polr_Q_2024.csv", rows)))
+    (record,) = list(
+        normalize_archive(archive, data=_make_zip("polr_Q_2024.csv", rows))
+    )
     assert record.period == "winter"
     assert record.date.isoformat() == "2023-11-01"
     assert set(record.measurements) == {"Q_max"}
@@ -448,7 +470,9 @@ def test_normalized_semiannual_retains_parameter_period_and_dates():
 
 def test_meteo_climate_status_and_attributes():
     row = "123456789;Łódź;2024;2;29;4.1;0;-2;8;1;0;0;9;0;9;S;10;0\n"
-    records = list(parse_meteo_climate_daily(row.encode("cp1250"), filename="k_d_2024.csv"))
+    records = list(
+        parse_meteo_climate_daily(row.encode("cp1250"), filename="k_d_2024.csv")
+    )
     day = next(record for record in records if record.date.isoformat() == "2024-02-29")
     assert day.measurements["Tmin"].flag == "missing"
     assert day.measurements["Tground"].flag == "no_phenomenon"
@@ -466,13 +490,22 @@ def test_meteo_precip_missing_days_accumulation_and_absent_month():
     data = _make_zip("o_d_2001_01.csv", rows)
     records = list(normalize_archive(archive, data=data))
     assert len(records) == 31
-    assert [r.measurements["P"].flag for r in records[:3]] == ["missing", "accumulated", "no_phenomenon"]
+    assert [r.measurements["P"].flag for r in records[:3]] == [
+        "missing",
+        "accumulated",
+        "no_phenomenon",
+    ]
     assert records[1].measurements["P"].value == 10
     assert records[1].attributes["snow_species"] == "S"
     assert records[1].attributes["snow_cover_type"] == "L"
     annual = _archive("pl.imgw.meteo_precip_daily", "2001/2001_o.zip", 2001)
     annual_records = list(normalize_archive(annual, data=data))
-    assert next(r for r in annual_records if r.date.isoformat() == "2001-02-01").measurements["P"].flag == "missing"
+    assert (
+        next(r for r in annual_records if r.date.isoformat() == "2001-02-01")
+        .measurements["P"]
+        .flag
+        == "missing"
+    )
     assert len(list(parse_meteo_precip_daily(rows, filename="o_d_2001_01.csv"))) == 31
     annual_direct = list(parse_meteo_precip_daily(rows, filename="o_d_2001.csv"))
     assert len(annual_direct) == 365
@@ -482,11 +515,15 @@ def test_meteo_archive_selects_only_daily_csv_and_reports_line():
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as zf:
         zf.writestr("k_m_2001.csv", "garbage")
-        zf.writestr("k_d_2001.csv", "123456789;Klimat;2001;11;1;2;0;0;0;1;0;0;0;0;9;S;0;9")
+        zf.writestr(
+            "k_d_2001.csv", "123456789;Klimat;2001;11;1;2;0;0;0;1;0;0;0;0;9;S;0;9"
+        )
     archive = _archive("pl.imgw.meteo_climate_daily", "2001/2001_11_k.zip", 2001, 11)
     records = list(normalize_archive(archive, data=data.getvalue()))
     assert records[0].hydro_year == 2002
-    broken = _make_zip("k_d_2001.csv", "123456789;Klimat;2001;2;30;2;0;0;0;1;0;0;0;0;9;S;0;9")
+    broken = _make_zip(
+        "k_d_2001.csv", "123456789;Klimat;2001;2;30;2;0;0;0;1;0;0;0;0;9;S;0;9"
+    )
     with pytest.raises(IMGWDataError, match=r"k_d_2001.csv, wiersz 1"):
         list(normalize_archive(archive, data=broken))
 
@@ -494,13 +531,42 @@ def test_meteo_archive_selects_only_daily_csv_and_reports_line():
 def test_recorded_daily_archives_cover_annual_monthly_and_leap_day():
     root = Path(__file__).parents[1] / "fixtures/store/archives"
     scenarios = (
-        ("pl.imgw.hydro_daily", "dane_hydrologiczne/dobowe/2023/codz_2023.zip", 2023, None, "2022-11-01"),
-        ("pl.imgw.hydro_daily", "dane_hydrologiczne/dobowe/2024/codz_2024.zip", 2024, None, "2024-02-29"),
-        ("pl.imgw.meteo_climate_daily", "dane_meteorologiczne/dobowe/klimat/1991_1995/1995_k.zip", 1995, None, "1995-01-01"),
-        ("pl.imgw.meteo_precip_daily", "dane_meteorologiczne/dobowe/opad/2004/2004_02_o.zip", 2004, 2, "2004-02-29"),
+        (
+            "pl.imgw.hydro_daily",
+            "dane_hydrologiczne/dobowe/2023/codz_2023.zip",
+            2023,
+            None,
+            "2022-11-01",
+        ),
+        (
+            "pl.imgw.hydro_daily",
+            "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+            2024,
+            None,
+            "2024-02-29",
+        ),
+        (
+            "pl.imgw.meteo_climate_daily",
+            "dane_meteorologiczne/dobowe/klimat/1991_1995/1995_k.zip",
+            1995,
+            None,
+            "1995-01-01",
+        ),
+        (
+            "pl.imgw.meteo_precip_daily",
+            "dane_meteorologiczne/dobowe/opad/2004/2004_02_o.zip",
+            2004,
+            2,
+            "2004-02-29",
+        ),
     )
     for dataset, filename, year, month, expected_date in scenarios:
-        records = list(normalize_archive(_archive(dataset, filename, year, month), data=(root / filename).read_bytes()))
+        records = list(
+            normalize_archive(
+                _archive(dataset, filename, year, month),
+                data=(root / filename).read_bytes(),
+            )
+        )
         assert any(record.date.isoformat() == expected_date for record in records)
 
 

@@ -67,7 +67,9 @@ def _download_result(response: httpx.Response) -> DownloadResult:
     try:
         ZipFile(BytesIO(data)).close()
     except BadZipFile as exc:
-        raise IMGWDataError(f"Niepoprawne archiwum ZIP z adresu {response.url}") from exc
+        raise IMGWDataError(
+            f"Niepoprawne archiwum ZIP z adresu {response.url}"
+        ) from exc
     length = response.headers.get("Content-Length")
     try:
         content_length = int(length) if length is not None else None

@@ -34,7 +34,16 @@ from imgwtools.store.types import (
 )
 
 
-@pytest.mark.parametrize("error", [IMGWStoreError, IMGWStoreConflictError, IMGWStoreDependencyError, IMGWPlanStaleError, IMGWProjectError])
+@pytest.mark.parametrize(
+    "error",
+    [
+        IMGWStoreError,
+        IMGWStoreConflictError,
+        IMGWStoreDependencyError,
+        IMGWPlanStaleError,
+        IMGWProjectError,
+    ],
+)
 def test_store_errors_extend_imgw_error(error):
     assert issubclass(error, IMGWError)
 
@@ -55,7 +64,16 @@ def test_frozen_contracts():
         CatalogReport("unchanged", None, 0, 0, ()),
         PMaXTPStoreResult("unchanged", None, None, None, None),
         ProjectReport({}, (), False),
-        Meta("imgw-meta/1", "pl.imgw.hydro_daily", "a" * 64, 1, datetime.now(UTC), None, {}, {}),
+        Meta(
+            "imgw-meta/1",
+            "pl.imgw.hydro_daily",
+            "a" * 64,
+            1,
+            datetime.now(UTC),
+            None,
+            {},
+            {},
+        ),
     )
     for value in objects:
         with pytest.raises(FrozenInstanceError):
@@ -63,9 +81,35 @@ def test_frozen_contracts():
 
 
 def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
-    archive = ArchiveFile("pl.imgw.hydro_daily", "dane_hydrologiczne/dobowe/2024/codz_2024.zip", "https://imgw.example/codz_2024.zip", 2024, None, None, "hydrological", date(2023, 11, 1), date(2024, 10, 31))
-    item = PlanItem(archive, "newer", Path("archives/versions/old.zip"), "a" * 64, '"new"', None, 44, None)
-    plan = StorePlan("imgw-plan/1", tmp_path, datetime(2026, 10, 17, tzinfo=UTC), (item,), {"hydro_daily": "outdated"}, cancelled=True)
+    archive = ArchiveFile(
+        "pl.imgw.hydro_daily",
+        "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+        "https://imgw.example/codz_2024.zip",
+        2024,
+        None,
+        None,
+        "hydrological",
+        date(2023, 11, 1),
+        date(2024, 10, 31),
+    )
+    item = PlanItem(
+        archive,
+        "newer",
+        Path("archives/versions/old.zip"),
+        "a" * 64,
+        '"new"',
+        None,
+        44,
+        None,
+    )
+    plan = StorePlan(
+        "imgw-plan/1",
+        tmp_path,
+        datetime(2026, 10, 17, tzinfo=UTC),
+        (item,),
+        {"hydro_daily": "outdated"},
+        cancelled=True,
+    )
     path = plan.to_json(tmp_path / "plan.json")
     payload = json.loads(path.read_text())
     payload["future_field"] = "accepted"

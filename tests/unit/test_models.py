@@ -241,7 +241,10 @@ def test_normalized_measurement_flag_and_record_are_frozen():
         date=date(2024, 2, 29),
         hydro_year=2024,
         period=None,
-        measurements={"Q": Measurement(None, "missing"), "H": Measurement(12.0, "value")},
+        measurements={
+            "Q": Measurement(None, "missing"),
+            "H": Measurement(12.0, "value"),
+        },
     )
     assert record.measurements["Q"].value is None
     assert record.measurements["H"].value == 12.0

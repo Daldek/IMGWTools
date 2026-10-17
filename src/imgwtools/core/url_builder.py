@@ -148,7 +148,11 @@ def build_hydro_url(
         # Legacy phenomenon files are outside the store datasets.
         filename = f"zjaw_{year}.zip"
         url = f"{base}/{interval.value}/{year}/{filename}"
-    elif interval in (HydroInterval.DAILY, HydroInterval.MONTHLY, HydroInterval.SEMI_ANNUAL):
+    elif interval in (
+        HydroInterval.DAILY,
+        HydroInterval.MONTHLY,
+        HydroInterval.SEMI_ANNUAL,
+    ):
         from imgwtools.datasets import archive_files
         from imgwtools.exceptions import IMGWValidationError
 
@@ -162,10 +166,14 @@ def build_hydro_url(
             HydroInterval.SEMI_ANNUAL: "pl.imgw.hydro_semiannual",
         }[interval]
         try:
-            files = archive_files(dataset, years=[year], months=[month] if month is not None else None)
+            files = archive_files(
+                dataset, years=[year], months=[month] if month is not None else None
+            )
         except IMGWValidationError as exc:
             raise ValueError(str(exc)) from exc
-        archive = next((item for item in files if param is None or item.param == param.value), None)
+        archive = next(
+            (item for item in files if param is None or item.param == param.value), None
+        )
         if archive is None:
             raise ValueError(f"Unknown parameter: {param}")
         url = archive.url
@@ -262,7 +270,9 @@ def build_meteo_url(
             else "pl.imgw.meteo_precip_daily"
         )
         try:
-            archive = archive_files(dataset, years=[year], months=[month] if month is not None else None)[0]
+            archive = archive_files(
+                dataset, years=[year], months=[month] if month is not None else None
+            )[0]
         except IMGWValidationError as exc:
             raise ValueError(str(exc)) from exc
         filename = archive.server_path.rsplit("/", 1)[-1]
