@@ -18,12 +18,51 @@ Flag = Literal["value", "missing", "no_phenomenon", "accumulated"]
 
 @dataclass(frozen=True)
 class Measurement:
+    """
+    Single measured value with its data-quality flag.
+
+    Attributes
+    ----------
+    value : float or None
+        Measured value; None when missing, ``0`` for ``"no_phenomenon"``.
+    flag : {"value", "missing", "no_phenomenon", "accumulated"}
+        ``"value"`` for a regular measurement, ``"missing"`` for no data,
+        ``"no_phenomenon"`` when the phenomenon did not occur,
+        ``"accumulated"`` for a sum covering preceding missing days.
+    """
+
     value: float | None
     flag: Flag
 
 
 @dataclass(frozen=True)
 class NormalizedRecord:
+    """
+    Dataset-independent record of one station and one time unit.
+
+    Attributes
+    ----------
+    station_code : str
+        Nine-digit station code.
+    dataset : str
+        Full dataset key, e.g. ``"pl.imgw.hydro_daily"``.
+    date : date
+        Calendar start of the time unit (day, first day of the month or
+        start of the half-year period).
+    hydro_year : int
+        Hydrological year (November-October) of the unit.
+    period : {"winter", "summer", "annual"} or None
+        Half-year period for semi-annual data, None otherwise.
+    measurements : Mapping of str to Measurement
+        Values keyed by variable code, only for columns physically present
+        in the input.
+    attributes : Mapping of str to str or None, optional
+        Qualitative attributes kept as text, e.g. ``"precip_type"``.
+    extrema_dates : Mapping of str to tuple of (datetime or None, datetime or None), optional
+        Start and end time of an extremum, keyed by variable column, e.g.
+        ``"Q_max"``.
+    """
+
     station_code: str
     dataset: str
     date: date
@@ -339,6 +378,35 @@ class HydroArchiveStation(BaseModel):
 
 
 class HydroDailyRecord(BaseModel):
+    """
+    Daily hydrological measurement from an IMGW archive CSV.
+
+    Attributes
+    ----------
+    station_code : str
+        Station code.
+    station_name : str or None
+        Station name.
+    river_name : str or None
+        River name.
+    hydro_year : int
+        Hydrological year (November-October).
+    hydro_month : int
+        Hydrological month 1-12 (1 = November, 12 = October).
+    day : int
+        Day of the month (1-31).
+    calendar_month : int or None
+        Calendar month 1-12 from the archive, if present.
+    water_level_cm : float or None
+        Water level [cm]; None when missing.
+    flow_m3s : float or None
+        Flow [m3/s]; None when missing.
+    water_temp_c : float or None
+        Water temperature [degC]; None when missing.
+    measurement_date : str or None
+        Calendar date in ISO format, None if it cannot be determined.
+    """
+
     station_code: str
     station_name: str | None = None
     river_name: str | None = None
@@ -353,6 +421,33 @@ class HydroDailyRecord(BaseModel):
 
 
 class HydroMonthlyRecord(BaseModel):
+    """
+    Monthly hydrological extremum from an IMGW archive CSV.
+
+    Attributes
+    ----------
+    station_code : str
+        Station code.
+    station_name : str or None
+        Station name.
+    river_name : str or None
+        River name.
+    hydro_year : int
+        Hydrological year (November-October).
+    hydro_month : int
+        Hydrological month 1-12 (1 = November, 12 = October).
+    calendar_month : int or None
+        Calendar month 1-12 from the archive, if present.
+    extremum : str
+        Statistic of the values: ``"min"``, ``"mean"`` or ``"max"``.
+    water_level_cm : float or None
+        Water level [cm]; None when missing.
+    flow_m3s : float or None
+        Flow [m3/s]; None when missing.
+    water_temp_c : float or None
+        Water temperature [degC]; None when missing.
+    """
+
     station_code: str
     station_name: str | None = None
     river_name: str | None = None
@@ -366,6 +461,37 @@ class HydroMonthlyRecord(BaseModel):
 
 
 class HydroSemiAnnualRecord(BaseModel):
+    """
+    Semi-annual or annual hydrological extremum from an IMGW archive CSV.
+
+    Attributes
+    ----------
+    station_code : str
+        Station code.
+    station_name : str or None
+        Station name.
+    river_name : str or None
+        River name.
+    hydro_year : int
+        Hydrological year (November-October).
+    period : str
+        ``"winter"`` (November-April), ``"summer"`` (May-October) or
+        ``"annual"`` (whole hydrological year).
+    param : str
+        Parameter: ``"H"`` (water level), ``"Q"`` (flow) or ``"T"`` (water
+        temperature).
+    extremum : str
+        Statistic of the value: ``"min"``, ``"mean"`` or ``"max"``.
+    value : float or None
+        Value of the statistic; None when missing.
+    extremum_start_date : str or None
+        Start of the extremum as ``YYYY-MM-DD`` with optional ``HH:MM``;
+        None for means or when unknown.
+    extremum_end_date : str or None
+        End of the extremum in the same format; None for means or when
+        unknown.
+    """
+
     station_code: str
     station_name: str | None = None
     river_name: str | None = None

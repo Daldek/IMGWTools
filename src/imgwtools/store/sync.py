@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import unquote, urlsplit
 
 import httpx
@@ -164,7 +164,57 @@ def check_store(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
-    """Plan without downloading: directory listings and HEAD only, no writes."""
+    """
+    Plan a synchronization without downloading anything.
+
+    Enumerates the archives of the selected datasets offline, then checks each one
+    against IMGW using only the parent directory listing and an HTTP ``HEAD``
+    request; no archive is fetched and nothing is written to the store, not even
+    staging files. A file is published when its name appears in the listing of its
+    parent directory. Per-archive errors are recorded in the plan, never raised.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Root of an existing IMGW store.
+    datasets : Iterable[str]
+        Full dataset keys (``pl.imgw.*``) of measurement series datasets. A bare
+        string is rejected.
+    years : Iterable[int]
+        Years to check (hydrological or calendar, as defined by each dataset).
+    months : Iterable[int] or None, optional
+        Months (1-12) filtering physically monthly files only; yearly archives are
+        returned once regardless of this filter.
+    on_progress : ProgressHook or None, optional
+        Called after each archive with its plan status.
+    on_notice : NoticeHook or None, optional
+        Receives a ``source_unverifiable`` warning for every ``unverifiable`` item
+        and an ``archive_failed`` error for every ``check_failed`` item.
+    cancel : Cancel or None, optional
+        Polled before each archive; once it returns ``True`` the remaining archives
+        are listed as ``unverifiable`` with error ``"anulowano"``.
+
+    Returns
+    -------
+    StorePlan
+        ``imgw-plan/1`` plan with one item per archive: ``current`` (local version
+        matches every header present on both sides), ``newer`` (different ETag or
+        Last-Modified), ``missing`` (published but not stored), ``unverifiable``
+        (no comparable signal, or ``"nieopublikowany"`` when the file is not
+        published) or ``check_failed`` (listing/HEAD error or unreadable local
+        version). ``series_state`` holds the local state of each dataset's series
+        keyed by slug, with ``current`` turned into ``outdated`` when the plan has
+        ``newer``/``missing`` items for that dataset.
+
+    Raises
+    ------
+    IMGWStoreError
+        If ``root`` is not a supported IMGW store or a store path contains a
+        symbolic link.
+    IMGWValidationError
+        If ``datasets`` is a string or empty, a dataset key is unknown or does not
+        produce measurement series, or the years/months are invalid.
+    """
     path = _root(root)
     archives = _select(datasets, years, months)
     listings: dict[str, set[str] | Exception | None] = {}
@@ -270,24 +320,37 @@ def _download(archive: ArchiveFile) -> DownloadResult:
     slug = get_dataset(archive.dataset).slug
     assert archive.year is not None
     if slug.startswith("hydro_"):
-        interval = {
+        intervals: dict[str, Literal["dobowe", "miesieczne", "polroczne_i_roczne"]] = {
             "hydro_daily": "dobowe",
             "hydro_monthly": "miesieczne",
             "hydro_semiannual": "polroczne_i_roczne",
-        }[slug]
-        return download_hydro_data(interval, archive.year, archive.month, archive.param)  # type: ignore[arg-type]
+        }
+        return download_hydro_data(
+            intervals[slug],
+            archive.year,
+            archive.month,
+            cast(Literal["T", "Q", "H"] | None, archive.param),
+        )
     subtype = "klimat" if slug == "meteo_climate_daily" else "opad"
     return download_meteo_data("dobowe", subtype, archive.year, archive.month)
 
 
 def _result(
     item: PlanItem,
-    status: str,
+    status: Literal[
+        "created",
+        "relabeled",
+        "unchanged",
+        "reused",
+        "failed",
+        "stale_plan",
+        "cancelled",
+    ],
     *,
     version: Path | None = None,
     error: str | None = None,
 ) -> OperationResult:
-    return OperationResult(_slot_of(item.archive), status, version, error)  # type: ignore[arg-type]
+    return OperationResult(_slot_of(item.archive), status, version, error)
 
 
 def sync_store(
@@ -303,7 +366,66 @@ def sync_store(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> SyncReport:
-    """Download what a plan marks as new or missing; HEAD re-validates each item first."""
+    """
+    Download the archives that a plan marks as new or missing.
+
+    Without ``plan`` the plan is built by :func:`check_store` from the given
+    selectors; ``plan`` and the selectors are mutually exclusive. Before each
+    download an HTTP ``HEAD`` re-validates the item: when the ETag or Last-Modified
+    differs from the plan the item ends as ``stale_plan`` and is not downloaded.
+    ``check_failed`` items are never downloaded. An ``unverifiable`` item is
+    downloaded (then deduplicated by SHA-256) only in a sync without a supplied
+    plan; from a supplied plan it stays ``unchanged`` with a
+    ``source_unverifiable`` warning. Failures of single archives are reported per
+    slot, not raised.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Root of an existing IMGW store.
+    datasets : Iterable[str] or None, optional
+        Full dataset keys; required, together with ``years``, when ``plan`` is not
+        given.
+    years : Iterable[int] or None, optional
+        Years to synchronize; required when ``plan`` is not given.
+    months : Iterable[int] or None, optional
+        Months (1-12) filtering physically monthly files.
+    plan : StorePlan, str, os.PathLike or None, optional
+        Plan from :func:`check_store`, or the path of its ``imgw-plan/1`` JSON file.
+        Must refer to the same store root.
+    series : bool, optional
+        Rebuild the series of every dataset in the plan with :func:`build_series`
+        once all its archives synchronized successfully. Defaults to ``True``.
+    on_progress : ProgressHook or None, optional
+        Called after each archive with its operation status; also forwarded to
+        :func:`check_store` and :func:`build_series`.
+    on_notice : NoticeHook or None, optional
+        Receives warnings and errors (``stale_plan``, ``source_unverifiable``,
+        ``archive_failed``) and notices of the writer and the series builder.
+    cancel : Cancel or None, optional
+        Polled before each archive; once it returns ``True`` the remaining items
+        and series end as ``cancelled``.
+
+    Returns
+    -------
+    SyncReport
+        One :class:`OperationResult` per plan item (``created``, ``relabeled``,
+        ``unchanged``, ``reused``, ``failed``, ``stale_plan`` or ``cancelled``),
+        one :class:`SeriesReport` per dataset when ``series`` is true (``failed``
+        or ``cancelled`` without building when the dataset has incomplete
+        inputs) and the overall cancellation flag.
+
+    Raises
+    ------
+    IMGWValidationError
+        If both ``plan`` and selectors are given, ``datasets`` or ``years`` is
+        missing without a plan, the plan refers to another store, or the
+        selectors are invalid.
+    IMGWDataError
+        If the plan file cannot be read.
+    IMGWStoreError
+        If ``root`` is not a supported IMGW store.
+    """
     path = _root(root)
     if plan is not None and (
         datasets is not None or years is not None or months is not None

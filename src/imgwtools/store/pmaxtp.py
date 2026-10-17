@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
 from imgwtools.core.url_builder import PMaXTPMethod, build_pmaxtp_url
@@ -66,7 +66,7 @@ def _validate_method(method: object) -> Method:
         raise IMGWValidationError(
             f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT lub AMP"
         )
-    return method  # type: ignore[return-value]
+    return cast(Method, method)
 
 
 def _validate_point(latitude: float, longitude: float) -> None:
@@ -194,10 +194,49 @@ def check_pmaxtp(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> StorePlan:
-    """Describe the planned PMAXTP sync without any HTTP request or write.
+    """
+    Describe the planned PMAXTP sync without any HTTP request or write.
 
     The endpoint offers no update signal, so freshness is always ``unverifiable``; with
     indices the plan also reports whether the cell already exists locally.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    method : {"POT", "AMP"}
+        PMAXTP estimation method.
+    latitude : float
+        Latitude of the point within Poland.
+    longitude : float
+        Longitude of the point within Poland.
+    ind_x : int or None, optional
+        Expected grid cell X index; must be given together with ``ind_y``.
+    ind_y : int or None, optional
+        Expected grid cell Y index; must be given together with ``ind_x``.
+    on_progress : ProgressHook or None, optional
+        Called once with an ``unverifiable`` progress event.
+    on_notice : NoticeHook or None, optional
+        Called once with a ``source_unverifiable`` warning.
+    cancel : Cancel or None, optional
+        Polled once before planning; returning ``True`` yields a cancelled plan.
+
+    Returns
+    -------
+    StorePlan
+        Plan with a single ``PlanAction("pmaxtp sync", "unverifiable", ...)``
+        describing the local version, or a plan with ``cancelled=True``.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the method, point or cell indices are invalid, or the root path
+        contains ``..``.
+    IMGWStoreError
+        If the root is not a supported store or a path contains a symbolic
+        link.
+    IMGWStoreConflictError
+        If a stored version of the cell is corrupted.
     """
     handle = _handle(root)
     method = _validate_method(method)
@@ -252,10 +291,57 @@ def sync_pmaxtp(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> PMaXTPStoreResult:
-    """Fetch PMAXTP once and store it under the cell indices returned by the API.
+    """
+    Fetch PMAXTP once and store it under the cell indices returned by the API.
 
     Points in the same cell and method share one version; identical ``cell.json`` is
     ``unchanged``. Given ``ind_x``/``ind_y`` must match the response or nothing is written.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    method : {"POT", "AMP"}
+        PMAXTP estimation method.
+    latitude : float
+        Latitude of the requested point within Poland.
+    longitude : float
+        Longitude of the requested point within Poland.
+    ind_x : int or None, optional
+        Expected grid cell X index; must be given together with ``ind_y``.
+    ind_y : int or None, optional
+        Expected grid cell Y index; must be given together with ``ind_x``.
+    on_progress : ProgressHook or None, optional
+        Called once with the ``created`` or ``unchanged`` progress event.
+    on_notice : NoticeHook or None, optional
+        Called with the license notice when a new version is created.
+    cancel : Cancel or None, optional
+        Polled before the request and before writing; returning ``True``
+        yields a ``cancelled`` result without writing.
+
+    Returns
+    -------
+    PMaXTPStoreResult
+        ``status`` is ``"created"``, ``"unchanged"`` or ``"cancelled"``;
+        ``version`` is the ``cell.json`` path (``None`` when cancelled) and
+        ``result`` holds the data for the requested point.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the method, point or cell indices are invalid, the given indices
+        differ from the API response, or the root path contains ``..``.
+    IMGWConnectionError
+        If the PMAXTP request fails.
+    IMGWDataError
+        If the response is not JSON, reports an error, lacks cell indices or
+        centre, or has empty data tables.
+    IMGWStoreError
+        If the root is not a supported store, a path contains a symbolic link
+        or the store overlaps a Kartograf store.
+    IMGWStoreConflictError
+        If a stored version is corrupted, the version directory collides with
+        different content, or the file system cannot publish atomically.
     """
     handle = _handle(root)
     method = _validate_method(method)
@@ -360,10 +446,44 @@ def read_pmaxtp(
     ind_y: int,
     version: PathArg | None = None,
 ) -> PMaXTPResult:
-    """Read a stored cell offline; ``version`` selects a version directory or its ``cell.json``.
+    """
+    Read a stored cell offline; ``version`` selects a version directory or its ``cell.json``.
 
     ``latitude``/``longitude`` of the result are the cell centre (the stored document keeps
-    no requested point).
+    no requested point). No network access and no pyarrow are needed.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    method : {"POT", "AMP"}
+        PMAXTP estimation method.
+    ind_x : int
+        Grid cell X index.
+    ind_y : int
+        Grid cell Y index.
+    version : str, os.PathLike or None, optional
+        Version directory or its ``cell.json``, absolute or relative to the
+        root; ``None`` reads the current version of the cell.
+
+    Returns
+    -------
+    PMaXTPResult
+        Stored precipitation quantiles located at the cell centre.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the method or indices are invalid, ``version`` does not belong to
+        the cell, or the root path contains ``..``.
+    IMGWStoreError
+        If the root is not a supported store, no version of the cell (or the
+        given version) is stored, or a path contains a symbolic link.
+    IMGWStoreConflictError
+        If a stored version of the cell is corrupted.
+    IMGWDataError
+        If the ``cell.json`` document is unreadable or inconsistent with its
+        path.
     """
     handle = _handle(root)
     method = _validate_method(method)

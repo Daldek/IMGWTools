@@ -173,6 +173,40 @@ def _period_from_filename(filename: str, kind: str) -> tuple[int | None, int | N
 def parse_meteo_climate_daily(
     content: bytes | str, /, *, filename: str
 ) -> Iterator[NormalizedRecord]:
+    """
+    Parse an IMGW daily climate (``k_d``) CSV into normalized records.
+
+    Variables ``Tmax``, ``Tmin``, ``Tmean``, ``Tground`` [degC], ``P`` [mm]
+    and ``snow_cover`` [cm] are read with their status codes: status 8 gives
+    ``None`` flagged ``"missing"``, status 9 gives ``0.0`` flagged
+    ``"no_phenomenon"``, an empty value is ``"missing"``. The precipitation
+    type (``S``, ``W`` or empty) is kept in ``attributes["precip_type"]``.
+
+    The archive period is taken from a ``k_d_<year>[_<month>].csv`` file
+    name; without it, the months present in the file are used. For every
+    station, every day of that period is yielded and days absent from the
+    file get all variables ``"missing"``.
+
+    Parameters
+    ----------
+    content : bytes or str
+        CSV content; bytes are decoded as CP1250 (UTF-8 with BOM detected).
+    filename : str
+        Member file name, used to infer the period and in error messages.
+
+    Yields
+    ------
+    NormalizedRecord
+        One record per station and calendar day, with dataset
+        ``"pl.imgw.meteo_climate_daily"`` and the hydrological year
+        (November-October) of the day.
+
+    Raises
+    ------
+    IMGWDataError
+        If a row has too few columns, an invalid station code, date or value,
+        a date outside the period from ``filename``, or repeats a station day.
+    """
     year, month = _period_from_filename(filename, "k_d")
     yield from _parse_daily(
         content, filename=filename, kind="k_d", year=year, month=month
@@ -182,6 +216,45 @@ def parse_meteo_climate_daily(
 def parse_meteo_precip_daily(
     content: bytes | str, /, *, filename: str
 ) -> Iterator[NormalizedRecord]:
+    """
+    Parse an IMGW daily precipitation (``o_d``) CSV into normalized records.
+
+    Variables ``P`` [mm], ``snow_cover`` [cm] and ``fresh_snow`` [cm] are
+    read with their status codes: status 8 gives ``None`` flagged
+    ``"missing"``, status 9 gives ``0.0`` flagged ``"no_phenomenon"``, an
+    empty value is ``"missing"``. Classification codes are kept as text in
+    ``attributes`` (``precip_type``, ``snow_species``, ``snow_cover_type``).
+
+    The archive period is taken from an ``o_d_<year>[_<month>].csv`` file
+    name; without it, the months present in the file are used. For every
+    station, every day of that period is yielded: a day absent from a month
+    in which the station has rows gets ``P = 0.0`` flagged
+    ``"no_phenomenon"``, a day in a month without any station rows gets
+    ``P`` flagged ``"missing"``; other variables of absent days are
+    ``"missing"``. A ``P`` value directly following a listed day with missing
+    ``P`` is an IMGW multi-day total and is flagged ``"accumulated"``; the
+    preceding days stay ``"missing"``.
+
+    Parameters
+    ----------
+    content : bytes or str
+        CSV content; bytes are decoded as CP1250 (UTF-8 with BOM detected).
+    filename : str
+        Member file name, used to infer the period and in error messages.
+
+    Yields
+    ------
+    NormalizedRecord
+        One record per station and calendar day, with dataset
+        ``"pl.imgw.meteo_precip_daily"`` and the hydrological year
+        (November-October) of the day.
+
+    Raises
+    ------
+    IMGWDataError
+        If a row has too few columns, an invalid station code, date or value,
+        a date outside the period from ``filename``, or repeats a station day.
+    """
     year, month = _period_from_filename(filename, "o_d")
     yield from _parse_daily(
         content, filename=filename, kind="o_d", year=year, month=month
@@ -191,6 +264,42 @@ def parse_meteo_precip_daily(
 def normalize_meteo_archive(
     dataset: str, filename: str, data: bytes, *, year: int | None, month: int | None
 ) -> Iterator[NormalizedRecord]:
+    """
+    Normalize a daily meteorological IMGW archive.
+
+    Every CSV member whose name contains the ``k_d`` (climate) or ``o_d``
+    (precipitation) token is parsed like ``parse_meteo_climate_daily`` or
+    ``parse_meteo_precip_daily``, except that the period comes from
+    ``year`` and ``month`` instead of the member name.
+
+    Parameters
+    ----------
+    dataset : str
+        Dataset key; ``"pl.imgw.meteo_climate_daily"`` selects ``k_d``
+        members, any other value selects ``o_d`` members.
+    filename : str
+        Archive name used in error messages.
+    data : bytes
+        ZIP archive content.
+    year : int or None
+        Calendar year covered by the archive; every row must fall in it and
+        missing days are filled for the whole year (or ``month``). ``None``
+        disables the check and fills only the months present in the data.
+    month : int or None
+        Calendar month covered by the archive, or ``None`` for a yearly
+        archive.
+
+    Yields
+    ------
+    NormalizedRecord
+        One record per station and calendar day.
+
+    Raises
+    ------
+    IMGWDataError
+        If the archive is unreadable or unsafe, has no matching CSV member,
+        or contains a malformed row.
+    """
     from imgwtools._parsing.common import archive_csv_members
 
     kind = "k_d" if dataset == "pl.imgw.meteo_climate_daily" else "o_d"

@@ -76,8 +76,14 @@ def _save_archive(output: Path, server_path: str, result: DownloadResult) -> Pat
 
 
 def _download_hydro(archive: ArchiveFile, interval: str, output: Path) -> None:
-    assert archive.year is not None
-    result = download_hydro_data(interval, archive.year, archive.month, archive.param)
+    year, param = archive.year, archive.param
+    if (
+        year is None
+        or interval not in ("dobowe", "miesieczne", "polroczne_i_roczne")
+        or (param is not None and param not in ("T", "Q", "H"))
+    ):
+        raise IMGWValidationError(f"Nieobsługiwane archiwum: {archive.server_path}")
+    result = download_hydro_data(interval, year, archive.month, param)
     _save_archive(output, archive.server_path, result)
 
 
@@ -242,6 +248,8 @@ def fetch_meteo(
     failed = 0
     for y, m, server_path in jobs:
         try:
+            if y is None:
+                raise IMGWValidationError(f"Brak roku archiwum: {server_path}")
             result = download_meteo_data(interval, subtype, y, m)
             _save_archive(output, server_path or _server_path(result.url), result)
             downloaded += 1

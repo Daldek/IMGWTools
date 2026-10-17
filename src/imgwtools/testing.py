@@ -56,10 +56,17 @@ _HTTP_LOCK = threading.Lock()
 
 
 def fixture_files() -> Traversable:
-    """Packaged synthetic archives and recorded HTTP answers (``importlib.resources``).
+    """
+    Return the packaged fixture data directory.
 
     Layout: ``archives/<IMGW server path>``, ``variants/``, ``recordings.json`` and
     ``builder_recordings.json``. Data are short synthetic samples, not real yearbooks.
+
+    Returns
+    -------
+    importlib.resources.abc.Traversable
+        Synthetic archives and recorded HTTP answers, read via
+        ``importlib.resources``.
     """
     return files("imgwtools").joinpath("_data", "fixtures")
 
@@ -113,9 +120,7 @@ def _recorded_http(cases: Iterator[str] | tuple[str, ...]) -> Iterator[None]:
             interaction
         )
 
-    def handle(
-        transport: httpx.HTTPTransport, request: httpx.Request
-    ) -> httpx.Response:
+    def handle(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
         queue = queues.get((request.method, str(request.url)))
         if not queue:
             raise httpx.ConnectError(
@@ -130,11 +135,11 @@ def _recorded_http(cases: Iterator[str] | tuple[str, ...]) -> Iterator[None]:
 
     with _HTTP_LOCK:
         original = httpx.HTTPTransport.handle_request
-        httpx.HTTPTransport.handle_request = handle  # pyright: ignore[reportAttributeAccessIssue]
+        httpx.HTTPTransport.handle_request = handle
         try:
             yield
         finally:
-            httpx.HTTPTransport.handle_request = original  # pyright: ignore[reportAttributeAccessIssue]
+            httpx.HTTPTransport.handle_request = original
     left = sorted(f"{method} {url}" for (method, url), queue in queues.items() if queue)
     if left:
         raise IMGWDataError(f"Nie wykorzystano nagranych odpowiedzi: {', '.join(left)}")
@@ -190,7 +195,8 @@ def _add_unknown_version(root: Path) -> None:
 def build_fixture_store(
     root: PathArg, *, variant: FixtureVariant = "complete"
 ) -> StoreHandle:
-    """Build an offline fixture store with the public writers in an empty ``root``.
+    """
+    Build an offline fixture store with the public writers in an empty ``root``.
 
     ``complete`` contains:
 
@@ -207,6 +213,30 @@ def build_fixture_store(
     ``corrupt`` additionally truncates the sidecar of the old hydro archive version;
     ``unknown_schema`` additionally adds a ``hydro_daily`` series version with
     ``imgw-meta/2``/``imgw-series/2`` that readers must report without parsing.
+
+    Parameters
+    ----------
+    root : str or os.PathLike
+        Store directory; it must not exist or be an empty directory.
+    variant : {"complete", "corrupt", "unknown_schema"}, optional
+        Fixture variant to build.
+
+    Returns
+    -------
+    StoreHandle
+        Handle of the built store.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``variant`` is unknown.
+    IMGWStoreError
+        If ``root`` is not an empty directory.
+    IMGWDataError
+        If a build step ends with an unexpected status, a recording does not match
+        its checksum or recorded answers are left unused.
+    IMGWConnectionError
+        If a request has no recorded answer.
     """
     if variant not in get_args(FixtureVariant):
         raise IMGWValidationError(

@@ -20,7 +20,7 @@ from imgwtools.core.url_builder import (
     build_hydro_url,
     build_meteo_url,
 )
-from imgwtools.datasets import archive_files, datasets
+from imgwtools.datasets import ArchiveFile, archive_files, datasets
 from imgwtools.exceptions import IMGWValidationError
 
 router = APIRouter()
@@ -120,7 +120,7 @@ def _download_urls(
                 filename=PurePosixPath(item.server_path).name,
                 data_type=folder,
                 interval=interval,
-                year=item.year,
+                year=_archive_year(item),
                 month=month
                 if single and month is not None and folder == DataType.HYDRO.value
                 else item.month,
@@ -134,6 +134,12 @@ def _download_urls(
             status_code=400,
             detail="Nieprawidłowa kombinacja typu, interwału, podtypu, parametru lub roku archiwum IMGW",
         ) from exc
+
+
+def _archive_year(item: ArchiveFile) -> int:
+    if item.year is None:
+        raise ValueError(f"Archiwum bez roku: {item.server_path}")
+    return item.year
 
 
 def _legacy(result) -> DownloadURLResponse:

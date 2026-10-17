@@ -59,11 +59,62 @@ def export_series(
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> Path:
-    """Write values, flags and both IMGW-PIB attribution formulas of one station to CSV.
+    """
+    Write values, flags and both IMGW-PIB attribution formulas of one station to CSV.
 
     ``year_type=None`` uses the publication convention of ``series.json`` (hydro
     ``hydrological``, meteo ``calendar``). The target is replaced only by a fully
     written and fsynced ``.part`` file; cancellation or failure leaves it untouched.
+
+    The CSV (UTF-8 without BOM, comma, dot decimal, CRLF rows) has a single
+    header row ``date,year,<V> [<unit>],<V>_flag,…,attribution_source,
+    attribution_processed``; half-year series add ``period`` and ``<V>_start`` /
+    ``<V>_end`` extremum dates. Both attribution formulas appear only in the
+    first data row. Missing values are empty cells flagged ``missing``.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        Series version directory or its ``series.json`` file.
+    station : str
+        Nine-digit station code present in the series.
+    path : str or os.PathLike
+        Target CSV file; its parent directory must already exist.
+    variables : Iterable[str]
+        Non-empty collection of dataset variable names; duplicates are merged,
+        column order follows this collection, a single string is rejected.
+    year_type : {"hydrological", "calendar"} or None, optional
+        Convention of the ``year`` column: ``hydro_year`` or the calendar year
+        of ``date``. ``None`` uses ``series.json`` ``year_type``.
+    format : {"csv"}, optional
+        Output format.
+    on_progress : ProgressHook or None, optional
+        Called every 256 rows and once after the export with ``unit="row"``.
+    on_notice : NoticeHook or None, optional
+        Called with the ``license_terms`` notice after a successful export.
+    cancel : Cancel or None, optional
+        Polled before writing, every 256 rows and before replacing the target;
+        returning ``True`` aborts the export.
+
+    Returns
+    -------
+    pathlib.Path
+        Path of the written CSV file.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``format`` or ``year_type`` is unsupported, ``variables`` is invalid,
+        ``year_type="calendar"`` is requested for a half-year series, the
+        target is a directory or its parent directory does not exist, or the
+        arguments are rejected by :func:`read_series`.
+    IMGWStoreError
+        If the export is cancelled, or ``series.json`` or its sidecar does not
+        exist.
+    IMGWStoreDependencyError
+        If ``pyarrow>=15`` is not installed.
+    IMGWDataError
+        If the station series is empty or the series data is invalid.
     """
     if format not in _FORMATS:
         raise IMGWValidationError(

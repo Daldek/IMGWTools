@@ -35,9 +35,9 @@ router = APIRouter()
 async def index(request: Request):
     """Main page - dashboard."""
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "title": "IMGWTools - Pobieranie danych IMGW",
         },
     )
@@ -47,9 +47,9 @@ async def index(request: Request):
 async def download_page(request: Request):
     """Download page with forms."""
     return templates.TemplateResponse(
+        request,
         "download/index.html",
         {
-            "request": request,
             "title": "Pobieranie danych",
         },
     )
@@ -59,9 +59,9 @@ async def download_page(request: Request):
 async def download_hydro_page(request: Request):
     """Hydrological data download form."""
     return templates.TemplateResponse(
+        request,
         "download/hydro.html",
         {
-            "request": request,
             "title": "Dane hydrologiczne",
             "intervals": [
                 ("dobowe", "Dobowe"),
@@ -161,9 +161,9 @@ async def generate_hydro_urls(
         errors.append(str(e))
 
     return templates.TemplateResponse(
+        request,
         "partials/download_links.html",
         {
-            "request": request,
             "urls": urls,
             "errors": errors,
             "count": len(urls),
@@ -175,9 +175,9 @@ async def generate_hydro_urls(
 async def download_meteo_page(request: Request):
     """Meteorological data download form."""
     return templates.TemplateResponse(
+        request,
         "download/meteo.html",
         {
-            "request": request,
             "title": "Dane meteorologiczne",
             "intervals": [
                 ("dobowe", "Dobowe"),
@@ -261,9 +261,9 @@ async def generate_meteo_urls(
     urls = unique_urls
 
     return templates.TemplateResponse(
+        request,
         "partials/download_links.html",
         {
-            "request": request,
             "urls": urls,
             "errors": errors,
             "count": len(urls),
@@ -275,9 +275,9 @@ async def generate_meteo_urls(
 async def download_pmaxtp_page(request: Request):
     """PMAXTP data download form."""
     return templates.TemplateResponse(
+        request,
         "download/pmaxtp.html",
         {
-            "request": request,
             "title": "Opady maksymalne (PMAXTP)",
             "methods": [
                 ("POT", "Peak Over Threshold"),
@@ -306,9 +306,9 @@ async def generate_pmaxtp_url(
             data = response.json()
 
         return templates.TemplateResponse(
+            request,
             "partials/pmaxtp_result.html",
             {
-                "request": request,
                 "url": url,
                 "method": method,
                 "latitude": latitude,
@@ -319,17 +319,17 @@ async def generate_pmaxtp_url(
 
     except httpx.HTTPError as e:
         return templates.TemplateResponse(
+            request,
             "partials/error.html",
             {
-                "request": request,
                 "error": f"Błąd pobierania danych: {e}",
             },
         )
     except ValueError as e:
         return templates.TemplateResponse(
+            request,
             "partials/error.html",
             {
-                "request": request,
                 "error": str(e),
             },
         )
@@ -339,9 +339,9 @@ async def generate_pmaxtp_url(
 async def stations_page(request: Request):
     """Stations list page."""
     return templates.TemplateResponse(
+        request,
         "stations/list.html",
         {
-            "request": request,
             "title": "Lista stacji",
         },
     )
@@ -404,9 +404,9 @@ async def hydro_stations_partial(
         stations = stations[:limit]
 
         return templates.TemplateResponse(
+            request,
             "partials/station_table.html",
             {
-                "request": request,
                 "stations": stations,
                 "data_type": "hydro",
                 "count": len(stations),
@@ -415,9 +415,9 @@ async def hydro_stations_partial(
 
     except httpx.HTTPError as e:
         return templates.TemplateResponse(
+            request,
             "partials/error.html",
             {
-                "request": request,
                 "error": f"Błąd pobierania stacji: {e}",
             },
         )
@@ -464,9 +464,9 @@ async def meteo_stations_partial(
         stations = stations[:limit]
 
         return templates.TemplateResponse(
+            request,
             "partials/station_table.html",
             {
-                "request": request,
                 "stations": stations,
                 "data_type": "meteo",
                 "count": len(stations),
@@ -475,9 +475,9 @@ async def meteo_stations_partial(
 
     except httpx.HTTPError as e:
         return templates.TemplateResponse(
+            request,
             "partials/error.html",
             {
-                "request": request,
                 "error": f"Błąd pobierania stacji: {e}",
             },
         )
@@ -487,9 +487,9 @@ async def meteo_stations_partial(
 async def map_page(request: Request):
     """Map page with station locations."""
     return templates.TemplateResponse(
+        request,
         "map.html",
         {
-            "request": request,
             "title": "Mapa stacji",
         },
     )
