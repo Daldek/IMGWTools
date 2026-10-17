@@ -180,26 +180,39 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 ---
 
-## Funkcjonalności
+## Backlog
 
-### Zaimplementowane
+**Jedyne źródło prawdy dla rzeczy do zrobienia** (konsolidacja 2026-08-02: dawne sekcje "Planowane"/"Zaimplementowane" oraz sekcja 11 z `PRD.md`). Nowe zadania dopisuj wyłącznie tutaj.
 
-- ✅ CLI (`imgw` command)
-- ✅ REST API (FastAPI)
-- ✅ Web GUI (HTMX + Jinja2)
-- ✅ PMAXTP data
-- ✅ Current hydro/meteo/synop data
-- ✅ Archive data download
-- ✅ Warnings
-- ✅ SQLite cache (optional)
+### Funkcjonalności
 
-### Planowane
+- [ ] API key enforcement — middleware walidujące nagłówek `X-API-Key`. CLAUDE.md odnotowuje, że klucze są zarządzane przez CLI (`imgw admin`), ale nieegzekwowane w żądaniach API — to brakująca warstwa bezpieczeństwa, nie nowa funkcja. Priorytet: wysoki.
+- [ ] Per-key rate limiting — śledzenie i limitowanie żądań per klucz API. Zależne od API key enforcement. Priorytet: średni.
+- [ ] GeoJSON export — zwracanie danych w formacie zgodnym z GIS. Priorytet: średni.
+- [ ] Data charts — wizualizacja szeregów czasowych. Możliwy wzorzec: podejście repo hydro-dane — agregaty min/avg/max z walidacją pełnego roku hydrologicznego i eksport do kompaktowych statycznych JSON-ów. Priorytet: niski.
+- [ ] CSV direct export — bezpośredni eksport danych jako CSV. Priorytet: niski.
+- [ ] Request logging — śledzenie użycia API do analityki. Priorytet: niski.
+- [ ] Redis caching layer — cache dla często pobieranych danych. Priorytet: niski.
 
-- 📋 API key enforcement
-- 📋 Per-key rate limiting
-- 📋 GeoJSON export
-- 📋 Data charts
-- 📋 **Lepsze nazewnictwo KS/SG/RB w PMaXTPData** (patrz sekcja poniżej)
+- [ ] Lepsze nazewnictwo KS/SG/RB w `PMaXTPData` — aliasy właściwości i metoda `get_design_precipitation()`; szczegóły w sekcji "TODO: Poprawa czytelności PMaXTPData" poniżej. Priorytet: średni.
+- [ ] Natywna siatka PMAXTP — parser odrzuca blok `point` (środek i indeksy komórki), dokumentacja podaje błędny zakres danych (7×6 zamiast 16×27), brak API do pobierania po komórkach siatki; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
+
+### Infrastruktura i jakość kodu
+
+- [ ] Fallbackowe listy stacji zaszyte w kodzie zamiast ładowane z CSV: `src/imgwtools/api/routes/hydro.py:38` oraz `src/imgwtools/api/routes/meteo.py:34` (oba `# TODO: Load from CSV file`).
+
+### Zrobione (archiwum)
+
+- [x] CLI (`imgw` command)
+- [x] REST API (FastAPI)
+- [x] Web GUI (HTMX + Jinja2)
+- [x] PMAXTP data
+- [x] Current hydro/meteo/synop data
+- [x] Archive data download
+- [x] Warnings
+- [x] SQLite cache (optional)
+- [x] Podniesienie Pythona do `>=3.12` dla spójności z innymi projektami (rekomendacja cross-project, v2.1.0)
+- [x] DEVELOPMENT_STANDARDS.md w formacie z Hydrolog (rekomendacja cross-project, v2.1.0)
 
 ---
 
@@ -263,6 +276,54 @@ def get_design_precipitation(
 
 ---
 
+## TODO: Natywna siatka PMAXTP
+
+**Kontekst:** rozpoznanie z Hydrografa (2026-09-28, ~60 zapytań do `https://powietrze.imgw.pl/tpmax-api/point/P/KS/{lat}/{lon}`). Endpoint punktowy przypisuje zapytanie do najbliższego środka komórki regularnej siatki i zwraca jej parametry, których IMGWTools obecnie nie udostępnia. Bez nich klient nie wie, którą komórkę pobrał — gęste próbkowanie odpytuje wielokrotnie tę samą komórkę, rzadkie pomija komórki (siatka Hydrografa co 2 km pomijała ~80% komórek).
+
+### Surowa odpowiedź
+
+```json
+{
+  "point": {"lon": "21.0100", "lat": "52.2300", "name": "", "method": "POT",
+            "dataLon": 21.007098333333, "dataLat": 52.234416666667,
+            "indX": 751, "indY": 317, "recalcualted": true},
+  "data": {"ks": {...}, "rb": {...}, "sg": {...}}
+}
+```
+
+- `dataLon`/`dataLat` — środek komórki (WGS84), `indX`/`indY` — indeksy komórki.
+- `recalcualted` (literówka po stronie IMGW) — znaczenie nieznane; brak tego pola w odpowiedzi poza zasięgiem danych.
+- Poza Polską: indeksy i środek wracają, ale `data: {}` oraz dodatkowy klucz `error`.
+
+### Parametry siatki (zmierzone)
+
+| Parametr | Wartość |
+|---|---|
+| Układ | regularna siatka w stopniach WGS84 (EPSG:4326) |
+| Krok | Δlon = 0.01001°, Δlat = 0.01° (~680 m × 1110 m na 52°N, ~0,75 km²) |
+| Środek komórki | `lon = 13.489588333 + 0.01001 · indX`, `lat = 55.404416667 − 0.01 · indY` (indY rośnie na południe) |
+| Przypisanie punktu | do najbliższego środka komórki (sprawdzone na granicach komórek) |
+
+Zweryfikowane na punktach (52.23, 21.01) → (751, 317), (50.0, 19.0) → (550, 540), (54.0, 15.0) → (151, 140), (49.3, 14.2) → (71, 610, poza zasięgiem danych). Kroki i początek zgodne we wszystkich czterech.
+
+### Zakres danych
+
+Odpowiedź zawiera **16 czasów trwania × 27 prawdopodobieństw** dla każdej z tablic `ks`/`sg`/`rb`:
+- czasy [min]: 5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440, 2160, 2880, 4320,
+- prawdopodobieństwa [%]: 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 98.5, 99, 99.5, 99.9.
+
+Docstring `fetch_pmaxtp()` (`fetch.py`) i `PMaXTPData` podają nieaktualnie 7 czasów × 6 prawdopodobieństw.
+
+### Propozycje zmian
+
+1. `PMaXTPResult` — dodać pola z bloku `point`: `cell_lat`, `cell_lon`, `ind_x`, `ind_y` (oraz `has_data: bool` na podstawie `error`/pustego `data`); zachować surową odpowiedź (np. `raw: dict`) do archiwizacji po stronie klienta.
+2. Stałe siatki i funkcje konwersji: `pmaxtp_cell_for(lat, lon) -> (ind_x, ind_y)`, `pmaxtp_cell_center(ind_x, ind_y) -> (lat, lon)`, `pmaxtp_cells_in_bbox(bbox) -> Iterator[(ind_x, ind_y)]` — pobieranie „jedna komórka = jedno zapytanie o jej środek”.
+3. Poprawić dokumentację zakresu (16×27) w docstringach i README.
+4. `get_precipitation(duration_minutes, probability_percent: int)` — typ `int` nie pasuje do prawdopodobieństw ułamkowych (0.01, 98.5); klucz budowany przez `str()` wymaga, by float nie był przekazywany jako np. `1.0` (→ `"1.0"`, brak dopasowania). Rozważyć normalizację klucza.
+5. Test kontraktowy na zapisanej odpowiedzi (fixture) — weryfikacja kroków i początku siatki.
+
+---
+
 ## Komendy
 
 ```bash
@@ -289,4 +350,4 @@ npx pyright src/imgwtools/
 
 ---
 
-**Ostatnia aktualizacja:** 2026-08-22
+**Ostatnia aktualizacja:** 2026-10-17

@@ -493,7 +493,7 @@ Detailed project documentation is available in the `docs/` folder:
 
 | File | Description |
 |------|-------------|
-| `docs/PROGRESS.md` | Progress tracker, cross-project analysis, and backlog |
+| `docs/PROGRESS.md` | Progress tracker, cross-project analysis, and backlog (single source of truth for pending work) |
 | `docs/ARCHITECTURE.md` | Detailed system architecture and component diagrams |
 | `docs/PRD.md` | Product Requirements Document - project goals and requirements |
 | `docs/RULES.md` | Development rules and conventions |
