@@ -1,10 +1,18 @@
 # Plan przebudowy testów IMGWTools (cel: >= 80% pokrycia)
 
-Stan na: 2026-08-22, gałąź `slave`, v2.2.0, HEAD `c89bb68`.
+Stan na: 2026-08-22, gałąź `slave`, v2.2.0, HEAD `c89bb68` (sekcje 1–2: stan wyjściowy i arytmetyka historyczna).
 Środowisko: wyłącznie `.venv/bin/python` (globalny python ma nieaktualny pakiet).
 Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asyncio_mode = "auto"`),
-**respx 0.23** (jest w `[dev]`, dotąd nieużywany), fastapi 0.128 + starlette (TestClient), typer 0.21
-(CliRunner), pandas 2.3, pydantic-settings 2.12. Wszystkie extras `[api,cli,db,pandas]` są dostępne.
+**respx 0.23** (jest w `[dev]`), fastapi 0.128 + starlette (TestClient), typer 0.21
+(CliRunner), pandas 2.3, pydantic-settings 2.12, pyarrow (extra `[store]`). Extras `[api,cli,pandas,store]` są dostępne.
+
+> **Aktualizacja 2026-10-18 (3.0.0, ADR-001):** cache SQLite usunięto (`db/`, `cli/db.py`, `/api/v1/hydro/data`, ustawienia
+> `db_*`), więc wszystkie planowane testy warstwy DB (dawne 4.4, 4.9–4.13, 4.24 oraz fixtury `tmp_db`/`db_ready`) zastąpiono
+> testami magazynu wersjonowanego, które już istnieją w `tests/unit/` (sekcja 4.9). Planowany `tmp_data_dir` nie jest
+> potrzebny: `tests/conftest.py` ma autouse fixture `isolated_data_dir`, która dla **każdego** testu ustawia
+> `settings.data_dir` na pusty katalog tymczasowy i zwraca go (testy potrzebujące pliku referencyjnego zapisują go tam).
+> Parsery hydro przeniesiono z `db/parsers.py`/`db/models.py` do `_parsing/common.py`, `_parsing/hydro.py` i `models.py`
+> (`HydroArchiveStation`, `Hydro*Record`); numery linii w sekcji 1 dotyczą stanu 2.2.0.
 
 Komendy bazowe:
 
@@ -44,22 +52,21 @@ budowanym `MagicMock` (ok. 10 linii boilerplate na test).
 
 ### Rzeczy zweryfikowane w kodzie, które testy MUSZĄ utrwalić (pułapki)
 
-1. **Dryf formatu archiwów** – `db/parsers.py`: `_detect_delimiter` (78-105), `_decode_content` (108-134, BOM > cp1250 > utf-8),
-   `_iter_rows` (137-161, zewnętrzne cudzysłowy 2024), kody braków `MISSING_WATER_LEVEL=9999`, `MISSING_FLOW=99999.999`,
-   `MISSING_TEMP=99.9` (`db/models.py:103-105`), rok hydrologiczny `HYDRO_TO_CALENDAR_MONTH` (`db/models.py:120-133`,
-   miesiące 1-2 = poprzedni rok kalendarzowy, `hydro_to_calendar_date` 136-160), wiodąca spacja w kodzie stacji
-   (`row[0].strip().strip('"')`, `db/parsers.py:207`). **Nieobjęte**: `parse_stations_csv` (518-575), ZIP z wieloma
-   plikami / bez `.csv` / pusty / uszkodzony (`ZipFile` rzuca `BadZipFile` – nieopakowany w `IMGWDataError`), nieznany interwał (508).
+1. **Dryf formatu archiwów** – dziś `_parsing/common.py`: `_detect_delimiter`, `_decode_content` (BOM > cp1250 > utf-8),
+   `_iter_rows` (zewnętrzne cudzysłowy 2024), kody braków `MISSING_WATER_LEVEL=9999`, `MISSING_FLOW=99999.999`,
+   `MISSING_TEMP=99.9`, rok hydrologiczny (`hydro_to_calendar_date`: miesiące 1-2 = poprzedni rok kalendarzowy), wiodąca
+   spacja w kodzie stacji. ZIP czyta `archive_csv_members` z limitami; uszkodzony ZIP → `IMGWDataError` (w 2.2.0 surowy
+   `BadZipFile`). Nieznany interwał w `parse_zip_file` → `ValueError`.
 2. **Układ URL meteo** – `core/url_builder.py:75-112` (`_get_meteo_folder`: >2000 rok, opad `1950_1955` gdy <=1955, synop `1960_1965`
    gdy <=1965, siatka `((y-1951)//5)*5+1951`), `build_meteo_url` 235-249 (terminowe opad -> `ValueError`, synop dobowe/terminowe ->
    `ValueError` "per-station", synop <1960), 257-270 (miesięczne = jeden plik na folder; dobowe/terminowe roczne do 2000, miesięczne
    od 2001 z wymaganym `month`), 280 (`month=None` w wyniku dla lat <=2000). Hydro 147-176: `zjaw_{rok}.zip` dla `month=13`
    (każdy rok), `codz_{rok}.zip` od 2023 (miesiąc ignorowany w nazwie, ale echo w `DownloadURL.month`), `codz_{rok}_{mm}.zip` przed 2023
    (brak miesiąca -> `ValueError`), `mies_{rok}.zip`, `polr_{T|Q|H}_{rok}.zip` (brak `param` -> `ValueError`).
-3. **Dwie klasy `HydroStation`** – `stations.py:39-70` (pola `station_id`, `name`, `river`; aliasy `station_code`, `station_name`,
-   `river_name`; `populate_by_name=True`; `river` wyciągany z `"Odra (1)"` regexem w 320) vs `db/models.py:13-24`
-   (`station_code`, `station_name`, `river_name`, bez aliasów). Obie akceptują `station_code=`/`station_name=` w konstruktorze,
-   ale atrybut odczytu różni się (`.name` vs `.station_name`).
+3. **Dwie klasy stacji** – `stations.HydroStation` (pola `station_id`, `name`, `river`; aliasy `station_code`, `station_name`,
+   `river_name`; `populate_by_name=True`; `river` wyciągany z `"Odra (1)"`) vs archiwalna `models.HydroArchiveStation`
+   (`station_code`, `station_name`, `river_name`, bez aliasów; w 2.2.0 `db/models.HydroStation`). Odczyt różni się
+   (`.name` vs `.station_name`).
 4. **`get_available_years`** – `core/url_builder.py:344-368`: parametr `interval` nieużywany, obie gałęzie zwracają `(1951, rok_bieżący)`.
    `tests/unit/test_urls.py:238` i `:247` przekazują stringi `"hydro"`/`"meteo"`; `"hydro" == DataType.HYDRO` jest `False`
    (wartość enuma to `"dane_hydrologiczne"`), więc oba testy trafiają w gałąź meteo i linia 365 nigdy nie jest wykonana.
@@ -68,26 +75,26 @@ budowanym `MagicMock` (ok. 10 linii boilerplate na test).
 6. **Placeholder w API** – `api/routes/hydro.py:38-45` i `api/routes/meteo.py:33-38` zwracają 2 stacje na sztywno (`# TODO`).
 7. **CLI** – `cli/main.py:36-39` `version` czyta `__version__` z `_version.py`; `cli/list_cmd.py:102-107` `datasets` liczy zakres z
    `get_available_years`; teksty `--help` z docstringów (ASCII).
-8. **DB** – `db/schema.py` (`UNIQUE(...)` + `INSERT OR IGNORE` w `repository.py:245/347/453`, `schema_version`, `init_db(force)` zwraca
-   `False` gdy aktualna), `db/connection.py:52-56` `RuntimeError` gdy `settings.db_enabled` jest `False`, 58-62 `FileNotFoundError`
-   przy `readonly=True` bez pliku. `cached_ranges` obsługiwane przez `is_range_cached`/`mark_range_cached` (482-553).
-9. **Kodowanie** – `IMGW_ENCODING = "cp1250"` w dwóch miejscach (`stations.py:34`, `db/parsers.py:36`), reeksport w `parsers.py`.
-10. **Config** – `config.py`: `env_prefix="IMGW_"`, `data_dir=./data`, `db_path=./data/imgw_hydro.db`, `db_enabled=False`,
-    `env_file=".env"` (w repo nie ma `.env`; jest `.env.example`). **Uwaga:** w katalogu roboczym istnieje `data/imgw_hydro.db`
-    (nieśledzony) – testy DB muszą zawsze nadpisywać `settings.db_path` na `tmp_path`, inaczej zapiszą do prawdziwej bazy.
+8. **Magazyn (zamiast DB)** – publikacja wersji tylko przez rename bez zastępowania (`store/writer.py`), sidecar
+   `imgw-meta/1` z pełnym SHA, `check_*` bez zapisu i bez GET danych, nieznany schemat (`imgw-store/2`, `imgw-meta/2`)
+   raportowany, a nie parsowany; `pyarrow` wymagany wyłącznie na ścieżkach Parquet (`IMGWStoreDependencyError`).
+9. **Kodowanie** – `IMGW_ENCODING = "cp1250"` w dwóch miejscach (`stations.py`, `_parsing/common.py`), reeksport w `parsers.py`.
+10. **Config** – `config.py`: `env_prefix="IMGW_"`, `data_dir=./data`, `store_root=None`, `store_writes_enabled=False`,
+    `store_write_token=None` (`SecretStr`), `user_locations_dir=None`, `env_file=".env"` (w repo nie ma `.env`; jest
+    `.env.example`). Autouse `isolated_data_dir` chroni testy przed lokalnymi danymi referencyjnymi w `data/`.
 
 ### Błędy w kodzie znalezione podczas analizy (NIE naprawiać w ramach tego planu – zgłosić jako follow-up)
 
-- `db/repository.py:616-630` `clear_cache` sumuje `conn.total_changes` (licznik skumulowany od otwarcia połączenia), więc
-  zwracana liczba jest zawyżona (sprawdzone: 3 usunięte wiersze -> zwraca 10). Test ma asertować **opróżnienie tabel**, nie wartość.
+- ~~`db/repository.py:616-630` `clear_cache` zawyżał licznik~~ – nieaktualne: warstwa DB usunięta w 3.0.0.
 - `api/routes/hydro.py:69,105` i `meteo.py:134` czytają `nazwa_stacji`, a IMGW API (i `models.py:192`) używa `stacja` ->
-  `station_name` w odpowiedzi API jest zawsze `""`. Test pinuje aktualne zachowanie z komentarzem `# TODO: klucz 'stacja'`.
+  `station_name` w odpowiedzi API jest zawsze `""`. **Naprawione w 3.0.0** (trasy czytają `stacja`); testy asertują poprawne zachowanie.
 - Zahardkodowane granice lat w API: `schemas.py:97,108` (`le=2024`), `routes/hydro.py:185-186,245-248`, `routes/meteo.py:204-205`,
   `routes/download.py:40-70` (`year_range=(…, 2023)`), `download.py:85,155-156`. Ta sama klasa regresji, co naprawiona w `c89bb68`.
-- `api/main.py:35` `API_VERSION = "1.0.0"` (vs `__version__ = "2.2.0"`); `schemas.py:HealthCheck.version` domyślnie `"1.0.0"`.
+  **Naprawione w 3.0.0**: URL-e z rejestru `archive_files`, walidacja lat bez górnej granicy 2024.
+- ~~`api/main.py:35` `API_VERSION = "1.0.0"`~~ – naprawione w 3.0.0: `API_VERSION = __version__`.
 - `cli/fetch.py:150` dla dobowych <2023 bez `--month` pobiera `range(1, 14)` (13 = zjawiska) – zamierzone, ale nieudokumentowane w `--help`.
-- `db/parsers.py:510` `ZipFile` na uszkodzonych bajtach rzuca `zipfile.BadZipFile`, nie `IMGWDataError` (docstring `exceptions.py` obiecuje
-  „Corrupted ZIP files”). Test pinuje `BadZipFile`.
+- ~~`db/parsers.py:510` `ZipFile` rzucał `zipfile.BadZipFile`~~ – naprawione w 3.0.0: `parse_zip_file` i `download_*` zgłaszają
+  `IMGWDataError`.
 
 ---
 
@@ -95,6 +102,10 @@ budowanym `MagicMock` (ok. 10 linii boilerplate na test).
 
 Cel: **>= 80% TOTAL** z `--cov=imgwtools`. Poniżej realistyczne cele per moduł (kolumna „cel” = liczba instrukcji, które plan pokrywa)
 oraz wariant pesymistyczny.
+
+> Arytmetyka poniżej dotyczy stanu 2.2.0 (2586 instrukcji). Wiersze `db/*` i `cli/db.py` nie istnieją od 3.0.0; moduły
+> magazynu (`store/*`, `commands.py`, `project.py`, `datasets.py`, `_parsing/*`) mają własne testy z sekcji 4.9, a próg
+> 80% mierzy się na bieżącym kodzie (`pytest --cov=imgwtools`).
 
 | Moduł | Stmts | Pokryte dziś | Cel (stmts) | Cel % | Uwagi / koszt |
 |---|---:|---:|---:|---:|---|
@@ -163,19 +174,18 @@ def test_fetch_hydro_current_maps_http_500_to_connection_error(respx_mock):
 
 | Fixture | Zakres | Co robi |
 |---|---|---|
-| `daily_csv_rows` / `monthly_csv_rows` / `semi_annual_csv_rows` | module | stałe z `test_parsers.py` (przenieść do conftest, test_parsers importuje z conftest lub zostawić duplikat 3 stałych – rekomendacja: przenieść, bo potrzebne w testach DB/CLI/API) |
+| `daily_csv_rows` / `monthly_csv_rows` / `semi_annual_csv_rows` | module | stałe z `test_parsers.py` (przenieść do conftest, test_parsers importuje z conftest lub zostawić duplikat 3 stałych – rekomendacja: przenieść, bo potrzebne w testach CLI/API) |
 | `make_zip` | function | `make_zip({"codz_2023.csv": bytes}) -> bytes` – builder ZIP w pamięci (`zipfile.ZipFile(io.BytesIO())`) |
 | `hydro_daily_zip` | function | `make_zip` z 2-3 wierszami dobowymi 2023 (UTF-8 BOM, `;`), w tym kody braków `9999` i `99.9` |
 | `hydro_monthly_zip`, `hydro_semi_annual_zip` | function | analogicznie |
-| `tmp_db` | function | `monkeypatch.setattr(settings, "db_enabled", True)`; `monkeypatch.setattr(settings, "db_path", tmp_path / "test.db")`; `monkeypatch.setattr(repository, "_repository", None)` i `cache_manager._cache_manager = None`; zwraca ścieżkę. **Nie** woła `init_db` (testy `schema` chcą pustego pliku) |
-| `db_ready` | function | `tmp_db` + `init_db()`; zwraca `HydroRepository()` |
-| `tmp_data_dir` | function | `monkeypatch.setattr(settings, "data_dir", tmp_path)` (CLI `list stations`, `reference_data`) |
+| `isolated_data_dir` (**istnieje**, autouse) | function | `monkeypatch.setattr(settings, "data_dir", tmp_path_factory.mktemp("data"))` dla każdego testu; zwraca katalog. Zastępuje planowany `tmp_data_dir` (CLI `list stations`, `reference_data`, plik statyczny katalogu stacji) |
+| fixtury magazynu (**istnieją**) | – | `imgwtools.testing.build_fixture_store(root, variant=…)` (warianty `complete`, `corrupt`, `unknown_schema`) oraz nagrania/archiwa w `tests/fixtures/store/`; lokalne `store`/`root`/`fixture_root` w plikach `test_store_*.py`, `test_commands.py`, `test_project.py`, `test_cli_store_project.py` |
 | `api_client` | module | `fastapi.testclient.TestClient(imgwtools.api.main.app)` – import jest bezpieczny (katalog `web/static` istnieje) |
 | `cli` | module | `typer.testing.CliRunner()`; testy wołają `cli.invoke(app, [...])` na `imgwtools.cli.main.app` |
 | `hydro_api_url` itd. | – | niepotrzebne; używać stałych `IMGW_API_URL`, `IMGW_PMAXTP_URL`, `HYDRO_STATIONS_CSV_URL`, `HYDRO_MAP_API_URL` z kodu |
 
-`settings` to jeden obiekt (`imgwtools.config.settings`) importowany przez `db/connection.py`, `cli/db.py`, `cli/admin.py`,
-`api/routes/hydro.py` (lokalny import) – `monkeypatch.setattr` na instancji działa wszędzie (pydantic nie ma `validate_assignment`).
+`settings` to jeden obiekt (`imgwtools.config.settings`) importowany m.in. przez `cli/admin.py`, `cli/list_cmd.py`, `store/catalog.py`
+i `api/routes/store.py` – `monkeypatch.setattr` na instancji działa wszędzie (pydantic nie ma `validate_assignment`).
 
 ### 3.3 Markery i konfiguracja
 
@@ -233,18 +243,18 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 - `test_safe_float_none_and_invalid` – `None`, `"n/a"`.
 - `test_pmaxtp_keys_are_plain_strings_without_prefix` – `"15" in data.ks`, `"t15" not in data.ks`. [pułapka 5]
 
-### 4.4 `tests/unit/test_db_models.py` (nowy)
+### 4.4 Daty hydrologiczne i kody braków (`_parsing/common.py`; w `tests/unit/test_parsers.py`)
+
+Dawny `test_db_models.py` – moduł `db/models.py` usunięto w 3.0.0, funkcje są w `_parsing/common.py` (prywatne, testowane przez publiczne parsery
+lub bezpośrednim importem w `test_parsers.py`):
 
 - `test_hydro_to_calendar_date_month_1_is_november_previous_year` – (2023,1,1) -> 2022-11-01. [pułapka 1, boundary]
-- `test_hydro_to_calendar_date_month_2_is_december_previous_year`.
-- `test_hydro_to_calendar_date_month_3_is_january_same_year`.
-- `test_hydro_to_calendar_date_month_12_is_october`.
-- `test_hydro_to_calendar_date_invalid_month_raises_keyerror` – 13.
-- `test_hydro_to_calendar_date_invalid_day_raises_valueerror` – 30 lutego.
+- `test_hydro_to_calendar_date_month_2_is_december_previous_year`, `_month_3_is_january_same_year`, `_month_12_is_october`.
+- `test_hydro_to_calendar_date_invalid_month_raises_keyerror` – 13; `_invalid_day_raises_valueerror` – 30 lutego.
 - `test_is_missing_value_level_flow_temp_and_none` – parametrize: (9999,"level")->True, (99999.999,"flow")->True, (99.9,"temp")->True,
-  (None,"x")->True, (12.5,"level")->False, (1.0,"other")->False (175-185). [kody braków]
-- `test_db_hydro_station_uses_station_name_attribute` – `db.models.HydroStation(...).station_name`; brak `.name` (`AttributeError`). [pułapka 3]
-- `test_daily_record_rejects_hydro_month_13` – `ValidationError`.
+  (None,"x")->True, (12.5,"level")->False, (1.0,"other")->False. [kody braków]
+- `test_archive_station_uses_station_name_attribute` – `models.HydroArchiveStation(...).station_name`; brak `.name` (`AttributeError`). [pułapka 3]
+- `test_daily_record_rejects_hydro_month_13` – `ValidationError` (`models.HydroDailyRecord`).
 
 ### 4.5 `tests/unit/test_stations.py` (uzupełnienie; nowe testy z respx)
 
@@ -308,71 +318,38 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 
 ### 4.8 `tests/unit/test_config.py` (nowy)
 
-- `test_settings_defaults` – `db_enabled False`, `db_path == Path("data/imgw_hydro.db")`, `data_dir == Path("data")`, `port 8000`, `env development`. [pułapka 10]
-- `test_settings_reads_imgw_prefixed_env` – `monkeypatch.setenv("IMGW_DB_ENABLED","true")`, `IMGW_DB_PATH`, `IMGW_PORT` -> nowa instancja `Settings()`.
-- `test_settings_ignores_unprefixed_env` – `DB_ENABLED=true` nie wpływa.
+Ustawienia magazynu z `IMGW_*` pokrywa już `test_api_store.py::test_store_settings_come_from_imgw_environment`; tu pozostają ogólne:
+
+- `test_settings_defaults` – `data_dir == Path("data")`, `store_root is None`, `store_writes_enabled is False`, `store_write_token is None`,
+  `user_locations_dir is None`, `port 8000`, `env development`. [pułapka 10]
+- `test_settings_reads_imgw_prefixed_env` – `monkeypatch.setenv("IMGW_DATA_DIR", …)`, `IMGW_PORT` -> nowa instancja `Settings()`.
+- `test_settings_ignores_unprefixed_env` – `PORT=1` nie wpływa.
 - `test_settings_station_file_paths_follow_data_dir` – `hydro_stations_file`, `meteo_stations_file`.
 - `test_settings_is_production` – `IMGW_ENV=production`.
 - `test_settings_invalid_log_level_raises` – `ValidationError`.
 
-### 4.9 `tests/unit/test_db_connection.py` (nowy)
+### 4.9 Magazyn wersjonowany (zastępuje dawne 4.9–4.13 warstwy DB; testy istnieją)
 
-- `test_get_db_connection_raises_when_disabled` – `settings.db_enabled=False` -> `RuntimeError` z tekstem `IMGW_DB_ENABLED`. [pułapka 8]
-- `test_get_db_connection_readonly_missing_file_raises_file_not_found` (`tmp_db`).
-- `test_get_db_connection_creates_parent_directory` – `db_path = tmp_path/"sub"/"x.db"`.
-- `test_get_db_connection_sets_row_factory_and_foreign_keys` – `PRAGMA foreign_keys` == 1, `conn.row_factory is sqlite3.Row`.
-- `test_get_db_connection_write_uses_wal` – `PRAGMA journal_mode` == `wal`.
-- `test_get_transaction_commits_on_success`, `test_get_transaction_rolls_back_on_exception`.
-- `test_db_exists_false_then_true`.
+Wszystkie offline: nagrania z `tests/fixtures/store/` lub respx, katalogi w `tmp_path`, bez prawdziwego `data/` (autouse `isolated_data_dir`).
+Testy publiczne nie mogą wymagać importu Kartografa ani sieci.
 
-### 4.10 `tests/unit/test_db_schema.py` (nowy)
+| Plik | Co utrwala |
+|---|---|
+| `test_store_types.py` | niemutowalne typy, `StorePlan.to_json/from_json` (round-trip, `cancelled`, pola addytywne), wyjątki dziedziczą z `IMGWError`, instrukcja `pip install imgwtools[store]` |
+| `test_store_writer.py` | pochodzenie i sidecar `imgw-meta/1`, `relabeled`/`unchanged`, współbieżni pisarze, brak zastąpienia pustego celu, jawna odmowa FS bez atomowego rename, sprzątanie po przerwaniu + `fsync`, wykrycie Kartografa bez importu, ucieczka ścieżek |
+| `test_store_sync.py` | `check_store` tylko listing + `HEAD` (pięć statusów), round-trip planu, `stale_plan` bez GET, nowy hash = nowa wersja, ten sam hash pod nowym sygnałem = `relabeled`, `unverifiable`/`check_failed` nie są pobierane, anulowanie bez połowicznej wersji, seria tylko z kompletnych wejść |
+| `test_store_series.py` | `check_series` offline, migawki dobowe/miesięczne/półroczne (29 II, rok hydrologiczny, `accumulated`), `reused` bez writera Parquet, brak pyarrow → `IMGWStoreDependencyError`, import rdzenia bez pyarrow |
+| `test_store_catalog.py` | listy stacji archiwizowane najpierw, pierwszeństwo położeń API → statyczny (`isolated_data_dir`) → użytkownik, obrys Polski bez GIS, RFC 7946, `unchanged` przy identycznej treści, `check_catalog` tylko `HEAD` |
+| `test_store_pmaxtp.py` | klucz komórki z odpowiedzi, ta sama komórka bez nowej wersji, AMP osobno, błędne indeksy/puste dane bez zapisu, odczyt offline |
+| `test_store_reader.py` | odczyt na katalogu read-only bez sieci i zapisu, zakresy dat zgodne z parserem, problemy skanu, nieznany `imgw-store/2` raportowany, walidacja pól `Meta` |
+| `test_series_export.py` | CSV: nagłówek z jednostkami, formuły atrybucji raz, każdy dzień, `year_type`, kolumny półrocza, atomowy zapis `.part` |
+| `test_datasets.py`, `test_coverage.py` | rejestr `pl.imgw.*` i `archive_files` (granice 2000/2001, 2022/2023, 29 II), pokrycie per stacja × zmienna |
+| `test_store_fixtures.py`, `test_fixture_builder.py` | stałe nagrania i archiwa, `build_fixture_store` (warianty, determinizm przy zamrożonym zegarze, brak przecieku danych referencyjnych) |
+| `test_commands.py`, `test_project.py` | katalog komend (walidacja offline, `format_command` round-trip, `check_command` bez zapisu, jedno publiczne API na działanie), `imgw-project/1` (ścisła walidacja, przypięcia, lock, `set-store`) |
+| `test_public_store_api.py` | jedna lista `__all__`, te same obiekty w `imgwtools.store`, frozen dataclasses, keyword-only, import bez pyarrow i bez `imgwtools.db` |
 
-- `test_init_db_creates_tables_and_version_1` – `get_schema_version() == CURRENT_VERSION`, tabele w `sqlite_master`. [pułapka 8]
-- `test_init_db_second_call_returns_false` – idempotencja.
-- `test_init_db_force_drops_data` – wstaw stację, `init_db(force=True)`, `get_table_counts()["hydro_stations"] == 0`.
-- `test_get_schema_version_without_file_returns_0`, `test_get_schema_version_without_table_returns_0` (pusty plik sqlite).
-- `test_get_table_counts_all_five_tables`, `test_get_cached_years_groups_by_interval` (`mark_range_cached` x3, nieznany interwał pomijany).
-
-### 4.11 `tests/unit/test_db_repository.py` (nowy; fixture `db_ready`)
-
-- `test_upsert_station_insert_then_update_keeps_coords_when_new_is_null` – `COALESCE` (114-117).
-- `test_get_stations_search_matches_name_or_river`, `test_get_stations_limit_offset`, `test_get_station_missing_returns_none`.
-- `test_insert_daily_batch_ignores_duplicates` – dwa razy ten sam wsad -> count w tabeli bez zmian; drugi zwrot `0`. [idempotencja, UNIQUE]
-- `test_insert_daily_batch_empty_returns_0` (+ monthly, semi_annual – parametrize po metodzie).
-- `test_get_daily_data_filters_station_years_and_dates` – `start_date`/`end_date`.
-- `test_get_daily_data_joins_station_name` – `station_name` z `hydro_stations`, `None` gdy brak stacji (LEFT JOIN).
-- `test_get_monthly_data_filters_extremum`, `test_get_semi_annual_data_filters_param_and_period`.
-- `test_insert_semi_annual_batch_collapses_plateau_duplicates` – 3 rekordy o tym samym `(station, year, period, param, extremum)` -> 1 wiersz
-  (dokumentowane w `parsers.py:391-394`).
-- `test_is_range_cached_four_key_shapes` – parametrize: (month None, param None), (month 5), (param "Q"), (month 5, param "Q"). [cached_ranges]
-- `test_mark_range_cached_replaces_existing` – `INSERT OR REPLACE`, `record_count` nadpisany.
-- `test_get_cached_ranges_filter_by_interval_and_order`.
-- `test_clear_cache_by_interval_empties_only_that_table_and_ranges`, `test_clear_cache_all_empties_everything` – asercje na `get_table_counts()`,
-  **nie** na zwracanej liczbie (błąd w `total_changes`, patrz sekcja 1).
-- `test_get_repository_is_singleton`.
-
-### 4.12 `tests/unit/test_db_cache_manager.py` (nowy; `db_ready` + respx + `make_zip`)
-
-- `test_ensure_data_cached_downloads_parses_and_marks_range` – respx na `…/dobowe/2023/codz_2023.zip` -> `True`; `hydro_daily == 2`,
-  `cached_ranges == 1`, `source_file == "codz_2023.zip"`. [lazy loading]
-- `test_ensure_data_cached_second_call_is_noop` – `False`, `respx_mock.calls.call_count == 1`. [idempotencja]
-- `test_ensure_data_cached_unknown_interval_raises`.
-- `test_ensure_data_cached_before_2023_uses_monthly_url` – `codz_2022_06.zip` wywołany. [boundary]
-- `test_ensure_data_cached_http_404_propagates_httpx_error` – `httpx.HTTPStatusError` (docstring obiecuje httpx, nie IMGW*). [mapowanie]
-- `test_ensure_data_cached_reports_progress_three_times` – lista wywołań callbacka.
-- `test_import_zip_data_is_idempotent` – powtórny import zwraca 0, tabela bez zmian.
-- `test_import_zip_data_semi_annual_and_monthly_go_to_right_tables` (parametrize 2 zipy).
-- `test_cache_year_range_daily_pre_2023_iterates_12_months` – respx z wildcardem `codz_2022_*.zip`; wynik `{2022: n}`; błędy miesięcy pomijane (`except Exception: continue`).
-- `test_cache_year_range_single_file_per_year_and_already_cached_gives_0`.
-- `test_cache_year_range_failed_year_gives_0` – respx 500.
-- `test_refresh_stations_upserts_from_csv` – respx na `HYDRO_STATIONS_CSV_URL` (cp1250) -> `count`, `get_station("123456789").river_name == "Ławica"`. [pułapka 9]
-- `test_get_daily_monthly_semi_annual_data_delegate_to_repo` – po imporcie, bez sieci.
-- `test_get_cache_manager_is_singleton`.
-
-### 4.13 `tests/unit/test_db_init.py` (nowy, mały)
-
-- `test_db_lazy_attributes_resolve` – `for name in imgwtools.db.__all__: getattr(imgwtools.db, name)` jest callable/klasą (45-85).
-- `test_db_unknown_attribute_raises_attribute_error`.
+Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_store.py`, `test_cli_api_parity.py`, `test_project_contract.py`
+– pełna ścieżka HEAD→plan→sync→series→catalog→CSV→projekt→verify/restore, JSON Schemas §11 i parytet ścieżek/SHA CLI = API.
 
 ### 4.14 `tests/unit/test_api_system.py` (nowy; `api_client`)
 
@@ -391,14 +368,12 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 - `test_current_hydro_maps_fields_and_wraps_dict` (respx dict) – **pin** `station_name == ""` z komentarzem o `nazwa_stacji`/`stacja`.
 - `test_current_hydro_empty_list`, `test_current_hydro_502_on_connection_error`.
 - `test_download_url_daily_2023`, `test_download_url_daily_2022_without_month_400`, `test_download_url_semi_annual_without_param_400`,
-  `test_download_url_year_2025_rejected_422` – pin `le=2024` (+ komentarz follow-up).
+  `test_download_url_year_2025_accepted` – od 3.0.0 bez górnej granicy 2024.
 - `test_download_urls_daily_2022_2023_counts_13` – 12 + 1. [boundary 2022/2023]
 - `test_download_urls_start_gt_end_400`, `test_download_urls_semi_annual_with_param`.
-- `test_hydro_data_400_when_cache_disabled` (`settings.db_enabled=False`).
-- `test_hydro_data_invalid_interval_400`, `test_hydro_data_start_gt_end_400`.
-- `test_hydro_data_daily_from_cache` – `tmp_db` + respx `codz_2023.zip` -> 200, `source == "cache"`, `count == 2`, `station_name` z CSV. [lazy loading end-to-end]
-- `test_hydro_data_monthly_from_cache` – respx `mies_2023.zip`.
-- `test_hydro_data_500_when_download_fails` – respx 500 -> `HTTPException 500` ("Error fetching data").
+- Dawne testy `GET /api/v1/hydro/data` (cache DB) – usunięte wraz z endpointem w 3.0.0; trasy magazynu REST testuje
+  `tests/unit/test_api_store.py` (503 bez `IMGW_STORE_ROOT`, 403 przy wyłączonych zapisach/braku tokenu, ograniczenie `version`
+  do `versions/`, parytet z Python API) i `tests/unit/test_api_download_registry.py` (URL-e z rejestru).
 
 ### 4.16 `tests/unit/test_api_meteo.py`
 
@@ -441,7 +416,8 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 
 - `test_all_help_screens_exit_0` – parametrize: `--help`, `version --help`, `server --help`, `fetch --help`, `fetch hydro --help`, `fetch meteo --help`,
   `fetch current --help`, `fetch pmaxtp --help`, `fetch warnings --help`, `list --help`, `list stations --help`, `list datasets --help`, `list intervals --help`,
-  `admin --help`, `admin keys/create/revoke/delete/stats --help`, `db --help`, `db init/status/cache/clear/vacuum/stations/query --help`. [pułapka 7; Typer wiring]
+  `admin --help`, `admin keys/create/revoke/delete/stats --help`. Grupy `store`, `series`, `pmaxtp`, `project` (help = opisy katalogu komend)
+  pokrywa już `test_cli_store_project.py::test_help_texts_and_flags_are_the_catalog`. [pułapka 7; Typer wiring]
 - `test_version_prints_package_version` – `__version__` w output, nie `1.0.0`. [regresja]
 - `test_server_command_delegates_to_uvicorn` – `monkeypatch.setattr("uvicorn.run", fake)`; asercja argumentów (host/port/reload). Pokrywa linie bez startu serwera.
 
@@ -449,7 +425,7 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 
 - `test_list_datasets_uses_current_year` – output zawiera `f"1951-{datetime.now().year}"`. [pułapka 7]
 - `test_list_datasets_filter_hydro_hides_meteo`, `test_list_intervals_prints_sections`.
-- `test_list_stations_hydro_reads_csv_from_data_dir` (`tmp_data_dir` + zapis `hydro_stations_names.csv` z nagłówkiem `id,name,river`),
+- `test_list_stations_hydro_reads_csv_from_data_dir` (autouse `isolated_data_dir` + zapis `hydro_stations_names.csv` z nagłówkiem `id,name,river`),
   `test_list_stations_search_filters`, `test_list_stations_meteo_two_columns`, `test_list_stations_missing_file_exit_1`,
   `test_list_stations_invalid_type_exit_1`, `test_list_stations_unreadable_file_exit_1` (plik binarny).
 
@@ -461,12 +437,14 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 
 ### 4.23 `tests/unit/test_cli_fetch.py` (`cli` + respx + `tmp_path`)
 
-- `test_fetch_hydro_daily_2023_downloads_one_file` – respx `codz_2023.zip` -> plik w `tmp_path`, „Pobrano: 1”.
-- `test_fetch_hydro_daily_2022_month_6_single_file`, `test_fetch_hydro_daily_2022_without_month_downloads_13_files` (wildcard respx; 12 + `zjaw_2022.zip`).
+Od 3.0.0 `fetch hydro|meteo` idą przez katalog komend (`run_command`); ich kontrakt utrwalają `test_cli_fetch_store.py`
+i `test_commands.py::test_fetch_hydro_mirrors_server_paths_and_reports_failures`: pliki w podkatalogach ścieżek serwera
+(dwa identyczne basename z różnych folderów współistnieją), zapis przez `.part` + `os.replace` (awaria nie zostawia pełnego pliku
+i nie blokuje ponowienia), ponowne pobranie nadpisuje zamiast „pomijam”, błędy pojedynczych plików jako komunikaty. Do uzupełnienia:
+
+- `test_fetch_hydro_check_prints_plan_without_download` – `--check` wypisuje `imgw-plan/1`, zero GET archiwów.
 - `test_fetch_hydro_year_range_semi_annual_without_param_downloads_3_per_year` – `--year 2020-2021 --interval polroczne_i_roczne` -> 6.
-- `test_fetch_hydro_skips_existing_file` – plik istnieje -> „pomijam”, 0 pobrań. [idempotencja]
-- `test_fetch_hydro_http_404_counts_as_not_downloaded` (respx 404; `download_file` zwraca False, exit 0).
-- `test_fetch_hydro_invalid_interval_exit_1`.
+- `test_fetch_hydro_invalid_interval_reports_polish_error`.
 - `test_fetch_meteo_monthly_synop_2023`, `test_fetch_meteo_daily_klimat_2000_yearly_file` [boundary], `test_fetch_meteo_hourly_opad_counts_failure`,
   `test_fetch_meteo_invalid_subtype_exit_1`.
 - `test_fetch_current_hydro_prints_json` (respx), `test_fetch_current_output_file_written_utf8` (JSON z `ł`), `test_fetch_current_invalid_type_exit_1`,
@@ -475,20 +453,15 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
   (uwaga: CLI nie waliduje granic Polski – pin w komentarzu).
 - `test_fetch_warnings_meteo_prints`, `test_fetch_warnings_invalid_type_exit_1`, `test_fetch_warnings_http_error_exit_1`.
 
-### 4.24 `tests/unit/test_cli_db.py` (`cli` + `tmp_db` + respx)
+### 4.24 CLI magazynu (`tests/unit/test_cli_store_project.py`; zastępuje dawny `test_cli_db.py`; testy istnieją)
 
-- `test_db_commands_exit_1_when_disabled` – parametrize `init/status/cache/clear/vacuum/stations/query` z minimalnymi argami; komunikat `IMGW_DB_ENABLED`. [pułapka 8]
-- `test_db_init_creates_file`, `test_db_init_second_run_says_exists`, `test_db_init_force_recreates`.
-- `test_db_status_without_file_hint`, `test_db_status_empty_db_shows_zero_counts`, `test_db_status_after_cache_lists_years`.
-- `test_format_year_ranges` – parametrize `[2015,2016,2017,2020,2022,2023]` -> `"2015-2017, 2020, 2022-2023"`, `[]` -> `""`, `[2020]` -> `"2020"`.
-- `test_db_cache_daily_2023_prints_summary` (respx), `test_db_cache_start_gt_end_exit_1`, `test_db_cache_invalid_interval_exit_1`,
-  `test_db_cache_polroczne_without_param_exit_1`, `test_db_cache_invalid_param_exit_1`, `test_db_cache_initializes_db_if_missing`.
-- `test_db_clear_force_all`, `test_db_clear_invalid_interval_exit_1`, `test_db_clear_without_force_prompt_n_cancels`, `test_db_clear_without_file_message`.
-- `test_db_vacuum_runs`, `test_db_vacuum_without_file_message`.
-- `test_db_stations_empty_hint`, `test_db_stations_refresh_then_lists` (respx CSV), `test_db_stations_search_no_match_message`.
-- `test_db_query_daily_prints_table` (respx), `test_db_query_output_csv_written`, `test_db_query_no_data_message`, `test_db_query_monthly_table`.
+- rejestracja każdej komendy `store`/`series`/`pmaxtp`/`project`, help i flagi z katalogu, te same opcje do dispatchera;
+- `store init`, `series build`, `store check --plan` + `store sync`, `pmaxtp sync`, `series export`, komendy `project` dają te same ścieżki
+  i SHA co Python API (stały zegar);
+- `--check` używa `check_command` i nic nie zapisuje; plan wewnątrz magazynu odrzucony po polsku; błędne opcje po polsku;
+- Ctrl+C zgłasza anulowanie i raport częściowy, drugi Ctrl+C przerywa natychmiast.
 
-### 4.25 `tests/unit/test_reference_data.py` (respx + `tmp_data_dir`)
+### 4.25 `tests/unit/test_reference_data.py` (respx + autouse `isolated_data_dir`)
 
 - `test_fetch_stations_writes_three_csv_files` – respx: `HYDRO_STATIONS_CSV_URL`, `METEO_STATIONS_CSV_URL`, `HYDRO_MAP_API_URL`; nagłówki `id,name,river` / `id,name` / `id,X,Y`;
   stacja bez współrzędnych pominięta w `locations`.
@@ -498,7 +471,8 @@ Format: `test_nazwa` – co asertuje [pułapka/klasa błędu] (fixture).
 
 ### Podsumowanie liczby testów
 
-Orientacyjnie ~230 nowych testów (razem ~340). Przy obecnym czasie 0,3 s/109 testów i sqlite w `tmp_path` spodziewany czas < 10 s.
+Plan 2.2.0 zakładał ~230 nowych testów (razem ~340). W 3.0.0 zestaw liczy 998 testów przy pokryciu 93% (stan 2026-10-18, z kontraktem T25 w `tests/contract/`), z czego testy magazynu,
+katalogu komend, projektu, CLI i REST magazynu (sekcje 4.9 i 4.24) powstały w ramach ADR-001.
 
 ---
 
@@ -506,16 +480,16 @@ Orientacyjnie ~230 nowych testów (razem ~340). Przy obecnym czasie 0,3 s/109 te
 
 | Faza | Zakres | Commit (temat) | Oczekiwane pokrycie po fazie |
 |---|---|---|---|
-| 0 | Poprawka `test_urls.py:238,247`; fixtury w `conftest.py` (`make_zip`, `tmp_db`, `db_ready`, `tmp_data_dir`, `api_client`, `cli`); markery w `pyproject.toml` | `test: poprawka testow get_available_years i wspolne fixtury (respx, sqlite, TestClient, CliRunner)` | 23% (+1 linia) |
-| 1 | `test_url_builder.py`, uzupełnienia `test_models.py`, `test_db_models.py`, `test_parsers.py`, `test_stations.py`, `test_fetch.py`, `test_config.py` | `test: pelne pokrycie url_builder, modeli, parserow, stacji i fetch przez respx` | ~32% (592+239=831/2586) |
-| 2 | `test_db_connection.py`, `test_db_schema.py`, `test_db_repository.py`, `test_db_cache_manager.py`, `test_db_init.py` | `test: warstwa db na tymczasowym SQLite z mockowanym pobieraniem` | ~46% (1202/2586) |
-| 3 | `test_api_system.py`, `test_api_hydro.py`, `test_api_meteo.py`, `test_api_download.py`, `test_api_pmaxtp.py` | `test: endpointy REST API przez TestClient bez sieci` | ~61% (1577/2586) |
-| 4 | `test_web.py` | `test: trasy web HTMX/Jinja renderuja sie z mockowanymi danymi` | ~67% (1727/2586) |
-| 5 | `test_cli_main.py`, `test_cli_list.py`, `test_cli_admin.py`, `test_cli_fetch.py`, `test_cli_db.py` | `test: CLI przez CliRunner - help, kody wyjscia, fetch, admin, db` | ~87% (2248/2586) |
-| 6 | `test_reference_data.py`; `--cov-fail-under=80` w `addopts`; aktualizacja liczb w `README.md` i `docs/DEVELOPMENT_STANDARDS.md` (5.1, 5.4, 10) | `test: reference_data z mockami oraz prog pokrycia 80 procent` | ~89% (2308/2586) |
+| 0 | Poprawka `test_urls.py:238,247`; fixtury w `conftest.py` (`make_zip`, `api_client`, `cli`; `isolated_data_dir` już istnieje); markery w `pyproject.toml` | `test: poprawka testow get_available_years i wspolne fixtury (respx, TestClient, CliRunner)` | – |
+| 1 | `test_url_builder.py`, uzupełnienia `test_models.py`, `test_parsers.py` (w tym 4.4), `test_stations.py`, `test_fetch.py`, `test_config.py` | `test: pelne pokrycie url_builder, modeli, parserow, stacji i fetch przez respx` | – |
+| 2 | ~~warstwa DB~~ – zastąpiona testami magazynu (sekcja 4.9, zrobione w 3.0.0) | – | – |
+| 3 | `test_api_system.py`, `test_api_hydro.py`, `test_api_meteo.py`, `test_api_download.py`, `test_api_pmaxtp.py` | `test: endpointy REST API przez TestClient bez sieci` | – |
+| 4 | `test_web.py` | `test: trasy web HTMX/Jinja renderuja sie z mockowanymi danymi` | – |
+| 5 | `test_cli_main.py`, `test_cli_list.py`, `test_cli_admin.py`, `test_cli_fetch.py` (CLI magazynu: sekcja 4.24, zrobione) | `test: CLI przez CliRunner - help, kody wyjscia, fetch, admin` | – |
+| 6 | `test_reference_data.py`; `--cov-fail-under=80` w `addopts`; aktualizacja liczb w `README.md` i `docs/DEVELOPMENT_STANDARDS.md` (5.1, 5.4, 10) | `test: reference_data z mockami oraz prog pokrycia 80 procent` | >= 80% |
 
 Każda faza: `pytest -q --cov…` zielone, `ruff check src/ tests/` czyste, `pyright src/imgwtools/` bez zmian (testy nie są sprawdzane pyrightem).
-Fazy 3 i 5 są największe – można je podzielić na dwa commity (hydro+system / meteo+download+pmaxtp; main+list+admin / fetch+db), jeśli przegląd ma być wygodniejszy.
+Kolumna pokrycia z planu 2.2.0 (mianownik 2586) jest nieaktualna; próg 80% sprawdza się na bieżącym kodzie. Fazy 3 i 5 można podzielić na dwa commity.
 
 ---
 
@@ -528,25 +502,24 @@ Fazy 3 i 5 są największe – można je podzielić na dwa commity (hydro+system
    Do decyzji: pin vs. naprawa przed testami.
 3. **Placeholder `/stations`** (pułapka 6) – testy asertują kształt (`StationList`, `count`, `limit/offset`), nie nazwy. Follow-up: czytać z `settings.hydro_stations_file`
    jak `imgw list stations`.
-4. **Błędy znalezione** (sekcja 1: `clear_cache` licznik, `nazwa_stacji` vs `stacja`, `le=2024`/`(…,2023)` w API, `API_VERSION 1.0.0`, `BadZipFile` zamiast
-   `IMGWDataError`, `JSONDecodeError` w `fetch_*`) – plan **pinuje** aktualne zachowanie z komentarzem `# TODO`, żeby naprawa była świadomą zmianą testu.
+4. **Błędy znalezione** (sekcja 1) – w 3.0.0 naprawiono `nazwa_stacji` vs `stacja`, `le=2024` w API, `API_VERSION 1.0.0`, `JSONDecodeError`
+   w `fetch_*` (teraz `IMGWDataError`) i `BadZipFile`; `clear_cache` zniknął z warstwą DB. Pozostałe pozycje plan **pinuje** z komentarzem `# TODO`, żeby naprawa była świadomą zmianą testu.
    Do decyzji: które naprawić przed fazą 3 (wtedy test od razu asertuje poprawne zachowanie).
 5. **Wykluczenia z pokrycia** – propozycja minimalna: `[tool.coverage.report] exclude_also = ["if __name__ == .__main__.:", "if TYPE_CHECKING:"]`
    (4 bloki `__main__`, 3 bloki `TYPE_CHECKING`). `run_server()` w `api/main.py` i `server` w `cli/main.py` pokrywamy przez monkeypatch `uvicorn.run`
    zamiast wykluczać. `reference_data.main()` testowany przez respx + `capsys`. **Nie** wykluczamy żadnych modułów w całości – arytmetyka sekcji 2 działa bez wykluczeń.
 6. **Nieosiągalna gałąź** `api/routes/download.py:158-162` (walidacja zakresu lat po `Query(ge=1951, le=2024)` – nigdy nie zadziała, dopóki `get_available_years`
    zwraca `(1951, rok_bieżący)`). Zostaje niepokryta (5 linii) – albo usunąć w follow-up.
-7. **Plik `data/imgw_hydro.db` w katalogu roboczym** – fixture `tmp_db` zawsze przestawia `settings.db_path`; dodatkowo proponuję w `conftest.py` autouse-fixture,
-   która ustawia `settings.db_enabled=False` i `db_path=tmp_path/"unused.db"` dla wszystkich testów (ochrona przed przypadkowym zapisem do prawdziwej bazy).
-   Do potwierdzenia.
+7. **Ochrona przed lokalnymi danymi** – rozstrzygnięte: autouse `isolated_data_dir` w `tests/conftest.py` przestawia `settings.data_dir` na pusty
+   katalog tymczasowy w każdym teście. Bazy SQLite już nie ma (3.0.0); testy magazynu tworzą korzenie wyłącznie w `tmp_path`.
 8. **Przeniesienie stałych CSV z `test_parsers.py` do `conftest.py`** – lekka zmiana istniejącego pliku (import zamiast definicji). Alternatywa: zostawić
    duplikat trzech wierszy w conftest. Rekomendacja: przenieść.
 9. **`--cov-fail-under=80` w `addopts`** – włączyć dopiero w fazie 6; przy `addopts` z `-m 'not integration'` upewnić się, że `pytest -m integration` nadal
    działa (jawny `-m` nadpisuje).
 10. **Testy integracyjne z prawdziwym IMGW** – nie dodajemy (marker zarezerwowany). Jeśli właściciel chce smoke-testu URL-i (HEAD na `codz_2023.zip`),
     dodać jeden plik `tests/integration/test_imgw_live.py` z `@pytest.mark.integration` – poza arytmetyką pokrycia.
-11. **Czas i rozmiar** – ~230 testów w 20 plikach; przy regule „jeden test = jedno zachowanie” pliki CLI (`test_cli_db.py`, `test_cli_fetch.py`) będą
-    największe (~25 testów). Akceptowalne? Alternatywa: skrócić `cli/db.py` do ścieżek szczęśliwych + walidacji (pokrycie ~65%, TOTAL wciąż ~85%).
+11. **Czas i rozmiar** – pliki CLI/REST magazynu (`test_cli_store_project.py`, `test_api_store.py`) i kontrakt eksportów (`test_public_store_api.py`)
+    są największe, bo parametryzują każdą komendę/trasę/symbol; zestaw działa offline w kilkadziesiąt sekund.
 
 ---
 
@@ -556,7 +529,7 @@ Fazy 3 i 5 są największe – można je podzielić na dwa commity (hydro+system
 .venv/bin/python -m pytest -q --cov=imgwtools --cov-report=term-missing
 # oczekiwane: wszystkie testy passed (>= 109 starych + nowe), TOTAL >= 80% (plan: ~89%),
 # brak ostrzezen o nieobsluzonych zadaniach HTTP (respx assert_all_mocked),
-# zadne 'Missing' w core/url_builder.py, models.py, db/models.py, config.py, api/schemas.py
+# zadne 'Missing' w core/url_builder.py, models.py, _parsing/common.py, config.py, api/schemas.py
 
 .venv/bin/python -m pytest -q                      # po fazie 6: przechodzi prog --cov-fail-under=80
 .venv/bin/python -m pytest -q -m integration       # "no tests ran" (brak testow integracyjnych) lub tylko opt-in

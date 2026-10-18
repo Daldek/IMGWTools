@@ -20,12 +20,13 @@ Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAX
 - Dane PMAXTP (opady maksymalne prawdopodobne)
 - Lista stacji z koordynatami
 
-**Kluczowa zasada:** Dane NIE są przechowywane na serwerze (domyślnie) - generowane są bezpośrednie linki do serwerów IMGW.
+**Kluczowa zasada:** domyślnie serwer niczego nie zapisuje — generuje bezpośrednie linki do serwerów IMGW, a dane bieżące przekazuje na żywo. Dane trafiają na dysk wyłącznie po jawnej decyzji: wskazaniu katalogu `--output`, korzenia magazynu (`--root`) albo skonfigurowaniu `IMGW_STORE_ROOT` na serwerze.
 
-**Opcjonalne cache'owanie** (dane hydrologiczne):
-- SQLite database dla danych historycznych
-- Lazy loading - dane pobierane przy pierwszym zapytaniu
-- Włączane przez `IMGW_DB_ENABLED=true`
+**Wersjonowany magazyn danych** (opcjonalny, od 3.0.0):
+- niezmienne wersje archiwów IMGW 1:1 z sumami SHA-256, nagłówkami HTTP i licencją w sidecarze `*.meta.json`,
+- sprawdzanie aktualności bez pobierania (listing + `HEAD`) i plan `imgw-plan/1`,
+- szeregi stacji w Parquet, katalog stacji `stations.geojson`, komórki PMAXTP, eksport CSV,
+- czytelny offline z dysku lokalnego lub udziału sieciowego, bez bazy danych.
 
 ---
 
@@ -41,13 +42,13 @@ pip install imgwtools[cli]
 # Z REST API
 pip install imgwtools[api]
 
-# Z cache SQLite dla danych hydrologicznych
-pip install imgwtools[db]
+# Z magazynem wersjonowanym i szeregami Parquet (pyarrow)
+pip install imgwtools[store]
 
 # Z eksportem do DataFrame (PMaXTPData.to_dataframe)
 pip install imgwtools[pandas]
 
-# Pełna instalacja (CLI + API + DB + pandas)
+# Pełna instalacja (CLI + API + magazyn + pandas)
 pip install imgwtools[full]
 
 # Dla deweloperów (z repozytorium)
@@ -125,13 +126,50 @@ for s in alarmed:
 ```python
 from imgwtools import download_hydro_data, parse_zip_file
 
-# Pobierz dane dobowe za 2023 rok
-zip_data = download_hydro_data("dobowe", 2023)
+# Pobierz dane dobowe za 2023 rok (od 3.0.0 wynik to DownloadResult, nie bytes)
+result = download_hydro_data("dobowe", 2023)
+print(result.url, result.etag, result.last_modified, result.content_length)
 
 # Parsuj dane
-for station, record in parse_zip_file(zip_data, "dobowe"):
+for station, record in parse_zip_file(result.data, "dobowe"):
     print(f"{station.station_name}: {record.water_level_cm} cm ({record.measurement_date})")
 ```
+
+### Magazyn wersjonowany (wymaga `imgwtools[store]` dla Parquet)
+
+```python
+from imgwtools import (
+    build_series,
+    check_store,
+    current_version,
+    export_series,
+    init_store,
+    read_series,
+    read_series_index,
+    sync_store,
+)
+
+store = init_store("/dane/imgw")  # jawny korzeń; brak domyślnego ./data
+
+# 1. Sprawdź aktualność bez pobierania archiwów (listing + HEAD)
+plan = check_store(store, datasets=["pl.imgw.hydro_daily"], years=[2023, 2024])
+plan.to_json("plan.json")  # plik planu imgw-plan/1 poza magazynem
+
+# 2. Pobierz nowe/brakujące pliki według planu i zbuduj szeregi Parquet
+report = sync_store(store, plan=plan)
+
+# 3. Czytaj bieżącą wersję szeregu (offline)
+series = current_version(store, slot="series:hydro_daily")
+index = read_series_index(series.version)  # tylko JSON, bez pyarrow
+for record in read_series(series.version, station="149180020", variables=["H", "Q"]):
+    q = record.measurements["Q"]
+    print(record.date, q.value, q.flag)  # flag: value|missing|no_phenomenon|accumulated
+
+# 4. Eksport CSV z jednostkami i atrybucją IMGW-PIB
+export_series(series.version, station="149180020", path="q.csv", variables=["Q"])
+```
+
+Do testów offline służy `imgwtools.testing.build_fixture_store(root)` — buduje mały magazyn z nagranych odpowiedzi, bez internetu.
 
 ### Wersja asynchroniczna
 
@@ -187,12 +225,19 @@ imgw fetch pmaxtp --lat 52.23 --lon 21.01
 # Lista stacji
 imgw list stations --type hydro
 
-# Cache danych (wymaga IMGW_DB_ENABLED=true)
-imgw db init                                   # Inicjalizacja bazy
-imgw db stations --refresh                     # Pobranie listy stacji
-imgw db cache --years 2020-2023 -i dobowe      # Cache danych dobowych
-imgw db query -s 149180020 -y 2023 -i dobowe   # Zapytanie o dane
+# Magazyn wersjonowany (jawny --root)
+imgw store init --root /dane/imgw
+imgw store check --root /dane/imgw --dataset pl.imgw.hydro_daily --years 2023-2024 --plan plan.json
+imgw store sync --root /dane/imgw --plan plan.json
+imgw store catalog --root /dane/imgw          # stations.geojson
+imgw series select --root /dane/imgw --dataset pl.imgw.hydro_daily --stations 149180020
+imgw series export --version /dane/imgw/series/versions/hydro_daily/<wersja> \
+    --station 149180020 --path q.csv --variables H,Q
+imgw pmaxtp sync --root /dane/imgw --method POT --lat 52.23 --lon 21.01
+imgw project init --project-dir ./projekt --store-dir /dane/imgw
 ```
+
+Komendy `store`, `series`, `pmaxtp`, `project` oraz `fetch hydro|meteo` mają flagę `--check`, która wypisuje plan `imgw-plan/1` bez zapisu i bez pobierania danych. `imgw fetch hydro|meteo -o KATALOG` zapisuje pliki w podkatalogach odpowiadających ścieżkom na serwerze IMGW.
 
 ### REST API
 
@@ -207,7 +252,13 @@ curl http://localhost:8000/api/v1/hydro/current
 
 # Generuj URL do pobrania danych
 curl "http://localhost:8000/api/v1/download/url?data_type=hydro&interval=dobowe&year=2023"
+
+# Magazyn (wymaga IMGW_STORE_ROOT na serwerze; inaczej 503)
+curl http://localhost:8000/api/v1/store/info
+curl "http://localhost:8000/api/v1/store/entries?kind=series"
 ```
+
+Trasy magazynu (`/api/v1/store/*`, `/api/v1/series/*`, `/api/v1/pmaxtp/store/sync`) działają tylko na serwerowym, absolutnym `IMGW_STORE_ROOT`. Operacje zapisujące wymagają dodatkowo `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` i nagłówka `X-API-Key` z tym tokenem — domyślnie są wyłączone (403).
 
 ### Web GUI
 
@@ -254,20 +305,22 @@ Każda stacja ma link do oficjalnej strony IMGW: `https://hydro.imgw.pl/#/statio
 
 ```
 src/imgwtools/
-├── api/          # REST API (FastAPI)
-├── cli/          # Narzędzie CLI (Typer)
-├── core/         # Logika biznesowa
+├── api/          # REST API (FastAPI), m.in. routes/store.py
+├── cli/          # Narzędzie CLI (Typer): fetch, list, admin, store, series, pmaxtp, project
+├── core/
 │   └── url_builder.py  # Generowanie URL-i
-├── db/           # Cache SQLite (opcjonalny)
-│   ├── cache_manager.py  # Lazy loading
-│   ├── repository.py     # Warstwa dostępu do danych
-│   └── parsers.py        # Parsery CSV z ZIP
+├── _parsing/     # Parsery archiwów hydro/meteo (publicznie: imgwtools.parsers)
+├── store/        # Magazyn wersjonowany: writer, sync, series, catalog, pmaxtp, reader, export
+├── datasets.py   # Rejestr zbiorów pl.imgw.* i generator plików archiwów
+├── commands.py   # Katalog komend wspólny dla CLI, REST i integracji
+├── project.py    # Manifest projektu imgw-project/1
+├── testing.py    # build_fixture_store — magazyn testowy offline
 ├── web/          # Web GUI (HTMX + Jinja2)
-└── config.py     # Konfiguracja
+└── config.py     # Konfiguracja (IMGW_*)
 
-data/             # Metadane + baza SQLite (gdy włączona)
+data/             # Lokalne dane referencyjne (python -m imgwtools.reference_data), poza repozytorium
 docker/           # Konfiguracja Docker
-tests/            # Testy
+tests/            # Testy (offline; fixtury magazynu w tests/fixtures/store)
 ```
 
 ---
@@ -281,108 +334,94 @@ docker-compose up -d
 
 ---
 
-## Cache bazy danych (opcjonalny)
+## Magazyn wersjonowany (opcjonalny)
 
-Dla częstych zapytań o dane historyczne można włączyć lokalną bazę SQLite.
+Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_store(root)`, na serwerze `IMGW_STORE_ROOT`). Nie ma domyślnej lokalizacji ani bazy danych; magazyn można czytać offline z dysku lokalnego lub udziału sieciowego. Szczegóły: `docs/DECISIONS.md` (ADR-001) i `docs/superpowers/specs/2026-10-17-versioned-store-design.md`.
 
-### Konfiguracja
+### Układ katalogu
 
-```bash
-# W pliku .env lub zmiennych środowiskowych
-IMGW_DB_ENABLED=true
-IMGW_DB_PATH=./data/imgw_hydro.db  # domyślna ścieżka
+```text
+<root>/imgw-store.json                                  # znacznik imgw-store/1
+  archives/versions/<ścieżka serwera>/<stem>/<etykieta>_<sha8>/<plik>[.meta.json]
+  stations/versions/<etykieta>_<sha8>/stations.geojson[.meta.json]
+  series/versions/<slug>/<etykieta>_<sha8>/series.json[.meta.json] + stations/<kod>.parquet
+  pmaxtp/versions/<POT|AMP>/<indX>_<indY>/<etykieta>_<sha8>/cell.json[.meta.json]
+  .incoming/                                            # staging; nigdy nie jest wersją
 ```
 
-### Użycie
+Wersje są niezmienne i tylko dopisywane: brak nadpisywania, dowiązań i ścieżki `latest`. Bieżącą wersję wylicza `current_version(root, slot=...)`. Każdy plik główny ma sidecar `*.meta.json` (`imgw-meta/1`) z SHA-256, rozmiarem, żądaniem, nagłówkami HTTP i licencją IMGW-PIB.
 
-```bash
-# Inicjalizacja bazy
-imgw db init
+### Zbiory
 
-# Pobranie listy stacji (1300+ stacji)
-imgw db stations --refresh
+| Klucz | Zawartość |
+|-------|-----------|
+| `pl.imgw.hydro_daily` | Hydro dobowe: H [cm], Q [m3/s], T [°C] |
+| `pl.imgw.hydro_monthly` | Hydro miesięczne: H/Q/T × min/mean/max |
+| `pl.imgw.hydro_semiannual` | Hydro półroczne i roczne: H/Q/T × min/mean/max z datami ekstremów |
+| `pl.imgw.meteo_climate_daily` | Meteo klimat dobowe: Tmax, Tmin, Tmean, Tground, P, pokrywa śnieżna |
+| `pl.imgw.meteo_precip_daily` | Meteo opad dobowy: P, pokrywa i świeży śnieg |
+| `pl.imgw.hydro_stations`, `pl.imgw.meteo_stations` | Listy stacji (CSV) — wejście katalogu `stations.geojson` |
+| `pl.imgw.pmaxtp` | PMAXTP per komórka siatki (`POT`, `AMP`) |
 
-# Cache danych dla zakresu lat
-imgw db cache --years 2020-2023 --interval dobowe
+Dane bieżące (hydro, synop), ostrzeżenia i `fetch_pmaxtp` pozostają zapytaniami na żywo, bez magazynu.
 
-# Zapytanie o dane dla stacji
-imgw db query --station 149180020 --years 2020-2023 --interval dobowe
+### Schematy
 
-# Export do CSV
-imgw db query --station 149180020 --years 2023 --output dane.csv
+`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1` (oraz rozszerzenie `imgw-pmaxtp/1`) mają własne liczniki wersji, niezależne od wersji pakietu. W ramach `/1` dochodzą tylko pola opcjonalne; zmiana niezgodna oznacza `/2`. Nieznana wersja jest raportowana (`store_info(...).supported is False`), a nie zgadywana.
 
-# Status bazy (rozmiar, liczba rekordów)
-imgw db status
+### Integracje
 
-# Optymalizacja bazy
-imgw db vacuum
-```
+- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_series_index`, `read_series`, `read_pmaxtp`); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty.
+- **Retman** uruchamia działania jako handler przez publiczny katalog komend (`data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`) — te same opcje, walidacja i komunikaty co w CLI.
 
-### Obsługiwane interwały
-
-| Interwał     | Opis                           | Parametry       |
-|--------------|--------------------------------|-----------------|
-| `dobowe`     | Dane dzienne                   | -               |
-| `miesieczne` | Dane miesięczne (min/mean/max) | -               |
-| `polroczne`  | Dane półroczne/roczne          | `--param H/Q/T` |
-
-### Lazy loading
-
-Dane są automatycznie pobierane z IMGW przy pierwszym zapytaniu i cache'owane lokalnie. Kolejne zapytania korzystają z cache.
+Poprzedni opcjonalny cache SQLite został usunięty w 3.0.0 bez migracji — zob. `docs/CHANGELOG.md`.
 
 ---
 
 ## Testy
 
-Projekt zawiera kompleksowe testy jednostkowe dla publicznego API.
+Projekt zawiera testy jednostkowe i kontraktowe publicznego API, CLI i REST. Wszystkie działają offline: sieć jest mockowana (`respx`) albo odtwarzana z nagrań w `tests/fixtures/store/`.
 
 ### Uruchamianie testów
 
 ```bash
-# Wszystkie testy
-pytest
+# Wszystkie testy (przez venv projektu)
+.venv/bin/python -m pytest
 
 # Z pokryciem kodu
-pytest --cov=imgwtools
-
-# Verbose
-pytest -v
+.venv/bin/python -m pytest --cov=imgwtools
 ```
 
 ### Struktura testów
 
 ```
 tests/
-├── conftest.py              # Wspólne fixtures
+├── conftest.py              # Wspólne fixtures; autouse isolated_data_dir (settings.data_dir w tmp)
+├── fixtures/store/          # Syntetyczne archiwa i nagrane odpowiedzi HTTP (fikcyjne stacje)
 ├── unit/
-│   ├── test_models.py       # Modele danych (17 testów)
-│   ├── test_fetch.py        # Funkcje pobierania (19 testów)
-│   ├── test_parsers.py      # Parsery CSV: separator, kodowanie, cudzysłowy (28 testów)
-│   ├── test_stations.py     # Funkcje stacji (17 testów)
-│   └── test_urls.py         # Budowanie URL-i (28 testów)
-└── integration/             # Testy integracyjne (TODO)
+│   ├── test_fetch*.py, test_models.py, test_parsers.py, test_stations*.py, test_urls.py
+│   ├── test_datasets.py, test_coverage.py              # rejestr zbiorów, pokrycie
+│   ├── test_store_*.py, test_series_export.py          # magazyn: writer, sync, series, catalog, pmaxtp, reader
+│   ├── test_fixture_builder.py                         # imgwtools.testing
+│   ├── test_commands.py, test_project.py               # katalog komend, imgw-project/1
+│   ├── test_cli_*.py, test_api_*.py, test_web_app.py   # CLI, REST i Web GUI
+│   ├── test_reference_data.py                          # python -m imgwtools.reference_data
+│   └── test_public_store_api.py                        # kontrakt eksportów publicznych
+└── contract/                                           # kontrakt magazynu, parytet CLI = API, projekt
 ```
 
-### Pokrycie
-
-| Moduł | Pokrycie |
-|-------|----------|
-| `models.py` | 89% |
-| `exceptions.py` | 100% |
-| `urls.py` | 100% |
-| `db/parsers.py` | 78% |
-| `stations.py` | 59% |
-| `fetch.py` | 45% |
-
-**Łącznie: 109 testów**
+**Łącznie: 998 testów, pokrycie 93%** (`pytest --cov=imgwtools`, 2026-10-18).
 
 ---
 
 ## Dokumentacja
 
 - `CLAUDE.md` - Instrukcje dla Claude Code
-- `ARCHITECTURE.md` - Architektura systemu
-- `PRD.md` - Wymagania produktu
+- `docs/CHANGELOG.md` - Historia zmian (w tym BREAKING 3.0.0)
+- `docs/DECISIONS.md` - Rejestr decyzji (ADR-001: magazyn wersjonowany)
+- `docs/ARCHITECTURE.md` - Architektura systemu
+- `docs/PRD.md` - Wymagania produktu
+- `docs/PROGRESS.md` - Postęp i backlog
 
 ---
 
@@ -394,7 +433,7 @@ Zgłoś problemy w sekcji [Issues](https://github.com/Daldek/IMGWTools/issues).
 
 ## Źródła danych
 
-IMGWTools nie przechowuje ani nie dystrybuuje danych — każde pobranie jest świadomą decyzją użytkownika. Poniżej zestawienie wykorzystywanych źródeł.
+IMGWTools nie dystrybuuje danych IMGW-PIB, a serwer domyślnie ich nie przechowuje — każde pobranie i zapis do magazynu jest świadomą decyzją użytkownika lub administratora (jawny `--output`, `--root`, `IMGW_STORE_ROOT`). Poniżej zestawienie wykorzystywanych źródeł.
 
 | Źródło | Operator | Warunki korzystania |
 |--------|----------|---------------------|
@@ -419,41 +458,31 @@ Jedyny dołączony do pakietu zbiór geograficzny to obrys granicy Polski `src/i
 
 ---
 
-## Zmiany w wersji 2.2.0
+## Zmiany w wersji 3.0.0
+
+Pełna lista: [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (także wcześniejsze wydania).
 
 ### Zmiany łamiące kompatybilność
 
-- **Extras `[spatial]` → `[pandas]`.** Instalacja `pip install imgwtools[spatial]`
-  przestaje działać — użyj `pip install imgwtools[pandas]`. Zależności
-  `pyproj`/`pyshp` zostały porzucone.
-- **Usunięty `core/imgw_spatial.py`** (klasa `StationMap`). Dotyczy wyłącznie
-  kodu robiącego `from imgwtools.core.imgw_spatial import StationMap` — klasa
-  nigdy nie należała do publicznego API i nie ma bezpośredniego zamiennika.
-- **Usunięty `core/imgw_api.py`** (oznaczony jako DEPRECATED od 2.0.0).
-  Zamienniki w publicznym API:
+- `download_hydro_data`, `download_meteo_data` (i `*_async`) zwracają `DownloadResult`
+  zamiast `bytes` — bajty archiwum są w polu `.data`, obok `url`, `etag`,
+  `last_modified`, `content_length`.
+- Usunięty cache SQLite: pakiet `imgwtools.db`, komendy CLI cache, endpoint
+  `GET /api/v1/hydro/data`, jego ustawienia środowiskowe i dodatek instalacyjny.
+  Zamiennikiem jest magazyn wersjonowany (`imgwtools[store]`, `imgw store …`).
+  Istniejące pliki `.db` nie są usuwane ani migrowane.
+- `imgw fetch hydro|meteo -o` zapisuje pliki w podkatalogach ścieżek serwera IMGW.
+- `parse_zip_file` zgłasza uszkodzony ZIP jako `IMGWDataError`.
 
-  | Usunięte | Zamiennik |
-  |----------|-----------|
-  | `HYDRO` | `fetch_hydro_current()` |
-  | `SYNOP` | `fetch_synop()` |
-  | `METEO` | `fetch_synop()` / `fetch_hydro_current()` |
-  | `WARNINGS` | `fetch_warnings()` |
-  | `PMAXTPAPI` | `fetch_pmaxtp()` |
+### Nowe
 
-- **Usunięty `core/imgw_datastore.py`** — zamiast `DataDownloader` użyj
-  `download_hydro_data()` lub `download_meteo_data()`.
-
-### Pozostałe zmiany
-
-- Ręczny proces CLA (`docs/CLA.md`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`,
-  szablon PR).
-- Nowy moduł `imgwtools.reference_data` do pobierania danych referencyjnych
-  IMGW-PIB (`python -m imgwtools.reference_data`); dane IMGW usunięte z repo.
-- Metadane licencji zgodne z PEP 639 (`license = "MIT"`, `license-files`)
-  i poprawiony rok w `LICENSE`.
-- Nowa sekcja README o źródłach danych i atrybucji IMGW-PIB.
-- Docstringi w całym `src/` w konwencji NumPy, wymuszane przez reguły `D`
-  w ruff; `ruff format` obejmuje całe repozytorium.
+- Magazyn wersjonowany z planem aktualności, szeregami Parquet, katalogiem stacji
+  GeoJSON, PMAXTP per komórka i eksportem CSV; schematy `imgw-store/1`, `imgw-meta/1`,
+  `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`.
+- Parsery meteo (`parse_meteo_climate_daily`, `parse_meteo_precip_daily`,
+  `normalize_archive`), rejestr zbiorów (`datasets`, `archive_files`), katalog komend
+  (`run_command`) i projekty (`imgw project …`).
+- Publiczny budowniczy magazynu testowego `imgwtools.testing.build_fixture_store`.
 
 ---
 

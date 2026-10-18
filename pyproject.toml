@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "imgwtools"
-version = "2.2.0"
+version = "3.0.0"
 description = "Python library for accessing IMGW (Polish Institute of Meteorology and Water Management) public data"
 readme = "README.md"
 license = "MIT"
