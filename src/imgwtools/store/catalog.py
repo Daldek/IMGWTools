@@ -603,14 +603,32 @@ def _feature(
 def _list_rows(
     data: bytes, *, kind: Literal["hydro", "meteo"], problems: list[str]
 ) -> dict[str, StationListEntry]:
+    """Rows of a station list by code; a repeated code keeps its first row."""
     rows: dict[str, StationListEntry] = {}
     for station in parse_stations_csv(data, kind=kind):
         code = station.station_code
         if not (len(code) == 9 and code.isdecimal()):
             problems.append(f"Lista {kind}: pominięto niepoprawny kod stacji '{code}'")
             continue
-        rows[code] = station
+        first = rows.setdefault(code, station)
+        if first is not station:
+            # IMGW lists e.g. meteo station 252150270 twice, with two short codes.
+            problems.append(
+                f"Lista {kind}: powtórzony kod stacji {code} "
+                f"({_list_row_text(first)} oraz {_list_row_text(station)}); "
+                "katalog używa pierwszego wiersza"
+            )
     return rows
+
+
+def _list_row_text(station: StationListEntry) -> str:
+    fields = (
+        station.name,
+        station.river,
+        station.hydrographic_code,
+        station.short_code and f"kod krótki {station.short_code}",
+    )
+    return ", ".join(field for field in fields if field)
 
 
 def _catalog_bytes(

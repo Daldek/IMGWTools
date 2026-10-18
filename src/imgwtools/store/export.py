@@ -60,11 +60,11 @@ def _record_lines(
 
     CSV (comma, CRLF rows) starts with the header ``station_code,dataset,date,
     hydro_year,period``, then ``<V> [<unit>],<V>_flag`` for every dataset
-    variable (half-year datasets add ``<V>_start,<V>_end``) and one column per
-    qualitative attribute of the dataset (meteo ``precip_type`` etc.). A
-    variable or attribute absent from a record gives empty cells. JSONL writes
-    one JSON object per record with the `NormalizedRecord` fields. No records
-    yield no lines.
+    variable (half-year datasets add ``<V>_start,<V>_end,<V>_occurrences``) and
+    one column per qualitative attribute of the dataset (meteo ``precip_type``
+    etc.). A variable or attribute absent from a record gives empty cells. JSONL
+    writes one JSON object per record with the `NormalizedRecord` fields. No
+    records yield no lines.
     """
     if format not in _RECORD_FORMATS:
         raise IMGWValidationError(
@@ -85,7 +85,7 @@ def _record_lines(
     for name, unit in descriptor.variables.items():
         header += [f"{name} [{unit}]", f"{name}_flag"]
         if half_year:
-            header += [f"{name}_start", f"{name}_end"]
+            header += [f"{name}_start", f"{name}_end", f"{name}_occurrences"]
     header += attributes
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -125,7 +125,12 @@ def _record_lines(
                 ]
             if half_year:
                 start, end = record.extrema_dates.get(name, (None, None))
-                cells += [_timestamp(start), _timestamp(end)]
+                occurrences = record.extrema_occurrences.get(name)
+                cells += [
+                    _timestamp(start),
+                    _timestamp(end),
+                    "" if occurrences is None else str(occurrences),
+                ]
         cells += [record.attributes.get(key) or "" for key in attributes]
         yield line(cells)
 
@@ -153,6 +158,7 @@ def _record_json(record: NormalizedRecord) -> dict[str, object]:
             name: [None if day is None else day.isoformat() for day in span]
             for name, span in record.extrema_dates.items()
         },
+        "extrema_occurrences": dict(record.extrema_occurrences),
     }
 
 
@@ -214,8 +220,9 @@ def export_series(
     The CSV (UTF-8 without BOM, comma, dot decimal, CRLF rows) has a single
     header row ``date,year,<V> [<unit>],<V>_flag,…,attribution_source,
     attribution_processed``; half-year series add ``period`` and ``<V>_start`` /
-    ``<V>_end`` extremum dates. Both attribution formulas appear only in the
-    first data row. Missing values are empty cells flagged ``missing``.
+    ``<V>_end`` extremum dates with ``<V>_occurrences`` (number of merged IMGW
+    rows). Both attribution formulas appear only in the first data row. Missing
+    values are empty cells flagged ``missing``.
 
     Parameters
     ----------
@@ -302,7 +309,7 @@ def export_series(
     for name in names:
         header += [f"{name} [{descriptor.variables[name]}]", f"{name}_flag"]
         if half_year:
-            header += [f"{name}_start", f"{name}_end"]
+            header += [f"{name}_start", f"{name}_end", f"{name}_occurrences"]
     header += ["attribution_source", "attribution_processed"]
     attribution = [descriptor.license.attribution, _PROCESSED]
     total = index.stations[station].rows
@@ -322,7 +329,12 @@ def export_series(
             ]
             if half_year:
                 start, end = record.extrema_dates.get(name, (None, None))
-                cells += [_timestamp(start), _timestamp(end)]
+                occurrences = record.extrema_occurrences.get(name)
+                cells += [
+                    _timestamp(start),
+                    _timestamp(end),
+                    "" if occurrences is None else str(occurrences),
+                ]
         return cells
 
     part = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from zipfile import BadZipFile, ZipFile
 
 import httpx
@@ -109,6 +109,67 @@ def _validate_poland_coords(latitude: float, longitude: float) -> None:
 # PMAXTP (Probabilistic Maximum Precipitation)
 # ============================================================================
 
+_PMAXTP_OUTSIDE_GRID = ("poza obszarem", "undefined: lat")
+"""Fragments of the PMAXTP API ``error`` texts for a point outside its grid."""
+
+
+def _check_pmaxtp_payload(payload: object, latitude: float, longitude: float) -> None:
+    """
+    Reject a PMAXTP response body that reports an error instead of data.
+
+    For points inside the coordinate box but outside its grid (e.g.
+    Kaliningrad, Lviv, the Baltic Sea) the API answers HTTP 200 with empty
+    ``data`` and ``"error": "Brak pliku, pradopodobnie poza obszarem PL"``
+    (earlier ``"undefined: lat …, lon: …, type: KS"``).
+
+    Parameters
+    ----------
+    payload : object
+        Decoded JSON body of the PMAXTP API.
+    latitude : float
+        Requested latitude, quoted in the message.
+    longitude : float
+        Requested longitude, quoted in the message.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the API reports that the point lies outside the PMAXTP grid.
+    IMGWDataError
+        If the API reports any other error.
+    """
+    if not isinstance(payload, dict) or not payload.get("error"):
+        return
+    error = str(payload["error"])
+    if any(marker in error.lower() for marker in _PMAXTP_OUTSIDE_GRID):
+        raise IMGWValidationError(
+            f"Punkt {latitude}, {longitude} leży poza siatką PMAXTP IMGW-PIB "
+            f"(brak danych dla tego miejsca); odpowiedź API: {error}"
+        )
+    raise IMGWDataError(f"API PMAXTP zwróciło błąd: {error}")
+
+
+def _pmaxtp_result(
+    raw_data: object,
+    method: Literal["POT", "AMP"],
+    latitude: float,
+    longitude: float,
+) -> PMaXTPResult:
+    """Validate a PMAXTP response body and build the public result."""
+    _check_pmaxtp_payload(raw_data, latitude, longitude)
+    try:
+        result = PMaXTPResult(
+            method=method,
+            latitude=latitude,
+            longitude=longitude,
+            data=PMaXTPData.from_api_response(cast(dict[str, Any], raw_data)),
+        )
+    except Exception as e:
+        raise IMGWDataError(f"Failed to parse PMAXTP response: {e}") from e
+    if not result.data.ks:
+        raise IMGWDataError("Odpowiedź PMAXTP bez danych (pusta tabela ks)")
+    return result
+
 
 def fetch_pmaxtp(
     latitude: float,
@@ -148,11 +209,13 @@ def fetch_pmaxtp(
     Raises
     ------
     IMGWValidationError
-        If coordinates outside Poland bounds.
+        If coordinates are outside the Poland bounds or the API reports the
+        point outside its grid (e.g. Kaliningrad, Lviv, the Baltic Sea).
     IMGWConnectionError
         If connection to IMGW fails.
     IMGWDataError
-        If response parsing fails.
+        If response parsing fails, the API reports another error or the
+        response has no quantile table.
 
     Examples
     --------
@@ -185,15 +248,7 @@ def fetch_pmaxtp(
     except httpx.HTTPError as e:
         raise IMGWConnectionError(f"Connection error: {e}") from e
 
-    try:
-        return PMaXTPResult(
-            method=method,
-            latitude=latitude,
-            longitude=longitude,
-            data=PMaXTPData.from_api_response(raw_data),
-        )
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse PMAXTP response: {e}") from e
+    return _pmaxtp_result(raw_data, method, latitude, longitude)
 
 
 async def fetch_pmaxtp_async(
@@ -229,15 +284,7 @@ async def fetch_pmaxtp_async(
         except httpx.HTTPError as e:
             raise IMGWConnectionError(f"Connection error: {e}") from e
 
-    try:
-        return PMaXTPResult(
-            method=method,
-            latitude=latitude,
-            longitude=longitude,
-            data=PMaXTPData.from_api_response(raw_data),
-        )
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse PMAXTP response: {e}") from e
+    return _pmaxtp_result(raw_data, method, latitude, longitude)
 
 
 # ============================================================================

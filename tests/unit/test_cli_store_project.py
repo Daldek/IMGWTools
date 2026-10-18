@@ -26,7 +26,13 @@ from imgwtools.commands import (
 from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.datasets import archive_files
 from imgwtools.store import catalog, pmaxtp, series, sync, writer
-from imgwtools.store.types import Notice, SeriesReport
+from imgwtools.store.types import (
+    Notice,
+    OperationResult,
+    ProjectReport,
+    SeriesReport,
+    SyncReport,
+)
 from imgwtools.testing import build_fixture_store
 from tests.unit.test_commands import SAMPLES
 
@@ -269,6 +275,29 @@ def test_pmaxtp_sync_matches_python_and_prints_polish_notices(tmp_path, imgw, fr
     assert notices and all(notice.text in result.stderr for notice in notices)
 
 
+def test_pmaxtp_sync_point_outside_grid_exits_1_in_polish(tmp_path):
+    root = store.init_store(tmp_path / "store").root
+    before = snapshot(root)
+    with respx.mock() as mock:
+        mock.get(url__startswith="https://powietrze.imgw.pl/tpmax-api/point/").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": {},
+                    "error": "Brak pliku, pradopodobnie poza obszarem PL",
+                },
+            )
+        )
+        result = invoke(
+            "pmaxtp", "sync", "--root", root, "--method", "POT",
+            "--lat", "54.7104", "--lon", "20.4522",
+        )  # fmt: skip
+    assert result.exit_code == 1
+    assert "Błąd: Punkt 54.7104, 20.4522 leży poza siatką PMAXTP" in result.stderr
+    assert not result.stdout
+    assert snapshot(root) == before
+
+
 def test_series_export_runs_through_dispatcher_like_python(
     tmp_path, fixture_root, offline
 ):
@@ -408,3 +437,77 @@ def test_second_ctrl_c_aborts_immediately(monkeypatch, tmp_path):
     assert result.exit_code == _dispatch.EXIT_CANCELLED
     assert "Przerwano natychmiast (Ctrl+C)" in result.stderr
     assert not result.stdout
+
+
+def test_series_build_failure_prints_report_and_exits_1(monkeypatch, tmp_path):
+    def build_series(root, /, **kwargs):
+        return SeriesReport("failed", None, 0, (), ("Sprzeczne dane stacji",))
+
+    monkeypatch.setattr(store, "build_series", build_series)
+    result = invoke("series", "build", "--root", tmp_path, "--dataset", DAILY)
+    assert result.exit_code == _dispatch.EXIT_FAILED
+    assert json.loads(result.stdout)["problems"] == ["Sprzeczne dane stacji"]
+    assert "część pozycji zakończyła się niepowodzeniem" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("items", "series_status", "code"),
+    [
+        (("unchanged", "failed"), "created", _dispatch.EXIT_FAILED),
+        (("unchanged", "stale_plan"), "reused", _dispatch.EXIT_FAILED),
+        (("created",), "failed", _dispatch.EXIT_FAILED),
+        (("created", "unchanged"), "created", 0),
+    ],
+)
+def test_store_sync_exit_code_reflects_failed_items(
+    monkeypatch, tmp_path, items, series_status, code
+):
+    report = SyncReport(
+        tuple(
+            OperationResult(f"archive:{i}", s, None, None) for i, s in enumerate(items)
+        ),
+        (SeriesReport(series_status, None, 0, (), ()),),
+        cancelled=False,
+    )
+    monkeypatch.setattr(store, "sync_store", lambda root, /, **kwargs: report)
+    result = invoke(
+        "store", "sync", "--root", tmp_path, "--dataset", DAILY, "--years", "2024"
+    )
+    assert result.exit_code == code, result.output
+    assert [item["status"] for item in json.loads(result.stdout)["items"]] == list(
+        items
+    )
+
+
+def test_project_download_with_failed_task_exits_1(monkeypatch, tmp_path):
+    report = ProjectReport(
+        {"a": "current", "b": "failed"},
+        (OperationResult("b:imgw-project.json", "failed", None, "brak danych"),),
+        cancelled=False,
+    )
+    monkeypatch.setattr(project, "download_project", lambda folder, /, **kw: report)
+    result = invoke("project", "download", "--project-dir", tmp_path)
+    assert result.exit_code == _dispatch.EXIT_FAILED
+    assert json.loads(result.stdout)["tasks"] == {"a": "current", "b": "failed"}
+
+
+def test_identical_notices_are_printed_once_per_run(monkeypatch, tmp_path):
+    received = []
+
+    def sync_store(root, /, *, on_notice, **kwargs):
+        for text in ("Licencja IMGW-PIB", "Licencja IMGW-PIB", "Inny tekst"):
+            notice = Notice("info", "license_terms", text)
+            received.append(notice)
+            on_notice(notice)
+        on_notice(Notice("warning", "other", "Licencja IMGW-PIB"))
+        return SyncReport((), (), cancelled=False)
+
+    monkeypatch.setattr(store, "sync_store", sync_store)
+    result = invoke(
+        "store", "sync", "--root", tmp_path, "--dataset", DAILY, "--years", "2024"
+    )
+    assert result.exit_code == 0, result.output
+    assert len(received) == 3
+    assert result.stderr.count("Informacja: Licencja IMGW-PIB") == 1
+    assert result.stderr.count("Informacja: Inny tekst") == 1
+    assert result.stderr.count("Ostrzeżenie: Licencja IMGW-PIB") == 1

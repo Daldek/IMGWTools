@@ -7,6 +7,7 @@ import json
 import math
 import subprocess
 import sys
+import tracemalloc
 import zipfile
 from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
@@ -22,6 +23,7 @@ from imgwtools.exceptions import IMGWStoreDependencyError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
 from imgwtools.models import NormalizedRecord
 from imgwtools.store import current_version, init_store, write_archive
+from imgwtools.store import series as series_module
 from imgwtools.store.series import build_series, check_series
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -292,6 +294,80 @@ def test_monthly_and_semiannual_snapshots(root):
     # One row merges H, Q and T from three separate archives.
     assert all(rows[0][f"{v}_min_flag"] == "value" for v in "HQT")
     assert rows[0]["H_min_start"] == datetime(2024, 2, 29, 8, 30)
+
+
+def put_csv(root, archive, name, rows, *, signal=SIGNAL):
+    """Store a ZIP holding one CSV member as the current version of ``archive``."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr(name, rows.encode("cp1250"))
+    content = buffer.getvalue()
+    response = DownloadResult(content, archive.url, signal[0], signal[1], len(content))
+    return write_archive(root, archive=archive, response=response)
+
+
+def test_semiannual_repeated_extremum_rows_build_one_value_with_occurrences(root):
+    (archive,) = [
+        item
+        for item in archive_files("pl.imgw.hydro_semiannual", years=[2024])
+        if item.param == "H"
+    ]
+    rows = (
+        "149190310,Raba Górna,Raba,2024,13,H,3,278,2023,12,25,6,0,2023,12,25,8,20\n"
+        "149190310,Raba Górna,Raba,2024,13,H,3,278,2023,12,25,8,40,2023,12,25,8,40\n"
+        "149190310,Raba Górna,Raba,2024,13,H,2,160,,,,,,,,,,\n"
+    )
+    put_csv(root, archive, "polr_H_2024.csv", rows)
+    report = build_series(root, dataset="pl.imgw.hydro_semiannual")
+    assert report.status == "created", report.problems
+    table = station_table(report, "149190310")
+    assert table.schema.field("H_max_occurrences").type == pa.int32()
+    winter = table.to_pylist()[0]
+    assert (winter["period"], winter["H_max_value"]) == ("winter", 278.0)
+    assert (winter["H_max_start"], winter["H_max_end"]) == (
+        datetime(2023, 12, 25, 6, 0),
+        datetime(2023, 12, 25, 8, 40),
+    )
+    assert (winter["H_max_occurrences"], winter["H_mean_occurrences"]) == (2, 1)
+    assert winter["H_min_occurrences"] is None
+
+
+def test_parsing_memory_does_not_grow_with_the_dataset(root, monkeypatch):
+    # 12 monthly archives x 60 stations: the old builder kept every parsed day of
+    # every station in memory until all archives were read.
+    for archive in archive_files(HYDRO, years=[2021]):
+        assert archive.month is not None
+        hydro_year = 2021 + (archive.month >= 11)
+        hydro_month = (archive.month + 1) % 12 + 1
+        rows = "".join(
+            f'"{149190000 + code}","Raba","Raba",{hydro_year},{hydro_month},{day},'
+            f"{100 + code + day},{code}.{day},5.5,{archive.month}\n"
+            for code in range(60)
+            for day in range(1, 29)
+        )
+        put_csv(root, archive, f"{Path(archive.server_path).stem}.csv", rows)
+    monkeypatch.setattr(series_module, "_SPILL_ROWS", 500)
+    traced: list[int] = []
+    # Only blocks allocated by imgwtools code: interpreter-wide tables (e.g. the
+    # interned-string dict pathlib grows) may resize at any point of a long run.
+    ours = [tracemalloc.Filter(True, "*/imgwtools/*")]
+
+    def progress(event):
+        if event.unit == "archive":
+            snapshot = tracemalloc.take_snapshot().filter_traces(ours)
+            traced.append(sum(stat.size for stat in snapshot.statistics("filename")))
+
+    tracemalloc.start()
+    try:
+        report = build_series(root, dataset=HYDRO, on_progress=progress)
+    finally:
+        tracemalloc.stop()
+    assert report.status == "created" and report.stations == 60
+    assert len(traced) == 12
+    assert max(traced[1:]) - traced[1] < 512 * 1024
+    table = station_table(report, "149190059")
+    assert table.num_rows == 362  # 2021-01-01 .. 2021-12-28 (days 29-31 missing)
+    assert table["H_value"][0].as_py() == 160.0
 
 
 def test_second_build_is_reused_without_parquet_writer(root, monkeypatch):

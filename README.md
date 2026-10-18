@@ -253,6 +253,16 @@ imgw project init --project-dir ./projekt --store-dir /dane/imgw
 
 Komendy `store`, `series`, `pmaxtp`, `project` oraz `fetch hydro|meteo` mają flagę `--check`, która wypisuje plan `imgw-plan/1` bez zapisu i bez pobierania danych. `imgw fetch hydro|meteo -o KATALOG` zapisuje pliki w podkatalogach odpowiadających ścieżkom na serwerze IMGW.
 
+Wynik komend magazynu (JSON albo ścieżka) trafia na stdout, a postęp, komunikaty (każdy jednakowy raz na uruchomienie) i podsumowanie `fetch hydro|meteo` — na stderr, więc stdout można przekazać wprost do parsera JSON (także z `--check`). Kody wyjścia:
+
+| Kod | Znaczenie |
+|---|---|
+| `0` | sukces |
+| `1` | błąd (`Błąd: …` na stderr) albo wynik z nieudaną pozycją: `failed`/`stale_plan` w `store sync` (archiwa lub szeregi), `series build`, `store catalog`, `pmaxtp sync`, zadaniach i plikach `project download|status|verify`, plikach `fetch hydro|meteo` — pełny JSON wyniku jest mimo to wypisany |
+| `130` | anulowanie Ctrl+C (wynik częściowy wypisany) |
+
+Punkt PMAXTP w ramce współrzędnych Polski, ale poza siatką IMGW (np. Kaliningrad, Lwów, Bałtyk) daje `IMGWValidationError` (`imgw pmaxtp sync`/`imgw fetch pmaxtp`: `Błąd: …`, kod 1; REST 400). `imgw project set-store` przyjmuje nowy pusty magazyn z ostrzeżeniem `pins_not_in_store`; następne `imgw project download` odtwarza przypięte pliki tylko z identycznym SHA-256, inaczej zgłasza błąd zadania.
+
 ### REST API
 
 Po uruchomieniu serwera (`imgw server`):

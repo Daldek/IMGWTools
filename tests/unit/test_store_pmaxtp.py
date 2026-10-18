@@ -175,7 +175,7 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
             )
         with pytest.raises(IMGWValidationError):
             sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01, ind_x=751)
-        with pytest.raises(IMGWDataError, match="błąd"):
+        with pytest.raises(IMGWValidationError, match="poza siatką PMAXTP"):
             sync_pmaxtp(store, method="POT", latitude=54.9, longitude=23.9)
         for payload in (empty, no_index):
             route.mock(return_value=httpx.Response(200, json=payload))
@@ -187,6 +187,29 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
             store, method="POT", latitude=52.23, longitude=21.01, ind_x=751, ind_y=317
         )
     assert matched.status == "created"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        ("Brak pliku, pradopodobnie poza obszarem PL", IMGWValidationError),
+        ("Wewnętrzny błąd serwera", IMGWDataError),
+    ],
+)
+def test_api_error_maps_outside_grid_to_validation_and_writes_nothing(
+    store, error, expected
+):
+    payload = {
+        "point": {**FIRST["json"]["point"], "indX": 696, "indY": 69},
+        "data": {},
+        "error": error,
+    }
+    before = tree(store.root)
+    with respx.mock as router:
+        recorded(router, FIRST, payload)
+        with pytest.raises(expected, match=error):
+            sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01)
+    assert tree(store.root) == before
 
 
 def test_check_pmaxtp_makes_no_request_and_writes_nothing(store):

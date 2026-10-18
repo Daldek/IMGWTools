@@ -12,25 +12,28 @@ from imgwtools.core.url_builder import (
     build_api_url,
     build_pmaxtp_url,
 )
+from imgwtools.exceptions import IMGWError
 from imgwtools.fetch import (
     POLAND_LAT_MAX,
     POLAND_LAT_MIN,
     POLAND_LON_MAX,
     POLAND_LON_MIN,
+    _check_pmaxtp_payload,
 )
 from imgwtools.store.types import Progress
 
 app = typer.Typer(help="Pobieranie danych z IMGW")
 console = Console()
+_err = Console(stderr=True)
 
 
 def _download_summary(events: list[Progress]) -> None:
-    """Print how many archives were downloaded and how many failed."""
+    """Print to stderr how many archives were downloaded and how many failed."""
     downloaded = sum(event.status == "downloaded" for event in events)
     failed = sum(event.status == "failed" for event in events)
-    console.print(f"[bold green]Pobrano: {downloaded} plików[/bold green]")
+    _err.print(f"[bold green]Pobrano: {downloaded} plików[/bold green]")
     if failed:
-        console.print(f"[yellow]Niepowodzenia: {failed}[/yellow]")
+        _err.print(f"[yellow]Niepowodzenia: {failed}[/yellow]")
 
 
 # ``fetch hydro|meteo`` are catalog commands: same options, validation, ``.part``
@@ -186,6 +189,7 @@ def fetch_pmaxtp(
             response = client.get(url)
             response.raise_for_status()
             data = response.json()
+            _check_pmaxtp_payload(data, lat, lon)
 
             if output:
                 with open(output, "w", encoding="utf-8") as f:
@@ -197,6 +201,9 @@ def fetch_pmaxtp(
     except httpx.HTTPError as e:
         console.print(f"[red]Blad pobierania: {e}[/red]")
         raise typer.Exit(1)
+    except IMGWError as e:
+        _err.print(f"Błąd: {e}", style="red", markup=False)
+        raise typer.Exit(1) from None
 
 
 @app.command("warnings")

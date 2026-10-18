@@ -6,10 +6,12 @@ import hashlib
 import json
 import math
 import os
+import pickle
 import shutil
 import socket
 import tempfile
 import uuid
+import zlib
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -32,7 +34,7 @@ from imgwtools.exceptions import (
     IMGWStoreDependencyError,
     IMGWValidationError,
 )
-from imgwtools.models import Measurement, NormalizedRecord
+from imgwtools.models import Flag, Measurement, NormalizedRecord
 from imgwtools.store.types import (
     Cancel,
     Notice,
@@ -441,56 +443,146 @@ def _period_start(hydro_year: int, period: str) -> date:
 _Key = tuple[date, str | None]
 # Flag, value and the sign bit: -0.0 == 0.0, but sharing must not change the sign.
 _Shared = dict[tuple[str, float | None, bool], Measurement]
+# One spilled record: date ordinal, hydrological year, period, then the
+# (variable, value, flag), (variable, (start, end)) and (variable, occurrences)
+# entries of its measurements, extremum dates and extremum occurrence counts.
+_Row = tuple[
+    int,
+    int,
+    str | None,
+    tuple[tuple[str, float | None, Flag], ...],
+    tuple[tuple[str, tuple[datetime | None, datetime | None]], ...],
+    tuple[tuple[str, int], ...],
+]
+# Records queued in memory before they are appended to the station files.
+_SPILL_ROWS = 200_000
 
 
 @dataclass
 class _Station:
     values: dict[_Key, dict[str, Measurement]]
     extrema: dict[_Key, dict[str, tuple[datetime | None, datetime | None]]]
+    occurrences: dict[_Key, dict[str, int]]
     hydro_years: set[int]
 
 
+def _shared(shared: _Shared, value: float | None, flag: Flag) -> Measurement:
+    """One object per distinct measurement of a station, keeping the sign of zero."""
+    key = (flag, value, value is not None and math.copysign(1.0, value) < 0)
+    measurement = shared.get(key)
+    if measurement is None:
+        measurement = Measurement(value, flag)
+        if value == value:  # NaN never matches its key, caching it would only grow
+            shared[key] = measurement
+    return measurement
+
+
 def _collect(
-    stations: dict[str, _Station],
-    record: NormalizedRecord,
+    station: _Station,
+    code: str,
+    row: _Row,
     descriptor: DatasetDescriptor,
     shared: _Shared,
 ) -> None:
-    """Fold one record into its station; identical measurements share one object."""
-    if len(record.station_code) != 9 or not record.station_code.isdigit():
-        raise IMGWDataError(f"Nieprawidłowy kod stacji: {record.station_code!r}")
-    station = stations.setdefault(record.station_code, _Station({}, {}, set()))
-    key = (record.date, record.period if descriptor.time_unit == "half_year" else None)
+    """Fold one spilled record into its station; conflicting values raise."""
+    ordinal, hydro_year, period, measurements, extrema, occurrences = row
+    day = date.fromordinal(ordinal)
+    key = (day, period if descriptor.time_unit == "half_year" else None)
     columns = station.values.setdefault(key, {})
-    for variable, measurement in record.measurements.items():
-        if variable not in descriptor.variables:
-            raise IMGWDataError(
-                f"Nieznana zmienna {variable} w zbiorze {descriptor.key}"
-            )
-        if (measurement.value is None) != (
-            measurement.flag == "missing"
-        ) or measurement.flag not in _FLAGS:
-            raise IMGWDataError(
-                f"Niespójna flaga {measurement.flag} zmiennej {variable} stacji {record.station_code}"
-            )
+    for variable, value, flag in measurements:
+        measurement = _shared(shared, value, flag)
         previous = columns.get(variable)
         if previous is not None and previous != measurement:
+            raise IMGWDataError(f"Sprzeczne wartości {variable} stacji {code} z {day}")
+        columns[variable] = measurement
+    for variable, bounds in extrema:
+        dates = station.extrema.setdefault(key, {})
+        if dates.get(variable, bounds) != bounds:
+            raise IMGWDataError(f"Sprzeczne daty ekstremum {variable} stacji {code}")
+        dates[variable] = bounds
+    for variable, count in occurrences:
+        counts = station.occurrences.setdefault(key, {})
+        if counts.get(variable, count) != count:
             raise IMGWDataError(
-                f"Sprzeczne wartości {variable} stacji {record.station_code} z {record.date}"
+                f"Sprzeczna liczba wystąpień ekstremum {variable} stacji {code}"
             )
-        value = measurement.value
-        sign = value is not None and math.copysign(1.0, value) < 0
-        columns[variable] = shared.setdefault(
-            (measurement.flag, value, sign), measurement
+        counts[variable] = count
+    station.hydro_years.add(hydro_year)
+
+
+class _Spill:
+    """
+    Parsed records grouped by station in temporary files outside the store.
+
+    Records are validated while parsing and appended in compressed chunks to
+    one file per station, so memory holds at most ``_SPILL_ROWS`` queued
+    records instead of the values of the whole dataset; every station is then
+    assembled alone, in the order its records were parsed.
+    """
+
+    def __init__(self, directory: Path, descriptor: DatasetDescriptor) -> None:
+        self._directory = directory
+        self._descriptor = descriptor
+        self._queued: dict[str, list[_Row]] = {}
+        self._count = 0
+        self.stations: set[str] = set()
+
+    def add(self, record: NormalizedRecord) -> None:
+        """Validate one record and queue it for the file of its station."""
+        code = record.station_code
+        if len(code) != 9 or not code.isdigit():
+            raise IMGWDataError(f"Nieprawidłowy kod stacji: {code!r}")
+        measurements: list[tuple[str, float | None, Flag]] = []
+        for variable, measurement in record.measurements.items():
+            if variable not in self._descriptor.variables:
+                raise IMGWDataError(
+                    f"Nieznana zmienna {variable} w zbiorze {self._descriptor.key}"
+                )
+            if (measurement.value is None) != (
+                measurement.flag == "missing"
+            ) or measurement.flag not in _FLAGS:
+                raise IMGWDataError(
+                    f"Niespójna flaga {measurement.flag} zmiennej {variable} stacji {code}"
+                )
+            measurements.append((variable, measurement.value, measurement.flag))
+        self._queued.setdefault(code, []).append(
+            (
+                record.date.toordinal(),
+                record.hydro_year,
+                record.period,
+                tuple(measurements),
+                tuple(record.extrema_dates.items()),
+                tuple(record.extrema_occurrences.items()),
+            )
         )
-    for variable, bounds in record.extrema_dates.items():
-        previous_bounds = station.extrema.setdefault(key, {}).get(variable)
-        if previous_bounds is not None and previous_bounds != bounds:
-            raise IMGWDataError(
-                f"Sprzeczne daty ekstremum {variable} stacji {record.station_code}"
-            )
-        station.extrema[key][variable] = bounds
-    station.hydro_years.add(record.hydro_year)
+        self.stations.add(code)
+        self._count += 1
+        if self._count >= _SPILL_ROWS:
+            self.flush()
+
+    def flush(self) -> None:
+        """Append the queued records to their station files."""
+        for code, rows in self._queued.items():
+            chunk = zlib.compress(pickle.dumps(rows, pickle.HIGHEST_PROTOCOL), 1)
+            with (self._directory / code).open("ab") as stream:
+                stream.write(len(chunk).to_bytes(8, "little"))
+                stream.write(chunk)
+        self._queued.clear()
+        self._count = 0
+
+    def station(self, code: str) -> _Station:
+        """Assemble one station from its file, then delete the file."""
+        station = _Station({}, {}, {}, set())
+        shared: _Shared = {}
+        path = self._directory / code
+        with path.open("rb") as stream:
+            while header := stream.read(8):
+                chunk = stream.read(int.from_bytes(header, "little"))
+                rows: list[_Row] = pickle.loads(zlib.decompress(chunk))
+                for row in rows:
+                    _collect(station, code, row, self._descriptor, shared)
+        path.unlink()
+        return station
 
 
 def _row_keys(station: _Station, time_unit: str) -> list[tuple[_Key, int]]:
@@ -546,6 +638,10 @@ def _station_table(pa: Any, station: _Station, descriptor: DatasetDescriptor) ->
             )
             columns[f"{variable}_end"] = pa.array(
                 [end for _, end in bounds], pa.timestamp("us")
+            )
+            columns[f"{variable}_occurrences"] = pa.array(
+                [station.occurrences.get(key, {}).get(variable) for key, _ in keys],
+                pa.int32(),
             )
     metadata = {
         "imgw_schema": SERIES_SCHEMA,
@@ -640,10 +736,12 @@ def build_series(
     newest build) was built from the same input manifest (slot and full SHA-256
     of every input) it is returned as ``reused`` without invoking the Parquet
     writer. An older version with that manifest (inputs reverted to earlier
-    content) is never reused: a new version is built and becomes current. Coverage
-    is computed station by station, so parsed records are not retained. An
-    unreadable input fails the whole build; an incomplete snapshot is never
-    published.
+    content) is never reused: a new version is built and becomes current. Parsed
+    records are validated and spilled per station to compressed temporary files
+    outside the store (``tempfile``), then every station is assembled, written
+    and covered alone, so memory stays bounded by one station and a queue of
+    parsed records, not by the dataset. An unreadable input or conflicting
+    values fail the whole build; an incomplete snapshot is never published.
 
     Parameters
     ----------
@@ -733,53 +831,56 @@ def build_series(
     # Lazy import: imgwtools.coverage imports store.types, which loads this package.
     from imgwtools.coverage import _KnownUnits, _station_coverage
 
-    stations: dict[str, _Station] = {}
     known = _KnownUnits(descriptor.time_unit)
-    # Gauge readings repeat across days and stations: one object per distinct
-    # measurement keeps the station map a fraction of the parsed size.
-    shared: _Shared = {}
-    try:
-        for index, item in enumerate(inputs, start=1):
-            if cancelled():
-                return _report("cancelled", sources=sources)
-            data = item.version.file.read_bytes()
-            if hashlib.sha256(data).hexdigest() != item.version.sha256:
-                raise IMGWDataError(
-                    f"Suma kontrolna nie zgadza się z sidecarem: {item.version.relative}"
-                )
-            # Each record is folded into its station and dropped: keeping the parsed
-            # records would hold the whole dataset in memory a second time.
-            for record in normalize_archive(item.archive, data=data):
-                _collect(stations, record, descriptor, shared)
-                known.add(record)
-            if on_progress is not None:
-                on_progress(
-                    Progress(
-                        index,
-                        len(inputs),
-                        "archive",
-                        "parsed",
-                        f"Odczytano {item.version.relative}",
-                    )
-                )
-    except (IMGWDataError, IMGWValidationError, OSError) as exc:
-        if on_notice is not None:
-            on_notice(Notice("error", "archive_failed", str(exc)))
-        return _report("failed", sources=sources, problems=[str(exc)])
-
-    incoming = path / ".incoming"
-    incoming.mkdir(exist_ok=True)
-    _cleanup(incoming, on_notice=on_notice)
-    staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
-    (staging / "stations").mkdir(parents=True)
-    try:
-        index_stations: dict[str, dict[str, Any]] = {}
-        with tempfile.TemporaryDirectory(prefix="imgw-series-") as local:
-            total = len(stations)
-            for number, code in enumerate(sorted(stations), start=1):
+    with tempfile.TemporaryDirectory(prefix="imgw-series-") as local:
+        spill = _Spill(Path(local), descriptor)
+        try:
+            for index, item in enumerate(inputs, start=1):
                 if cancelled():
                     return _report("cancelled", sources=sources)
-                station = stations.pop(code)
+                data = item.version.file.read_bytes()
+                if hashlib.sha256(data).hexdigest() != item.version.sha256:
+                    raise IMGWDataError(
+                        f"Suma kontrolna nie zgadza się z sidecarem: {item.version.relative}"
+                    )
+                # Records go to their station files and are dropped: neither the
+                # parsed records nor the values of all stations stay in memory.
+                for record in normalize_archive(item.archive, data=data):
+                    spill.add(record)
+                    known.add(record)
+                if on_progress is not None:
+                    on_progress(
+                        Progress(
+                            index,
+                            len(inputs),
+                            "archive",
+                            "parsed",
+                            f"Odczytano {item.version.relative}",
+                        )
+                    )
+            spill.flush()
+        except (IMGWDataError, IMGWValidationError, OSError) as exc:
+            if on_notice is not None:
+                on_notice(Notice("error", "archive_failed", str(exc)))
+            return _report("failed", sources=sources, problems=[str(exc)])
+
+        incoming = path / ".incoming"
+        incoming.mkdir(exist_ok=True)
+        _cleanup(incoming, on_notice=on_notice)
+        staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
+        (staging / "stations").mkdir(parents=True)
+        try:
+            index_stations: dict[str, dict[str, Any]] = {}
+            total = len(spill.stations)
+            for number, code in enumerate(sorted(spill.stations), start=1):
+                if cancelled():
+                    return _report("cancelled", sources=sources)
+                try:
+                    station = spill.station(code)
+                except IMGWDataError as exc:
+                    if on_notice is not None:
+                        on_notice(Notice("error", "archive_failed", str(exc)))
+                    return _report("failed", sources=sources, problems=[str(exc)])
                 table = _station_table(pa, station, descriptor)
                 coverage = _station_coverage(
                     code, station.values, descriptor=descriptor, known=known
@@ -798,108 +899,113 @@ def build_series(
                     on_progress(
                         Progress(number, total, "station", "written", f"Stacja {code}")
                     )
-        _fsync_dir(staging / "stations")
-        series = {
-            "schema": SERIES_SCHEMA,
-            "dataset": dataset,
-            "year_type": descriptor.year_type,
-            "periods": _periods(inputs),
-            "stations": index_stations,
-        }
-        content = _canonical(series)
-        sha = hashlib.sha256(content).hexdigest()
-        _write_json(staging / "series.json", series)
-        published = [
-            moment
-            for item in inputs
-            if (moment := _parse_time(item.version.http.get("last_modified")))
-        ]
-        now = datetime.now(UTC)
-        label = (
-            max(published).date().isoformat() if published else now.date().isoformat()
-        )
-        license_info = asdict(descriptor.license)
-        license_info["attribution"] = f"{descriptor.license.attribution}. {_PROCESSED}"
-        source_files = [
-            {
-                "name": item.version.file.name,
-                "file": item.version.relative,
-                "sha256": item.version.sha256,
-                "label": item.version.label,
-            }
-            for item in sorted(inputs, key=lambda entry: entry.version.relative)
-        ]
-
-        def sidecar(version_label: str) -> dict[str, Any]:
-            return {
-                "schema": "imgw-meta/1",
-                "producer": "imgwtools",
-                "producer_version": __version__,
+            _fsync_dir(staging / "stations")
+            series = {
+                "schema": SERIES_SCHEMA,
                 "dataset": dataset,
-                "country": "PL",
-                "provider": "IMGW-PIB",
-                "request": {"dataset": dataset},
-                "license": license_info,
-                "downloaded_at": _utc(now),
-                "sha256": sha,
-                "size_bytes": len(content),
-                "extra": {
-                    "version": {"label": version_label, "label_source": "inputs"},
-                    "derived": "series",
-                    "series_schema": SERIES_SCHEMA,
-                    "source_files": source_files,
-                },
+                "year_type": descriptor.year_type,
+                "periods": _periods(inputs),
+                "stations": index_stations,
             }
+            content = _canonical(series)
+            sha = hashlib.sha256(content).hexdigest()
+            _write_json(staging / "series.json", series)
+            published = [
+                moment
+                for item in inputs
+                if (moment := _parse_time(item.version.http.get("last_modified")))
+            ]
+            now = datetime.now(UTC)
+            label = (
+                max(published).date().isoformat()
+                if published
+                else now.date().isoformat()
+            )
+            license_info = asdict(descriptor.license)
+            license_info["attribution"] = (
+                f"{descriptor.license.attribution}. {_PROCESSED}"
+            )
+            source_files = [
+                {
+                    "name": item.version.file.name,
+                    "file": item.version.relative,
+                    "sha256": item.version.sha256,
+                    "label": item.version.label,
+                }
+                for item in sorted(inputs, key=lambda entry: entry.version.relative)
+            ]
 
-        if cancelled():
-            return _report("cancelled", sources=sources)
-        parent = _validate_slot(path, f"series/versions/{descriptor.slug}")
-        parent.mkdir(parents=True, exist_ok=True)
-        # Identical series.json from a different input manifest (e.g. re-zipped archive)
-        # gets a stable manifest suffix instead of replacing the existing version. An
-        # older version of the same manifest (inputs reverted to earlier content) is not
-        # current, so this build takes the next free label and becomes current.
-        attempts = sum(1 for _ in parent.iterdir()) + 2
-        for candidate in _candidate_labels(label, manifest, attempts=attempts):
-            target = _validate_slot(
-                path, f"series/versions/{descriptor.slug}/{candidate}_{sha[:8]}"
-            )
-            meta_path = staging / "series.json.meta.json"
-            meta_path.unlink(missing_ok=True)
-            _write_json(meta_path, sidecar(candidate))
-            _fsync_dir(staging)
-            try:
-                _atomic_publish(staging, target)
-            except FileExistsError:
-                winner = _current_series(_series_versions(path, descriptor))
-                if (
-                    winner is not None
-                    and winner.path.parent == target
-                    and winner.manifest == manifest
-                ):
-                    # A concurrent build of the same inputs published first.
-                    return _report(
-                        "reused",
-                        version=target / "series.json",
-                        stations=len(index_stations),
-                        sources=sources,
-                    )
-                continue
-            if on_notice is not None:
-                on_notice(
-                    Notice(
-                        "info",
-                        "license_terms",
-                        f"{license_info['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
-                    )
+            def sidecar(version_label: str) -> dict[str, Any]:
+                return {
+                    "schema": "imgw-meta/1",
+                    "producer": "imgwtools",
+                    "producer_version": __version__,
+                    "dataset": dataset,
+                    "country": "PL",
+                    "provider": "IMGW-PIB",
+                    "request": {"dataset": dataset},
+                    "license": license_info,
+                    "downloaded_at": _utc(now),
+                    "sha256": sha,
+                    "size_bytes": len(content),
+                    "extra": {
+                        "version": {"label": version_label, "label_source": "inputs"},
+                        "derived": "series",
+                        "series_schema": SERIES_SCHEMA,
+                        "source_files": source_files,
+                    },
+                }
+
+            if cancelled():
+                return _report("cancelled", sources=sources)
+            parent = _validate_slot(path, f"series/versions/{descriptor.slug}")
+            parent.mkdir(parents=True, exist_ok=True)
+            # Identical series.json from a different input manifest (e.g. re-zipped
+            # archive) gets a stable manifest suffix instead of replacing the existing
+            # version. An older version of the same manifest (inputs reverted to
+            # earlier content) is not current, so this build takes the next free
+            # label and becomes current.
+            attempts = sum(1 for _ in parent.iterdir()) + 2
+            for candidate in _candidate_labels(label, manifest, attempts=attempts):
+                target = _validate_slot(
+                    path, f"series/versions/{descriptor.slug}/{candidate}_{sha[:8]}"
                 )
-            return _report(
-                "created",
-                version=target / "series.json",
-                stations=len(index_stations),
-                sources=sources,
-            )
-        raise IMGWStoreConflictError(f"Kolizja katalogu wersji szeregu: {parent}")
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging)
+                meta_path = staging / "series.json.meta.json"
+                meta_path.unlink(missing_ok=True)
+                _write_json(meta_path, sidecar(candidate))
+                _fsync_dir(staging)
+                try:
+                    _atomic_publish(staging, target)
+                except FileExistsError:
+                    winner = _current_series(_series_versions(path, descriptor))
+                    if (
+                        winner is not None
+                        and winner.path.parent == target
+                        and winner.manifest == manifest
+                    ):
+                        # A concurrent build of the same inputs published first.
+                        return _report(
+                            "reused",
+                            version=target / "series.json",
+                            stations=len(index_stations),
+                            sources=sources,
+                        )
+                    continue
+                if on_notice is not None:
+                    on_notice(
+                        Notice(
+                            "info",
+                            "license_terms",
+                            f"{license_info['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                        )
+                    )
+                return _report(
+                    "created",
+                    version=target / "series.json",
+                    stations=len(index_stations),
+                    sources=sources,
+                )
+            raise IMGWStoreConflictError(f"Kolizja katalogu wersji szeregu: {parent}")
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)

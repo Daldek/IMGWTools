@@ -5,7 +5,12 @@ import re
 from collections.abc import Iterator
 from datetime import date, timedelta
 
-from imgwtools._parsing.common import _decode_content, _detect_delimiter, _iter_rows
+from imgwtools._parsing.common import (
+    _decode_content,
+    _detect_delimiter,
+    _is_header_row,
+    _iter_rows,
+)
 from imgwtools.exceptions import IMGWDataError
 from imgwtools.models import Measurement, NormalizedRecord
 
@@ -48,9 +53,14 @@ def _parse_daily(
     text = text.lstrip("\ufeff")
     fields: dict[str, dict[date, NormalizedRecord]] = {}
     months: set[tuple[int, int]] = set()
+    leading = True
     for number, row in enumerate(_iter_rows(text, _detect_delimiter(text)), 1):
         if not any(cell.strip() for cell in row):
             continue
+        if leading:
+            leading = False
+            if _is_header_row(row):
+                continue  # column codes (e.g. o_d_08_2025.csv: kansp,kapost,...)
         if len(row) < (18 if kind == "k_d" else 16):
             raise IMGWDataError(f"Za mało kolumn w {filename}, wiersz {number}")
         try:
@@ -193,7 +203,9 @@ def parse_meteo_climate_daily(
     The archive period is taken from a ``k_d_<year>[_<month>].csv`` file
     name; without it, the months present in the file are used. For every
     station, every day of that period is yielded and days absent from the
-    file get all variables ``"missing"``.
+    file get all variables ``"missing"``. A leading row of column codes
+    (IMGW header, e.g. ``kansp,kapost,dorok,...``) is skipped; any other
+    row must be a data row.
 
     Parameters
     ----------
@@ -241,7 +253,9 @@ def parse_meteo_precip_daily(
     ``P`` flagged ``"missing"``; other variables of absent days are
     ``"missing"``. A ``P`` value directly following a listed day with missing
     ``P`` is an IMGW multi-day total and is flagged ``"accumulated"``; the
-    preceding days stay ``"missing"``.
+    preceding days stay ``"missing"``. A leading row of column codes (IMGW
+    header, e.g. ``kansp,kapost,dorok,...`` in ``o_d_08_2025.csv``) is
+    skipped; any other row must be a data row.
 
     Parameters
     ----------
@@ -275,10 +289,14 @@ def normalize_meteo_archive(
     """
     Normalize a daily meteorological IMGW archive.
 
-    Every CSV member whose name contains the ``k_d`` (climate) or ``o_d``
-    (precipitation) token is parsed like ``parse_meteo_climate_daily`` or
+    Every CSV member named ``k_d_<period>.csv`` (climate) or
+    ``o_d_<period>.csv`` (precipitation), where ``<period>`` consists of
+    ``_``-separated digit groups (IMGW ``k_d_1995.csv``,
+    ``k_d_01_2001.csv``), is parsed like ``parse_meteo_climate_daily`` or
     ``parse_meteo_precip_daily``, except that the period comes from
-    ``year`` and ``month`` instead of the member name.
+    ``year`` and ``month`` instead of the member name. Other members of the
+    package, e.g. ``k_d_t_*.csv`` (daily means of other elements), are
+    ignored.
 
     Parameters
     ----------
@@ -313,7 +331,7 @@ def normalize_meteo_archive(
     kind = "k_d" if dataset == "pl.imgw.meteo_climate_daily" else "o_d"
     matched = False
     for member, content in archive_csv_members(data, filename=filename):
-        if not re.search(rf"(?:^|[/_]){kind}(?:[/_.]|$)", member.lower()):
+        if not re.search(rf"(?:^|/){kind}(?:_\d+)+\.csv$", member.lower()):
             continue
         matched = True
         yield from _parse_daily(

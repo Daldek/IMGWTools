@@ -1409,7 +1409,7 @@ _RUN: dict[str, Runner] = {
         o["project_dir"], name=o["name"]
     ),
     "project set-store": lambda o, h: _project().set_project_store(
-        o["project_dir"], store_dir=o["store_dir"]
+        o["project_dir"], store_dir=o["store_dir"], on_notice=h["on_notice"]
     ),
     "project download": lambda o, h: _project().download_project(
         o["project_dir"],

@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException
 
 from imgwtools.api.schemas import PMaXTPRequest
 from imgwtools.core.url_builder import PMaXTPMethod, build_pmaxtp_url
+from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.fetch import _check_pmaxtp_payload
 
 router = APIRouter()
 
@@ -75,11 +77,12 @@ async def fetch_pmaxtp_data(request: PMaXTPRequest) -> dict[str, Any]:
             response.raise_for_status()
             data = response.json()
 
-            if isinstance(data, dict) and data.get("error"):
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"API PMAXTP zwróciło błąd: {data['error']}",
-                )
+            try:
+                _check_pmaxtp_payload(data, request.latitude, request.longitude)
+            except IMGWValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except IMGWDataError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
 
             return {
                 "method": request.method.value,

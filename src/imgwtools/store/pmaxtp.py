@@ -23,6 +23,7 @@ from imgwtools.fetch import (
     POLAND_LAT_MIN,
     POLAND_LON_MAX,
     POLAND_LON_MIN,
+    _check_pmaxtp_payload,
 )
 from imgwtools.models import PMaXTPData, PMaXTPResult
 from imgwtools.store.catalog import (
@@ -123,12 +124,13 @@ def _table(name: str, value: object) -> dict[str, dict[str, float]]:
     return table
 
 
-def _cell_document(payload: object, method: Method) -> dict[str, Any]:
+def _cell_document(
+    payload: object, method: Method, latitude: float, longitude: float
+) -> dict[str, Any]:
     """Validate the API response and build the canonical cell document."""
     if not isinstance(payload, Mapping):
         raise IMGWDataError("Nieoczekiwany format odpowiedzi PMAXTP")
-    if payload.get("error"):
-        raise IMGWDataError(f"API PMAXTP zwróciło błąd: {payload['error']}")
+    _check_pmaxtp_payload(payload, latitude, longitude)
     point = payload.get("point")
     data = payload.get("data")
     if not isinstance(point, Mapping):
@@ -336,12 +338,14 @@ def sync_pmaxtp(
     ------
     IMGWValidationError
         If the method, point or cell indices are invalid, the given indices
-        differ from the API response, or the root path contains ``..``.
+        differ from the API response, the API reports the point outside its
+        grid (e.g. Kaliningrad, Lviv, the Baltic Sea), or the root path
+        contains ``..``.
     IMGWConnectionError
         If the PMAXTP request fails.
     IMGWDataError
-        If the response is not JSON, reports an error, lacks cell indices or
-        centre, or has empty data tables.
+        If the response is not JSON, reports another error, lacks cell indices
+        or centre, or has empty data tables.
     IMGWStoreError
         If the root is not a supported store, a path contains a symbolic link
         or the store overlaps a Kartograf store.
@@ -361,7 +365,7 @@ def sync_pmaxtp(
         payload = response.json()
     except ValueError as exc:
         raise IMGWDataError("Niepoprawna odpowiedź JSON z API PMAXTP") from exc
-    document = _cell_document(payload, method)
+    document = _cell_document(payload, method, latitude, longitude)
     cell = (document["ind_x"], document["ind_y"])
     if expected is not None and expected != cell:
         raise IMGWValidationError(

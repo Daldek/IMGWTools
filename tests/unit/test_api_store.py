@@ -15,7 +15,12 @@ from imgwtools.config import Settings, settings
 from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.datasets import archive_files
 from imgwtools.store import export_series, init_store, read_series, read_series_index
-from imgwtools.store.types import OperationResult, SeriesReport, SyncReport
+from imgwtools.store.types import (
+    CatalogReport,
+    OperationResult,
+    SeriesReport,
+    SyncReport,
+)
 from imgwtools.testing import build_fixture_store
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -328,6 +333,29 @@ def test_sync_report_text_hides_absolute_root_only(
         f"Uszkodzona wersja archiwum: archives/x; zob. {sibling}; magazyn ."
     )
     assert body["series"][0]["problems"] == ["Nie można odczytać a.parquet"]
+
+
+def test_catalog_problems_hide_data_dir(client, empty_root, writable, monkeypatch):
+    data_dir = empty_root.parent / "refdata"
+    monkeypatch.setattr(settings, "data_dir", data_dir)
+    report = CatalogReport(
+        "created",
+        empty_root / "stations" / "versions" / "x" / "stations.geojson",
+        1,
+        1,
+        (
+            f"Brak lokalnego pliku położeń {data_dir / 'hydro_stations_locations.csv'}; "
+            "stacje bez położenia",
+        ),
+    )
+    monkeypatch.setattr(store_routes, "run_command", lambda command, options: report)
+
+    body = client.post("/api/v1/store/catalog", json={}, headers=writable).json()
+
+    assert body["problems"] == [
+        "Brak lokalnego pliku położeń hydro_stations_locations.csv; stacje bez położenia"
+    ]
+    assert body["version"] == "stations/versions/x/stations.geojson"
 
 
 @pytest.mark.parametrize("path,body", WRITES)
@@ -643,6 +671,32 @@ def test_pmaxtp_source_outage_is_502_without_new_version(client, empty_root, wri
 
     assert response.status_code == 502
     assert response.json()["code"] == "source_unavailable"
+    assert tree(empty_root) == before
+
+
+def test_pmaxtp_point_outside_grid_is_400_without_new_version(
+    client, empty_root, writable
+):
+    before = tree(empty_root)
+    with respx.mock() as mock:
+        mock.get(RECORDINGS["pmaxtp_pot_first"]["url"]).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": {},
+                    "error": "Brak pliku, pradopodobnie poza obszarem PL",
+                },
+            )
+        )
+        response = client.post(
+            "/api/v1/pmaxtp/store/sync",
+            json={"method": "POT", "latitude": 52.23, "longitude": 21.01},
+            headers=writable,
+        )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "validation_error"
+    assert "poza siatką PMAXTP" in response.json()["detail"]
     assert tree(empty_root) == before
 
 

@@ -197,6 +197,25 @@ def test_cli_fetch_pmaxtp_timeout_exits_1_with_message(imgw):
     assert "Blad pobierania: za długo" in result.output
 
 
+def test_cli_fetch_pmaxtp_point_outside_grid_exits_1_in_polish(imgw, tmp_path):
+    imgw.get(f"{IMGW_PMAXTP_URL}/P/KS/54.7104/20.4522").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {}, "error": "Brak pliku, pradopodobnie poza obszarem PL"},
+        )
+    )
+    target = tmp_path / "pmaxtp.json"
+
+    result = RUNNER.invoke(
+        app,
+        ["fetch", "pmaxtp", "--lat", "54.7104", "--lon", "20.4522", "-o", str(target)],
+    )
+
+    assert result.exit_code == 1
+    assert "Błąd: Punkt 54.7104, 20.4522 leży poza siatką PMAXTP" in result.stderr
+    assert not target.exists()
+
+
 @pytest.mark.parametrize("warning_type", ["hydro", "meteo"])
 def test_cli_fetch_warnings_prints_json_for_type(imgw, warning_type):
     route = imgw.get(f"{IMGW_API_URL}/warnings/{warning_type}").mock(

@@ -915,7 +915,9 @@ def read_station_list(
     -------
     tuple of StationListEntry
         Stations in file order, each with ``kind`` set; hydro-only fields
-        are ``None`` for meteorological stations.
+        are ``None`` for meteorological stations. A code listed twice by
+        IMGW (e.g. a meteo station with two short codes) is returned twice;
+        `build_catalog` reports such codes in its ``problems``.
 
     Raises
     ------
@@ -1164,7 +1166,8 @@ def read_series(
     are validated before the iterator is returned. For monthly and
     half-year series the range filter applies to the period start
     (``date``). Days or months filled in by the builder are returned with
-    the ``missing`` flag.
+    the ``missing`` flag. Half-year records carry ``extrema_dates`` and, for
+    units with IMGW rows, ``extrema_occurrences`` (``<V>_occurrences``).
 
     Parameters
     ----------
@@ -1238,13 +1241,15 @@ def read_series(
         )
     half_year = descriptor.time_unit == "half_year"
     columns = ["date", "hydro_year", *(["period"] if half_year else [])]
-    for name in names:
-        columns += [
-            f"{name}_value",
-            f"{name}_flag",
-            *([f"{name}_start", f"{name}_end"] if half_year else []),
-        ]
     try:
+        # ``<V>_occurrences`` is an additive imgw-series/1 column; older files lack it.
+        present = set(pq.read_schema(pa.BufferReader(data)).names)
+        for name in names:
+            columns += [f"{name}_value", f"{name}_flag"]
+            if half_year:
+                columns += [f"{name}_start", f"{name}_end"]
+                if f"{name}_occurrences" in present:
+                    columns.append(f"{name}_occurrences")
         table = pq.read_table(pa.BufferReader(data), columns=columns)
         metadata = table.schema.metadata or {}
         if (
@@ -1299,6 +1304,11 @@ def _records(
             if half_year
             else {}
         )
+        occurrences = {
+            name: count
+            for name in names
+            if (count := row.get(f"{name}_occurrences")) is not None
+        }
         yield NormalizedRecord(
             station,
             dataset,
@@ -1307,4 +1317,5 @@ def _records(
             row["period"] if half_year else None,
             measurements,
             extrema_dates=extrema,
+            extrema_occurrences=occurrences,
         )

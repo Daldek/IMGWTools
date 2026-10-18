@@ -104,6 +104,34 @@ class TestFetchPmaxtp:
         with pytest.raises(IMGWConnectionError):
             fetch_pmaxtp(latitude=52.23, longitude=21.01)
 
+    @pytest.mark.parametrize(
+        ("payload", "expected", "match"),
+        [
+            (
+                {"data": {}, "error": "Brak pliku, pradopodobnie poza obszarem PL"},
+                IMGWValidationError,
+                "poza siatką PMAXTP",
+            ),
+            ({"data": {}, "error": "Awaria"}, IMGWDataError, "Awaria"),
+            ({"data": {}}, IMGWDataError, "bez danych"),
+        ],
+    )
+    @patch("imgwtools.fetch.httpx.Client")
+    def test_api_error_body_is_not_a_result(
+        self, mock_client, payload, expected, match
+    ):
+        """An API error or empty body raises instead of returning empty tables."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = payload
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=False)
+        mock_client.return_value = mock_client_instance
+
+        with pytest.raises(expected, match=match):
+            fetch_pmaxtp(latitude=54.7104, longitude=20.4522)
+
 
 class TestFetchPmaxtpAsync:
     """Tests for async fetch_pmaxtp_async function."""
@@ -126,6 +154,24 @@ class TestFetchPmaxtpAsync:
 
         assert isinstance(result, PMaXTPResult)
         assert result.latitude == 52.23
+
+    @pytest.mark.asyncio
+    @patch("imgwtools.fetch.httpx.AsyncClient")
+    async def test_outside_grid_is_validation_error(self, mock_client):
+        """The async variant maps the outside-grid API error like the sync one."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": {},
+            "error": "Brak pliku, pradopodobnie poza obszarem PL",
+        }
+        mock_client_instance = AsyncMock()
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.__aenter__.return_value = mock_client_instance
+        mock_client_instance.__aexit__.return_value = False
+        mock_client.return_value = mock_client_instance
+
+        with pytest.raises(IMGWValidationError):
+            await fetch_pmaxtp_async(latitude=49.8397, longitude=24.0297)
 
 
 class TestFetchHydroCurrent:

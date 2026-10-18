@@ -14,7 +14,7 @@ import respx
 
 from imgwtools.datasets import station_source_files
 from imgwtools.exceptions import IMGWConnectionError, IMGWDataError
-from imgwtools.store import catalog, init_store
+from imgwtools.store import catalog, init_store, read_station_list
 from imgwtools.store.catalog import build_catalog, check_catalog
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -616,6 +616,29 @@ def test_code_in_both_families_is_a_data_error(store):
         with pytest.raises(IMGWDataError, match="149190310"):
             build_catalog(store)
     assert not (store.root / "stations").exists()
+
+
+def test_code_listed_twice_is_reported_and_kept_once(store):
+    meteo = METEO_CSV + cp1250(
+        '"250199990","STACJA TESTOWA"," 4611"',
+        '"250199990","STACJA TESTOWA","94660"',
+    )
+    with respx.mock(assert_all_called=False) as router:
+        mock_sources(router, meteo_csv=meteo)
+        report = build_catalog(store)
+    assert report.status == "created"
+    (problem,) = [p for p in report.problems if "250199990" in p]
+    assert problem == (
+        "Lista meteo: powtórzony kod stacji 250199990 (STACJA TESTOWA, kod krótki "
+        "4611 oraz STACJA TESTOWA, kod krótki 94660); katalog używa pierwszego wiersza"
+    )
+    assert list(features(report)).count("250199990") == 1
+    rows = [
+        (row.station_code, row.short_code)
+        for row in read_station_list(store, kind="meteo")
+        if row.station_code == "250199990"
+    ]
+    assert rows == [("250199990", "4611"), ("250199990", "94660")]
 
 
 def test_cancel_leaves_no_catalog_version(store):

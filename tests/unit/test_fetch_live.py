@@ -81,11 +81,13 @@ def test_fetch_pmaxtp_rejects_coords_outside_poland_before_request(
 
 
 def test_fetch_pmaxtp_validate_coords_false_sends_request(respx_mock):
-    route = respx_mock.get(f"{PMAXTP}/A/KS/40.0000/10.0000").respond(json={})
+    route = respx_mock.get(f"{PMAXTP}/A/KS/40.0000/10.0000").respond(
+        json={"data": {"ks": {"15": {"50": 1.5}}}}
+    )
     result = fetch_pmaxtp(40.0, 10.0, method="AMP", validate_coords=False)
     assert route.called
     assert result.method == "AMP"
-    assert result.data.ks == {}
+    assert result.data.get_precipitation(15, 50) == 1.5
 
 
 @pytest.mark.parametrize(

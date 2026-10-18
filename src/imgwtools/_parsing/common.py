@@ -2,6 +2,7 @@
 
 import csv
 import io
+import re
 from collections.abc import Iterator
 from datetime import date
 from zipfile import BadZipFile, ZipFile
@@ -15,6 +16,7 @@ MISSING_TEMP = 99.9
 EXTREMUM_MAP = {1: "min", 2: "mean", 3: "max"}
 PERIOD_MAP = {13: "winter", 14: "summer", 15: "annual"}
 HYDRO_TO_CALENDAR_MONTH = {1: 11, 2: 12, **{index + 2: index for index in range(1, 11)}}
+_COLUMN_CODE = re.compile(r"[A-Za-z_]+")
 
 
 def hydro_to_calendar_date(hydro_year: int, hydro_month: int, day: int) -> date:
@@ -111,6 +113,13 @@ def _iter_rows(content: str, delimiter: str) -> Iterator[list[str]]:
         if len(row) == 1 and delimiter in row[0]:
             row = next(csv.reader(io.StringIO(row[0]), delimiter=delimiter))
         yield row
+
+
+def _is_header_row(row: list[str]) -> bool:
+    """Whether every cell is a column code, e.g. ``kansp,kapost,dorok`` (IMGW 2024+)."""
+    return bool(row) and all(
+        _COLUMN_CODE.fullmatch(cell.strip().strip('"')) for cell in row
+    )
 
 
 def archive_csv_members(

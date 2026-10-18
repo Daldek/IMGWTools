@@ -558,6 +558,7 @@ def test_check_command_never_writes_or_downloads(offline, fixture_root, tmp_path
 
 
 HOOKED = object()
+NOTICE = object()
 RUN_CASES = [
     ("store init", {"root": "/s"}, "init_store", (Path("/s"),), {}),
     ("store info", {"root": "/s"}, "store_info", (Path("/s"),), {}),
@@ -710,7 +711,7 @@ RUN_CASES = [
         {"project_dir": "p", "store_dir": "s"},
         "set_project_store",
         (Path("p"),),
-        {"store_dir": Path("s")},
+        {"store_dir": Path("s"), "on_notice": NOTICE},
     ),
     (
         "project download",
@@ -846,6 +847,8 @@ def test_run_command_calls_exactly_one_public_api_with_same_hooks(
     expected = dict(kwargs)
     if expected.pop("hooks", None) is HOOKED:
         expected.update(hooks)
+    if expected.get("on_notice") is NOTICE:
+        expected["on_notice"] = hooks["on_notice"]
     assert calls == [(function, args, expected)]
     if not command.startswith(("fetch", "store scan", "store read")):
         assert returned is result
