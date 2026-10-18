@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from imgwtools._version import __version__
 from imgwtools.api.routes import download, hydro, meteo, pmaxtp, store
 from imgwtools.api.schemas import HealthCheck
 from imgwtools.config import settings
@@ -39,7 +40,7 @@ wylacznie na magazynie wskazanym przez administratora w `IMGW_STORE_ROOT`
 wymaga `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` oraz
 naglowka `X-API-Key`. Bledy tych tras: `{"code": ..., "detail": ...}`.
 """
-API_VERSION = "1.0.0"
+API_VERSION = __version__
 
 # Create FastAPI app
 app = FastAPI(

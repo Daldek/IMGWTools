@@ -12,6 +12,12 @@ from imgwtools.core.url_builder import (
     build_api_url,
     build_pmaxtp_url,
 )
+from imgwtools.fetch import (
+    POLAND_LAT_MAX,
+    POLAND_LAT_MIN,
+    POLAND_LON_MAX,
+    POLAND_LON_MIN,
+)
 from imgwtools.store.types import Progress
 
 app = typer.Typer(help="Pobieranie danych z IMGW")
@@ -154,6 +160,17 @@ def fetch_pmaxtp(
         pmaxtp_method = PMaXTPMethod(method)
     except ValueError:
         console.print(f"[red]Nieprawidlowa metoda: {method}. Uzyj POT lub AMP.[/red]")
+        raise typer.Exit(1)
+
+    if not (
+        POLAND_LAT_MIN <= lat <= POLAND_LAT_MAX
+        and POLAND_LON_MIN <= lon <= POLAND_LON_MAX
+    ):
+        console.print(
+            f"[red]Wspolrzedne {lat}, {lon} poza obszarem Polski "
+            f"(szerokosc {POLAND_LAT_MIN}-{POLAND_LAT_MAX}, "
+            f"dlugosc {POLAND_LON_MIN}-{POLAND_LON_MAX}).[/red]"
+        )
         raise typer.Exit(1)
 
     url = build_pmaxtp_url(pmaxtp_method, lat, lon)

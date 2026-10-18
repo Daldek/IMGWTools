@@ -62,7 +62,7 @@ async def get_hydro_station(station_id: str):
             station_data = data[0] if isinstance(data, list) else data
             return Station(
                 id=station_id,
-                name=station_data.get("nazwa_stacji", ""),
+                name=station_data.get("stacja", ""),
                 river=station_data.get("rzeka", ""),
                 latitude=float(station_data.get("lat", 0))
                 if station_data.get("lat")
@@ -71,8 +71,16 @@ async def get_hydro_station(station_id: str):
                 if station_data.get("lon")
                 else None,
             )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="Station not found")
+            raise HTTPException(status_code=502, detail=f"IMGW API error: {str(e)}")
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"IMGW API error: {str(e)}")
+        except ValueError:
+            raise HTTPException(
+                status_code=502, detail="Niepoprawna odpowiedź JSON z API IMGW"
+            )
 
 
 @router.get("/current", response_model=list[HydroCurrentData])
@@ -102,7 +110,7 @@ async def get_current_hydro_data(
                 results.append(
                     HydroCurrentData(
                         station_id=item.get("id_stacji", ""),
-                        station_name=item.get("nazwa_stacji", ""),
+                        station_name=item.get("stacja", ""),
                         river=item.get("rzeka"),
                         province=item.get("wojewodztwo"),
                         water_level=float(item["stan_wody"])
@@ -122,6 +130,10 @@ async def get_current_hydro_data(
 
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"IMGW API error: {str(e)}")
+        except ValueError:
+            raise HTTPException(
+                status_code=502, detail="Niepoprawna odpowiedź JSON z API IMGW"
+            )
 
 
 @router.post("/download-url", response_model=DownloadURLResponse)
@@ -159,8 +171,8 @@ async def generate_hydro_download_url(request: HydroDownloadRequest):
 @router.post("/download-urls", response_model=MultiDownloadURLResponse)
 async def generate_hydro_download_urls(
     interval: HydroInterval,
-    start_year: int = Query(..., ge=1951, le=2024),
-    end_year: int = Query(..., ge=1951, le=2024),
+    start_year: int = Query(..., ge=1951, le=9999),
+    end_year: int = Query(..., ge=1951, le=9999),
     param: HydroParam | None = None,
 ):
     """

@@ -1,0 +1,1055 @@
+{
+  "description": "JSON Schema Draft 2020-12 kontraktów magazynu IMGW (spec 2026-10-17-versioned-store-design.md §11) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
+  "schemas": {
+    "imgw-store/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "schema",
+        "created_by"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-store/1"
+        },
+        "created_by": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "imgw-meta/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "schema",
+        "producer",
+        "producer_version",
+        "dataset",
+        "country",
+        "provider",
+        "request",
+        "license",
+        "downloaded_at",
+        "sha256",
+        "size_bytes",
+        "extra"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-meta/1"
+        },
+        "producer": {
+          "const": "imgwtools"
+        },
+        "producer_version": {
+          "type": "string"
+        },
+        "dataset": {
+          "type": "string",
+          "pattern": "^pl\\.imgw\\.[a-z_]+$"
+        },
+        "country": {
+          "const": "PL"
+        },
+        "provider": {
+          "const": "IMGW-PIB"
+        },
+        "request": {
+          "type": "object"
+        },
+        "license": {
+          "type": "object",
+          "required": [
+            "id",
+            "attribution",
+            "url"
+          ],
+          "properties": {
+            "id": {
+              "const": "IMGW-PIB"
+            },
+            "attribution": {
+              "type": "string",
+              "minLength": 1
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "additionalProperties": true
+        },
+        "downloaded_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extra": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "object",
+              "required": [
+                "label",
+                "label_source"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label_source": {
+                  "enum": [
+                    "last_modified",
+                    "downloaded",
+                    "inputs"
+                  ]
+                }
+              },
+              "additionalProperties": true
+            },
+            "http": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "etag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_modified": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "content_length": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "source_files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "file",
+                  "sha256",
+                  "label"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "catalog": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "imgw-series/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "schema",
+        "dataset",
+        "year_type",
+        "periods",
+        "stations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-series/1"
+        },
+        "dataset": {
+          "type": "string",
+          "pattern": "^pl\\.imgw\\."
+        },
+        "year_type": {
+          "enum": [
+            "hydrological",
+            "calendar"
+          ]
+        },
+        "periods": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "string",
+                "format": "date"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "stations": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9]{9}$": {
+              "type": "object",
+              "required": [
+                "file",
+                "sha256",
+                "rows",
+                "variables"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "pattern": "^stations/[0-9]{9}\\.parquet$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "variables": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": [
+                      "unit",
+                      "first",
+                      "last",
+                      "with_value",
+                      "accumulated",
+                      "gaps"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "type": "string"
+                      },
+                      "first": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date"
+                      },
+                      "last": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date"
+                      },
+                      "with_value": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "accumulated": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "gaps": {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "string",
+                              "format": "date"
+                            },
+                            {
+                              "type": "string",
+                              "format": "date"
+                            }
+                          ],
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "stations.geojson": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "type",
+        "features"
+      ],
+      "properties": {
+        "type": {
+          "const": "FeatureCollection"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "id",
+              "geometry",
+              "properties"
+            ],
+            "properties": {
+              "type": {
+                "const": "Feature"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9]{9}$"
+              },
+              "geometry": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "type",
+                      "coordinates"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "Point"
+                      },
+                      "coordinates": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "properties": {
+                "type": "object",
+                "required": [
+                  "station_code",
+                  "kind",
+                  "meteo_kind",
+                  "name",
+                  "river",
+                  "hydrographic_code",
+                  "river_order",
+                  "location_source",
+                  "location_uncertainty_m",
+                  "location_missing_reason",
+                  "active",
+                  "established_year",
+                  "gauge_zero_m",
+                  "river_km",
+                  "elevation_m"
+                ],
+                "properties": {
+                  "station_code": {
+                    "type": "string",
+                    "pattern": "^[0-9]{9}$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "hydro",
+                      "meteo"
+                    ]
+                  },
+                  "meteo_kind": {
+                    "enum": [
+                      "climate",
+                      "precipitation",
+                      null
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "river": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hydrographic_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "river_order": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "location_source": {
+                    "enum": [
+                      "api_hydro",
+                      "api_meteo",
+                      "static",
+                      "user",
+                      null
+                    ]
+                  },
+                  "location_uncertainty_m": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "location_missing_reason": {
+                    "enum": [
+                      "none",
+                      "zero",
+                      "outside_country",
+                      null
+                    ]
+                  },
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "established_year": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "gauge_zero_m": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "river_km": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "elevation_m": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "imgw-plan/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "schema",
+        "root",
+        "checked_at",
+        "cancelled",
+        "items",
+        "series_state"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-plan/1"
+        },
+        "root": {
+          "type": "string"
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cancelled": {
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "dataset",
+              "server_path",
+              "url",
+              "year",
+              "month",
+              "param",
+              "year_type",
+              "status",
+              "local_path",
+              "local_sha256",
+              "remote_etag",
+              "remote_last_modified",
+              "content_length",
+              "error"
+            ],
+            "properties": {
+              "dataset": {
+                "type": "string"
+              },
+              "server_path": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "year": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "month": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "param": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "year_type": {
+                "enum": [
+                  "hydrological",
+                  "calendar",
+                  "none"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "current",
+                  "newer",
+                  "missing",
+                  "unverifiable",
+                  "check_failed"
+                ]
+              },
+              "local_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "local_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "remote_etag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "remote_last_modified": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "content_length": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "series_state": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "current",
+              "outdated",
+              "missing"
+            ]
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "command",
+              "status",
+              "detail"
+            ],
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "current",
+                  "newer",
+                  "missing",
+                  "unverifiable",
+                  "check_failed"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "imgw-project/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "schema",
+        "store_dir",
+        "tasks"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-project/1"
+        },
+        "store_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "command",
+              "options",
+              "pinned_at",
+              "imgwtools_version",
+              "files"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+              },
+              "command": {
+                "type": "string"
+              },
+              "options": {
+                "type": "object"
+              },
+              "geometry_sha256": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "pinned_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "imgwtools_version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "role",
+                    "path",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "role": {
+                      "enum": [
+                        "series",
+                        "station_series",
+                        "catalog",
+                        "input"
+                      ]
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "station": {
+                      "type": "string",
+                      "pattern": "^[0-9]{9}$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "imgw-pmaxtp/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": [
+        "schema",
+        "method",
+        "ind_x",
+        "ind_y",
+        "center",
+        "data"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-pmaxtp/1"
+        },
+        "method": {
+          "enum": [
+            "POT",
+            "AMP"
+          ]
+        },
+        "ind_x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ind_y": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "center": {
+          "type": "object",
+          "required": [
+            "lon",
+            "lat"
+          ],
+          "properties": {
+            "lon": {
+              "type": "number"
+            },
+            "lat": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "ks",
+            "sg",
+            "rb"
+          ],
+          "properties": {
+            "ks": {
+              "$ref": "#/$defs/table"
+            },
+            "sg": {
+              "$ref": "#/$defs/table"
+            },
+            "rb": {
+              "$ref": "#/$defs/table"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "$defs": {
+        "table": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "examples": {
+    "imgw-store/1": {
+      "schema": "imgw-store/1",
+      "created_by": "imgwtools 3.0.0"
+    },
+    "imgw-meta/1": {
+      "schema": "imgw-meta/1",
+      "producer": "imgwtools",
+      "producer_version": "3.0.0",
+      "dataset": "pl.imgw.hydro_daily",
+      "country": "PL",
+      "provider": "IMGW-PIB",
+      "request": {
+        "server_path": "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+        "year": 2024,
+        "month": null
+      },
+      "license": {
+        "id": "IMGW-PIB",
+        "attribution": "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy",
+        "url": "https://danepubliczne.imgw.pl/regulations"
+      },
+      "downloaded_at": "2026-10-17T12:00:00Z",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 42,
+      "extra": {
+        "version": {
+          "label": "2025-08-28",
+          "label_source": "last_modified"
+        },
+        "period": {
+          "year": 2024,
+          "month": null,
+          "param": null,
+          "year_type": "hydrological",
+          "start": "2023-11-01",
+          "end": "2024-10-31"
+        },
+        "http": {
+          "url": "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+          "etag": "\"abc\"",
+          "last_modified": "Thu, 28 Aug 2025 12:00:00 GMT",
+          "content_length": 42
+        }
+      }
+    },
+    "imgw-series/1": {
+      "schema": "imgw-series/1",
+      "dataset": "pl.imgw.hydro_daily",
+      "year_type": "hydrological",
+      "periods": [
+        [
+          "2023-11-01",
+          "2024-10-31"
+        ]
+      ],
+      "stations": {
+        "149190310": {
+          "file": "stations/149190310.parquet",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "rows": 366,
+          "variables": {
+            "H": {
+              "unit": "cm",
+              "first": "2023-11-01",
+              "last": "2024-10-31",
+              "with_value": 365,
+              "accumulated": 0,
+              "gaps": [
+                [
+                  "2024-02-29",
+                  "2024-02-29"
+                ]
+              ]
+            },
+            "Q": {
+              "unit": "m3/s",
+              "first": null,
+              "last": null,
+              "with_value": 0,
+              "accumulated": 0,
+              "gaps": []
+            }
+          }
+        }
+      }
+    },
+    "stations.geojson": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "id": "149190310",
+          "geometry": null,
+          "properties": {
+            "station_code": "149190310",
+            "kind": "hydro",
+            "meteo_kind": null,
+            "name": "Raba",
+            "river": "Raba",
+            "hydrographic_code": "2138",
+            "river_order": 1,
+            "location_source": null,
+            "location_uncertainty_m": null,
+            "location_missing_reason": "zero",
+            "active": true,
+            "established_year": null,
+            "gauge_zero_m": null,
+            "river_km": null,
+            "elevation_m": null
+          }
+        }
+      ]
+    },
+    "imgw-plan/1": {
+      "schema": "imgw-plan/1",
+      "root": "/srv/imgw",
+      "checked_at": "2026-10-17T12:00:00Z",
+      "cancelled": false,
+      "items": [
+        {
+          "dataset": "pl.imgw.hydro_daily",
+          "server_path": "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+          "url": "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+          "year": 2024,
+          "month": null,
+          "param": null,
+          "year_type": "hydrological",
+          "status": "newer",
+          "local_path": "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024/2025-08-28_00000000/codz_2024.zip",
+          "local_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "remote_etag": "\"new\"",
+          "remote_last_modified": "Sat, 17 Oct 2026 10:00:00 GMT",
+          "content_length": 42,
+          "error": null
+        }
+      ],
+      "series_state": {
+        "hydro_daily": "outdated"
+      },
+      "actions": []
+    },
+    "imgw-project/1": {
+      "schema": "imgw-project/1",
+      "store_dir": "../imgw-store",
+      "tasks": [
+        {
+          "name": "raba-q",
+          "command": "series select",
+          "options": {
+            "dataset": "pl.imgw.hydro_daily",
+            "stations": [
+              "149190310"
+            ],
+            "variables": [
+              "Q"
+            ],
+            "years": [
+              2023,
+              2024
+            ],
+            "year_type": "hydrological"
+          },
+          "pinned_at": null,
+          "imgwtools_version": null,
+          "files": []
+        }
+      ]
+    },
+    "imgw-pmaxtp/1": {
+      "schema": "imgw-pmaxtp/1",
+      "method": "POT",
+      "ind_x": 751,
+      "ind_y": 317,
+      "center": {
+        "lon": 21.007098333333,
+        "lat": 52.234416666667
+      },
+      "data": {
+        "ks": {
+          "15": {
+            "50": 13.34
+          }
+        },
+        "sg": {
+          "15": {
+            "50": 14.1
+          }
+        },
+        "rb": {
+          "15": {
+            "50": 0.3
+          }
+        }
+      }
+    }
+  }
+}

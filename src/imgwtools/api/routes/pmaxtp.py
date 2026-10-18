@@ -75,6 +75,12 @@ async def fetch_pmaxtp_data(request: PMaXTPRequest) -> dict[str, Any]:
             response.raise_for_status()
             data = response.json()
 
+            if isinstance(data, dict) and data.get("error"):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"API PMAXTP zwróciło błąd: {data['error']}",
+                )
+
             return {
                 "method": request.method.value,
                 "latitude": request.latitude,
@@ -96,4 +102,9 @@ async def fetch_pmaxtp_data(request: PMaXTPRequest) -> dict[str, Any]:
             raise HTTPException(
                 status_code=502,
                 detail=f"IMGW API connection error: {str(e)}",
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=502,
+                detail="Niepoprawna odpowiedź JSON z API PMAXTP",
             )

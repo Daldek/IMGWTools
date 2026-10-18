@@ -61,7 +61,7 @@ def list_stations(
 
     # Filter by search term
     if search:
-        mask = df.iloc[:, 1].str.contains(search, case=False, na=False)
+        mask = df.iloc[:, 1].str.contains(search, case=False, na=False, regex=False)
         df = df[mask]
 
     # Limit results
