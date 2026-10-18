@@ -169,3 +169,125 @@
 **Pliki:** utwórz `tests/contract/test_versioned_store.py`, `tests/contract/test_cli_api_parity.py`, `tests/contract/test_project_contract.py` (istniejące testy zmieniać tylko jeśli faktycznie przestały wyrażać obowiązujący kontrakt; odpowiedni owner T01–T24 naprawia wcześniej); dołączyć fixtury wyłącznie w nowych plikach `tests/fixtures/store/contract_*`.  
 **Zależy od:** T01–T24.  
 **Test akceptacji:** offline budowa katalogu publicznym `imgwtools.testing`, kontrola JSON Schemas §11 i `sha256`, read-only scan nieznanego schematu oraz problemów, state machine HEAD→plan→stale/sync→series→coverage→catalog→CSV→projekt→verify/restore; rzeczywisty `imgw store check|sync`, `imgw series build|export` i `imgw project …` na lokalnych nagraniach dają te same ścieżki/SHA co API; anulowanie i współbieżność; brak zależności na sieć. **Po scaleniu wszystkich fal raz** `.venv/bin/python -m pytest`, `.venv/bin/ruff check src/ tests/`, `npx -y pyright src/imgwtools/` i smoke CLI/API + REST odczytu, naprawić każdy realny problem do zamknięcia. Testy live uruchamiać świadomie oddzielnie, nie jako warunek lokalnej bramki.
+
+## ADR-002 — jeden katalog komend i spójne interfejsy (U01–U16)
+
+**Data:** 2026-10-18  
+**Decyzje:** `docs/DECISIONS.md` ADR-002; **kontrakt:** spec §13 (ma pierwszeństwo przed §1–§12)  
+**Cel:** 35 komend katalogu jako jedyne źródło operacji; CLI i REST generowane z katalogu, web wyłącznie przez publiczne API; kody błędów, koperta `imgw-result/1`, `find_stations`, `command_schema`, stronicowanie i `summarize_series`. Całość w 3.0.0, bez aliasów i shimów. Dokument jest instrukcją wdrożenia, nie deklaracją wykonania.
+
+### Zasady pracy (uzupełnienie)
+
+- Obowiązują zasady z początku planu: rozłączne pliki w fali (także testy), w tasku tylko własne testy, pełna bramka raz na końcu (U16). W fali pracują najwyżej dwa równoległe taski.
+- Nazwy, typy, kody, sloty i podpisy są zamrożone w spec §13; rzeczywista sprzeczność → najpierw errata w §13 i ADR-002, potem kod.
+- Kontrakt-first w obrębie fali: task może zarejestrować wywołanie funkcji z §13.8, którą właściciel kończy w tej samej fali, ale testy tej ścieżki wykonuje task następnej fali (wzorzec T17/T18).
+- Każdy task nadaje kody błędów z §13.5 w posiadanych modułach (`code=` przy zgłoszeniu) i przepisuje testy, które wyrażały stary kontrakt, zamiast przypinać stare zachowanie.
+- „Tylko miejsca wywołań” = minimalna zmiana wywołania (nowa postać slotu, nazwa pola lub argumentu) w pliku, którego logika należy do taska innej fali.
+- Do U13 stary kod może istnieć obok nowego wyłącznie wewnątrz gałęzi; stan po U16 nie ma aliasów, stubów ani martwych modułów.
+
+| Fala | Taski (równolegle) | Zakres |
+|---|---|---|
+| 10 | U01, U02 | rejestr kodów błędów; typy koperty, stronicowania, pobierania i katalogu |
+| 11 | U03, U04 | rejestr 13 zbiorów z aliasami i selektorami; odczyty live, nowe modele, `find_stations` |
+| 12 | U05, U06 | sloty, wersje, `select_series`, `summarize_series`; pobieranie płaskie, CSV położeń, PMAXTP, pomocnicze URL |
+| 13 | U07, U08 | eksport archiwów i szeregów; katalog 35 komend, koperta, stronicowanie, `command_schema` |
+| 14 | U09, U10 | CLI z katalogu; REST z katalogu i problem+json |
+| 15 | U11, U12 | projekt w nowych konwencjach; web na publicznym API |
+| 16 | U13, U14 | usunięcie legacy i jedna lista eksportów; kontrakt międzyinterfejsowy |
+| 17 | U15, U16 | dokumentacja wydania; bramka końcowa i pełna regresja live |
+
+### Fala 10 — fundamenty modelu błędów i koperty
+
+**U01 — Rejestr kodów błędów.**  
+**Pliki (wyłączna własność):** zmodyfikuj `src/imgwtools/exceptions.py`; w `src/imgwtools/__init__.py` usuń eksport `IMGWPlanStaleError` i dodaj `IMGWCancelledError`, `ERROR_CODES`, `ErrorSpec`, `ErrorCode`; w `src/imgwtools/api/routes/store.py` usuń wyłącznie gałąź `IMGWPlanStaleError` w `_status`; utwórz `tests/unit/test_exceptions.py`.  
+**Zależy od:** —.  
+**Test akceptacji:** każda klasa ma kod domyślny z §13.5, a `code=` go nadpisuje; kod spoza rejestru → `ValueError`; `str(exc) == exc.detail`, a `details` jest niezależną kopią; `pickle` i `copy.deepcopy` zachowują `code`, `detail` i `details` (wyjątek przechodzi przez `multiprocessing`); `ERROR_CODES` ma dokładnie 12 kodów z kodami wyjścia i statusami z tabeli §13.5, a kody wyjścia błędów są parami różne i różne od 0/10/11 koperty (130 jest wspólne z kopertą `cancelled` celowo); `IMGWStoreDependencyError()` zachowuje komunikat instalacji i ma `missing_dependency`.
+
+**U02 — Typy koperty, stronicowania i katalogu.**  
+**Pliki:** zmodyfikuj `src/imgwtools/store/types.py`, `tests/unit/test_store_types.py`; utwórz `src/imgwtools/_jsonable.py` (jedna serializacja JSON dla CLI, REST i `CommandResult.to_json`).  
+**Zależy od:** —.  
+**Test akceptacji:** `CommandResult.to_json(root=R)` daje dokument `imgw-result/1` (§13.6): ścieżka pod R → POSIX względna, poza R → bezwzględna, `server=True` → root `"."` i przedrostek R usunięty z tekstów; `datetime` → ISO z `Z`, `date` → `YYYY-MM-DD`, krotki → listy, dataclass i modele pydantic → pola; `Page`, `DownloadItem` i `DownloadReport` są niemutowalne; `OperationResult`, `CommandOption` i `DataCommand` z nowymi polami (§13.9) mają wartości domyślne, więc obecny katalog i raporty konstruują się bez zmian; `StoreEntry.slot` przyjmuje `None`; moduły nie importują pyarrow.
+
+### Fala 11 — rejestr i odczyty live
+
+**U03 — Rejestr 13 zbiorów, aliasy i selektory.**  
+**Pliki:** `src/imgwtools/datasets.py` (pola deskryptora, pięć zbiorów tylko do pobrania, `get_dataset` z aliasami, `datasets(kind=)`, `archive_files(..., params=)`, publiczne `YearsArg`/`MonthsArg` i ich parser, z którego korzystają potem katalog i magazyn), `tests/unit/test_datasets.py`.  
+**Zależy od:** U01.  
+**Test akceptacji:** 13 deskryptorów z polami §13.4; `get_dataset` zwraca ten sam deskryptor dla klucza, sluga i aliasu legacy, a nieznana wartość → `validation_error` z `details.allowed`; `archive_files` pięciu zbiorów tylko do pobrania daje złote URL-e zapisane dosłownie w teście (wygenerowane raz z jeszcze istniejących `build_hydro_url`/`build_meteo_url`: `zjaw_2023`, miesięczne k/o/s dla 1955, 1995 i 2023 z deduplikacją lat jednego folderu, terminowe klimat 1995 i 2001-01); `2024`, `"2020-2023"`, `"2020,2022"` i `[2020, "2022-2023"]` jako `years` dają te same pliki co odpowiadające im listy liczb; `params` zawęża zbiór półroczny i jest odrzucane w innych; aliasy synop dobowe/terminowe i terminowe opad → `validation_error` z powodem; `datasets(kind="meteo")` zawiera wyłącznie meteo.
+
+**U04 — Odczyty live i wyszukiwanie stacji.**  
+**Pliki:** `src/imgwtools/fetch.py` (wyłącznie funkcje live: `fetch_hydro_current`, `fetch_meteo_current`, `fetch_synop`, `fetch_warnings`, `fetch_pmaxtp` i warianty `_async`), `src/imgwtools/models.py`, `src/imgwtools/stations.py`, `src/imgwtools/reference_data.py` (przejście na `find_stations`/`fetch_hydro_states`; nagłówki plików bez zmian), `src/imgwtools/__init__.py`, `tests/unit/test_fetch.py` (klasy testów funkcji live), `tests/unit/test_fetch_live.py`, `tests/unit/test_models.py`, `tests/unit/test_stations.py`, `tests/unit/test_stations_extra.py`, `tests/unit/test_reference_data.py`.  
+**Zależy od:** U01.  
+**Test akceptacji (nagrane odpowiedzi `respx`):** modele mają `station_code`, a `HydroCurrentData` także `latitude`/`longitude` z `lat`/`lon` API; `fetch_meteo_current` mapuje `kod_stacji`, `temperatura_powietrza`, `wiatr_srednia_predkosc`, `wilgotnosc_wzgledna`, `opad_10min`, a brak pola daje `None`; `fetch_warnings()` łączy ostrzeżenia hydro i meteo z polem `kind`; `fetch_pmaxtp(52.23, 21.01, method="AMP")` zwraca ten sam `PMaXTPResult` co przed zmianą; `find_stations` live: `query="lodz"` znajduje „ŁÓDŹ…”, działa dopasowanie rzeki i prefiksu kodu, kolejność `kind` → nazwa → kod, `kind=None` = obie listy; `source="store"` na `build_fixture_store` bez żadnego HTTP zwraca współrzędne z katalogu i `None` dla `geometry=null`; `source="store"` bez `root` → `validation_error`, magazyn bez listy → `IMGWStoreError` (kod `not_found` nadaje U05); `fetch_hydro_states` czyta pole `rzeka`; awaria sieci każdej funkcji live ma `code="source_unavailable"` oraz `details.url` i `details.reason`; warianty async dają identyczne wyniki.
+
+### Fala 12 — magazyn: tożsamość, pobieranie, położenia
+
+**U05 — Sloty, wersje i odczyt szeregów.**  
+**Pliki:** `src/imgwtools/store/reader.py`, `src/imgwtools/store/sync.py`, `src/imgwtools/store/series.py`, `src/imgwtools/store/writer.py`, `src/imgwtools/coverage.py`, `src/imgwtools/store/types.py`, `src/imgwtools/store/__init__.py`; tylko miejsca wywołań `current_version`/`StationCoverage` w `src/imgwtools/commands.py`, `src/imgwtools/project.py`, `src/imgwtools/stations.py`, `src/imgwtools/api/routes/store.py`; testy `tests/unit/test_store_reader.py`, `test_store_sync.py`, `test_store_series.py`, `test_store_writer.py`, `test_store_archive_read.py`, `test_coverage.py`, `test_store_types.py` oraz wyłącznie asercje slotów w `tests/unit/test_commands.py`, `tests/unit/test_project.py`, `tests/unit/test_api_store.py`, `tests/contract/test_versioned_store.py`.  
+**Zależy od:** U01, U02, U03.  
+**Test akceptacji:** na `build_fixture_store` każdy slot wersji z `iter_store` zwraca w `current_version` swoją bieżącą wersję, a slot z `SyncReport.items` dla tego samego pliku jest identyczny z wpisem skanu (gramatyka §13.7); dawne postaci slotów → `validation_error` z opisem gramatyki; problem bez wersji ma `slot=None`; `read_series(variables=None)` zwraca wszystkie zmienne, `version` względna z `root` = bezwzględna, `root`+`dataset` = bieżąca wersja, oba albo żadne → `validation_error`; `summarize_series` przy zablokowanym imporcie `pyarrow` zwraca pokrycie równe spisowi `series.json`, filtruje `stations`/`variables`, a nieznana stacja → `validation_error`; `select_series` ma semantykę dawnego `series select`; `check_store(..., plan=PLIK)` zapisuje plan poza root, w root → `validation_error`; `years="2023-2024"` działa w `check_store`/`sync_store`; kody: brak wersji, sidecara lub listy stacji → `not_found`, nieobsługiwany root → `store_unavailable`, `init_store` w niepustym katalogu i magazyn zagnieżdżony → `conflict`, dowiązanie w ścieżce → `validation_error`, anulowanie `write_archive` → `IMGWCancelledError`.
+
+**U06 — Pobieranie płaskie, położenia, PMAXTP i pomocnicze URL.**  
+**Pliki:** `src/imgwtools/fetch.py` (`download_archives`, `download_hydro_data`/`download_meteo_data` przez rejestr, wywołania pomocników URL), `src/imgwtools/core/url_builder.py` i `src/imgwtools/urls.py` (`build_pmaxtp_url(latitude, longitude, *, method)`, `build_api_url(endpoint, *, station, station_name)`), `src/imgwtools/store/catalog.py`, `src/imgwtools/store/pmaxtp.py`, `src/imgwtools/reference_data.py` (nagłówek `station_code,latitude,longitude`), `src/imgwtools/testing.py`; tylko miejsca wywołań pomocników URL w `src/imgwtools/api/routes/hydro.py`, `meteo.py`, `pmaxtp.py`, `src/imgwtools/cli/fetch.py`, `src/imgwtools/web/app.py`; fixtury położeń w `tests/fixtures/store/` i ich kopia w `src/imgwtools/_data/fixtures/`; testy `tests/unit/test_fetch.py` (pobieranie), utwórz `tests/unit/test_download_archives.py`, zmodyfikuj `test_store_catalog.py`, `test_store_pmaxtp.py`, `test_fixture_builder.py`, `test_store_fixtures.py`, `test_urls.py`, `test_reference_data.py`, a w `test_api_live_routes.py` i `test_web_app.py` wyłącznie wywołania.  
+**Zależy od:** U01–U04.  
+**Test akceptacji:** `download_archives` na nagranym serwerze zapisuje `<output>/<server_path>` przez `.part`; plik z błędem HTTP daje pozycję `failed` z `error_code="source_unavailable"`, pozostałe `downloaded`, bez wyjątku; anulowanie między plikami → `cancelled=true` i brak niepełnego pliku; `license_terms` raz; sloty pozycji według §13.7; `download_hydro_data("dobowe", 2023, 13)` i `download_meteo_data("miesieczne", "synop", 1995)` trafiają w te same URL-e co przed zmianą; `build_catalog` czyta `station_code,latitude,longitude[,source]` dla pliku statycznego i użytkownika, stary nagłówek → `validation_error` z instrukcją `python -m imgwtools.reference_data`, a `reference_data` zapisuje nowy nagłówek z szerokością przed długością; `check_pmaxtp`/`sync_pmaxtp`/`read_pmaxtp` bez `method` używają `POT`; brak komórki → `not_found`; `build_pmaxtp_url(52.23, 21.01, method="AMP")` daje ten sam URL co przed zmianą.
+
+### Fala 13 — eksport i katalog komend
+
+**U07 — Eksport archiwów i szeregów.**  
+**Pliki:** `src/imgwtools/store/export.py`, `tests/unit/test_series_export.py`; utwórz `tests/unit/test_store_export.py`.  
+**Zależy od:** U01, U02, U05.  
+**Test akceptacji:** `export_archive(v, format="csv")` daje linie identyczne z dotychczasowym wyjściem `imgw store read` dla fixtury (złoty plik zapisany przed zmianą), `jsonl` — pola `NormalizedRecord`; `path` w magazynie → `validation_error`, poza nim atomowy plik; `export_series` bez `path` daje linie bajtowo równe plikowi zapisanemu z `path`; `start`/`end` działają włącznie (miesiąc i półrocze według daty początku); `variables=None` = wszystkie zmienne; `root`+`dataset` = bieżąca wersja; anulowanie → `IMGWCancelledError`, plik docelowy nietknięty, bez `.part`; pusty szereg → `data_error`; `license_terms` przed pierwszą linią.
+
+**U08 — Katalog komend, koperta, stronicowanie i schemat.**  
+**Pliki:** `src/imgwtools/commands.py`; w `src/imgwtools/project.py` wyłącznie konsumpcja `CommandResult` i nowe nazwy opcji zadań; `tests/unit/test_commands.py`; utwórz `tests/unit/test_command_schema.py`; zmodyfikuj `tests/contract/support.py` (walidator kontraktowy: `anyOf`, `oneOf`, `items`, `required`, `dependentRequired`, `additionalProperties`).  
+**Zależy od:** U01–U06; z U07 wyłącznie podpisy §13.8 (testy `store export`/`series export` wykonują U09, U10 i U14).  
+**Test akceptacji:** każda z 35 komend wskazuje istniejącą funkcję publiczną (w module `imgwtools.*`; komplet w `imgwtools.__all__` domyka U13), a jej opcje (bez `limit`/`offset`) są parametrami tej funkcji o tych samych nazwach (`inspect.signature`); `validate_command` zamienia aliasy zbiorów na klucze, tekst współrzędnych na `float`, daty na `date` i każdą postać `years` na krotkę liczb, a nieznaną opcję odrzuca z `details.option`; `format_command` → ponowne sparsowanie → `validate_command` daje identyczne opcje dla przykładowych opcji każdej komendy; przykładowe poprawne i błędne opcje każdej komendy są tak samo oceniane przez `command_schema(c)` (walidator kontraktowy) i `validate_command`; `command_schema()` to dokument `imgw-commands/1` z 35 schematami, grupami i rejestrem błędów; `run_command` zwraca `CommandResult` ze statusem z tabeli §13.6 na raportach z fixtur (jedna pozycja `failed` → `partial`, wszystkie → `failed`, anulowanie → `cancelled`) i komunikatami bez powtórzeń przy pełnych hookach; `limit`/`offset` → `Page` z `total`, `limit=0` → `validation_error`; `check_command` każdej komendy działa bez sieci (ścisły `respx`) i bez zapisu (porównanie drzewa katalogów); `download_project` przypina te same pliki co przed zmianą.
+
+### Fala 14 — adaptery generowane z katalogu
+
+**U09 — CLI z katalogu.**  
+**Pliki:** `src/imgwtools/cli/_dispatch.py`, `src/imgwtools/cli/main.py`; usuń `src/imgwtools/cli/fetch.py`, `cli/list_cmd.py`, `cli/store.py`, `cli/series.py`, `cli/pmaxtp.py`, `cli/project.py`; testy `tests/unit/test_cli_fetch_live.py`, `test_cli_fetch_store.py`, `test_cli_list.py`, `test_cli_store_project.py` zastąp nowym `tests/unit/test_cli_catalog.py`; zmodyfikuj `tests/unit/test_cli_main.py`.  
+**Zależy od:** U07, U08.  
+**Test akceptacji (`CliRunner` i zainstalowany `imgw`):** stdout komendy obiektowej i listowej = `run_command(...).to_json(root)` dla tych samych opcji, a strumień nie zawiera koperty; macierz błędów — zła szerokość (2), brak wersji (3), `store init` w niepustym katalogu (4), awaria źródła z `respx` (5), zablokowany `pyarrow` (6), uszkodzona fixtura (7), katalog bez znacznika (8), katalog wyjściowy bez prawa zapisu (9): pusty stdout, ostatnia linia stderr to JSON z właściwym kodem; synchronizacja z jedną nieudaną pozycją → koperta na stdout i kod 10, wszystkie nieudane → 11; Ctrl+C → raport częściowy i 130; nieznana flaga → JSON `validation_error` i kod 2; `--check` tylko przy komendach z bliźniakiem; `--schema` = wynik `imgw commands schema --command …`; `--root` z `IMGW_STORE_ROOT`; aliasy §13.2 działają.
+
+**U10 — REST z katalogu i problem+json.**  
+**Pliki:** `src/imgwtools/api/main.py`, `src/imgwtools/api/schemas.py` (zostaje `HealthCheck`); utwórz `src/imgwtools/api/routes/commands.py` i `src/imgwtools/api/errors.py`; usuń `src/imgwtools/api/routes/hydro.py`, `meteo.py`, `download.py`, `pmaxtp.py`, `store.py`; zmodyfikuj `src/imgwtools/config.py` (`api_max_limit`, env `IMGW_API_MAX_LIMIT`); testy `tests/unit/test_api_download_registry.py`, `test_api_live_routes.py`, `test_api_store.py` zastąp nowym `tests/unit/test_api_commands.py`; zmodyfikuj `tests/unit/test_api_main.py`.  
+**Zależy od:** U07, U08.  
+**Test akceptacji (`TestClient`, nagrane IMGW, fixtura magazynu):** każda komenda z metodą odpowiada pod `/api/v1/<grupa>/<nazwa>` kopertą równą `run_command(...).to_json(root, server=True)`; problem+json z `instance` i kodem dla: walidacji katalogu i złego typu w ciele (400), nieznanej trasy (404), złej metody (405), braku `IMGW_STORE_ROOT` (503 `store_unavailable`, `reason=not_configured`), wyłączonego zapisu i złego tokenu (403 `forbidden`), awarii źródła (502), braku pyarrow (503); `?check=true` na każdym POST zwraca plan bez zapisu i bez tokenu; sync z pozycją `stale_plan` → 200, `status=partial`, raport w `result`; po synchronizacji `notices` zawiera `license_terms`; `limit` domyślnie i najwyżej `IMGW_API_MAX_LIMIT`, większy → 400; `store export`/`series export` zwracają strumień równy stdout CLI z nagłówkami `X-IMGW-Status`/`X-IMGW-Notices`; `version` bezwzględna, z `..`, przez dowiązanie lub spoza właściwego `*/versions/` → 400, nieistniejąca → 404; `root`, `path` lub `output` w żądaniu → 400; żadna odpowiedź nie zawiera bezwzględnej ścieżki serwera.
+
+### Fala 15 — projekt i web
+
+**U11 — Projekt w nowych konwencjach.**  
+**Pliki:** `src/imgwtools/project.py`, `src/imgwtools/store/types.py` (`ProjectFile.station_code`), `tests/unit/test_project.py`, `tests/contract/test_project_contract.py`.  
+**Zależy od:** U05, U08.  
+**Test akceptacji:** manifest z `files[].station_code` przechodzi zapis, odczyt i walidację §11.6, a klucz `station` jest odrzucany; `ProjectReport.files` mają slot §13.7 i pole `task`, błąd całego zadania ma `slot=None`, a pozycje błędów — `error_code`; brak manifestu → `not_found`, zajęta blokada → `conflict` z `details.owner`, nieczytelny manifest → `io_error`, niepoprawna treść → `validation_error`; opcje zadań mają nazwy §13.2 (stare `lat`, `dataset` w `store sync` i `no_series` są odrzucane); scenariusz init → add → check → download → status → verify przypina te same pliki co przed zmianą.
+
+**U12 — Web na publicznym API.**  
+**Pliki:** `src/imgwtools/web/app.py`, `src/imgwtools/web/templates/**`, `src/imgwtools/web/static/**`, `tests/unit/test_web_app.py`.  
+**Zależy od:** U03, U04, U08, U10.  
+**Test akceptacji:** punkt PMAXTP poza siatką (nagrane API) renderuje `partials/error.html` z `validation_error` i polskim `detail` zamiast pustej strony wyniku; wyszukiwanie stacji `lodz` daje te same stacje i stronicowanie co `stations find`; formularz pobierania oferuje 10 zbiorów archiwalnych z rejestru i generuje te same URL-e co `archive_files`; mapa ładuje markery z `GET /api/v1/current/hydro-states`; awaria źródła w dowolnym widoku → ten sam fragment z `source_unavailable`.
+
+### Fala 16 — sprzątanie i kontrakt
+
+**U13 — Usunięcie legacy i jedna lista eksportów.**  
+**Pliki:** `src/imgwtools/core/url_builder.py`, `src/imgwtools/urls.py`, `src/imgwtools/__init__.py`, `src/imgwtools/store/__init__.py`, `src/imgwtools/config.py` (usunięcie `hydro_stations_csv`/`meteo_stations_csv`), `src/imgwtools/reference_data.py` (bez plików `*_stations_names.csv`), `tests/unit/test_urls.py`, `tests/unit/test_public_store_api.py`, `tests/unit/test_reference_data.py`.  
+**Zależy od:** U01–U12.  
+**Test akceptacji:** `imgwtools.__all__` = §13.12: każda nazwa jest importowalna i zaimplementowana, a nazw z listy usuniętych nie ma w pakiecie (także w `imgwtools.urls`); `import imgwtools` nie ładuje `pyarrow`, `fastapi` ani `typer`; `python -m imgwtools.reference_data` (nagrane HTTP) zapisuje wyłącznie plik położeń i opisy formatów.
+
+**U14 — Kontrakt międzyinterfejsowy.**  
+**Pliki:** `tests/contract/test_cli_api_parity.py`, `tests/contract/conftest.py`, `tests/fixtures/store/contract_schemas.json` (dopisz `imgw-result/1` i problem+json); utwórz `tests/contract/test_interface_contract.py` oraz w razie potrzeby nowe `tests/fixtures/store/contract_*`.  
+**Zależy od:** U01–U12.  
+**Test akceptacji:** dla każdej komendy z trasą REST na fixturze i nagraniach Python (`run_command(...).to_json`), stdout CLI i ciało REST są równe po kanonicznym zrzucie JSON (REST z root `"."`); dla każdego kodu z rejestru scenariusz wyzwalający w każdym interfejsie, który ten kod zgłasza, daje ten sam `code`, kod wyjścia i status z §13.5; każda koperta i każde ciało błędu spełniają schematy §13.5–§13.6; ten sam `limit`/`offset` daje te same `items` i `total` w trzech interfejsach; slot z wyniku dowolnej komendy działa w `current_version`, a `version` z odpowiedzi REST działa jako `--version` CLI z `--root`; zero ruchu sieciowego poza nagraniami.
+
+### Fala 17 — wydanie
+
+**U15 — Dokumentacja wydania.**  
+**Pliki:** `docs/CHANGELOG.md`, `README.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/PROGRESS.md`, `docs/DEVELOPMENT_STANDARDS.md` (konwencje nazw i obsługa błędów), `docs/PRD.md` (jeśli opisuje usunięte komendy lub trasy).  
+**Zależy od:** U01–U14; wynik U16 dopisuje do `docs/PROGRESS.md` po jego zakończeniu (jedyna zależność wewnątrz fali, bez wspólnych plików).  
+**Test akceptacji:** sekcja BREAKING w CHANGELOG 3.0.0 obejmuje każdy wiersz §13.11 (pogrupowany), a „Dodane” — kody błędów, `find_stations`, `command_schema`, stronicowanie i `summarize_series`; tabele komend i tras w README i CLAUDE.md zgadzają się z wynikiem `imgw commands schema` (jednorazowy skrypt porównujący, bez trwałego testu); każdy przykład komendy i kodu z README uruchomiony raz (offline na fixturze albo live) daje opisany wynik; historyczne wpisy ADR bez przeredagowania.
+
+**U16 — Bramka końcowa i pełna regresja live.**  
+**Pliki:** na czas fali wyłączna własność `src/**` i `tests/**` do napraw (U15 zmienia wyłącznie dokumentację); utwórz `tests/live/__init__.py` i `tests/live/test_interfaces_live.py` (pomijany bez `IMGW_LIVE=1`).  
+**Zależy od:** U01–U14.  
+**Test akceptacji:** po scaleniu raz `.venv/bin/python -m pytest`, `.venv/bin/ruff check src/ tests/` i `npx -y pyright src/imgwtools/` bez błędów; `IMGW_LIVE=1 .venv/bin/python -m pytest tests/live` na prawdziwych serwerach IMGW w świeżym magazynie tymczasowym wykonuje każdą z 35 komend przez Python, zainstalowany `imgw` i REST (`imgw server` na localhost) na małych wyborach (jeden rocznik, jedna stacja, jedna komórka, `--limit`): koperty mają zgodne `status`, klucze, sloty i ścieżki (dane bieżące porównywane strukturą); błędy na żywo — współrzędne poza Polską, punkt poza siatką PMAXTP, nieistniejąca wersja, nieobsługiwany root — dają ten sam kod, kod wyjścia i status HTTP; każde znalezisko naprawione z testem regresyjnym offline; raport przebiegu (data, wersje, czasy, różnice) trafia do U15.
