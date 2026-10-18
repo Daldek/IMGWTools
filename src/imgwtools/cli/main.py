@@ -14,7 +14,7 @@ import typer
 from rich.console import Console
 
 from imgwtools._version import __version__
-from imgwtools.cli import admin, db, fetch, list_cmd, pmaxtp, project, series, store
+from imgwtools.cli import admin, fetch, list_cmd, pmaxtp, project, series, store
 
 # Create main app
 app = typer.Typer(
@@ -30,7 +30,6 @@ console = Console()
 app.add_typer(fetch.app, name="fetch", help="Pobieranie danych")
 app.add_typer(list_cmd.app, name="list", help="Listowanie stacji i zbiorow danych")
 app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
-app.add_typer(db.app, name="db", help="Zarzadzanie baza danych cache")
 app.add_typer(store.app, name="store")
 app.add_typer(series.app, name="series")
 app.add_typer(pmaxtp.app, name="pmaxtp")

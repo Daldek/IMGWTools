@@ -315,10 +315,7 @@ def parse_semi_annual_csv(
     Consumers deriving annual characteristics (WQ = annual max, NQ =
     annual min, etc.) are unaffected by plateau duplicates when using
     ``max()``/``min()``, but must deduplicate by ``(period, extremum)``
-    before any ``sum``/``count``. The optional DB-cache layer collapses
-    these automatically via the ``UNIQUE(station_code, hydro_year, period,
-    param, extremum)`` constraint (``db/schema.py``) combined with
-    ``INSERT OR IGNORE`` (``db/repository.py``).
+    before any ``sum``/``count``.
     """
     yield from _parse(content, "polroczne_i_roczne", encoding)
 

@@ -33,10 +33,6 @@ class Settings(BaseSettings):
     # Data directory
     data_dir: Path = Path("./data")
 
-    # Database settings (SQLite cache for hydro data)
-    db_enabled: bool = False
-    db_path: Path = Path("./data/imgw_hydro.db")
-
     # Versioned store REST routes (/api/v1/store, /series, /pmaxtp/store).
     # Unset root: store routes answer 503. Writes need both flags below and
     # the X-API-Key header; the token is compared in constant time.
