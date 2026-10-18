@@ -16,6 +16,7 @@ from imgwtools.exceptions import (
     IMGWDataError,
     IMGWStoreError,
     IMGWValidationError,
+    io_error,
 )
 from imgwtools.fetch import _check_pmaxtp_payload, _validate_poland_coords
 from imgwtools.models import PMaXTPData, PMaXTPResult
@@ -484,8 +485,9 @@ def read_pmaxtp(
     IMGWStoreConflictError
         If a stored version of the cell is corrupted.
     IMGWDataError
-        If the ``cell.json`` document is unreadable or inconsistent with its
-        path.
+        If the ``cell.json`` document is corrupted or inconsistent with its
+        path; with code ``io_error`` (``details.path``) if the system cannot
+        read a version of the cell.
     """
     handle = _handle(root)
     method = _validate_method(method)
@@ -526,5 +528,7 @@ def read_pmaxtp(
         return _result(
             document, latitude=float(center["lat"]), longitude=float(center["lon"])
         )
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         raise IMGWDataError(f"Uszkodzona komórka PMAXTP {path}: {exc}") from exc
+    except OSError as exc:
+        raise io_error(exc) from exc

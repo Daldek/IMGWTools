@@ -35,6 +35,7 @@ from imgwtools import (
     store,
     sync_pmaxtp,
 )
+from imgwtools.exceptions import describe_os_error
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -656,6 +657,136 @@ def test_every_error_code_is_reported_alike_by_every_interface(
             temporary = tmp_path_factory.getbasetemp()
             same_text(raised.detail, body["detail"], temporary)
             same_text(dict(raised.details), body["details"], temporary)
+
+
+# --------------------------------------------------------------------------
+# File-system errors (spec §13.5): io_error, a Polish reason and details.path
+# --------------------------------------------------------------------------
+
+
+def _series_index(root: Path) -> Path:
+    return current_version(root, slot=f"series:{DAILY}").version
+
+
+def _archive_file(root: Path) -> tuple[str, dict[str, object], Path]:
+    archive = current_version(root, slot=PLACEHOLDERS[ARCHIVE]).version
+    return "store export", {"version": archive.relative_to(root).as_posix()}, archive
+
+
+def _series_file(root: Path) -> tuple[str, dict[str, object], Path]:
+    index = _series_index(root)
+    return "series summary", {"version": index.relative_to(root).as_posix()}, index
+
+
+def _series_sidecar(root: Path) -> tuple[str, dict[str, object], Path]:
+    # Found by current_version, which never takes the version for a broken one.
+    index = _series_index(root)
+    return (
+        "series summary",
+        {"dataset": DAILY},
+        index.with_name(f"{index.name}.meta.json"),
+    )
+
+
+def _station_parquet(root: Path) -> tuple[str, dict[str, object], Path]:
+    index = _series_index(root)
+    station = json.loads(index.read_text(encoding="utf-8"))["stations"][RABA]
+    return (
+        "series read",
+        {"dataset": DAILY, "station": RABA},
+        index.parent / station["file"],
+    )
+
+
+def _pmaxtp_cell(root: Path) -> tuple[str, dict[str, object], Path]:
+    cell = current_version(root, slot="pmaxtp:pl.imgw.pmaxtp:POT/751_317").version
+    return "pmaxtp read", {"ind_x": 751, "ind_y": 317}, cell
+
+
+UNREADABLE = {
+    "archive-file": _archive_file,
+    "series-file": _series_file,
+    "series-sidecar": _series_sidecar,
+    "station-parquet": _station_parquet,
+    "pmaxtp-cell": _pmaxtp_cell,
+}
+
+
+def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
+    """The library error, the CLI line and the REST problem report one io_error."""
+    with pytest.raises((IMGWError, OSError)) as caught:
+        run_command(command, options=rooted(options, root))
+    raised = caught.value
+    if isinstance(raised, IMGWError):
+        assert raised.code == "io_error"
+        expected = [raised.detail, dict(raised.details)]
+    else:  # a plain OSError of a write, described by every adapter
+        expected = list(describe_os_error(raised))
+    spec = ERROR_CODES["io_error"]
+
+    printed = cli(*cli_words(command, rooted(options, root)))
+    line = json.loads(printed.stderr.splitlines()[-1])
+    assert (printed.exit_code, printed.stdout, line["code"]) == (
+        spec.exit_code,
+        "",
+        "io_error",
+    )
+    assert canonical([line["detail"], line["details"]]) == canonical(expected)
+
+    answered = rest.request(**rest_request(command, options), headers=headers)
+    body = answered.json()
+    assert schema_errors(body, "problem+json") == []
+    assert (answered.status_code, body["code"], body["title"]) == (
+        spec.http_status,
+        "io_error",
+        spec.title,
+    )
+    # The CLI text with the server root hidden (paths relative to it, T21).
+    assert canonical([body["detail"], body["details"]]) == canonical(expected).replace(
+        f"{root}/", ""
+    )
+    assert str(root) not in answered.text
+    return raised
+
+
+@pytest.mark.parametrize("unreadable", list(UNREADABLE))
+def test_an_unreadable_version_is_an_io_error_in_every_interface(
+    unreadable, cli, rest, server, monkeypatch, tmp_path, served_root
+):
+    root = tmp_path / "store"
+    shutil.copytree(served_root, root)
+    command, options, target = UNREADABLE[unreadable](root)
+    monkeypatch.setattr(server, "store_root", root)
+    target.chmod(0)
+    try:
+        raised = assert_io_error_alike(command, options, root, cli=cli, rest=rest)
+    finally:
+        target.chmod(0o644)
+
+    assert isinstance(raised, IMGWError)
+    assert (raised.detail, dict(raised.details)) == (
+        f"Błąd systemu plików: brak uprawnień: {target}",
+        {"path": str(target)},
+    )
+
+
+def test_a_failed_write_is_the_same_io_error_in_imgw_and_rest(
+    cli, rest, writable, server, monkeypatch, tmp_path, fixture_root, imgw
+):
+    scenario = _io_error(Setting(tmp_path, fixture_root, imgw, monkeypatch))
+    monkeypatch.setattr(server, "store_root", scenario.root)
+
+    raised = assert_io_error_alike(
+        scenario.command,
+        scenario.options,
+        scenario.root,
+        cli=cli,
+        rest=rest,
+        headers=writable,
+    )
+
+    assert isinstance(raised, OSError) and not isinstance(raised, IMGWError)
+    assert raised.filename is not None
 
 
 # --------------------------------------------------------------------------

@@ -23,7 +23,12 @@ from imgwtools.datasets import (
     parse_years,
     station_source_files,
 )
-from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
+from imgwtools.exceptions import (
+    IMGWDataError,
+    IMGWStoreError,
+    IMGWValidationError,
+    io_error,
+)
 from imgwtools.models import Measurement, NormalizedRecord, StationListEntry
 from imgwtools.store.catalog import (
     CATALOG_FILE,
@@ -295,8 +300,9 @@ def read_meta(path: PathArg, /) -> Meta:
     IMGWStoreError
         If the sidecar does not exist.
     IMGWDataError
-        If the sidecar is a symbolic link, unreadable, not valid JSON or does
-        not satisfy ``imgw-meta/1``.
+        If the sidecar is a symbolic link, not valid JSON or does not satisfy
+        ``imgw-meta/1``; with code ``io_error`` (``details.path``) if the
+        system cannot read it.
     """
     given = Path(path)
     sidecar = (
@@ -309,6 +315,8 @@ def read_meta(path: PathArg, /) -> Meta:
     except _Invalid as exc:
         if exc.code == "missing_sidecar":
             raise IMGWStoreError(f"Brak sidecara {sidecar}", code="not_found") from exc
+        if isinstance(exc.__cause__, OSError):
+            raise io_error(exc.__cause__) from exc.__cause__
         raise IMGWDataError(f"Nieprawidłowy sidecar {sidecar}: {exc}") from exc
 
 
@@ -430,8 +438,15 @@ def _entry(
     name: str,
     *,
     server_path: str | None = None,
+    strict: bool = False,
     **options: Any,
 ) -> StoreEntry:
+    """
+    Entry of one version directory; a broken version becomes a problem entry.
+
+    With ``strict`` a version the system cannot read raises `io_error`
+    instead (readers of one slot; a scan reports it as ``unreadable``).
+    """
     try:
         main, meta = _check_version(directory, name, **options)
         if (
@@ -453,10 +468,14 @@ def _entry(
                     "unknown_schema", f"nieobsługiwany schemat szeregu {series_schema}"
                 )
     except _Invalid as exc:
+        if strict and exc.code == "unreadable" and isinstance(exc.__cause__, OSError):
+            raise io_error(exc.__cause__) from exc.__cause__
         return _problem(
             slot, directory, exc.code, f"Wersja {_relative(root, directory)}: {exc}"
         )
     except OSError as exc:
+        if strict:
+            raise io_error(exc) from exc
         return _problem(
             slot, directory, "unreadable", f"Wersja {_relative(root, directory)}: {exc}"
         )
@@ -837,7 +856,8 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
         describes the grammar. Also if the root path contains ``..``.
     IMGWDataError
         If any version in the slot is broken (an older version is never
-        silently selected instead).
+        silently selected instead); with code ``io_error``
+        (``details.path``) if the system cannot read one.
     """
     path = _open(root)
     kind, directory, name, options = _slot_location(path, slot)
@@ -847,7 +867,7 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     entries: dict[Path, StoreEntry] = {}
     for version in sorted(directory.iterdir()):
         entry = (
-            _entry(path, kind, slot, version, name, **options)
+            _entry(path, kind, slot, version, name, strict=True, **options)
             if version.is_dir()
             else _unknown(path, version)
         )
@@ -904,7 +924,7 @@ def _verified(path: Path) -> bytes:
     except FileNotFoundError as exc:
         raise IMGWStoreError(f"Brak pliku wersji: {path}", code="not_found") from exc
     except OSError as exc:
-        raise IMGWDataError(f"Nie można odczytać {path}: {exc}") from exc
+        raise io_error(exc) from exc
     meta = read_meta(path)
     if hashlib.sha256(data).hexdigest() != meta.sha256 or len(data) != meta.size_bytes:
         raise IMGWDataError(
@@ -952,8 +972,9 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
     IMGWStoreError
         If the catalog file or its sidecar does not exist.
     IMGWDataError
-        If the file is unreadable, a symbolic link, does not match its
-        sidecar, or is not a valid station FeatureCollection.
+        If the file is a symbolic link, does not match its sidecar, or is
+        not a valid station FeatureCollection; with code ``io_error``
+        (``details.path``) if the system cannot read it.
     """
     path = _main_file(version, CATALOG_FILE)
     document = _json(path)
@@ -1223,9 +1244,10 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
     IMGWStoreError
         If ``series.json`` or its sidecar does not exist.
     IMGWDataError
-        If the file is unreadable, a symbolic link, does not match its
-        sidecar, or is not a valid ``imgw-series/1`` index (including missing
-        Parquet files).
+        If the file is a symbolic link, does not match its sidecar, or is
+        not a valid ``imgw-series/1`` index (including missing Parquet
+        files); with code ``io_error`` (``details.path``) if the system
+        cannot read it.
     """
     path = _main_file(version, SERIES_FILE)
     document = _json(path)
@@ -1426,8 +1448,9 @@ def read_series(
     IMGWStoreDependencyError
         If ``pyarrow>=15`` is not installed.
     IMGWDataError
-        If the index or Parquet file is unreadable, corrupted or does not
-        match its checksum or metadata.
+        If the index or Parquet file is corrupted or does not match its
+        checksum or metadata; with code ``io_error`` (``details.path``) if
+        the system cannot read it.
     """
     path = _series_path(version, root=root, dataset=dataset)
     index = read_series_index(path)
@@ -1452,8 +1475,12 @@ def read_series(
     parquet = path.parent / entry.file
     try:
         data = parquet.read_bytes()
+    except FileNotFoundError as exc:
+        raise IMGWDataError(
+            f"Brak pliku Parquet stacji {station} ze spisu: {parquet}"
+        ) from exc
     except OSError as exc:
-        raise IMGWDataError(f"Nie można odczytać {parquet}: {exc}") from exc
+        raise io_error(exc) from exc
     if hashlib.sha256(data).hexdigest() != entry.sha256:
         raise IMGWDataError(
             f"Suma kontrolna Parquet stacji {station} nie zgadza się ze spisem: {parquet}"
@@ -1592,8 +1619,9 @@ def summarize_series(
         (code ``not_found``) or ``root`` is not a supported store (code
         ``store_unavailable``).
     IMGWDataError
-        If the index is unreadable, does not match its sidecar or is not a
-        valid ``imgw-series/1`` index.
+        If the index does not match its sidecar or is not a valid
+        ``imgw-series/1`` index; with code ``io_error`` (``details.path``)
+        if the system cannot read it.
     """
     index = read_series_index(_series_path(version, root=root, dataset=dataset))
     descriptor = get_dataset(index.dataset)

@@ -16,7 +16,6 @@ line. Exit codes follow the error registry and the envelope status (spec
 §13.5). The first Ctrl+C requests cancellation, the second aborts at once.
 """
 
-import errno
 import inspect
 import json
 import os
@@ -40,7 +39,7 @@ from imgwtools.commands import (
     data_commands,
     run_command,
 )
-from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError
+from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
 from imgwtools.store.types import CommandOption, DataCommand, Notice, Progress
 
 __all__ = ["ImgwGroup", "register_catalog"]
@@ -72,16 +71,6 @@ _LEVELS = {
     "info": ("Informacja", "cyan"),
     "warning": ("Ostrzeżenie", "yellow"),
     "error": ("Błąd", "red"),
-}
-_OS_REASONS = {
-    errno.EACCES: "brak uprawnień",
-    errno.EPERM: "operacja niedozwolona",
-    errno.ENOENT: "nie ma takiego pliku ani katalogu",
-    errno.ENOTDIR: "element ścieżki nie jest katalogiem",
-    errno.EISDIR: "ścieżka jest katalogiem",
-    errno.EEXIST: "plik już istnieje",
-    errno.ENOSPC: "brak miejsca na urządzeniu",
-    errno.EROFS: "system plików tylko do odczytu",
 }
 _ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 # Exceptions of the Click flavour Typer runs on (its vendored copy or the click
@@ -150,19 +139,6 @@ def _error_line(code: ErrorCode, detail: str, details: Mapping[str, object]) -> 
     return spec.exit_code or 1
 
 
-def _os_error(exc: OSError) -> tuple[str, dict[str, object]]:
-    reason = _OS_REASONS.get(exc.errno or 0) or exc.strerror or str(exc)
-    target = exc.filename
-    if target is None:
-        return f"Błąd systemu plików: {reason}", {}
-    path = (
-        os.fsdecode(target)
-        if isinstance(target, str | bytes | os.PathLike)
-        else str(target)
-    )
-    return f"Błąd systemu plików: {reason}: {path}", {"path": path}
-
-
 def _failure(exc: BaseException) -> int:
     """Report an exception as the JSON error line; return the exit code."""
     if isinstance(exc, KeyboardInterrupt):
@@ -172,7 +148,7 @@ def _failure(exc: BaseException) -> int:
     if isinstance(exc, IMGWError):
         return _error_line(exc.code, exc.detail, exc.details)
     if isinstance(exc, OSError):
-        return _error_line("io_error", *_os_error(exc))
+        return _error_line("io_error", *describe_os_error(exc))
     traceback.print_exception(exc, file=sys.stderr)
     return _error_line(
         "internal_error", f"Błąd wewnętrzny programu ({type(exc).__name__}): {exc}", {}
