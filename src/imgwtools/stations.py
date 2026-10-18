@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from imgwtools.exceptions import IMGWConnectionError
+from imgwtools.exceptions import IMGWConnectionError, IMGWDataError
 
 if TYPE_CHECKING:
     pass
@@ -182,6 +182,8 @@ def get_hydro_stations_with_coords(
     ------
     IMGWConnectionError
         If connection fails.
+    IMGWDataError
+        If the response is not valid JSON.
 
     Examples
     --------
@@ -200,7 +202,7 @@ def get_hydro_stations_with_coords(
         with httpx.Client(timeout=timeout) as client:
             response = client.get(HYDRO_MAP_API_URL, params=params, headers=headers)
             response.raise_for_status()
-            data = response.json()
+            data = _json_payload(response)
     except httpx.TimeoutException as e:
         raise IMGWConnectionError(f"Timeout fetching stations: {e}") from e
     except httpx.HTTPError as e:
@@ -231,7 +233,7 @@ async def get_hydro_stations_with_coords_async(
                 HYDRO_MAP_API_URL, params=params, headers=headers
             )
             response.raise_for_status()
-            data = response.json()
+            data = _json_payload(response)
         except httpx.TimeoutException as e:
             raise IMGWConnectionError(f"Timeout fetching stations: {e}") from e
         except httpx.HTTPError as e:
@@ -300,6 +302,13 @@ async def list_meteo_stations_async(
             raise IMGWConnectionError(f"Failed to fetch station list: {e}") from e
 
     return _parse_meteo_stations_csv(content)
+
+
+def _json_payload(response: httpx.Response) -> dict | list:
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {response.url}") from exc
 
 
 def _parse_hydro_stations_csv(content: str) -> list[HydroStation]:

@@ -97,7 +97,7 @@ class HydroDownloadRequest(BaseModel):
     """Request to generate hydro download URL."""
 
     interval: HydroIntervalEnum
-    year: int = Field(..., ge=1951, le=2024)
+    year: int = Field(..., ge=1951, le=9999)
     month: int | None = Field(
         default=None, ge=1, le=13, description="Month (1-12) or 13 for phenomena"
     )

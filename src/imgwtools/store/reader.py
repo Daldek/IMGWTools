@@ -54,6 +54,7 @@ _KINDS: tuple[EntryKind, ...] = ("archive", "series", "catalog", "pmaxtp", "prob
 _STALE_SECONDS = 24 * 60 * 60
 _SIDECAR = ".meta.json"
 _SHA = re.compile(r"^[0-9a-f]{64}$")
+_DATASET = re.compile(r"^pl\.imgw\.[a-z_]+$")
 _CODE = re.compile(r"^[0-9]{9}$")
 _VERSION_DIR = re.compile(r"^.+_[0-9a-f]{8}$")
 _CELL = re.compile(r"^[0-9]+_[0-9]+$")
@@ -185,6 +186,8 @@ def _parse_meta(payload: object) -> Meta:
     _text(payload, "producer", const="imgwtools")
     _text(payload, "producer_version")
     dataset = _text(payload, "dataset")
+    if not _DATASET.match(dataset):
+        raise _Invalid("invalid_meta", "pole dataset musi być kluczem zbioru pl.imgw.*")
     _text(payload, "country", const="PL")
     _text(payload, "provider", const="IMGW-PIB")
     request = _object(payload, "request")

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from zipfile import BadZipFile, ZipFile
 
 import httpx
@@ -82,6 +82,13 @@ def _download_result(response: httpx.Response) -> DownloadResult:
         last_modified=response.headers.get("Last-Modified"),
         content_length=content_length,
     )
+
+
+def _json_payload(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {response.url}") from exc
 
 
 def _validate_poland_coords(latitude: float, longitude: float) -> None:
@@ -168,7 +175,7 @@ def fetch_pmaxtp(
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
     except httpx.TimeoutException as e:
         raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
     except httpx.HTTPStatusError as e:
@@ -212,7 +219,7 @@ async def fetch_pmaxtp_async(
         try:
             response = await client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
         except httpx.TimeoutException as e:
             raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
         except httpx.HTTPStatusError as e:
@@ -283,7 +290,7 @@ def fetch_hydro_current(
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
     except httpx.TimeoutException as e:
         raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
     except httpx.HTTPError as e:
@@ -315,7 +322,7 @@ async def fetch_hydro_current_async(
         try:
             response = await client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
         except httpx.TimeoutException as e:
             raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
         except httpx.HTTPError as e:
@@ -378,7 +385,7 @@ def fetch_synop(
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
     except httpx.TimeoutException as e:
         raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
     except httpx.HTTPError as e:
@@ -416,7 +423,7 @@ async def fetch_synop_async(
         try:
             response = await client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
         except httpx.TimeoutException as e:
             raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
         except httpx.HTTPError as e:
@@ -460,6 +467,8 @@ def fetch_warnings(
     ------
     IMGWConnectionError
         If connection fails.
+    IMGWDataError
+        If the response is not valid JSON.
 
     Examples
     --------
@@ -473,7 +482,7 @@ def fetch_warnings(
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
     except httpx.TimeoutException as e:
         raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
     except httpx.HTTPError as e:
@@ -504,7 +513,7 @@ async def fetch_warnings_async(
         try:
             response = await client.get(url)
             response.raise_for_status()
-            raw_data = response.json()
+            raw_data = _json_payload(response)
         except httpx.TimeoutException as e:
             raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
         except httpx.HTTPError as e:

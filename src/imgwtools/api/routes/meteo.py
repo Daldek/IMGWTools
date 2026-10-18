@@ -91,6 +91,10 @@ async def get_synop_data(
 
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"IMGW API error: {str(e)}")
+        except ValueError:
+            raise HTTPException(
+                status_code=502, detail="Niepoprawna odpowiedź JSON z API IMGW"
+            )
 
 
 @router.get("/current", response_model=list[MeteoCurrentData])
@@ -119,19 +123,21 @@ async def get_current_meteo_data(
             for item in items:
                 results.append(
                     MeteoCurrentData(
-                        station_id=item.get("id_stacji", ""),
+                        station_id=item.get("kod_stacji", ""),
                         station_name=item.get("nazwa_stacji", ""),
-                        temperature=float(item["temperatura"])
-                        if item.get("temperatura")
+                        temperature=float(item["temperatura_powietrza"])
+                        if item.get("temperatura_powietrza")
                         else None,
-                        wind_speed=float(item["predkosc_wiatru"])
-                        if item.get("predkosc_wiatru")
+                        wind_speed=float(item["wiatr_srednia_predkosc"])
+                        if item.get("wiatr_srednia_predkosc")
                         else None,
-                        humidity=float(item["wilgotnosc"])
-                        if item.get("wilgotnosc")
+                        humidity=float(item["wilgotnosc_wzgledna"])
+                        if item.get("wilgotnosc_wzgledna")
                         else None,
-                        precipitation=float(item["opad"]) if item.get("opad") else None,
-                        measurement_date=item.get("data_pomiaru"),
+                        precipitation=float(item["opad_10min"])
+                        if item.get("opad_10min")
+                        else None,
+                        measurement_date=item.get("temperatura_powietrza_data"),
                     )
                 )
 
@@ -139,6 +145,10 @@ async def get_current_meteo_data(
 
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"IMGW API error: {str(e)}")
+        except ValueError:
+            raise HTTPException(
+                status_code=502, detail="Niepoprawna odpowiedź JSON z API IMGW"
+            )
 
 
 @router.post("/download-url", response_model=DownloadURLResponse)
