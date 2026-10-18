@@ -265,7 +265,9 @@ class StoreEntryResponse(BaseModel):
     """Published version or detected problem of an offline store scan."""
 
     kind: Literal["archive", "series", "catalog", "pmaxtp", "problem"]
-    slot: str = Field(..., description="Identyfikator slotu, np. series:hydro_daily")
+    slot: str | None = Field(
+        ..., description="Identyfikator slotu, np. series:hydro_daily"
+    )
     version: str | None = Field(
         ..., description="Plik główny wersji albo element z problemem (względnie)"
     )
@@ -308,7 +310,7 @@ class StoreSyncRequest(BaseModel):
 class OperationResultResponse(BaseModel):
     """Outcome of one archive slot in a sync report."""
 
-    slot: str
+    slot: str | None
     status: Literal[
         "created",
         "relabeled",
@@ -320,6 +322,8 @@ class OperationResultResponse(BaseModel):
     ]
     version: str | None
     error: str | None
+    task: str | None = None
+    error_code: str | None = None
 
 
 class SeriesReportResponse(BaseModel):
