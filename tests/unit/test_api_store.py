@@ -10,10 +10,12 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from imgwtools.api.main import app
+from imgwtools.api.routes import store as store_routes
 from imgwtools.config import Settings, settings
 from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.datasets import archive_files
 from imgwtools.store import export_series, init_store, read_series, read_series_index
+from imgwtools.store.types import OperationResult, SeriesReport, SyncReport
 from imgwtools.testing import build_fixture_store
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -274,6 +276,58 @@ def test_series_version_through_symlink_is_rejected(client, monkeypatch, tmp_pat
 
     assert response.status_code == 400
     assert "dowiązanie" in response.json()["detail"]
+
+
+def test_store_error_detail_hides_absolute_root(client, monkeypatch, tmp_path):
+    root = build_fixture_store(tmp_path / "store").root
+    monkeypatch.setattr(settings, "store_root", root)
+    version = series_version(root)
+    parquet = sorted((root / version).glob("stations/*.parquet"))[0]
+    parquet.write_bytes(b"corrupted")
+
+    response = TestClient(app, raise_server_exceptions=False).get(
+        f"/api/v1/series/{parquet.stem}", params={"version": version, "variables": "Q"}
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert str(tmp_path) not in detail
+    assert parquet.relative_to(root).as_posix() in detail
+
+
+def test_sync_report_text_hides_absolute_root_only(
+    client, empty_root, writable, monkeypatch
+):
+    sibling = Path(f"{empty_root}-old") / "x.zip"
+    report = SyncReport(
+        items=(
+            OperationResult(
+                "archive:x",
+                "failed",
+                None,
+                f"Uszkodzona wersja archiwum: {empty_root / 'archives' / 'x'}; "
+                f"zob. {sibling}; magazyn {empty_root}",
+            ),
+        ),
+        series=(
+            SeriesReport(
+                "failed", None, 0, (), (f"Nie można odczytać {empty_root}/a.parquet",)
+            ),
+        ),
+        cancelled=False,
+    )
+    monkeypatch.setattr(store_routes, "run_command", lambda command, options: report)
+
+    body = client.post(
+        "/api/v1/store/sync",
+        json={"datasets": [HYDRO], "years": [2024]},
+        headers=writable,
+    ).json()
+
+    assert body["items"][0]["error"] == (
+        f"Uszkodzona wersja archiwum: archives/x; zob. {sibling}; magazyn ."
+    )
+    assert body["series"][0]["problems"] == ["Nie można odczytać a.parquet"]
 
 
 @pytest.mark.parametrize("path,body", WRITES)

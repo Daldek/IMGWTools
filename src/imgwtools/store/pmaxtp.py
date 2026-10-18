@@ -314,7 +314,9 @@ def sync_pmaxtp(
     on_progress : ProgressHook or None, optional
         Called once with the ``created`` or ``unchanged`` progress event.
     on_notice : NoticeHook or None, optional
-        Called with the license notice when a new version is created.
+        Called with the license notice when a new version is created and with a
+        ``leftover_incoming`` warning for every removed staging directory older
+        than 24 hours.
     cancel : Cancel or None, optional
         Polled before the request and before writing; returning ``True``
         yields a ``cancelled`` result without writing.
@@ -413,6 +415,7 @@ def sync_pmaxtp(
         data=data,
         meta=meta,
         label=label,
+        on_notice=on_notice,
     )
     status: Literal["created", "unchanged"] = "created" if created else "unchanged"
     if on_progress is not None:

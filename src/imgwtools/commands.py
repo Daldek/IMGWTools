@@ -960,6 +960,7 @@ def _run_fetch(command: str, options: Options, hooks: Hooks) -> Path:
         hooks["cancel"],
     )
     jobs = _fetch_jobs(command, options)
+    downloaded = 0
     for index, (server_path, _url, download) in enumerate(jobs, 1):
         if cancel is not None and cancel():
             if on_notice is not None:
@@ -985,10 +986,24 @@ def _run_fetch(command: str, options: Options, hooks: Hooks) -> Path:
                     Progress(index, len(jobs), "archive", "failed", server_path)
                 )
             continue
+        downloaded += 1
         if on_progress is not None:
             on_progress(
                 Progress(index, len(jobs), "archive", "downloaded", f"Pobrano {target}")
             )
+    if downloaded and on_notice is not None:
+        attribution = get_dataset(
+            "pl.imgw.hydro_daily"
+            if command == "fetch hydro"
+            else "pl.imgw.meteo_climate_daily"
+        ).license.attribution
+        on_notice(
+            Notice(
+                "info",
+                "license_terms",
+                f"{attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+            )
+        )
     return output
 
 

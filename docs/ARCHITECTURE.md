@@ -176,15 +176,15 @@ The CLI uses the library directly and downloads data straight from IMGW servers;
 - `<sha8>` = first 8 hex digits of the full SHA-256 of the main file; labels come from `Last-Modified` (UTC) or download time.
 - Every main file has an immutable `imgw-meta/1` sidecar: producer/version, dataset, request, IMGW-PIB license and attribution, `downloaded_at`, `sha256`, `size_bytes`, HTTP signals.
 - Append-only: no overwrite, hardlinks or `latest` path. The current version is computed by `current_version(root, slot=...)`. A new HTTP signal with identical bytes is `relabeled` (a copy), identical signal and bytes are `unchanged`.
-- Publication: write into a unique `.incoming/` staging directory, `fsync`, then a single no-replace rename of the whole version directory (`renameat2(RENAME_NOREPLACE)` on POSIX); a filesystem without atomic no-replace rename is refused explicitly.
+- Publication: write into a unique `.incoming/` staging directory, `fsync`, then a single no-replace rename of the whole version directory (`renameat2(RENAME_NOREPLACE)` on Linux); other systems and filesystems without atomic no-replace rename are refused with an explicit `IMGWStoreConflictError`.
 - Kartograf stores are recognized by marker names/schema strings without importing Kartograf; nesting IMGW and Kartograf roots is refused.
 
 ### Flow
 ```
 check_store  ── listing + HEAD only ──▶ StorePlan (imgw-plan/1, saved outside the store)
 sync_store   ── HEAD again; changed → stale_plan; GET only new/missing ──▶ archive versions
-build_series ── current archive versions → Parquet snapshot (reused if inputs unchanged)
-build_catalog── station lists + public API (+ static/user locations) → stations.geojson
+build_series ── current archive versions → Parquet snapshot (reused if the current series version has the same inputs)
+build_catalog── station lists (re-validated with HEAD; changed/unverifiable lists archived via write_archive first) + public API (+ static/user locations) → stations.geojson
 read_*       ── offline, read-only; problems reported as StoreEntry(kind="problem")
 ```
 

@@ -991,7 +991,9 @@ def test_fetch_hydro_mirrors_server_paths_and_reports_failures(monkeypatch, tmp_
         "polr_H_2024.zip": b"H2024",
         "polr_Q_2024.zip": b"Q2024",
     }
-    assert [e.code for e in events if isinstance(e, Notice)] == ["download_failed"]
+    notices = [e for e in events if isinstance(e, Notice)]
+    assert [e.code for e in notices] == ["download_failed", "license_terms"]
+    assert "Instytut Meteorologii i Gospodarki Wodnej" in notices[-1].text
     assert [e.status for e in events if not isinstance(e, Notice)] == [
         "downloaded",
         "downloaded",

@@ -34,7 +34,8 @@ Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite. Decyzje:
   serwera IMGW (np. `dane_hydrologiczne/dobowe/2024/codz_2024.zip`) zamiast płaskiego
   katalogu, zapis idzie przez plik `.part` i `os.replace`, a ponowne pobranie nadpisuje
   plik zamiast go pomijać. `--year` przyjmuje rok lub zakres (`2020-2023`); `--check`
-  wypisuje plan bez pobierania.
+  wypisuje plan bez pobierania. Po pobraniu co najmniej jednego pliku komenda emituje
+  komunikat `license_terms` z warunkami IMGW-PIB (jak zapis do magazynu).
 - **`parse_zip_file`** zgłasza uszkodzone archiwum jako `IMGWDataError`, a nie
   `zipfile.BadZipFile`; ZIP jest czytany z limitami liczby/rozmiaru plików i bez
   niebezpiecznych ścieżek.
@@ -79,6 +80,8 @@ Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite. Decyzje:
   serwerowym, absolutnym `IMGW_STORE_ROOT`; bez niego trasy magazynu zwracają 503.
   Zapis wymaga jednocześnie `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN`
   i nagłówka `X-API-Key`; CSV współrzędnych użytkownika tylko z `IMGW_USER_LOCATIONS_DIR`.
+  Ścieżki w odpowiedziach są względne do root, także w tekstach (`detail` błędu, `error`,
+  `problems`) — serwer nie ujawnia bezwzględnych katalogów.
 - **`imgwtools.testing.build_fixture_store`** — publiczny, offline budowniczy magazynu
   testowego (warianty `complete`, `corrupt`, `unknown_schema`) z nagranymi odpowiedziami
   dla konsumentów (Archiwista, Retman).
@@ -86,6 +89,46 @@ Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite. Decyzje:
   (instrukcja `pip install imgwtools[store]`), `IMGWPlanStaleError`, `IMGWProjectError`.
 - **Dodatek** `imgwtools[store]` = `pyarrow>=15` (tylko ścieżki Parquet; import rdzenia
   nie wymaga pyarrow).
+
+### Zachowanie magazynu
+
+- `build_catalog` sprawdza zapisane listy stacji (`lista_stacji_hydro.csv`,
+  `wykaz_stacji.csv`) przez `HEAD` tak jak `check_catalog`: lista zmieniona (inny
+  ETag/Last-Modified) lub bez porównywalnego sygnału jest pobierana i zapisywana przez
+  `write_archive` przed budową katalogu (identyczne bajty → `unchanged`), więc raport
+  `newer` z `check_catalog` usuwa kolejna budowa.
+- Katalog stacji zachowuje kody znane wyłącznie z lokalnego pliku statycznego
+  `hydro_stations_locations.csv` (wpis `hydro` bez nazwy, `active=false`, położenie
+  `static`); kody wyłącznie z pliku użytkownika trafiają do `problems` (plik ten tylko
+  uzupełnia położenia).
+- `summarize_coverage` i `series.json`: w zbiorach miesięcznych i półrocznych
+  miesiąc/okres posiadanego archiwum, w którym stacji brak (a inne stacje są), jest luką
+  w `gaps` — jak dni w zbiorach dobowych; dla półrocza jednostkę uznaje się za posiadaną
+  per zmienna (osobne archiwa `polr_H/Q/T`).
+- `build_series` zwraca `reused` wyłącznie dla bieżącej wersji szeregu; gdy archiwum
+  wróci do wcześniejszej treści, powstaje nowa wersja, która staje się bieżąca.
+- `build_series` nie przechowuje wszystkich rekordów zbioru: rekordy są składane do
+  wartości stacji w trakcie parsowania (jednakowe pomiary współdzielą jeden obiekt),
+  a pokrycie liczone stacja po stacji — szczyt pamięci budowy niższy o ok. 57%
+  (pomiar: syntetyczne archiwum dobowe, 110 tys. rekordów; 179 → 77 MiB).
+- `write_archive`: powrót wcześniejszego sygnału HTTP przy tych samych bajtach (ETag
+  E1→E2→E1) daje `unchanged`, nie kolejną wersję `+<8 hex>`; wersja z sidecarem bez
+  `extra.http` daje `IMGWStoreConflictError`.
+- Sprzątanie `.incoming/` (staging starszy niż 24 h) toleruje równoległe usunięcie przez
+  inny proces i zgłasza każdy usunięty katalog przez `on_notice` kodem
+  `leftover_incoming` (`write_archive`, `build_series`, `build_catalog`, `sync_pmaxtp`).
+- Kontrola katalogów Kartografa przed zapisem nie przegląda własnych drzew wersji
+  magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `.incoming/`): koszt zapisu
+  nie rośnie z liczbą wersji, a uszkodzony sidecar w innym slocie nie blokuje zapisów.
+- `init_store` na systemie plików bez dowiązań twardych (SMB, FAT) zgłasza
+  `IMGWStoreError` z polskim komunikatem.
+- `iter_store` zgłasza wersję szeregu z nieobsługiwanym `extra.series_schema`
+  (np. `imgw-series/2`) jako problem `unknown_schema`; `current_version` dla takiego
+  slotu kończy się `IMGWDataError`.
+- Bezpieczeństwo: `StorePlan.from_json` (także plan przekazany w
+  `POST /api/v1/store/sync`) odrzuca pozycje, których `url` różni się od adresu
+  z rejestru zbiorów — zapytania HEAD/GET trafiają wyłącznie na serwery IMGW.
+- `export_series` tworzy plik CSV z uprawnieniami zgodnymi z umask (np. 0644).
 
 ### Schematy i polityka wersji (IMGW-13)
 

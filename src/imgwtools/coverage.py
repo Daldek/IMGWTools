@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 
-from imgwtools.datasets import get_dataset
+from imgwtools.datasets import DatasetDescriptor, get_dataset
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 from imgwtools.models import Measurement, NormalizedRecord
 from imgwtools.store.types import StationCoverage
 
 _PERIODS = ("winter", "summer", "annual")
+
+# Observations of one station: unit start date and half-year period (``None``
+# outside semi-annual data) mapped to the measurements of that unit.
+_StationValues = Mapping[tuple[date, str | None], Mapping[str, Measurement]]
 
 
 def _next_month(day: date) -> date:
@@ -40,16 +45,137 @@ def _gaps(missing: list[date], *, time_unit: str) -> tuple[tuple[date, date], ..
     return tuple(spans)
 
 
+class _KnownUnits:
+    """
+    Units that the records of a dataset show to be published in a possessed archive.
+
+    Daily and monthly archives carry every variable, so any record of any station
+    in a calendar month marks that month as published. Semi-annual archives are
+    separate per parameter, so a period of a hydrological year is published for
+    a variable only when some record carries that variable there. Units without
+    any record stay unknown and are never gaps.
+    """
+
+    def __init__(self, time_unit: str) -> None:
+        self._time_unit = time_unit
+        self._months: set[date] = set()
+        self._ordered: list[date] = []
+        self._half_years: dict[tuple[str | None, str], set[date]] = defaultdict(set)
+
+    def add(self, record: NormalizedRecord) -> None:
+        """Mark the units published according to one record."""
+        if self._time_unit == "half_year":
+            for variable in record.measurements:
+                self._half_years[(record.period, variable)].add(record.date)
+            return
+        month = record.date.replace(day=1)
+        if month not in self._months:
+            self._months.add(month)
+            self._ordered = []
+
+    def missing(
+        self,
+        period: str | None,
+        variable: str,
+        values: Mapping[date, Measurement],
+        first: date,
+        last: date,
+    ) -> list[date]:
+        """Sorted published units between ``first`` and ``last`` without a value."""
+
+        def absent(unit: date) -> bool:
+            measurement = values.get(unit)
+            return measurement is None or measurement.value is None
+
+        if self._time_unit == "half_year":
+            return sorted(
+                unit
+                for unit in self._half_years.get((period, variable), ())
+                if first < unit < last and absent(unit)
+            )
+        if not self._ordered:
+            self._ordered = sorted(self._months)
+        months = self._ordered[
+            bisect_left(self._ordered, first.replace(day=1)) : bisect_right(
+                self._ordered, last
+            )
+        ]
+        if self._time_unit == "month":
+            return [month for month in months if first < month < last and absent(month)]
+        result: list[date] = []
+        for month in months:
+            day = max(first, month)
+            end = min(last, _next_month(month) - timedelta(days=1))
+            while day <= end:
+                if absent(day):
+                    result.append(day)
+                day += timedelta(days=1)
+        return result
+
+
+def _station_coverage(
+    station: str,
+    values: _StationValues,
+    *,
+    descriptor: DatasetDescriptor,
+    known: _KnownUnits,
+) -> list[StationCoverage]:
+    """Coverage of every variable (and half-year period) of one station."""
+    series: dict[tuple[str | None, str], dict[date, Measurement]] = defaultdict(dict)
+    for (day, period), columns in values.items():
+        for variable, measurement in columns.items():
+            series[(period, variable)][day] = measurement
+    result: list[StationCoverage] = []
+    periods = _PERIODS if descriptor.time_unit == "half_year" else (None,)
+    for period in periods:
+        for variable, unit in descriptor.variables.items():
+            observations = series.get((period, variable), {})
+            observed = sorted(
+                day
+                for day, measurement in observations.items()
+                if measurement.value is not None
+            )
+            first, last = (observed[0], observed[-1]) if observed else (None, None)
+            missing = (
+                known.missing(period, variable, observations, observed[0], observed[-1])
+                if observed
+                else []
+            )
+            result.append(
+                StationCoverage(
+                    station=station,
+                    variable=variable,
+                    unit=unit,
+                    period=period,
+                    first=first,
+                    last=last,
+                    with_value=len(observed),
+                    accumulated=sum(
+                        measurement.flag == "accumulated"
+                        and measurement.value is not None
+                        for measurement in observations.values()
+                    ),
+                    gaps=_gaps(missing, time_unit=descriptor.time_unit),
+                )
+            )
+    return result
+
+
 def summarize_coverage(
     records: Iterable[NormalizedRecord], /, *, dataset: str
 ) -> list[StationCoverage]:
     """
     Summarize the coverage of each station and variable of a series dataset.
 
-    Records identify observed months, not all possessed archive periods, so
-    archive months absent from ``records`` stay unknown rather than counted as
-    gaps. The series builder determines its ``periods`` from the actual archive
-    files.
+    Gaps are units without a value between the first and last value that the
+    records show to be published: for daily and monthly data any record of the
+    dataset in a calendar month publishes that month for every station, for
+    semi-annual data (archives separate per parameter) a period of a year is
+    published for a variable when some record carries that variable there. A
+    station absent from a published unit has a gap there; units without any
+    record (e.g. an archive that was not downloaded) stay unknown rather than
+    counted as gaps. The series builder computes the same coverage per station
+    and determines its ``periods`` from the actual archive files.
 
     Parameters
     ----------
@@ -64,8 +190,8 @@ def summarize_coverage(
     list of StationCoverage
         One entry per station, variable (and half-year period for semi-annual
         data), sorted by station: first and last date with a value, the number
-        of values and accumulated values, and the gaps of known missing units
-        between them.
+        of values and accumulated values, and the gaps of published units
+        without a value between them.
 
     Raises
     ------
@@ -79,79 +205,32 @@ def summarize_coverage(
     descriptor = get_dataset(dataset)
     if descriptor.time_unit not in ("day", "month", "half_year"):
         raise IMGWValidationError(f"Zbiór {dataset} nie zawiera szeregu pomiarowego")
-    observations: dict[tuple[str, str | None, str, date], Measurement] = {}
-    stations: set[str] = set()
-    known_months: set[tuple[int, int]] = set()
+    known = _KnownUnits(descriptor.time_unit)
+    stations: dict[str, dict[tuple[date, str | None], dict[str, Measurement]]] = (
+        defaultdict(dict)
+    )
     for record in records:
         if record.dataset != dataset:
             raise IMGWValidationError(
                 f"Rekord zbioru {record.dataset} nie należy do {dataset}"
             )
-        stations.add(record.station_code)
-        if descriptor.time_unit == "day":
-            known_months.add((record.date.year, record.date.month))
+        known.add(record)
         period = record.period if descriptor.time_unit == "half_year" else None
+        columns = stations[record.station_code].setdefault((record.date, period), {})
         for variable, measurement in record.measurements.items():
             if variable not in descriptor.variables:
                 raise IMGWDataError(f"Nieznana zmienna {variable} w zbiorze {dataset}")
-            key = (record.station_code, period, variable, record.date)
-            if key in observations and observations[key] != measurement:
+            previous = columns.get(variable)
+            if previous is not None and previous != measurement:
                 raise IMGWDataError(
                     f"Sprzeczne wartości {variable} stacji {record.station_code} z {record.date}"
                 )
-            observations[key] = measurement
-
-    per_variable: dict[tuple[str, str | None, str], dict[date, Measurement]] = (
-        defaultdict(dict)
-    )
-    for (station, period, variable, day), measurement in observations.items():
-        per_variable[(station, period, variable)][day] = measurement
-
+            columns[variable] = measurement
     result: list[StationCoverage] = []
-    periods = _PERIODS if descriptor.time_unit == "half_year" else (None,)
-    available_months = sorted((date(year, month, 1) for year, month in known_months))
     for station in sorted(stations):
-        for period in periods:
-            for variable, unit in descriptor.variables.items():
-                values = per_variable.get((station, period, variable), {})
-                observed = sorted(
-                    day
-                    for day, measurement in values.items()
-                    if measurement.value is not None
-                )
-                first, last = (observed[0], observed[-1]) if observed else (None, None)
-                missing: list[date] = []
-                if first is not None and last is not None:
-                    if descriptor.time_unit == "day":
-                        for month in available_months:
-                            start = max(first, month)
-                            end = min(last, _next_month(month) - timedelta(days=1))
-                            day = start
-                            while day <= end:
-                                if day not in values or values[day].value is None:
-                                    missing.append(day)
-                                day += timedelta(days=1)
-                    else:
-                        missing = sorted(
-                            day
-                            for day, measurement in values.items()
-                            if first < day < last and measurement.value is None
-                        )
-                result.append(
-                    StationCoverage(
-                        station=station,
-                        variable=variable,
-                        unit=unit,
-                        period=period,
-                        first=first,
-                        last=last,
-                        with_value=len(observed),
-                        accumulated=sum(
-                            measurement.flag == "accumulated"
-                            and measurement.value is not None
-                            for measurement in values.values()
-                        ),
-                        gaps=_gaps(missing, time_unit=descriptor.time_unit),
-                    )
-                )
+        result.extend(
+            _station_coverage(
+                station, stations[station], descriptor=descriptor, known=known
+            )
+        )
     return result

@@ -369,6 +369,16 @@ def _entry(
                 "invalid_meta",
                 "request.server_path w sidecarze nie odpowiada ścieżce wersji",
             )
+        if kind == "series":
+            series_schema = meta.extra.get("series_schema")
+            if not isinstance(series_schema, str):
+                raise _Invalid(
+                    "invalid_meta", "pole extra.series_schema musi być tekstem"
+                )
+            if series_schema != SERIES_SCHEMA:
+                raise _Invalid(
+                    "unknown_schema", f"nieobsługiwany schemat szeregu {series_schema}"
+                )
     except _Invalid as exc:
         return _problem(
             slot, directory, exc.code, f"Wersja {_relative(root, directory)}: {exc}"
@@ -553,8 +563,9 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
     """
     Scan every published version and every problem offline, without writing anything.
 
-    Unknown directories, missing sidecars, corrupted JSON, unknown schemas,
-    size mismatches and ``.incoming`` stagings older than 24 hours are
+    Unknown directories, missing sidecars, corrupted JSON, unknown schemas
+    (of the sidecar or, for series, of ``extra.series_schema``), size
+    mismatches and ``.incoming`` stagings older than 24 hours are
     reported as separate ``StoreEntry(kind="problem")`` entries; younger
     stagings are private and are not versions. Files are not hashed during
     the scan (only their size is compared with ``size_bytes``).

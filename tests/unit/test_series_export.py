@@ -2,6 +2,8 @@
 
 import csv
 import io
+import os
+import stat
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -364,3 +366,14 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
         export_series(hydro_year, station=STATION, path=target, variables=["H", "Q"])
     assert target.read_bytes() == before
     assert sorted(path.name for path in tmp_path.iterdir()) == ["out.csv", "store"]
+
+
+def test_exported_file_mode_follows_umask(hydro_year, tmp_path):
+    previous = os.umask(0o022)
+    try:
+        target = export_series(
+            hydro_year, station=STATION, path=tmp_path / "out.csv", variables=["H"]
+        )
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import os
-import tempfile
+import uuid
 from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal
@@ -180,13 +180,10 @@ def export_series(
                 cells += [_timestamp(start), _timestamp(end)]
         return cells
 
-    descriptor_fd, part_name = tempfile.mkstemp(
-        prefix=f".{target.name}.", suffix=".part", dir=target.parent
-    )
-    part = Path(part_name)
+    part = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")
     written = 0
     try:
-        with os.fdopen(descriptor_fd, "w", encoding="utf-8", newline="") as stream:
+        with part.open("x", encoding="utf-8", newline="") as stream:
             writer = csv.writer(stream)
             writer.writerow(header)
             writer.writerow([*row(first), *attribution])
