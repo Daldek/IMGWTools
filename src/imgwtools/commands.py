@@ -1,88 +1,118 @@
-"""Katalog komend danych i jeden dispatcher publicznych API (spec §10).
+"""
+Catalog of the 35 data commands and the single dispatcher of public functions.
 
-``data_commands`` opisuje każdą komendę czytającą lub piszącą dane. CLI, REST i
-projekt korzystają z ``validate_command``/``format_command``/``check_command``/
-``run_command`` zamiast własnej walidacji i własnych żądań HTTP.
+``data_commands`` describes every operation of IMGWTools (spec §13.3). Each
+command calls exactly one public function whose parameters carry the option
+names; the CLI, the REST API, the web GUI and projects use `validate_command`,
+`format_command`, `check_command`, `run_command` and `command_schema` instead
+of their own validation, HTTP requests or option lists. `run_command` and
+`check_command` return the ``imgw-result/1`` envelope `CommandResult`.
 """
 
-from __future__ import annotations
-
 import importlib
+import inspect
 import json
 import math
 import os
 import re
 import shlex
-import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
-from functools import partial
-from pathlib import Path, PurePosixPath
-from types import ModuleType
-from typing import Any, NoReturn
+from pathlib import Path
+from typing import Any, Literal, NoReturn, cast
 
 from imgwtools import fetch as _fetch
+from imgwtools import stations as _stations
 from imgwtools import store as _store
-from imgwtools.core.url_builder import (
-    IMGW_PUBLIC_DATA_URL,
-    MeteoInterval,
-    MeteoSubtype,
-    build_meteo_url,
+from imgwtools._version import __version__
+from imgwtools.core.url_builder import build_api_url, build_pmaxtp_url
+from imgwtools.datasets import (
+    ArchiveFile,
+    DatasetDescriptor,
+    MonthsArg,
+    YearsArg,
+    archive_files,
+    datasets,
+    get_dataset,
+    parse_months,
+    parse_years,
 )
-from imgwtools.datasets import ArchiveFile, archive_files, datasets, get_dataset
-from imgwtools.exceptions import IMGWError, IMGWStoreError, IMGWValidationError
-from imgwtools.models import PMaXTPResult
+from imgwtools.exceptions import (
+    ERROR_CODES,
+    IMGWCancelledError,
+    IMGWError,
+    IMGWValidationError,
+)
+from imgwtools.store import reader as _reader
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
     CommandOption,
+    CommandResult,
     DataCommand,
+    DownloadReport,
     Notice,
     NoticeHook,
-    PathArg,
+    Page,
     PlanAction,
     PMaXTPStoreResult,
-    Progress,
     ProgressHook,
-    Project,
     ProjectReport,
     SeriesReport,
-    SeriesSelection,
-    StoreEntry,
-    StoreHandle,
-    StoreInfo,
     StorePlan,
     SyncReport,
 )
 
 __all__ = [
     "check_command",
+    "command_schema",
     "data_commands",
     "format_command",
     "run_command",
     "validate_command",
 ]
 
+Options = dict[str, Any]
+Hooks = dict[str, Any]
+Status = Literal["ok", "partial", "failed", "cancelled"]
+OptionType = Literal[
+    "str", "int", "float", "bool", "date", "path", "list", "choice", "object"
+]
+ItemType = Literal["str", "int", "year", "choice"]
+Checker = Callable[[Options, Hooks], StorePlan]
+Rule = Callable[[Options, bool], None]
+
 PROJECT_FILE = "imgw-project.json"
 _STORE_MARKER = "imgw-store.json"
-_DEFAULT_OUTPUT = Path("./data/downloaded")
+# Default download directory; projects resolve it against the project directory.
+_DEFAULT_OUTPUT = Path("data/downloaded")
+_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+_RANGE = "^[0-9]{1,4}-[0-9]{1,4}$"
+_STATION = "^[0-9]{9}$"
+_SYNOP_STATION = "^[0-9]{5}$"
+_TASK_PATTERN = "^[a-z0-9][a-z0-9_-]{0,63}$"
+_TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+_PATTERN_TEXT = {
+    _STATION: "kod stacji z 9 cyfr",
+    _SYNOP_STATION: "kod stacji synoptycznej z 5 cyfr",
+    _TASK_PATTERN: "nazwa zadania z 1–64 znaków a-z, 0-9, _ lub -, "
+    "zaczynająca się literą lub cyfrą",
+}
+_INTEGER = re.compile(r"-?[0-9]+")
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_KINDS = ("hydro", "meteo")
+_YEAR_TYPES = ("hydrological", "calendar")
+_ARCHIVE_DATASETS = tuple(
+    d.key for d in datasets() if d.first_year is not None and d.server_dir is not None
+)
 _SERIES_DATASETS = tuple(
     d.key
     for d in datasets()
     if d.in_store and d.time_unit in ("day", "month", "half_year")
 )
-_YEAR_TYPES = ("hydrological", "calendar")
-_STATION = re.compile(r"[0-9]{9}")
-_TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
-_YEARS = re.compile(r"([0-9]{1,4})(?:-([0-9]{1,4}))?")
-_INTEGER = re.compile(r"-?[0-9]+")
-_HYDRO_INTERVALS = {
-    "dobowe": "pl.imgw.hydro_daily",
-    "miesieczne": "pl.imgw.hydro_monthly",
-    "polroczne_i_roczne": "pl.imgw.hydro_semiannual",
-}
-# Komendy, które zadanie projektu może zapisać w manifeście (bez komend samego projektu).
+# Commands a project task may store in the manifest (spec §13.3).
 _TASK_COMMANDS = (
     "store info",
     "store scan",
@@ -90,697 +120,1392 @@ _TASK_COMMANDS = (
     "store sync",
     "store catalog",
     "series build",
-    "series export",
     "series select",
+    "series export",
     "pmaxtp check",
     "pmaxtp sync",
     "pmaxtp read",
-    "fetch hydro",
-    "fetch meteo",
+    "datasets download",
 )
+# Options of paths relative to the project directory, kept as given.
+_PROJECT_PATHS = ("store_dir", "geometry")
+_DONE = ("created", "relabeled", "unchanged", "reused")
+_EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
+_GROUPS = {
+    "datasets": "Rejestr zbiorów IMGW: lista, pliki i pobieranie",
+    "stations": "Wyszukiwanie stacji",
+    "current": "Dane bieżące z API IMGW",
+    "pmaxtp": "Opady maksymalne PMAXTP",
+    "store": "Wersjonowany magazyn",
+    "series": "Szeregi stacji",
+    "project": "Projekty imgw-project/1",
+    "commands": "Opis katalogu komend",
+}
+_STORE_FUNCTIONS = (
+    "check_pmaxtp",
+    "sync_pmaxtp",
+    "read_pmaxtp",
+    "init_store",
+    "store_info",
+    "iter_store",
+    "check_store",
+    "sync_store",
+    "build_catalog",
+    "check_catalog",
+    "export_archive",
+    "build_series",
+    "check_series",
+    "select_series",
+    "read_series",
+    "summarize_series",
+    "export_series",
+)
+_PROJECT_FUNCTIONS = (
+    "init_project",
+    "add_project_task",
+    "remove_project_task",
+    "set_project_store",
+    "download_project",
+    "check_project",
+    "get_project_status",
+    "verify_project",
+)
+# Public module of every function the catalog dispatches to (resolved per call).
+_MODULES = {
+    "datasets": "imgwtools.datasets",
+    "archive_files": "imgwtools.datasets",
+    "download_archives": "imgwtools.fetch",
+    "fetch_hydro_current": "imgwtools.fetch",
+    "fetch_meteo_current": "imgwtools.fetch",
+    "fetch_synop": "imgwtools.fetch",
+    "fetch_warnings": "imgwtools.fetch",
+    "fetch_pmaxtp": "imgwtools.fetch",
+    "find_stations": "imgwtools.stations",
+    "fetch_hydro_states": "imgwtools.stations",
+    "build_pmaxtp_url": "imgwtools.urls",
+    **dict.fromkeys(_STORE_FUNCTIONS, "imgwtools.store"),
+    **dict.fromkeys(_PROJECT_FUNCTIONS, "imgwtools.project"),
+    "command_schema": "imgwtools.commands",
+}
 
-Options = dict[str, Any]
-Hooks = dict[str, Any]
+
+# --- katalog ---------------------------------------------------------------------------------
 
 
-def _opt(
+def _option(
     name: str,
-    type_: Any,
+    type_: OptionType,
     help_: str,
     *,
     required: bool = False,
     choices: Iterable[str] = (),
+    default: object = None,
+    aliases: tuple[str, ...] = (),
+    items: ItemType | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    pattern: str | None = None,
+    rest: Literal["param", "server", "local"] = "param",
 ) -> CommandOption:
     return CommandOption(
-        name, type_, required, "--" + name.replace("_", "-"), tuple(choices), help_
+        name,
+        type_,
+        required,
+        "--" + name.replace("_", "-"),
+        tuple(choices),
+        help_,
+        default=default,
+        aliases=aliases,
+        items=items,
+        minimum=minimum,
+        maximum=maximum,
+        pattern=pattern,
+        rest=rest,
     )
 
 
-_ROOT = _opt(
+def _command(
+    name: str,
+    description: str,
+    options: Iterable[CommandOption],
+    *,
+    function: str,
+    result_type: str,
+    check: str | None = None,
+    result: Literal["object", "list", "stream"] = "object",
+    method: Literal["GET", "POST"] | None = None,
+    requires: Mapping[str, tuple[str, ...]] | None = None,
+    one_of: tuple[tuple[str, ...], ...] = (),
+    rules: tuple[str, ...] = (),
+) -> tuple[DataCommand, str]:
+    listed = (*options, _LIMIT, _OFFSET) if result == "list" else tuple(options)
+    command = DataCommand(
+        name,
+        description,
+        listed,
+        function=function,
+        check=check,
+        result=result,
+        method=method,
+        requires=dict(requires or {}),
+        one_of=one_of,
+        rules=rules,
+    )
+    return command, result_type
+
+
+_ROOT = _option(
     "root",
     "path",
-    "Katalog główny magazynu IMGW (jawna ścieżka, absolutyzowana na wejściu)",
+    "Katalog magazynu IMGW (CLI: domyślnie $IMGW_STORE_ROOT)",
     required=True,
+    aliases=("-r",),
+    rest="server",
 )
-_PROJECT_DIR = _opt(
+_PROJECT_DIR = _option(
     "project_dir",
     "path",
     "Katalog projektu z manifestem imgw-project.json",
     required=True,
+    rest="local",
 )
-_TASKS = _opt(
-    "tasks",
+_STORE_DIR = _option(
+    "store_dir",
+    "path",
+    "Katalog magazynu IMGW projektu; ścieżka względna liczona wobec katalogu projektu",
+    required=True,
+    rest="local",
+)
+_ARCHIVE_DATASET = _option(
+    "dataset",
+    "choice",
+    "Zbiór archiwalny: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily "
+    "albo hydro/dobowe",
+    required=True,
+    choices=_ARCHIVE_DATASETS,
+    aliases=("-d",),
+)
+_SERIES_DATASET = _option(
+    "dataset",
+    "choice",
+    "Zbiór szeregów: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily",
+    choices=_SERIES_DATASETS,
+    aliases=("-d",),
+)
+_DATASETS = _option(
+    "datasets",
     "list",
-    "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)",
+    "Zbiory magazynu rozdzielone przecinkami: klucz, slug albo alias legacy",
+    choices=_SERIES_DATASETS,
+    items="choice",
+    aliases=("-d",),
 )
-_METHOD = _opt(
+_FAMILY = _option(
+    "kind",
+    "choice",
+    "Rodzaj: hydro albo meteo; brak = obie rodziny",
+    choices=_KINDS,
+    aliases=("-k",),
+)
+_YEARS = _option(
+    "years",
+    "list",
+    "Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022",
+    items="year",
+    minimum=1,
+    maximum=9999,
+    aliases=("-y",),
+)
+_MONTHS = _option(
+    "months",
+    "list",
+    "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie)",
+    items="int",
+    minimum=1,
+    maximum=12,
+    aliases=("-m",),
+)
+_PARAMS = _option(
+    "params",
+    "list",
+    "Parametry półroczne H, Q, T (tylko pl.imgw.hydro_semiannual; domyślnie wszystkie)",
+    choices=("H", "Q", "T"),
+    items="choice",
+)
+_OUTPUT = _option(
+    "output",
+    "path",
+    "Katalog pobierania odzwierciedlający ścieżki serwera (domyślnie ./data/downloaded)",
+    default="./data/downloaded",
+    aliases=("-o",),
+    rest="local",
+)
+_STATION_OPTION = _option(
+    "station",
+    "str",
+    "Kod stacji (9 cyfr)",
+    pattern=_STATION,
+    aliases=("-s",),
+)
+_STATIONS = _option(
+    "stations",
+    "list",
+    "Kody stacji (9 cyfr) rozdzielone przecinkami",
+    items="str",
+    pattern=_STATION,
+    aliases=("-s",),
+)
+_VARIABLES = _option(
+    "variables",
+    "list",
+    "Zmienne zbioru rozdzielone przecinkami, np. H,Q (domyślnie wszystkie)",
+    items="str",
+)
+_YEAR_TYPE = _option(
+    "year_type",
+    "choice",
+    "Rodzaj roku: hydrological (XI–X) albo calendar; domyślnie według series.json",
+    choices=_YEAR_TYPES,
+)
+_START = _option(
+    "start", "date", "Pierwszy dzień zakresu rekordów (ISO RRRR-MM-DD, włącznie)"
+)
+_END = _option(
+    "end", "date", "Ostatni dzień zakresu rekordów (ISO RRRR-MM-DD, włącznie)"
+)
+_LATITUDE = _option(
+    "latitude",
+    "float",
+    "Szerokość geograficzna punktu WGS84 (49,0–55,0)",
+    required=True,
+    minimum=49.0,
+    maximum=55.0,
+    aliases=("--lat",),
+)
+_LONGITUDE = _option(
+    "longitude",
+    "float",
+    "Długość geograficzna punktu WGS84 (14,0–24,5)",
+    required=True,
+    minimum=14.0,
+    maximum=24.5,
+    aliases=("--lon",),
+)
+_METHOD = _option(
     "method",
     "choice",
     "Metoda PMAXTP: POT albo AMP",
-    required=True,
     choices=("POT", "AMP"),
+    default="POT",
 )
-_LAT = _opt(
-    "lat",
-    "str",
-    "Szerokość geograficzna punktu (WGS84, stopnie dziesiętne)",
-    required=True,
+_IND_X = _option(
+    "ind_x", "int", "Indeks X komórki siatki PMAXTP (razem z --ind-y)", minimum=0
 )
-_LON = _opt(
-    "lon",
-    "str",
-    "Długość geograficzna punktu (WGS84, stopnie dziesiętne)",
-    required=True,
+_IND_Y = _option(
+    "ind_y", "int", "Indeks Y komórki siatki PMAXTP (razem z --ind-x)", minimum=0
 )
-_IND_X = _opt("ind_x", "int", "Oczekiwany indeks X komórki siatki (razem z --ind-y)")
-_IND_Y = _opt("ind_y", "int", "Oczekiwany indeks Y komórki siatki (razem z --ind-x)")
-_YEAR_TYPE = _opt(
-    "year_type",
-    "choice",
-    "Rodzaj roku: hydrological (XI–X) albo calendar; domyślnie wg spisu szeregu",
-    choices=_YEAR_TYPES,
-)
-_SERIES_DATASET = _opt(
-    "dataset",
-    "choice",
-    "Klucz zbioru, np. pl.imgw.hydro_daily",
-    required=True,
-    choices=_SERIES_DATASETS,
-)
-_DATASETS = _opt(
-    "dataset",
-    "list",
-    "Klucze zbiorów rozdzielone przecinkami, np. pl.imgw.hydro_daily",
-    choices=_SERIES_DATASETS,
-)
-_STORE_YEARS = _opt(
-    "years", "list", "Roczniki: lista lub zakresy, np. 2023-2025 albo 2020,2022"
-)
-_MONTHS = _opt(
-    "months", "list", "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie)"
-)
-_FETCH_YEAR = _opt(
-    "year", "str", "Rok lub zakres lat, np. 2020 albo 2020-2023", required=True
-)
-_FETCH_MONTH = _opt("month", "int", "Miesiąc 1–12")
-_OUTPUT = _opt(
-    "output",
+_SERIES_VERSION = _option(
+    "version",
     "path",
-    "Katalog wyjściowy odzwierciedlający ścieżki serwera (domyślnie ./data/downloaded)",
+    "Wersja szeregu: katalog wersji, series.json albo sidecar; bezwzględna albo "
+    "względna do root (zamiast dataset)",
+)
+_SERIES_ROOT = replace(
+    _ROOT,
+    required=False,
+    help="Katalog magazynu: podstawa względnej wersji albo magazyn bieżącej wersji "
+    "zbioru (z dataset)",
+)
+_PATH = _option(
+    "path",
+    "path",
+    "Plik wyniku poza magazynem, w istniejącym katalogu (domyślnie standardowe wyjście)",
+    aliases=("-p",),
+    rest="local",
+)
+_TASKS = _option(
+    "tasks",
+    "list",
+    "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)",
+    items="str",
+    pattern=_TASK_PATTERN,
+    rest="local",
+)
+_TASK_NAME_OPTION = _option(
+    "name",
+    "str",
+    "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra",
+    required=True,
+    pattern=_TASK_PATTERN,
+    rest="local",
+)
+_LIMIT = _option("limit", "int", "Rozmiar strony", minimum=1)
+_OFFSET = _option("offset", "int", "Początek strony", minimum=0, default=0)
+_CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
+# The conflicting option of version+dataset+root is reported as dataset.
+_VERSION_OR_DATASET = (("version",), ("dataset", "root"))
+_ARCHIVE_RULES = (
+    "roczniki nie wcześniejsze niż pierwszy rocznik zbioru (first_year)",
+    "params wyłącznie dla pl.imgw.hydro_semiannual",
+)
+_SERIES_RULES = (
+    "dokładnie jedno z: version albo root+dataset (bieżąca wersja szeregu zbioru)",
+    "variables wyłącznie ze zmiennych zbioru",
 )
 
-_COMMANDS = (
-    DataCommand(
+_CATALOG: tuple[tuple[DataCommand, str], ...] = (
+    _command(
+        "datasets list",
+        "Wypisz zbiory IMGW z rejestru: klucze, aliasy legacy, zmienne i pierwszy "
+        "rocznik.",
+        (replace(_FAMILY, help="Rodzina zbiorów: hydro albo meteo; brak = wszystkie"),),
+        function="datasets",
+        result="list",
+        method="GET",
+        result_type="DatasetDescriptor",
+    ),
+    _command(
+        "datasets files",
+        "Wypisz pliki archiwów zbioru IMGW dla wybranych roczników (offline, bez "
+        "pobierania).",
+        (_ARCHIVE_DATASET, replace(_YEARS, required=True), _MONTHS, _PARAMS),
+        function="archive_files",
+        result="list",
+        method="GET",
+        result_type="ArchiveFile",
+        rules=_ARCHIVE_RULES,
+    ),
+    _command(
+        "datasets download",
+        "Pobierz archiwa zbioru IMGW do katalogu odzwierciedlającego ścieżki serwera.",
+        (_ARCHIVE_DATASET, replace(_YEARS, required=True), _MONTHS, _PARAMS, _OUTPUT),
+        function="download_archives",
+        check="check_command",
+        result_type="DownloadReport",
+        rules=_ARCHIVE_RULES,
+    ),
+    _command(
+        "stations find",
+        "Znajdź stacje IMGW po nazwie, rzece albo prefiksie kodu.",
+        (
+            replace(_FAMILY, help="Rodzaj stacji; brak = obie rodziny"),
+            _option(
+                "query",
+                "str",
+                "Fragment nazwy lub rzeki albo prefiks kodu",
+                aliases=("-q",),
+            ),
+            _option(
+                "source",
+                "choice",
+                "live: listy IMGW na żywo; store: zapisany magazyn",
+                choices=("live", "store"),
+                default="live",
+            ),
+            replace(
+                _ROOT,
+                required=False,
+                help="Katalog magazynu (wymagany przy source=store)",
+            ),
+        ),
+        function="find_stations",
+        check="check_command",
+        result="list",
+        method="GET",
+        result_type="StationListEntry",
+        rules=("root jest wymagany przy source=store i niedozwolony przy source=live",),
+    ),
+    _command(
+        "current hydro",
+        "Pobierz bieżące dane hydrologiczne z API IMGW.",
+        (
+            replace(
+                _STATION_OPTION, help="Kod stacji (9 cyfr); brak = wszystkie stacje"
+            ),
+        ),
+        function="fetch_hydro_current",
+        check="check_command",
+        result="list",
+        method="GET",
+        result_type="HydroCurrentData",
+    ),
+    _command(
+        "current meteo",
+        "Pobierz bieżące dane meteorologiczne z API IMGW.",
+        (
+            replace(
+                _STATION_OPTION, help="Kod stacji (9 cyfr); brak = wszystkie stacje"
+            ),
+        ),
+        function="fetch_meteo_current",
+        check="check_command",
+        result="list",
+        method="GET",
+        result_type="MeteoCurrentData",
+    ),
+    _command(
+        "current synop",
+        "Pobierz bieżące dane synoptyczne z API IMGW.",
+        (
+            replace(
+                _STATION_OPTION,
+                help="Kod stacji synoptycznej (5 cyfr); brak = wszystkie stacje",
+                pattern=_SYNOP_STATION,
+            ),
+            _option(
+                "station_name",
+                "str",
+                "Fragment nazwy stacji synoptycznej (bez wielkości liter)",
+            ),
+        ),
+        function="fetch_synop",
+        check="check_command",
+        result="list",
+        method="GET",
+        result_type="SynopData",
+    ),
+    _command(
+        "current warnings",
+        "Pobierz bieżące ostrzeżenia hydrologiczne i meteorologiczne IMGW.",
+        (replace(_FAMILY, help="Rodzaj ostrzeżeń: hydro albo meteo; brak = oba"),),
+        function="fetch_warnings",
+        check="check_command",
+        result="list",
+        method="GET",
+        result_type="WarningData",
+    ),
+    _command(
+        "current hydro-states",
+        "Pobierz stany wód stacji hydrologicznych ze współrzędnymi (mapa "
+        "hydro.imgw.pl).",
+        (_option("main_only", "bool", "Tylko stacje główne", default=False),),
+        function="fetch_hydro_states",
+        check="check_command",
+        result="list",
+        method="GET",
+        result_type="HydroState",
+    ),
+    _command(
+        "pmaxtp fetch",
+        "Pobierz opady maksymalne PMAXTP dla punktu (na żywo, bez zapisu).",
+        (_LATITUDE, _LONGITUDE, _METHOD),
+        function="fetch_pmaxtp",
+        check="check_command",
+        method="GET",
+        result_type="PMaXTPResult",
+    ),
+    _command(
+        "pmaxtp url",
+        "Zbuduj adres URL API PMAXTP dla punktu (offline, bez pobierania).",
+        (_LATITUDE, _LONGITUDE, _METHOD),
+        function="build_pmaxtp_url",
+        method="GET",
+        result_type="str",
+    ),
+    _command(
+        "pmaxtp check",
+        "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.",
+        (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
+        function="check_pmaxtp",
+        method="GET",
+        requires=_CELL_PAIR,
+        result_type="StorePlan",
+    ),
+    _command(
+        "pmaxtp sync",
+        "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.",
+        (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
+        function="sync_pmaxtp",
+        check="check_pmaxtp",
+        method="POST",
+        requires=_CELL_PAIR,
+        result_type="PMaXTPStoreResult",
+    ),
+    _command(
+        "pmaxtp read",
+        "Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).",
+        (
+            _ROOT,
+            replace(_IND_X, required=True, help="Indeks X komórki siatki PMAXTP"),
+            replace(_IND_Y, required=True, help="Indeks Y komórki siatki PMAXTP"),
+            _METHOD,
+            _option(
+                "version",
+                "path",
+                "Wersja komórki: katalog wersji albo cell.json; bezwzględna albo "
+                "względna do root (domyślnie bieżąca)",
+            ),
+        ),
+        function="read_pmaxtp",
+        method="GET",
+        result_type="PMaXTPResult",
+    ),
+    _command(
         "store init",
         "Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu.",
         (_ROOT,),
+        function="init_store",
+        check="check_command",
+        result_type="StoreHandle",
     ),
-    DataCommand(
+    _command(
         "store info",
         "Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu).",
         (_ROOT,),
+        function="store_info",
+        method="GET",
+        result_type="StoreInfo",
     ),
-    DataCommand(
+    _command(
         "store scan",
         "Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu).",
         (
             _ROOT,
-            _opt(
+            _option(
                 "kind",
                 "choice",
-                "Rodzaj wpisów: archive, series, catalog, pmaxtp albo problem",
+                "Rodzaj wpisów: archive, series, catalog, pmaxtp albo problem; "
+                "brak = wszystkie",
                 choices=("archive", "series", "catalog", "pmaxtp", "problem"),
+                aliases=("-k",),
             ),
         ),
+        function="iter_store",
+        result="list",
+        method="GET",
+        result_type="StoreEntry",
     ),
-    DataCommand(
+    _command(
         "store check",
         "Sprawdź aktualność archiwów IMGW (listing i HEAD, bez pobierania danych).",
         (
             _ROOT,
             replace(_DATASETS, required=True),
-            replace(_STORE_YEARS, required=True),
+            replace(_YEARS, required=True),
             _MONTHS,
-            _opt("plan", "path", "Plik planu imgw-plan/1 do zapisania poza magazynem"),
-        ),
-    ),
-    DataCommand(
-        "store sync",
-        "Pobierz nowe lub brakujące archiwa IMGW do magazynu według planu albo wyboru zbiorów.",
-        (
-            _ROOT,
-            _opt(
+            _option(
                 "plan",
                 "path",
-                "Plik planu imgw-plan/1 z komendy store check (zamiast --dataset/--years)",
+                "Plik planu imgw-plan/1 do zapisania poza magazynem",
+                rest="local",
             ),
-            _DATASETS,
-            _STORE_YEARS,
-            _MONTHS,
-            _opt("no_series", "bool", "Nie buduj szeregów po synchronizacji"),
+        ),
+        function="check_store",
+        method="GET",
+        result_type="StorePlan",
+        rules=(
+            "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
+            "plan zapisywany wyłącznie poza magazynem, w istniejącym katalogu",
         ),
     ),
-    DataCommand(
+    _command(
+        "store sync",
+        "Pobierz nowe lub brakujące archiwa IMGW do magazynu według planu albo "
+        "wyboru zbiorów.",
+        (
+            _ROOT,
+            _option(
+                "plan",
+                "path",
+                "Plik planu imgw-plan/1 z komendy store check (zamiast datasets, "
+                "years i months)",
+            ),
+            _DATASETS,
+            _YEARS,
+            _MONTHS,
+            _option(
+                "series",
+                "bool",
+                "Buduj szeregi zbiorów po synchronizacji (--no-series wyłącza)",
+                default=True,
+            ),
+        ),
+        function="sync_store",
+        check="check_store",
+        method="POST",
+        one_of=(("plan",), ("datasets", "years")),
+        result_type="SyncReport",
+        rules=(
+            "plan wyklucza datasets, years i months",
+            "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
+        ),
+    ),
+    _command(
         "store catalog",
         "Zbuduj wersjonowany katalog stacji stations.geojson.",
         (
             _ROOT,
-            _opt(
+            _option(
                 "user_locations",
                 "path",
-                "Plik CSV UTF-8 użytkownika z kolumnami station_code,lon,lat,source",
+                "Plik CSV UTF-8 użytkownika z kolumnami "
+                "station_code,latitude,longitude[,source]",
             ),
         ),
+        function="build_catalog",
+        check="check_catalog",
+        method="POST",
+        result_type="CatalogReport",
     ),
-    DataCommand(
-        "store read",
-        "Odczytaj rekordy jednej wersji archiwum z magazynu (offline, weryfikacja SHA-256).",
+    _command(
+        "store export",
+        "Wyeksportuj rekordy jednej wersji archiwum z magazynu jako CSV albo JSONL "
+        "(offline, weryfikacja SHA-256).",
         (
-            _opt(
+            _option(
                 "version",
                 "path",
-                "Wersja archiwum: katalog wersji, plik archiwum albo jego sidecar",
+                "Wersja archiwum: katalog wersji, plik archiwum albo sidecar; "
+                "bezwzględna albo względna do root",
                 required=True,
             ),
-            _opt(
+            replace(_ROOT, required=False, help="Katalog magazynu: podstawa wersji"),
+            _option(
                 "format",
                 "choice",
-                "Format wyniku: csv albo jsonl (domyślnie csv)",
+                "Format wyniku: csv albo jsonl",
                 choices=("csv", "jsonl"),
+                default="csv",
+                aliases=("-f",),
             ),
-            _opt(
-                "path",
-                "path",
-                "Plik wyniku poza magazynem (domyślnie standardowe wyjście)",
-            ),
+            _PATH,
         ),
+        function="export_archive",
+        check="check_command",
+        result="stream",
+        method="GET",
+        result_type="str",
+        rules=("path wewnątrz magazynu jest niedozwolona",),
     ),
-    DataCommand(
+    _command(
         "series build",
         "Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.",
-        (
-            _ROOT,
-            _SERIES_DATASET,
-        ),
+        (_ROOT, replace(_SERIES_DATASET, required=True)),
+        function="build_series",
+        check="check_series",
+        method="POST",
+        result_type="SeriesReport",
     ),
-    DataCommand(
-        "series export",
-        "Wyeksportuj szereg jednej stacji do pliku CSV z atrybucją IMGW-PIB.",
-        (
-            _opt(
-                "version",
-                "path",
-                "Wersja szeregu: katalog wersji albo plik series.json",
-                required=True,
-            ),
-            _opt("station", "str", "Kod stacji (9 cyfr)", required=True),
-            _opt("path", "path", "Docelowy plik CSV (poza magazynem)", required=True),
-            _opt(
-                "variables",
-                "list",
-                "Zmienne rozdzielone przecinkami, np. H,Q",
-                required=True,
-            ),
-            _YEAR_TYPE,
-            _opt("format", "choice", "Format eksportu (tylko csv)", choices=("csv",)),
-        ),
-    ),
-    DataCommand(
+    _command(
         "series select",
-        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście projektu).",
+        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście "
+        "projektu).",
         (
             _ROOT,
-            _SERIES_DATASET,
-            _opt(
-                "stations",
-                "list",
-                "Kody stacji (9 cyfr) rozdzielone przecinkami",
-                required=True,
-            ),
-            _opt(
-                "variables",
-                "list",
-                "Zmienne rozdzielone przecinkami (domyślnie wszystkie zmienne zbioru)",
-            ),
-            _opt(
-                "years",
-                "list",
-                "Roczniki: lista lub zakresy, np. 2020-2023 (domyślnie wszystkie w szeregu)",
+            replace(_SERIES_DATASET, required=True),
+            replace(_STATIONS, required=True),
+            _VARIABLES,
+            replace(
+                _YEARS,
+                help="Roczniki: liczby lub zakresy (domyślnie wszystkie lata szeregu)",
             ),
             _YEAR_TYPE,
         ),
-    ),
-    DataCommand(
-        "pmaxtp check",
-        "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.",
-        (
-            _ROOT,
-            _METHOD,
-            _LAT,
-            _LON,
-            _IND_X,
-            _IND_Y,
+        function="select_series",
+        method="GET",
+        result_type="SeriesSelection",
+        rules=(
+            "variables wyłącznie ze zmiennych zbioru",
+            "szereg półroczny wyłącznie z year_type=hydrological",
+            "stacje i roczniki wyłącznie z bieżącego szeregu",
         ),
     ),
-    DataCommand(
-        "pmaxtp sync",
-        "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.",
+    _command(
+        "series read",
+        "Odczytaj wartości i flagi szeregu jednej stacji z magazynu.",
         (
-            _ROOT,
-            _METHOD,
-            _LAT,
-            _LON,
-            _IND_X,
-            _IND_Y,
+            _SERIES_VERSION,
+            _SERIES_ROOT,
+            _SERIES_DATASET,
+            replace(_STATION_OPTION, required=True),
+            _VARIABLES,
+            _START,
+            _END,
         ),
+        function="read_series",
+        result="list",
+        method="GET",
+        one_of=_VERSION_OR_DATASET,
+        result_type="NormalizedRecord",
+        rules=(*_SERIES_RULES, "start nie później niż end"),
     ),
-    DataCommand(
-        "pmaxtp read",
-        "Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).",
+    _command(
+        "series summary",
+        "Pokaż pokrycie stacji i zmiennych szeregu ze spisu series.json (bez pyarrow).",
         (
-            _ROOT,
-            _METHOD,
-            replace(_IND_X, required=True, help="Indeks X komórki siatki"),
-            replace(_IND_Y, required=True, help="Indeks Y komórki siatki"),
-            _opt(
-                "version",
-                "path",
-                "Wersja komórki: katalog wersji albo cell.json (domyślnie bieżąca)",
+            _SERIES_VERSION,
+            _SERIES_ROOT,
+            _SERIES_DATASET,
+            replace(
+                _STATIONS,
+                help="Kody stacji (9 cyfr) rozdzielone przecinkami (domyślnie wszystkie)",
             ),
+            _VARIABLES,
+        ),
+        function="summarize_series",
+        result="list",
+        method="GET",
+        one_of=_VERSION_OR_DATASET,
+        result_type="StationCoverage",
+        rules=_SERIES_RULES,
+    ),
+    _command(
+        "series export",
+        "Wyeksportuj szereg jednej stacji jako CSV z atrybucją IMGW-PIB.",
+        (
+            _SERIES_VERSION,
+            _SERIES_ROOT,
+            _SERIES_DATASET,
+            replace(_STATION_OPTION, required=True),
+            _VARIABLES,
+            _START,
+            _END,
+            _YEAR_TYPE,
+            _option(
+                "format",
+                "choice",
+                "Format eksportu (tylko csv)",
+                choices=("csv",),
+                default="csv",
+                aliases=("-f",),
+            ),
+            _PATH,
+        ),
+        function="export_series",
+        check="check_command",
+        result="stream",
+        method="GET",
+        one_of=_VERSION_OR_DATASET,
+        result_type="str",
+        rules=(
+            *_SERIES_RULES,
+            "start nie później niż end",
+            "szereg półroczny wyłącznie z year_type=hydrological",
+            "path wewnątrz magazynu jest niedozwolona",
         ),
     ),
-    DataCommand(
+    _command(
         "project init",
         "Utwórz manifest projektu imgw-project.json wskazujący magazyn.",
-        (
-            _PROJECT_DIR,
-            _opt("store_dir", "path", "Katalog magazynu IMGW projektu", required=True),
-        ),
+        (_PROJECT_DIR, _STORE_DIR),
+        function="init_project",
+        check="check_command",
+        result_type="Project",
     ),
-    DataCommand(
+    _command(
         "project add",
         "Dodaj zadanie do manifestu projektu.",
         (
             _PROJECT_DIR,
-            _opt(
-                "name",
-                "str",
-                "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra",
-                required=True,
-            ),
-            _opt(
+            _TASK_NAME_OPTION,
+            _option(
                 "command",
                 "choice",
-                "Komenda zadania z katalogu, zwykle series select",
+                "Komenda zadania z katalogu, np. series select",
                 required=True,
                 choices=_TASK_COMMANDS,
+                rest="local",
             ),
-            _opt(
+            _option(
                 "options",
-                "str",
-                "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z projektu)",
+                "object",
+                "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z "
+                "projektu)",
                 required=True,
+                rest="local",
             ),
-            _opt(
+            _option(
                 "geometry",
                 "path",
-                "Plik zapisanego wyboru obszaru (geometria) dla zadania",
+                "Plik GeoJSON obszaru wyboru stacji w katalogu projektu (tylko "
+                "series select)",
+                rest="local",
             ),
         ),
+        function="add_project_task",
+        check="check_command",
+        result_type="Project",
+        rules=(
+            "geometry wyłącznie dla zadań series select",
+            "zadanie series select wymaga jawnej opcji years",
+        ),
     ),
-    DataCommand(
+    _command(
         "project remove",
         "Usuń zadanie z manifestu projektu.",
         (
             _PROJECT_DIR,
-            _opt("name", "str", "Nazwa usuwanego zadania", required=True),
+            replace(_TASK_NAME_OPTION, help="Nazwa usuwanego zadania"),
         ),
+        function="remove_project_task",
+        check="check_command",
+        result_type="Project",
     ),
-    DataCommand(
+    _command(
         "project set-store",
         "Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików.",
-        (
-            _PROJECT_DIR,
-            _opt("store_dir", "path", "Nowy katalog magazynu IMGW", required=True),
-        ),
+        (_PROJECT_DIR, replace(_STORE_DIR, help="Nowy katalog magazynu IMGW projektu")),
+        function="set_project_store",
+        check="check_command",
+        result_type="Project",
     ),
-    DataCommand(
+    _command(
         "project download",
         "Pobierz i przypnij dane zadań projektu.",
         (
             _PROJECT_DIR,
             _TASKS,
-            _opt("plan", "path", "Plik planu imgw-plan/1 z komendy project check"),
-            _opt(
+            _option(
+                "plan",
+                "path",
+                "Plik planu imgw-plan/1 z komendy project check",
+                rest="local",
+            ),
+            _option(
                 "update",
                 "choice",
                 "Tryb: pinned (odtwórz przypięte wersje) albo upgrade (zmień piny)",
                 choices=("pinned", "upgrade"),
+                default="pinned",
+                rest="local",
             ),
         ),
+        function="download_project",
+        check="check_project",
+        result_type="ProjectReport",
     ),
-    DataCommand(
+    _command(
         "project check",
         "Sprawdź aktualność danych zadań projektu bez zapisu do magazynu.",
         (
             _PROJECT_DIR,
             _TASKS,
-            _opt("plan", "path", "Plik planu imgw-plan/1 do zapisania poza magazynem"),
+            _option(
+                "plan",
+                "path",
+                "Plik planu imgw-plan/1 do zapisania poza magazynem",
+                rest="local",
+            ),
         ),
+        function="check_project",
+        result_type="StorePlan",
     ),
-    DataCommand(
+    _command(
         "project status",
         "Pokaż stan przypiętych plików zadań projektu (offline).",
         (_PROJECT_DIR, _TASKS),
+        function="get_project_status",
+        result_type="ProjectReport",
     ),
-    DataCommand(
+    _command(
         "project verify",
         "Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline).",
         (_PROJECT_DIR, _TASKS),
-    ),
-    DataCommand(
-        "fetch hydro",
-        "Pobierz archiwa hydrologiczne IMGW do katalogu odzwierciedlającego ścieżki serwera.",
-        (
-            _opt(
-                "interval",
-                "choice",
-                "Interwał: dobowe, miesieczne albo polroczne_i_roczne (domyślnie polroczne_i_roczne)",
-                choices=tuple(_HYDRO_INTERVALS),
-            ),
-            _FETCH_YEAR,
-            _FETCH_MONTH,
-            _opt(
-                "param",
-                "choice",
-                "Parametr danych półrocznych: H, Q albo T",
-                choices=("H", "Q", "T"),
-            ),
-            _OUTPUT,
-        ),
-    ),
-    DataCommand(
-        "fetch meteo",
-        "Pobierz archiwa meteorologiczne IMGW do katalogu odzwierciedlającego ścieżki serwera.",
-        (
-            _opt(
-                "interval",
-                "choice",
-                "Interwał: dobowe, miesieczne albo terminowe (domyślnie miesieczne)",
-                choices=("dobowe", "miesieczne", "terminowe"),
-            ),
-            _opt(
-                "subtype",
-                "choice",
-                "Podtyp: klimat, opad albo synop (domyślnie synop)",
-                choices=("klimat", "opad", "synop"),
-            ),
-            _FETCH_YEAR,
-            _FETCH_MONTH,
-            _OUTPUT,
-        ),
+        function="verify_project",
+        result_type="ProjectReport",
     ),
 )
+_CATALOG += (
+    _command(
+        "commands schema",
+        "Pokaż schemat JSON opcji komendy albo cały katalog komend imgw-commands/1.",
+        (
+            _option(
+                "command",
+                "choice",
+                "Nazwa komendy katalogu; brak = cały katalog imgw-commands/1",
+                choices=(*(command.name for command, _ in _CATALOG), "commands schema"),
+            ),
+        ),
+        function="command_schema",
+        method="GET",
+        result_type="dict",
+    ),
+)
+_COMMANDS = tuple(command for command, _ in _CATALOG)
 _BY_NAME = {command.name: command for command in _COMMANDS}
+_RESULT_TYPES = {command.name: result_type for command, result_type in _CATALOG}
 
 
 def data_commands() -> tuple[DataCommand, ...]:
     """
-    Return the catalog of every command that reads or writes data.
+    Return the catalog of all 35 data commands.
 
     Returns
     -------
     tuple of DataCommand
-        Commands with their options and Polish ``--help`` descriptions, in
-        catalog order.
+        Commands in catalog order (groups ``datasets``, ``stations``,
+        ``current``, ``pmaxtp``, ``store``, ``series``, ``project``,
+        ``commands``) with their options, the public function they call,
+        the check twin, the result shape, the REST method and the
+        validation rules; texts for humans are in Polish.
     """
     return _COMMANDS
 
 
-# --- walidacja -----------------------------------------------------------------------------
+# --- walidacja -------------------------------------------------------------------------------
 
 
-def _fail(message: str) -> NoReturn:
-    raise IMGWValidationError(message)
-
-
-def _int(name: str, value: object) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
+def _shown(value: object) -> object:
+    if value is None or isinstance(value, str | int | float | bool):
         return value
-    if isinstance(value, str) and _INTEGER.fullmatch(value.strip()):
-        return int(value)
-    return _fail(f"Opcja {name} musi być liczbą całkowitą: {value!r}")
+    if isinstance(value, Path):
+        return str(value)
+    return repr(value)
 
 
-def _year_range(name: str, value: object) -> range:
+def _fail(
+    message: str, *, option: str, value: object = None, **details: object
+) -> NoReturn:
+    payload: dict[str, object] = {"option": option}
+    if value is not None:
+        payload["value"] = _shown(value)
+    payload.update(details)
+    raise IMGWValidationError(message, details=payload)
+
+
+def _spec(command: object) -> DataCommand:
+    spec = _BY_NAME.get(command) if isinstance(command, str) else None
+    if spec is None:
+        _fail(
+            f"Nieznana komenda {command!r}; dostępne: {', '.join(_BY_NAME)}",
+            option="command",
+            value=command,
+            allowed=list(_BY_NAME),
+        )
+    return spec
+
+
+def _boolean(option: CommandOption, value: object) -> bool | None:
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        value = value.strip().lower() == "true"
+    if not isinstance(value, bool):
+        _fail(
+            f"Opcja {option.name} musi mieć wartość logiczną true albo false: {value!r}",
+            option=option.name,
+            value=value,
+        )
+    # Wartość domyślna nie jest podawana jawnie: CLI wyraża ją brakiem flagi.
+    return None if value == option.default else value
+
+
+def _bounds(option: CommandOption, number: int) -> int:
+    if option.minimum is not None and number < option.minimum:
+        _fail(
+            f"Opcja {option.name} musi wynosić co najmniej {option.minimum:g}: {number}",
+            option=option.name,
+            value=number,
+            minimum=option.minimum,
+        )
+    if option.maximum is not None and number > option.maximum:
+        _fail(
+            f"Opcja {option.name} musi wynosić co najwyżej {option.maximum:g}: {number}",
+            option=option.name,
+            value=number,
+            maximum=option.maximum,
+        )
+    return number
+
+
+def _integer(option: CommandOption, value: object) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
-        start = end = value
-    elif isinstance(value, str) and (match := _YEARS.fullmatch(value.strip())):
-        start = int(match.group(1))
-        end = int(match.group(2) or start)
-    else:
-        return _fail(f"Nieprawidłowy rok lub zakres lat w opcji {name}: {value!r}")
-    if not 1 <= start <= end <= 9999:
-        _fail(f"Nieprawidłowy zakres lat w opcji {name}: {value!r}")
-    return range(start, end + 1)
+        return _bounds(option, value)
+    if isinstance(value, str) and _INTEGER.fullmatch(text := value.strip()):
+        return _bounds(option, int(text))
+    _fail(
+        f"Opcja {option.name} musi być liczbą całkowitą: {value!r}",
+        option=option.name,
+        value=value,
+    )
 
 
-def _items(name: str, value: object) -> list[object]:
+def _number(option: CommandOption, value: object) -> float:
+    # Granice współrzędnych sprawdza walidator biblioteki (reguła komendy), nie typ.
+    number = math.nan
+    if isinstance(value, int | float | str) and not isinstance(value, bool):
+        with suppress(ValueError):
+            number = float(value)
+    if not math.isfinite(number):
+        _fail(
+            f"Opcja {option.name} musi być skończoną liczbą: {value!r}",
+            option=option.name,
+            value=value,
+        )
+    return number
+
+
+def _text(option: CommandOption, value: object) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    if not text:
+        _fail(
+            f"Opcja {option.name} wymaga niepustego tekstu: {value!r}",
+            option=option.name,
+            value=value,
+        )
+    if option.pattern is not None and not re.search(option.pattern, text):
+        expected = _PATTERN_TEXT.get(option.pattern, f"wzorzec {option.pattern}")
+        _fail(
+            f"Opcja {option.name}: oczekiwano {expected}: {text!r}",
+            option=option.name,
+            value=text,
+            pattern=option.pattern,
+        )
+    return text
+
+
+def _date(option: CommandOption, value: object) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and _ISO_DATE.fullmatch(text := value.strip()):
+        with suppress(ValueError):
+            return date.fromisoformat(text)
+    _fail(
+        f"Opcja {option.name} wymaga daty ISO RRRR-MM-DD: {value!r}",
+        option=option.name,
+        value=value,
+    )
+
+
+def _path(option: CommandOption, value: object) -> Path:
+    text = os.fspath(value) if isinstance(value, str | os.PathLike) else None
+    if not isinstance(text, str) or not text.strip() or "\0" in text:
+        _fail(
+            f"Opcja {option.name} wymaga ścieżki: {value!r}",
+            option=option.name,
+            value=value,
+        )
+    return Path(text).expanduser()
+
+
+def _choice_text(option: CommandOption, text: str) -> str:
+    if option.name in ("dataset", "datasets"):
+        try:
+            text = get_dataset(text).key
+        except IMGWValidationError as exc:
+            raise IMGWValidationError(
+                exc.detail, details={**exc.details, "option": option.name}
+            ) from exc
+    if text not in option.choices:
+        _fail(
+            f"Nieprawidłowa wartość {text!r} opcji {option.name}; dozwolone: "
+            f"{', '.join(option.choices)}",
+            option=option.name,
+            value=text,
+            allowed=list(option.choices),
+        )
+    return text
+
+
+def _choice(option: CommandOption, value: object) -> str:
+    if not isinstance(value, str):
+        _fail(
+            f"Opcja {option.name} wymaga jednej z wartości "
+            f"{', '.join(option.choices)}: {value!r}",
+            option=option.name,
+            value=value,
+            allowed=list(option.choices),
+        )
+    return _choice_text(option, value.strip())
+
+
+def _texts(option: CommandOption, value: object) -> list[str]:
+    """Flatten a comma-separated text or a collection of texts into list items."""
     if isinstance(value, str):
-        items: list[object] = [part.strip() for part in value.split(",")]
-    elif isinstance(value, int) and not isinstance(value, bool):
-        items = [value]
+        raw: list[object] = [value]
     elif isinstance(value, Iterable) and not isinstance(value, bytes | Mapping):
-        items = list(value)
+        raw = list(value)
     else:
-        return _fail(f"Opcja {name} musi być listą wartości: {value!r}")
-    if not items or any(item == "" or item is None for item in items):
-        _fail(f"Opcja {name} wymaga niepustej listy wartości")
-    return items
+        _fail(
+            f"Opcja {option.name} musi być listą wartości: {value!r}",
+            option=option.name,
+            value=value,
+        )
+    texts: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            _fail(
+                f"Opcja {option.name} wymaga wartości tekstowych: {item!r}",
+                option=option.name,
+                value=item,
+            )
+        texts.extend(part.strip() for part in item.split(","))
+    if not texts or "" in texts:
+        _fail(
+            f"Opcja {option.name} wymaga niepustej listy wartości",
+            option=option.name,
+            value=value,
+        )
+    return texts
 
 
 def _list(option: CommandOption, value: object) -> tuple[object, ...]:
-    name = option.name
-    items = _items(name, value)
-    if name == "years":
-        return tuple(
-            sorted({year for item in items for year in _year_range(name, item)})
-        )
-    if name == "months":
-        months = {_int(name, item) for item in items}
-        if any(not 1 <= month <= 12 for month in months):
-            _fail("Miesiące muszą należeć do zakresu 1–12")
-        return tuple(sorted(months))
-    texts: list[str] = []
-    for item in items:
-        if not isinstance(item, str) or not item.strip():
-            _fail(f"Opcja {name} wymaga tekstowych wartości: {item!r}")
-        text = item.strip()
-        if option.choices and text not in option.choices:
-            _fail(
-                f"Nieprawidłowa wartość {text!r} opcji {name}; dozwolone: {', '.join(option.choices)}"
-            )
-        if name == "stations" and not _STATION.fullmatch(text):
-            _fail(f"Kod stacji musi mieć dokładnie 9 cyfr: {text!r}")
-        if name == "tasks" and not _TASK_NAME.fullmatch(text):
-            _fail(f"Nieprawidłowa nazwa zadania projektu: {text!r}")
-        texts.append(text)
+    if option.items == "year":
+        return parse_years(cast(YearsArg, value), option=option.name)
+    if option.name == "months":
+        return parse_months(cast(MonthsArg, value), option=option.name)
+    texts = _texts(option, value)
+    if option.items == "choice":
+        texts = [_choice_text(option, text) for text in texts]
+    else:
+        texts = [_text(option, text) for text in texts]
     return tuple(dict.fromkeys(texts))
 
 
-def _text(name: str, value: object) -> object:
-    if name in ("lat", "lon"):
+def _object(option: CommandOption, value: object) -> dict[str, object]:
+    if isinstance(value, str):
         try:
-            if isinstance(value, bool) or not isinstance(value, int | float | str):
-                raise ValueError
-            number = float(value)
-        except ValueError:
-            return _fail(f"Opcja {name} musi być liczbą: {value!r}")
-        if not math.isfinite(number):
-            _fail(f"Opcja {name} musi być skończoną liczbą: {value!r}")
-        return number
-    if name == "year":
-        if isinstance(value, str) and "," in value:
-            _fail(f"Opcja year przyjmuje jeden rok albo zakres: {value!r}")
-        years = _year_range(name, value)
-        return str(years[0]) if len(years) == 1 else f"{years[0]}-{years[-1]}"
-    if name == "options":
-        if isinstance(value, str):
-            try:
-                value = json.loads(value)
-            except ValueError as exc:
-                raise IMGWValidationError(
-                    f"Opcje zadania muszą być obiektem JSON: {exc}"
-                ) from exc
-        if not isinstance(value, Mapping):
-            _fail("Opcje zadania muszą być obiektem JSON")
-        return dict(value)
-    if not isinstance(value, str) or not value.strip():
-        return _fail(f"Opcja {name} wymaga niepustego tekstu: {value!r}")
-    if name == "station" and not _STATION.fullmatch(value):
-        _fail(f"Kod stacji musi mieć dokładnie 9 cyfr: {value!r}")
-    if name == "name" and not _TASK_NAME.fullmatch(value):
-        _fail(f"Nieprawidłowa nazwa zadania projektu: {value!r}")
-    return value
-
-
-def _value(option: CommandOption, value: object) -> object | None:
-    name = option.name
-    if option.type == "bool":
-        if not isinstance(value, bool):
-            _fail(f"Opcja {name} musi mieć wartość logiczną: {value!r}")
-        return value or None
-    if option.type == "int":
-        number = _int(name, value)
-        if name in ("ind_x", "ind_y") and number < 0:
-            _fail(f"Indeks komórki {name} musi być nieujemny: {number}")
-        if name == "month" and not 1 <= number <= 12:
-            _fail(f"Miesiąc musi należeć do zakresu 1–12: {number}")
-        return number
-    if option.type == "path":
-        text = os.fspath(value) if isinstance(value, str | os.PathLike) else None
-        if not isinstance(text, str) or not text.strip() or "\0" in text:
-            _fail(f"Opcja {name} wymaga ścieżki: {value!r}")
-        return Path(text)
-    if option.type == "choice":
-        if not isinstance(value, str) or value not in option.choices:
+            value = json.loads(value)
+        except ValueError as exc:
             _fail(
-                f"Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: {', '.join(option.choices)}"
+                f"Opcja {option.name} musi być obiektem JSON: {exc}", option=option.name
             )
-        return value
-    if option.type == "list":
-        return _list(option, value)
-    return _text(name, value)
+    if not isinstance(value, Mapping):
+        _fail(
+            f"Opcja {option.name} musi być obiektem JSON: {value!r}",
+            option=option.name,
+            value=value,
+        )
+    return dict(value)
 
 
-def _absolute(path: PathArg) -> Path:
-    return Path(os.fspath(path)).expanduser().absolute()
+_PARSERS: dict[str, Callable[[CommandOption, object], object]] = {
+    "bool": _boolean,
+    "int": _integer,
+    "float": _number,
+    "str": _text,
+    "date": _date,
+    "path": _path,
+    "choice": _choice,
+    "list": _list,
+    "object": _object,
+}
 
 
-def _inside(child: Path, parent: Path) -> bool:
-    child, parent = _absolute(child).resolve(), _absolute(parent).resolve()
-    return child == parent or parent in child.parents
+def _absolutize(options: Options) -> None:
+    """Paths → absolute: ``version`` against ``root``, others against the CWD."""
+    for name, value in list(options.items()):
+        if isinstance(value, Path) and name not in ("version", *_PROJECT_PATHS):
+            options[name] = value.absolute()
+    version = options.get("version")
+    if isinstance(version, Path) and not version.is_absolute():
+        root = options.get("root")
+        options["version"] = (
+            root / version if isinstance(root, Path) else version.absolute()
+        )
 
 
-def _check_selectors(options: Options) -> None:
-    for dataset in options["dataset"]:
+def _store_of(path: Path) -> Path | None:
+    """Root of the IMGW store containing ``path`` (or being it), if any."""
+    resolved = path.resolve()
+    return next(
+        (
+            candidate
+            for candidate in (resolved, *resolved.parents)
+            if (candidate / _STORE_MARKER).is_file()
+        ),
+        None,
+    )
+
+
+def _store_root(version: Path) -> Path:
+    return _store_of(version) or version.parent
+
+
+def _outside_store(path: object) -> None:
+    if isinstance(path, Path) and (store := _store_of(path)) is not None:
+        _fail(
+            f"Plik wyniku musi leżeć poza magazynem IMGW ({store}): {path}",
+            option="path",
+            value=path,
+        )
+
+
+def _half_year(descriptor: DatasetDescriptor, year_type: object) -> None:
+    if descriptor.time_unit == "half_year" and year_type == "calendar":
+        _fail(
+            "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
+            option="year_type",
+            value=year_type,
+        )
+
+
+def _rules_archives(options: Options, task: bool) -> None:
+    archive_files(
+        options["dataset"],
+        years=options["years"],
+        months=options.get("months"),
+        params=options.get("params"),
+    )
+
+
+def _rules_store_check(options: Options, task: bool) -> None:
+    for dataset in options["datasets"]:
         archive_files(dataset, years=options["years"], months=options.get("months"))
 
 
-def _rules_store_check(options: Options) -> None:
-    _check_selectors(options)
-    if (
-        "plan" in options
-        and "root" in options
-        and _inside(options["plan"], options["root"])
-    ):
-        _fail("Plan imgw-plan/1 musi być zapisany poza magazynem")
-
-
-def _rules_store_sync(options: Options) -> None:
-    selectors = [name for name in ("dataset", "years", "months") if name in options]
-    if "plan" in options:
-        if selectors:
-            _fail("Podaj plan albo selektory dataset/years/months, nie oba naraz")
-    elif "dataset" not in options or "years" not in options:
-        _fail("Bez planu wymagane są opcje dataset i years")
-    else:
-        _check_selectors(options)
-
-
-def _rules_store_read(options: Options) -> None:
-    if "path" in options and _inside(options["path"], _store_root(options["version"])):
-        _fail("Plik wyniku store read musi być zapisany poza magazynem")
-
-
-def _rules_series_select(options: Options) -> None:
-    descriptor = get_dataset(options["dataset"])
-    unknown = [
-        name
-        for name in options.get("variables", ())
-        if name not in descriptor.variables
-    ]
-    if unknown:
+def _rules_store_sync(options: Options, task: bool) -> None:
+    if "plan" not in options:
+        _rules_store_check(options, task)
+        return
+    given = [name for name in ("datasets", "years", "months") if name in options]
+    if given:
         _fail(
-            f"Nieznane zmienne {', '.join(unknown)}; dostępne: {', '.join(descriptor.variables)}"
+            "Plan imgw-plan/1 wyklucza opcje datasets, years i months", option=given[0]
         )
-    if descriptor.time_unit == "half_year" and options.get("year_type") == "calendar":
-        _fail("Szereg półroczny obsługuje wyłącznie rok hydrologiczny")
 
 
-def _rules_pmaxtp(options: Options) -> None:
-    _fetch._validate_poland_coords(options["lat"], options["lon"])
-    if ("ind_x" in options) != ("ind_y" in options):
-        _fail("Podaj oba indeksy komórki ind_x i ind_y albo żaden")
+def _rules_stations(options: Options, task: bool) -> None:
+    _stations._search_kinds(
+        options.get("kind"),
+        options.get("query"),
+        options.get("source", "live"),
+        options.get("root"),
+    )
 
 
-def _rules_project_add(options: Options) -> None:
+def _rules_coordinates(options: Options, task: bool) -> None:
+    _fetch._validate_poland_coords(options["latitude"], options["longitude"])
+
+
+def _rules_series_select(options: Options, task: bool) -> None:
+    descriptor = get_dataset(options["dataset"])
+    if "variables" in options:
+        _reader._variables(options["variables"], descriptor)
+    _half_year(descriptor, options.get("year_type"))
+
+
+def _rules_series(options: Options, task: bool) -> None:
+    if "dataset" in options:
+        descriptor = get_dataset(options["dataset"])
+        if "variables" in options:
+            _reader._variables(options["variables"], descriptor)
+        _half_year(descriptor, options.get("year_type"))
+    start, end = options.get("start"), options.get("end")
+    if isinstance(start, date) and isinstance(end, date) and start > end:
+        _fail(
+            f"Początek zakresu {start} jest późniejszy niż koniec {end}",
+            option="end",
+            value=end.isoformat(),
+        )
+    if not task:
+        _outside_store(options.get("path"))
+
+
+def _rules_store_export(options: Options, task: bool) -> None:
+    _outside_store(options.get("path"))
+
+
+def _rules_project_add(options: Options, task: bool) -> None:
     command = options["command"]
-    if "geometry" in options and command != "series select":
-        _fail("Wybór obszarem (geometry) dotyczy wyłącznie zadań series select")
-    # Przy wyborze obszarem stacje materializuje add_project_task z bieżącego katalogu stacji.
-    task = _validate(command, options["options"], task=True, area="geometry" in options)
-    if command == "series select" and "years" not in task:
-        _fail("Zadanie series select w projekcie wymaga jawnej opcji years")
-    options["options"] = task
+    area = "geometry" in options
+    if area and command != "series select":
+        _fail(
+            "Wybór obszarem (geometry) dotyczy wyłącznie zadań series select",
+            option="geometry",
+        )
+    try:
+        # Przy wyborze obszarem stacje materializuje add_project_task z katalogu stacji.
+        nested = _validate(command, options["options"], task=True, area=area)
+    except IMGWValidationError as exc:
+        raise IMGWValidationError(
+            f"Opcje zadania {command}: {exc.detail}",
+            details={**exc.details, "option": "options"},
+        ) from exc
+    if command == "series select" and "years" not in nested:
+        _fail(
+            "Zadanie series select w projekcie wymaga jawnej opcji years",
+            option="options",
+        )
+    options["options"] = nested
 
 
-def _rules_fetch_hydro(options: Options) -> None:
-    if (
-        "param" in options
-        and options.get("interval", "polroczne_i_roczne") != "polroczne_i_roczne"
-    ):
-        _fail("Parametr H/Q/T dotyczy tylko interwału polroczne_i_roczne")
-    _fetch_jobs("fetch hydro", options)
-
-
-def _rules_fetch_meteo(options: Options) -> None:
-    _fetch_jobs("fetch meteo", options)
-
-
-_RULES: dict[str, Callable[[Options], None]] = {
+_RULES: dict[str, Rule] = {
+    "datasets files": _rules_archives,
+    "datasets download": _rules_archives,
+    "stations find": _rules_stations,
+    "pmaxtp fetch": _rules_coordinates,
+    "pmaxtp url": _rules_coordinates,
+    "pmaxtp check": _rules_coordinates,
+    "pmaxtp sync": _rules_coordinates,
     "store check": _rules_store_check,
     "store sync": _rules_store_sync,
-    "store read": _rules_store_read,
+    "store export": _rules_store_export,
     "series select": _rules_series_select,
-    "pmaxtp check": _rules_pmaxtp,
-    "pmaxtp sync": _rules_pmaxtp,
+    "series read": _rules_series,
+    "series summary": _rules_series,
+    "series export": _rules_series,
     "project add": _rules_project_add,
-    "fetch hydro": _rules_fetch_hydro,
-    "fetch meteo": _rules_fetch_meteo,
 }
 
 
 def _validate(
     command: object, options: object, *, task: bool, area: bool = False
 ) -> Options:
-    spec = _BY_NAME.get(command) if isinstance(command, str) else None
-    if spec is None:
-        return _fail(f"Nieznana komenda {command!r}; dostępne: {', '.join(_BY_NAME)}")
+    """
+    Validate ``options`` of ``command``; ``task`` mode validates a project task.
+
+    A task does not give ``root`` (it follows from the project store, so it
+    counts as given in ``requires``/``one_of``) and keeps paths relative to
+    the project; ``area`` makes ``stations`` optional (area selection).
+    """
+    spec = _spec(command)
     if not isinstance(options, Mapping):
-        return _fail(f"Opcje komendy {spec.name} muszą być mapowaniem nazwa → wartość")
-    known = {option.name for option in spec.options}
-    unknown = [repr(key) for key in options if key not in known]
-    if unknown:
-        _fail(f"Nieznane opcje komendy {spec.name}: {', '.join(unknown)}")
+        _fail(
+            f"Opcje komendy {spec.name} muszą być mapowaniem nazwa → wartość",
+            option="options",
+        )
+    known = {option.name: option for option in spec.options}
+    for key in options:
+        if key not in known:
+            _fail(
+                f"Nieznana opcja {key!r} komendy {spec.name}; dostępne: "
+                f"{', '.join(known)}",
+                option=str(key),
+                allowed=list(known),
+            )
     if task and "root" in options:
-        _fail("Zadanie projektu nie podaje root: magazyn wynika ze store_dir projektu")
+        _fail(
+            "Zadanie projektu nie podaje root: magazyn wynika ze store_dir projektu",
+            option="root",
+        )
     result: Options = {}
     for option in spec.options:
         value = options.get(option.name)
-        normalized = None if value is None else _value(option, value)
-        if normalized is None:
-            if option.required and not (
-                task and (option.name == "root" or (area and option.name == "stations"))
-            ):
-                _fail(
-                    f"Brak wymaganej opcji {option.name} ({option.flag}) komendy {spec.name}"
-                )
-            continue
-        result[option.name] = normalized
-    rules = _RULES.get(spec.name)
-    if rules is not None:
-        rules(result)
+        normalized = None if value is None else _PARSERS[option.type](option, value)
+        if normalized is not None:
+            result[option.name] = normalized
+    present = set(result) | ({"root"} if task and "root" in known else set())
+    for option in spec.options:
+        if (
+            option.required
+            and option.name not in present
+            and not (area and option.name == "stations")
+        ):
+            _fail(
+                f"Brak wymaganej opcji {option.name} ({option.flag}) komendy "
+                f"{spec.name}",
+                option=option.name,
+            )
+    for key, needed in spec.requires.items():
+        missing = [name for name in needed if name not in present]
+        if key in present and missing:
+            _fail(
+                f"Opcja {key} komendy {spec.name} wymaga także {', '.join(missing)}",
+                option=missing[0],
+            )
+    if spec.one_of:
+        matched = [group for group in spec.one_of if present.issuperset(group)]
+        if len(matched) != 1:
+            groups = " albo ".join("+".join(group) for group in spec.one_of)
+            _fail(
+                f"Komenda {spec.name} wymaga dokładnie jednej grupy opcji: {groups}",
+                option=(matched[1] if matched else spec.one_of[0])[0],
+            )
+    if not task:
+        _absolutize(result)
+    rule = _RULES.get(spec.name)
+    if rule is not None:
+        rule(result, task)
     return result
 
 
@@ -790,40 +1515,53 @@ def validate_command(
     """
     Normalize and validate command options without network access.
 
-    ``list`` options accept comma-separated text, a sequence or a single number;
-    years accept ``a-b`` ranges; ``lat``/``lon`` normalize to ``float``. ``None``
-    values and false ``bool`` flags are omitted, so formatting the result with
-    `format_command` and validating it again yields identical options.
+    Dataset aliases and slugs become keys, numeric text becomes ``int`` or
+    ``float``, ISO text becomes ``date``, every form of ``years`` (``2024``,
+    ``"2020-2023"``, ``"2020,2022"``, ``[2020, "2022-2023"]``) and ``months``
+    becomes a sorted tuple of numbers, other lists become tuples without
+    duplicates, and paths become absolute (``version`` against ``root``;
+    ``store_dir`` and ``geometry`` stay relative to the project directory).
+    ``None`` values and ``bool`` values equal to their default are omitted,
+    so formatting the result with `format_command` and validating it again
+    yields identical options. Coordinates are checked by the library
+    validator of Poland's bounds.
 
     Parameters
     ----------
     command : str
         Catalog command name, e.g. ``"series select"``.
     options : Mapping[str, object]
-        Option values keyed by their Python (``snake_case``) names.
+        Option values keyed by option name (``snake_case``); ``limit`` and
+        ``offset`` are options of list commands.
 
     Returns
     -------
     dict of {str : object}
-        Normalized options in catalog order (``Path`` objects, tuples, sorted
-        years and months, de-duplicated stations and variables).
+        Normalized options in catalog order.
 
     Raises
     ------
     IMGWValidationError
-        If the command, an option name or an option value is unknown or invalid,
-        or a required option is missing.
+        If the command, an option name, an option value or a combination of
+        options is unknown or invalid, or a required option is missing;
+        ``details.option`` names the offending option.
     """
     return _validate(command, options, task=False)
 
 
-def _jsonable(value: object) -> object:
+# --- formatowanie ----------------------------------------------------------------------------
+
+
+def _option_json(value: object) -> object:
+    """JSON value of a nested option; paths keep their given (relative) form."""
     if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
+        return {str(key): _option_json(item) for key, item in value.items()}
     if isinstance(value, tuple | list):
-        return [_jsonable(item) for item in value]
+        return [_option_json(item) for item in value]
     if isinstance(value, Path):
-        return str(value)
+        return value.as_posix()
+    if isinstance(value, date):
+        return value.isoformat()
     return value
 
 
@@ -832,10 +1570,15 @@ def _argument(value: object) -> str:
         return ",".join(str(item) for item in value)
     if isinstance(value, Mapping):
         return json.dumps(
-            _jsonable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            _option_json(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
         )
     if isinstance(value, float):
         return repr(value)
+    if isinstance(value, date):
+        return value.isoformat()
     return str(value)
 
 
@@ -843,15 +1586,16 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
     """
     Format a command as a stable, ``shlex``-quoted CLI invocation.
 
-    Only the given options are emitted, after normalization; no hidden options
-    are added.
+    Only the given options are emitted, after normalization, with their
+    canonical ``--kebab-case`` flags; ``bool`` options become ``--x`` or
+    ``--no-x``. No hidden options are added.
 
     Parameters
     ----------
     command : str
         Catalog command name.
     options : Mapping[str, object]
-        Option values keyed by their Python (``snake_case``) names.
+        Option values keyed by option name.
 
     Returns
     -------
@@ -865,395 +1609,329 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
         If the command or its options are invalid (see `validate_command`).
     """
     normalized = validate_command(command, options=options)
-    words = ["imgw", *command.split()]
-    for option in _BY_NAME[command].options:
+    spec = _BY_NAME[command]
+    words = ["imgw", *spec.name.split()]
+    for option in spec.options:
         if option.name not in normalized:
             continue
-        words.append(option.flag)
-        if option.type != "bool":
-            words.append(_argument(normalized[option.name]))
+        value = normalized[option.name]
+        if option.type == "bool":
+            words.append(option.flag if value else f"--no-{option.flag[2:]}")
+        else:
+            words += [option.flag, _argument(value)]
     return " ".join(shlex.quote(word) for word in words)
 
 
-# --- pobieranie archiwów (istniejące fetch hydro|meteo) ------------------------------------
+# --- dyspozytor ------------------------------------------------------------------------------
 
 
-def _server_path(url: str) -> str:
-    prefix = IMGW_PUBLIC_DATA_URL + "/"
-    if not url.startswith(prefix):
-        _fail(f"Nieznana ścieżka IMGW: {url}")
-    return url[len(prefix) :]
+class _Notices:
+    """Notice hook collecting distinct notices and forwarding every notice."""
+
+    def __init__(self, hook: NoticeHook | None) -> None:
+        self._hook = hook
+        self._seen: dict[Notice, None] = {}
+
+    def __call__(self, notice: Notice) -> None:
+        self._seen.setdefault(notice)
+        if self._hook is not None:
+            self._hook(notice)
+
+    def collected(self) -> tuple[Notice, ...]:
+        return tuple(self._seen)
 
 
-def _archive_download(
-    command: str, interval: Any, subtype: Any, file: ArchiveFile
-) -> Callable[[], Any]:
-    """Public ``download_*`` call for one enumerated archive file."""
-    year, param = file.year, file.param
-    if year is None or (param is not None and param not in ("T", "Q", "H")):
-        raise IMGWValidationError(f"Nieobsługiwane archiwum: {file.server_path}")
-    if command == "fetch hydro":
-        return partial(_fetch.download_hydro_data, interval, year, file.month, param)
-    return partial(_fetch.download_meteo_data, interval, subtype, year, file.month)
+def _function(name: str) -> Callable[..., Any]:
+    return getattr(importlib.import_module(_MODULES[name]), name)
 
 
-def _fetch_jobs(
-    command: str, options: Options
-) -> list[tuple[str, str, Callable[[], Any]]]:
-    """Pliki do pobrania wyliczone offline: (server_path, url, publiczne ``download_*``)."""
-    years = _year_range("year", options["year"])
-    month = options.get("month")
-    months = (month,) if month is not None else None
-    if command == "fetch hydro":
-        interval = options.get("interval", "polroczne_i_roczne")
-        files = archive_files(_HYDRO_INTERVALS[interval], years=years, months=months)
-        if "param" in options:
-            files = tuple(file for file in files if file.param == options["param"])
-        return [
-            (
-                file.server_path,
-                file.url,
-                _archive_download(command, interval, None, file),
-            )
-            for file in files
-        ]
-    interval = options.get("interval", "miesieczne")
-    subtype = options.get("subtype", "synop")
-    if interval == "dobowe" and subtype in ("klimat", "opad"):
-        key = f"pl.imgw.meteo_{'climate' if subtype == 'klimat' else 'precip'}_daily"
-        return [
-            (
-                file.server_path,
-                file.url,
-                _archive_download(command, interval, subtype, file),
-            )
-            for file in archive_files(key, years=years, months=months)
-        ]
-    jobs: dict[str, tuple[str, str, Callable[[], Any]]] = {}
-    for year in years:
-        hourly = interval == "terminowe" and year >= 2001
-        for selected in (
-            (range(1, 13) if month is None else (month,)) if hourly else (None,)
-        ):
-            try:
-                url = build_meteo_url(
-                    MeteoInterval(interval), MeteoSubtype(subtype), year, selected
-                ).url
-            except ValueError as exc:
-                raise IMGWValidationError(
-                    f"Archiwum meteorologiczne {interval}/{subtype} {year} nie jest publikowane jako plik zbiorczy: {exc}"
-                ) from exc
-            jobs.setdefault(
-                url,
-                (
-                    _server_path(url),
-                    url,
-                    partial(
-                        _fetch.download_meteo_data, interval, subtype, year, selected
-                    ),
-                ),
-            )
-    return list(jobs.values())
+def _call(name: str, options: Mapping[str, object], hooks: Mapping[str, object]) -> Any:
+    """Call public function ``name``, binding options and hooks by parameter name."""
+    function = _function(name)
+    parameters = inspect.signature(function).parameters
+    args: list[object] = []
+    kwargs: dict[str, object] = {}
+    for key, value in options.items():
+        parameter = parameters.get(key)
+        if parameter is None:
+            raise TypeError(f"Funkcja {name} nie ma parametru {key}")
+        if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+            args.append(value)
+        else:
+            kwargs[key] = value
+    kwargs.update((key, hook) for key, hook in hooks.items() if key in parameters)
+    return function(*args, **kwargs)
 
 
-def _destination(output: Path, server_path: str) -> Path:
-    relative = PurePosixPath(server_path)
-    if (
-        relative.is_absolute()
-        or relative.suffix != ".zip"
-        or "\\" in server_path
-        or any(part in (".", "..", "") for part in server_path.split("/"))
-    ):
-        _fail(f"Niebezpieczna ścieżka archiwum: {server_path}")
-    return output.joinpath(*relative.parts)
+def _outcome(cancelled: bool, failures: int, successes: int) -> Status:
+    if cancelled:
+        return "cancelled"
+    if not failures:
+        return "ok"
+    return "partial" if successes else "failed"
 
 
-def _save(destination: Path, data: bytes) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    part = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.part")
+def _status(result: object) -> Status:
+    """Envelope status of a function result (spec §13.6)."""
+    if isinstance(result, StorePlan):
+        states = [item.status for item in result.items]
+        states += [action.status for action in result.actions]
+        failures = states.count("check_failed")
+        return _outcome(result.cancelled, failures, len(states) - failures)
+    if isinstance(result, SyncReport):
+        items = [item.status for item in result.items]
+        series = [report.status for report in result.series]
+        return _outcome(
+            result.cancelled,
+            sum(s in ("failed", "stale_plan") for s in items) + series.count("failed"),
+            sum(s in _DONE for s in (*items, *series)),
+        )
+    if isinstance(result, DownloadReport):
+        items = [item.status for item in result.items]
+        return _outcome(
+            result.cancelled, items.count("failed"), items.count("downloaded")
+        )
+    if isinstance(result, ProjectReport):
+        states = [*result.tasks.values(), *(file.status for file in result.files)]
+        failures = sum(s in ("failed", "stale_plan") for s in states)
+        return _outcome(
+            result.cancelled,
+            failures,
+            len(states) - failures - states.count("cancelled"),
+        )
+    if isinstance(result, SeriesReport | CatalogReport | PMaXTPStoreResult):
+        return _outcome(result.status == "cancelled", int(result.status == "failed"), 0)
+    return "ok"
+
+
+def _page(options: Options) -> tuple[int | None, int]:
+    limit = cast(int | None, options.pop("limit", None))
+    offset = cast(int, options.pop("offset", 0))
+    return limit, offset
+
+
+def run_command(
+    command: str,
+    /,
+    *,
+    options: Mapping[str, object],
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
+) -> CommandResult[object]:
+    """
+    Run a catalog command through exactly one public function.
+
+    Options are validated with `validate_command` and bound to the function
+    parameters of the same names; the hooks are passed to functions that
+    accept them. List commands are paged here: ``total`` counts the items
+    returned by the function, ``items`` is the slice
+    ``[offset, offset + limit)`` (to the end without ``limit``). Stream
+    commands (``store export``, ``series export`` without ``path``) return
+    the iterator of text lines as ``result``; an error while iterating is
+    raised from the iterator.
+
+    Parameters
+    ----------
+    command : str
+        Catalog command name.
+    options : Mapping[str, object]
+        Option values keyed by option name.
+    on_progress : ProgressHook or None, optional
+        Progress callback forwarded to the public function.
+    on_notice : NoticeHook or None, optional
+        Notice callback; it receives every notice, while the envelope keeps
+        each distinct notice once.
+    cancel : Cancel or None, optional
+        Cancellation callback forwarded to the public function.
+
+    Returns
+    -------
+    CommandResult
+        Envelope with ``check=False``, the status computed from the result
+        (``partial``/``failed`` for failed items of a report, ``cancelled``
+        for a cancelled report or an `IMGWCancelledError` with
+        ``result=None``), the result (a `Page` for list commands) and the
+        distinct notices in order of first occurrence.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the command or its options are invalid (see `validate_command`).
+    IMGWError
+        Other errors of the dispatched public function are propagated.
+    """
+    normalized = validate_command(command, options=options)
+    spec = _BY_NAME[command]
+    limit, offset = _page(normalized)
+    notices = _Notices(on_notice)
+    hooks = {"on_progress": on_progress, "on_notice": notices, "cancel": cancel}
     try:
-        with part.open("xb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(part, destination)
-    finally:
-        part.unlink(missing_ok=True)
-    return destination
+        result = _call(spec.function, normalized, hooks)
+        if spec.result == "list":
+            items = tuple(result)
+            end = None if limit is None else offset + limit
+            result = Page(items[offset:end], len(items), limit, offset)
+    except IMGWCancelledError:
+        return CommandResult(spec.name, False, "cancelled", None, notices.collected())
+    return CommandResult(spec.name, False, _status(result), result, notices.collected())
 
 
-def _run_fetch(command: str, options: Options, hooks: Hooks) -> Path:
-    output = _absolute(options.get("output", _DEFAULT_OUTPUT))
-    on_progress, on_notice, cancel = (
-        hooks["on_progress"],
-        hooks["on_notice"],
-        hooks["cancel"],
+# --- sprawdzenia bez zapisu ------------------------------------------------------------------
+
+
+def _plan(root: Path, actions: Iterable[PlanAction]) -> StorePlan:
+    return StorePlan("imgw-plan/1", root, datetime.now(UTC), (), {}, tuple(actions))
+
+
+def _reading(command: str, detail: str, root: Path | None = None) -> StorePlan:
+    return _plan(root or Path.cwd(), [PlanAction(command, "current", detail)])
+
+
+def _live(command: str, urls: Iterable[str]) -> StorePlan:
+    return _plan(
+        Path.cwd(),
+        [
+            PlanAction(
+                command,
+                "unverifiable",
+                f"Odczyt na żywo {url} (bez zapisu; aktualność znana dopiero po pobraniu)",
+            )
+            for url in urls
+        ],
     )
-    jobs = _fetch_jobs(command, options)
-    downloaded = 0
-    for index, (server_path, _url, download) in enumerate(jobs, 1):
-        if cancel is not None and cancel():
-            if on_notice is not None:
-                on_notice(
-                    Notice(
-                        "warning",
-                        "cancelled",
-                        f"Anulowano pobieranie; pominięto {len(jobs) - index + 1} plików",
-                    )
-                )
-            break
-        try:
-            target = _save(_destination(output, server_path), download().data)
-        except (IMGWError, OSError) as exc:
-            if on_notice is not None:
-                on_notice(
-                    Notice(
-                        "error", "download_failed", f"Nie pobrano {server_path}: {exc}"
-                    )
-                )
-            if on_progress is not None:
-                on_progress(
-                    Progress(index, len(jobs), "archive", "failed", server_path)
-                )
-            continue
-        downloaded += 1
-        if on_progress is not None:
-            on_progress(
-                Progress(index, len(jobs), "archive", "downloaded", f"Pobrano {target}")
-            )
-    if downloaded and on_notice is not None:
-        attribution = get_dataset(
-            "pl.imgw.hydro_daily"
-            if command == "fetch hydro"
-            else "pl.imgw.meteo_climate_daily"
-        ).license.attribution
-        on_notice(
-            Notice(
-                "info",
-                "license_terms",
-                f"{attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
-            )
-        )
-    return output
 
 
-def _check_fetch(command: str, options: Options, hooks: Hooks) -> StorePlan:
-    output = _absolute(options.get("output", _DEFAULT_OUTPUT))
+def _twin(name: str, *, without: tuple[str, ...] = ()) -> Checker:
+    def check(options: Options, hooks: Hooks) -> StorePlan:
+        kept = {key: value for key, value in options.items() if key not in without}
+        return _call(name, kept, hooks)
+
+    return check
+
+
+def _archives(options: Options) -> tuple[ArchiveFile, ...]:
+    return archive_files(
+        options["dataset"],
+        years=options["years"],
+        months=options.get("months"),
+        params=options.get("params"),
+    )
+
+
+def _check_datasets_list(options: Options, hooks: Hooks) -> StorePlan:
+    found = datasets(kind=options.get("kind"))
+    return _reading("datasets list", f"Rejestr zbiorów IMGW (offline): {len(found)}")
+
+
+def _check_datasets_files(options: Options, hooks: Hooks) -> StorePlan:
+    files = _archives(options)
+    return _reading(
+        "datasets files",
+        f"Pliki archiwów zbioru {options['dataset']} (offline, bez pobierania): "
+        f"{len(files)}",
+    )
+
+
+def _check_download(options: Options, hooks: Hooks) -> StorePlan:
+    output = cast(Path, options.get("output", _DEFAULT_OUTPUT.absolute()))
     actions = []
-    for server_path, url, _download in _fetch_jobs(command, options):
-        target = _destination(output, server_path)
-        status = "unverifiable" if target.exists() else "missing"
-        detail = f"{url} → {target}" + (
-            " (istniejący plik zostanie zastąpiony)" if target.exists() else ""
+    for file in _archives(options):
+        target = output.joinpath(*file.server_path.split("/"))
+        exists = target.exists()
+        actions.append(
+            PlanAction(
+                "datasets download",
+                "unverifiable" if exists else "missing",
+                f"{file.url} → {target}"
+                + (" (istniejący plik zostanie zastąpiony)" if exists else ""),
+            )
         )
-        actions.append(PlanAction(command, status, detail))
     return _plan(output, actions)
 
 
-# --- dispatch ------------------------------------------------------------------------------
+def _check_stations(options: Options, hooks: Hooks) -> StorePlan:
+    kinds, _ = _stations._search_kinds(
+        options.get("kind"),
+        options.get("query"),
+        options.get("source", "live"),
+        options.get("root"),
+    )
+    root = options.get("root")
+    if not isinstance(root, Path):
+        return _live(
+            "stations find", (url for _, url in _stations._live_sources(kinds))
+        )
+    info = _store.store_info(root)
+    action = (
+        PlanAction("stations find", "current", f"Odczyt list stacji z magazynu {root}")
+        if info.supported
+        else PlanAction(
+            "stations find",
+            "check_failed",
+            "; ".join(info.problems) or f"Katalog {root} nie jest magazynem IMGW",
+        )
+    )
+    return _plan(root, [action])
 
 
-def _plan(root: PathArg, actions: Iterable[PlanAction]) -> StorePlan:
-    return StorePlan(
-        "imgw-plan/1", _absolute(root), datetime.now(UTC), (), {}, tuple(actions)
+def _check_current(endpoint: str) -> Checker:
+    def check(options: Options, hooks: Hooks) -> StorePlan:
+        url = build_api_url(endpoint, station=options.get("station"))
+        return _live(f"current {endpoint}", [url])
+
+    return check
+
+
+def _check_warnings(options: Options, hooks: Hooks) -> StorePlan:
+    sources = _fetch._warning_sources(options.get("kind"))
+    return _live("current warnings", (url for _, url in sources))
+
+
+def _check_hydro_states(options: Options, hooks: Hooks) -> StorePlan:
+    url = _stations._map_url(bool(options.get("main_only", False)))
+    return _live("current hydro-states", [url])
+
+
+def _pmaxtp_url(options: Options) -> str:
+    return build_pmaxtp_url(
+        options["latitude"], options["longitude"], method=options.get("method", "POT")
     )
 
 
-def _project() -> ModuleType:
-    return importlib.import_module("imgwtools.project")
+def _check_pmaxtp_fetch(options: Options, hooks: Hooks) -> StorePlan:
+    return _live("pmaxtp fetch", [_pmaxtp_url(options)])
 
 
-def _cell(options: Options) -> Options:
-    return {
-        "method": options["method"],
-        "latitude": options["lat"],
-        "longitude": options["lon"],
-        "ind_x": options.get("ind_x"),
-        "ind_y": options.get("ind_y"),
-    }
+def _check_pmaxtp_url(options: Options, hooks: Hooks) -> StorePlan:
+    return _reading("pmaxtp url", f"Adres API PMAXTP (offline): {_pmaxtp_url(options)}")
 
 
-def _period_years(periods: Iterable[tuple[date, date]], year_type: str) -> set[int]:
-    def year(day: date) -> int:
-        return (
-            day.year + 1
-            if year_type == "hydrological" and day.month >= 11
-            else day.year
-        )
-
-    return {
-        number for start, end in periods for number in range(year(start), year(end) + 1)
-    }
-
-
-def _series_entry(options: Options) -> StoreEntry | None:
-    key = get_dataset(options["dataset"]).key
-    return _store.current_version(options["root"], slot=f"series:{key}")
-
-
-def _select(options: Options, entry: StoreEntry | None) -> SeriesSelection:
-    dataset = options["dataset"]
-    if entry is None or entry.version is None:
-        raise IMGWStoreError(
-            f"Brak szeregu {dataset} w magazynie; najpierw uruchom series build",
-            code="not_found",
-        )
-    index = _store.read_series_index(entry.version)
-    missing = [code for code in options["stations"] if code not in index.stations]
-    if missing:
-        _fail(f"Stacje spoza szeregu {dataset}: {', '.join(missing)}")
-    year_type = options.get("year_type", index.year_type)
-    available = _period_years(index.periods, year_type)
-    years = options.get("years") or tuple(sorted(available))
-    outside = [str(year) for year in years if year not in available]
-    if outside:
-        _fail(f"Lata spoza szeregu {dataset} ({year_type}): {', '.join(outside)}")
-    variables = options.get("variables") or tuple(get_dataset(dataset).variables)
-    return SeriesSelection(
-        dataset, entry.version, options["stations"], variables, years, year_type
-    )
-
-
-def _check_select(options: Options, hooks: Hooks) -> StorePlan:
+def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
+    root = cast(Path, options["root"])
+    cell = f"{options.get('method', 'POT')}/{options['ind_x']}_{options['ind_y']}"
     try:
-        entry = _series_entry(options)
-        if entry is None:
-            action = PlanAction(
-                "series select",
-                "missing",
-                f"Brak szeregu {options['dataset']} w magazynie; najpierw series build",
-            )
+        if "version" in options:
+            version = cast(Path, options["version"])
+            found = version if version.exists() else None
         else:
-            selection = _select(options, entry)
-            action = PlanAction(
-                "series select",
-                "current",
-                (
-                    f"{selection.version}: stacje {', '.join(selection.stations)}; zmienne {', '.join(selection.variables)}; "
-                    f"lata {', '.join(map(str, selection.years))} ({selection.year_type})"
-                ),
-            )
+            entry = _store.current_version(root, slot=f"pmaxtp:pl.imgw.pmaxtp:{cell}")
+            found = None if entry is None else entry.version
     except IMGWError as exc:
-        action = PlanAction("series select", "check_failed", str(exc))
-    return _plan(options["root"], [action])
-
-
-def _store_root(version: Path) -> Path:
-    path = _absolute(version)
-    for candidate in (path, *path.parents):
-        if (candidate / _STORE_MARKER).is_file():
-            return candidate
-    return path.parent
-
-
-def _run_store_read(options: Options, hooks: Hooks) -> Path | Iterator[str]:
-    export = importlib.import_module("imgwtools.store.export")
-    records = _store.read_archive(options["version"])
-    lines = export._record_lines(records, format=options.get("format", "csv"))
-    if "path" not in options:
-        return lines
-    return export._write_lines(options["path"], lines, cancel=hooks["cancel"])
-
-
-def _check_store_read(options: Options, hooks: Hooks) -> StorePlan:
-    version, format_ = options["version"], options.get("format", "csv")
-    try:
-        _store.read_archive(version)
-    except IMGWError as exc:
-        action = PlanAction("store read", "check_failed", str(exc))
+        action = PlanAction("pmaxtp read", "check_failed", str(exc))
     else:
-        if "path" not in options:
-            action = PlanAction(
-                "store read",
-                "current",
-                f"Odczyt rekordów {version} ({format_}) na standardowe wyjście",
+        action = (
+            PlanAction("pmaxtp read", "current", f"Odczyt komórki {cell} z {found}")
+            if found is not None
+            else PlanAction(
+                "pmaxtp read", "missing", f"Brak zapisanej komórki PMAXTP {cell}"
             )
-        else:
-            target = _absolute(options["path"])
-            action = PlanAction(
-                "store read",
-                "newer" if target.exists() else "missing",
-                f"Zapis rekordów {version} ({format_}) do {target}"
-                + (" (istniejący plik zostanie zastąpiony)" if target.exists() else ""),
-            )
-    return _plan(_store_root(version), [action])
-
-
-def _run_export(options: Options, hooks: Hooks) -> Path:
-    export = importlib.import_module("imgwtools.store.export")
-    return export.export_series(
-        options["version"],
-        station=options["station"],
-        path=options["path"],
-        variables=options["variables"],
-        year_type=options.get("year_type"),
-        format=options.get("format", "csv"),
-        **hooks,
-    )
-
-
-def _check_export(options: Options, hooks: Hooks) -> StorePlan:
-    target = _absolute(options["path"])
-    variables = options["variables"]
-    try:
-        index = _store.read_series_index(options["version"])
-        descriptor = get_dataset(index.dataset)
-        if options["station"] not in index.stations:
-            _fail(
-                f"Stacja {options['station']} nie występuje w szeregu {index.dataset}"
-            )
-        unknown = [name for name in variables if name not in descriptor.variables]
-        if unknown:
-            _fail(
-                f"Nieznane zmienne {', '.join(unknown)}; dostępne: {', '.join(descriptor.variables)}"
-            )
-        year_type = options.get("year_type", index.year_type)
-        if descriptor.time_unit == "half_year" and year_type == "calendar":
-            _fail("Szereg półroczny obsługuje wyłącznie rok hydrologiczny")
-    except IMGWError as exc:
-        action = PlanAction("series export", "check_failed", str(exc))
-    else:
-        action = PlanAction(
-            "series export",
-            "newer" if target.exists() else "missing",
-            (
-                f"Eksport CSV stacji {options['station']} ({', '.join(variables)}; rok {year_type}) do {target}"
-                + (" (istniejący plik zostanie zastąpiony)" if target.exists() else "")
-            ),
         )
-    return _plan(_store_root(options["version"]), [action])
-
-
-def _run_store_check(options: Options, hooks: Hooks) -> StorePlan:
-    plan = _store.check_store(
-        options["root"],
-        datasets=options["dataset"],
-        years=options["years"],
-        months=options.get("months"),
-        **hooks,
-    )
-    if "plan" in options:
-        plan.to_json(options["plan"])
-    return plan
-
-
-def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
-    if "plan" not in options:
-        return _store.check_store(
-            options["root"],
-            datasets=options["dataset"],
-            years=options["years"],
-            months=options.get("months"),
-            **hooks,
-        )
-    plan = StorePlan.from_json(options["plan"])
-    if _absolute(plan.root) != _absolute(options["root"]):
-        _fail(f"Plan dotyczy innego magazynu: {plan.root}")
-    return plan
+    return _plan(root, [action])
 
 
 def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
-    root = _absolute(options["root"])
+    root = cast(Path, options["root"])
     info = _store.store_info(root)
     if info.supported:
         action = PlanAction(
@@ -1275,55 +1953,110 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
     return _plan(root, [action])
 
 
-def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
-    root = _absolute(options["root"])
-    cell = f"{options['method']}:{options['ind_x']}_{options['ind_y']}"
-    try:
-        if "version" in options:
-            version = (
-                options["version"]
-                if options["version"].is_absolute()
-                else root / options["version"]
-            )
-            found = version if version.exists() else None
-        else:
-            entry = _store.current_version(
-                root,
-                slot=f"pmaxtp:pl.imgw.pmaxtp:{options['method']}/{options['ind_x']}_{options['ind_y']}",
-            )
-            found = entry.version if entry is not None else None
-    except IMGWError as exc:
-        action = PlanAction("pmaxtp read", "check_failed", str(exc))
-    else:
-        action = (
-            PlanAction("pmaxtp read", "current", f"Odczyt komórki {cell} z {found}")
-            if found is not None
-            else PlanAction(
-                "pmaxtp read", "missing", f"Brak zapisanej komórki PMAXTP {cell}"
-            )
-        )
-    return _plan(root, [action])
-
-
-def _read_only(command: str, key: str) -> Callable[[Options, Hooks], StorePlan]:
+def _check_reading(command: str, key: str) -> Checker:
     def check(options: Options, hooks: Hooks) -> StorePlan:
-        return _plan(
-            options[key],
-            [
-                PlanAction(
-                    command,
-                    "current",
-                    f"Operacja tylko do odczytu: {_absolute(options[key])}",
-                )
-            ],
-        )
+        root = cast(Path, options[key])
+        return _reading(command, f"Operacja tylko do odczytu: {root}", root)
 
     return check
 
 
-def _check_manifest(command: str) -> Callable[[Options, Hooks], StorePlan]:
+def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
+    root = cast(Path, options["root"])
+    if "plan" not in options:
+        selection = ("root", "datasets", "years", "months")
+        return _call(
+            "check_store", {k: v for k, v in options.items() if k in selection}, hooks
+        )
+    plan = StorePlan.from_json(options["plan"])
+    if Path(plan.root).absolute() != root:
+        _fail(
+            f"Plan dotyczy innego magazynu: {plan.root}",
+            option="plan",
+            value=options["plan"],
+        )
+    return plan
+
+
+def _export_action(command: str, what: str, path: object) -> PlanAction:
+    if not isinstance(path, Path):
+        return PlanAction(command, "current", f"Eksport {what} na standardowe wyjście")
+    exists = path.exists()
+    return PlanAction(
+        command,
+        "newer" if exists else "missing",
+        f"Eksport {what} do {path}"
+        + (" (istniejący plik zostanie zastąpiony)" if exists else ""),
+    )
+
+
+def _check_store_export(options: Options, hooks: Hooks) -> StorePlan:
+    version = cast(Path, options["version"])
+    try:
+        _store.read_archive(version)
+    except IMGWError as exc:
+        action = PlanAction("store export", "check_failed", str(exc))
+    else:
+        what = f"rekordów {version} ({options.get('format', 'csv')})"
+        action = _export_action("store export", what, options.get("path"))
+    return _plan(options.get("root") or _store_root(version), [action])
+
+
+def _check_select(options: Options, hooks: Hooks) -> StorePlan:
+    try:
+        selection = _call("select_series", options, {})
+    except IMGWError as exc:
+        status = "missing" if exc.code == "not_found" else "check_failed"
+        action = PlanAction("series select", status, str(exc))
+    else:
+        action = PlanAction(
+            "series select",
+            "current",
+            f"{selection.version}: stacje {', '.join(selection.stations)}; zmienne "
+            f"{', '.join(selection.variables)}; lata "
+            f"{', '.join(map(str, selection.years))} ({selection.year_type})",
+        )
+    return _plan(options["root"], [action])
+
+
+def _check_series(command: str) -> Checker:
     def check(options: Options, hooks: Hooks) -> StorePlan:
-        manifest = _absolute(options["project_dir"]) / PROJECT_FILE
+        root = options.get("root")
+        try:
+            path = _reader._series_path(
+                options.get("version"), root=root, dataset=options.get("dataset")
+            )
+            index = _store.read_series_index(path)
+            descriptor = get_dataset(index.dataset)
+            codes = (options["station"],) if "station" in options else ()
+            _reader._outside(options.get("stations", codes), index)
+            _reader._variables(options.get("variables"), descriptor)
+            _half_year(descriptor, options.get("year_type"))
+        except IMGWError as exc:
+            missing = exc.code == "not_found" and command != "series export"
+            action = PlanAction(
+                command, "missing" if missing else "check_failed", str(exc)
+            )
+        else:
+            action = (
+                _export_action(
+                    command,
+                    f"szeregu stacji {options['station']} z {path}",
+                    options.get("path"),
+                )
+                if command == "series export"
+                else PlanAction(command, "current", f"Odczyt szeregu {path} (offline)")
+            )
+        base = root if isinstance(root, Path) else _store_root(options["version"])
+        return _plan(base, [action])
+
+    return check
+
+
+def _check_manifest(command: str) -> Checker:
+    def check(options: Options, hooks: Hooks) -> StorePlan:
+        directory = cast(Path, options["project_dir"])
+        manifest = directory / PROJECT_FILE
         if command == "project init":
             action = (
                 PlanAction(
@@ -1342,137 +2075,50 @@ def _check_manifest(command: str) -> Callable[[Options, Hooks], StorePlan]:
             action = PlanAction(
                 command, "check_failed", f"Brak manifestu projektu {manifest}"
             )
-        return _plan(options["project_dir"], [action])
+        return _plan(directory, [action])
 
     return check
 
 
-def _run_project_check(options: Options, hooks: Hooks) -> StorePlan:
-    plan = _project().check_project(
-        options["project_dir"], tasks=options.get("tasks"), **hooks
-    )
-    if "plan" in options:
-        plan.to_json(options["plan"])
-    return plan
-
-
-def _check_project(options: Options, hooks: Hooks) -> StorePlan:
-    return _project().check_project(
-        options["project_dir"], tasks=options.get("tasks"), **hooks
-    )
-
-
-def _check_pmaxtp(options: Options, hooks: Hooks) -> StorePlan:
-    return _store.check_pmaxtp(options["root"], **_cell(options), **hooks)
-
-
-Runner = Callable[[Options, Hooks], Any]
-
-_RUN: dict[str, Runner] = {
-    "store init": lambda o, h: _store.init_store(o["root"]),
-    "store info": lambda o, h: _store.store_info(o["root"]),
-    "store scan": lambda o, h: tuple(_store.iter_store(o["root"], kind=o.get("kind"))),
-    "store check": _run_store_check,
-    "store sync": lambda o, h: _store.sync_store(
-        o["root"],
-        datasets=o.get("dataset"),
-        years=o.get("years"),
-        months=o.get("months"),
-        plan=o.get("plan"),
-        series=not o.get("no_series", False),
-        **h,
-    ),
-    "store catalog": lambda o, h: _store.build_catalog(
-        o["root"], user_locations=o.get("user_locations"), **h
-    ),
-    "store read": _run_store_read,
-    "series build": lambda o, h: _store.build_series(
-        o["root"], dataset=o["dataset"], **h
-    ),
-    "series export": _run_export,
-    "series select": lambda o, h: _select(o, _series_entry(o)),
-    "pmaxtp check": _check_pmaxtp,
-    "pmaxtp sync": lambda o, h: _store.sync_pmaxtp(o["root"], **_cell(o), **h),
-    "pmaxtp read": lambda o, h: _store.read_pmaxtp(
-        o["root"],
-        method=o["method"],
-        ind_x=o["ind_x"],
-        ind_y=o["ind_y"],
-        version=o.get("version"),
-    ),
-    "project init": lambda o, h: _project().init_project(
-        o["project_dir"], store_dir=o["store_dir"]
-    ),
-    "project add": lambda o, h: _project().add_project_task(
-        o["project_dir"],
-        name=o["name"],
-        command=o["command"],
-        options=o["options"],
-        geometry=o.get("geometry"),
-    ),
-    "project remove": lambda o, h: _project().remove_project_task(
-        o["project_dir"], name=o["name"]
-    ),
-    "project set-store": lambda o, h: _project().set_project_store(
-        o["project_dir"], store_dir=o["store_dir"], on_notice=h["on_notice"]
-    ),
-    "project download": lambda o, h: _project().download_project(
-        o["project_dir"],
-        tasks=o.get("tasks"),
-        plan=o.get("plan"),
-        update=o.get("update", "pinned"),
-        **h,
-    ),
-    "project check": _run_project_check,
-    "project status": lambda o, h: _project().get_project_status(
-        o["project_dir"], tasks=o.get("tasks")
-    ),
-    "project verify": lambda o, h: _project().verify_project(
-        o["project_dir"], tasks=o.get("tasks"), **h
-    ),
-    "fetch hydro": partial(_run_fetch, "fetch hydro"),
-    "fetch meteo": partial(_run_fetch, "fetch meteo"),
-}
-
-_CHECK: dict[str, Runner] = {
-    "store init": _check_store_init,
-    "store info": _read_only("store info", "root"),
-    "store scan": _read_only("store scan", "root"),
-    "store check": lambda o, h: _store.check_store(
-        o["root"], datasets=o["dataset"], years=o["years"], months=o.get("months"), **h
-    ),
-    "store sync": _check_store_sync,
-    "store catalog": lambda o, h: _store.check_catalog(
-        o["root"], user_locations=o.get("user_locations"), **h
-    ),
-    "store read": _check_store_read,
-    "series build": lambda o, h: _store.check_series(
-        o["root"], dataset=o["dataset"], **h
-    ),
-    "series export": _check_export,
-    "series select": _check_select,
-    "pmaxtp check": _check_pmaxtp,
-    "pmaxtp sync": _check_pmaxtp,
+_CHECKS: dict[str, Checker] = {
+    "datasets list": _check_datasets_list,
+    "datasets files": _check_datasets_files,
+    "datasets download": _check_download,
+    "stations find": _check_stations,
+    "current hydro": _check_current("hydro"),
+    "current meteo": _check_current("meteo"),
+    "current synop": _check_current("synop"),
+    "current warnings": _check_warnings,
+    "current hydro-states": _check_hydro_states,
+    "pmaxtp fetch": _check_pmaxtp_fetch,
+    "pmaxtp url": _check_pmaxtp_url,
+    "pmaxtp check": _twin("check_pmaxtp"),
+    "pmaxtp sync": _twin("check_pmaxtp"),
     "pmaxtp read": _check_pmaxtp_read,
+    "store init": _check_store_init,
+    "store info": _check_reading("store info", "root"),
+    "store scan": _check_reading("store scan", "root"),
+    "store check": _twin("check_store", without=("plan",)),
+    "store sync": _check_store_sync,
+    "store catalog": _twin("check_catalog"),
+    "store export": _check_store_export,
+    "series build": _twin("check_series"),
+    "series select": _check_select,
+    "series read": _check_series("series read"),
+    "series summary": _check_series("series summary"),
+    "series export": _check_series("series export"),
     "project init": _check_manifest("project init"),
     "project add": _check_manifest("project add"),
     "project remove": _check_manifest("project remove"),
     "project set-store": _check_manifest("project set-store"),
-    "project download": _check_project,
-    "project check": _check_project,
-    "project status": _read_only("project status", "project_dir"),
-    "project verify": _read_only("project verify", "project_dir"),
-    "fetch hydro": partial(_check_fetch, "fetch hydro"),
-    "fetch meteo": partial(_check_fetch, "fetch meteo"),
+    "project download": _twin("check_project", without=("plan", "update")),
+    "project check": _twin("check_project", without=("plan",)),
+    "project status": _check_reading("project status", "project_dir"),
+    "project verify": _check_reading("project verify", "project_dir"),
+    "commands schema": lambda options, hooks: _reading(
+        "commands schema", "Opis katalogu komend imgw-commands/1 (offline)"
+    ),
 }
-
-
-def _hooks(
-    on_progress: ProgressHook | None,
-    on_notice: NoticeHook | None,
-    cancel: Cancel | None,
-) -> Hooks:
-    return {"on_progress": on_progress, "on_notice": on_notice, "cancel": cancel}
 
 
 def check_command(
@@ -1483,102 +2129,206 @@ def check_command(
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
-) -> StorePlan:
+) -> CommandResult[StorePlan]:
     """
-    Plan a command without mutating anything or downloading content.
+    Plan a command without writing anything or downloading content.
 
-    Commands with their own check use it (e.g. ``store sync`` → `check_store`,
-    ``series build`` → `check_series`, ``project download`` → `check_project`);
-    the others return planned `PlanAction` items with the expected paths and
-    validation results.
+    Commands with a check twin use it (``store sync`` → `check_store`,
+    ``store catalog`` → `check_catalog`, ``series build`` → `check_series`,
+    ``pmaxtp sync`` → `check_pmaxtp`, ``project download`` →
+    `check_project`); commands that are checks themselves run without
+    writing their plan file. Every other command gets a general plan of
+    `PlanAction` items: validation, URLs and expected paths, without any
+    request (read-only commands are reported ``current``, live reads
+    ``unverifiable``).
 
     Parameters
     ----------
     command : str
         Catalog command name.
     options : Mapping[str, object]
-        Option values, identical to those accepted by `run_command`.
+        Option values, identical to those accepted by `run_command`
+        (``limit`` and ``offset`` are ignored).
     on_progress : ProgressHook or None, optional
-        Progress callback forwarded to the underlying check.
+        Progress callback forwarded to the check twin.
     on_notice : NoticeHook or None, optional
-        Notice callback forwarded to the underlying check.
+        Notice callback; every notice is forwarded, the envelope keeps each
+        distinct notice once.
     cancel : Cancel or None, optional
-        Cancellation callback forwarded to the underlying check.
+        Cancellation callback forwarded to the check twin.
 
     Returns
     -------
-    StorePlan
-        ``imgw-plan/1`` plan of the command.
+    CommandResult
+        Envelope with ``check=True`` and the ``imgw-plan/1`` plan as
+        ``result``; ``status`` is ``failed`` or ``partial`` when plan items
+        or actions are ``check_failed`` and ``cancelled`` for a cancelled
+        plan.
 
     Raises
     ------
     IMGWValidationError
         If the command or its options are invalid (see `validate_command`).
     IMGWError
-        Errors of the underlying public check function are propagated.
+        Other errors of the check twin are propagated.
     """
     normalized = validate_command(command, options=options)
-    return _CHECK[command](normalized, _hooks(on_progress, on_notice, cancel))
+    spec = _BY_NAME[command]
+    _page(normalized)
+    notices = _Notices(on_notice)
+    hooks = {"on_progress": on_progress, "on_notice": notices, "cancel": cancel}
+    try:
+        plan = _CHECKS[spec.name](normalized, hooks)
+    except IMGWCancelledError:
+        return CommandResult(spec.name, True, "cancelled", None, notices.collected())
+    return CommandResult(spec.name, True, _status(plan), plan, notices.collected())
 
 
-def run_command(
-    command: str,
-    /,
-    *,
-    options: Mapping[str, object],
-    on_progress: ProgressHook | None = None,
-    on_notice: NoticeHook | None = None,
-    cancel: Cancel | None = None,
-) -> (
-    StoreHandle
-    | StoreInfo
-    | tuple[StoreEntry, ...]
-    | StorePlan
-    | SyncReport
-    | SeriesReport
-    | SeriesSelection
-    | CatalogReport
-    | PMaXTPStoreResult
-    | PMaXTPResult
-    | Project
-    | ProjectReport
-    | Path
-    | Iterator[str]
-):
+# --- schemat JSON ----------------------------------------------------------------------------
+
+
+def _value_schema(
+    type_: str, option: CommandOption, *, item: bool = False
+) -> dict[str, object]:
+    if type_ in ("str", "int", "float"):
+        schema: dict[str, object] = {
+            "type": {"str": "string", "int": "integer", "float": "number"}[type_]
+        }
+        if type_ == "str":
+            schema["minLength"] = 1
+        for key in ("minimum", "maximum", "pattern"):
+            if (value := getattr(option, key)) is not None:
+                schema[key] = value
+        return schema
+    if type_ == "year":
+        return {
+            "anyOf": [
+                _value_schema("int", option, item=True),
+                {"type": "string", "pattern": _RANGE},
+            ]
+        }
+    if type_ == "choice":
+        return {"enum": list(option.choices)}
+    if type_ == "list" and not item:
+        items = _value_schema(option.items or "str", option, item=True)
+        return {"type": "array", "items": items, "minItems": 1}
+    simple: dict[str, dict[str, object]] = {
+        "bool": {"type": "boolean"},
+        "date": {"type": "string", "format": "date"},
+        "path": {"type": "string", "x-imgw-type": "path"},
+        "object": {"type": "object"},
+    }
+    return simple[type_]
+
+
+def _property(option: CommandOption) -> dict[str, object]:
+    schema = _value_schema(option.type, option)
+    if option.default is not None:
+        schema["default"] = option.default
+    schema["description"] = option.help
+    return schema
+
+
+def _flags(option: CommandOption) -> list[str]:
+    negative = [f"--no-{option.flag[2:]}"] if option.default is True else []
+    return [option.flag, *option.aliases, *negative]
+
+
+def _schema(spec: DataCommand) -> dict[str, object]:
+    group, name = spec.name.split(" ", 1)
+    schema: dict[str, object] = {
+        "$schema": _DIALECT,
+        "title": spec.name,
+        "description": spec.description,
+        "type": "object",
+        "properties": {option.name: _property(option) for option in spec.options},
+    }
+    required = [option.name for option in spec.options if option.required]
+    if required:
+        schema["required"] = required
+    if spec.requires:
+        schema["dependentRequired"] = {
+            key: list(names) for key, names in spec.requires.items()
+        }
+    if spec.one_of:
+        schema["oneOf"] = [{"required": list(names)} for names in spec.one_of]
+    schema["additionalProperties"] = False
+    schema["x-imgw"] = {
+        "command": spec.name,
+        "group": group,
+        "function": spec.function,
+        "check": spec.check,
+        "result": spec.result,
+        "result_type": _RESULT_TYPES[spec.name],
+        "cli": {
+            "command": f"imgw {spec.name}",
+            "flags": {option.name: _flags(option) for option in spec.options},
+        },
+        "rest": None
+        if spec.method is None
+        else {
+            "method": spec.method,
+            "path": f"/api/v1/{group}/{name}",
+            "server_options": [o.name for o in spec.options if o.rest == "server"],
+            "local_options": [o.name for o in spec.options if o.rest == "local"],
+        },
+        "rules": list(spec.rules),
+    }
+    return schema
+
+
+def command_schema(command: str | None = None, /) -> dict[str, object]:
     """
-    Run a catalog command through exactly one public API function.
+    Describe the options of one command, or the whole catalog, as JSON Schema.
+
+    Option types map to JSON Schema 2020-12: ``str`` → ``string``
+    (``minLength`` 1), ``int`` → ``integer``, ``float`` → ``number``,
+    ``bool`` → ``boolean``, ``date`` → ``string`` with ``format: date``,
+    ``path`` → ``string`` with ``x-imgw-type: path``, ``choice`` → ``enum``
+    (dataset enumerations list keys only), ``list`` → ``array`` of items
+    (years: ``anyOf`` a number and the ``a-b`` range pattern),
+    ``object`` → ``object``; ``help`` → ``description``, ``default``,
+    ``minimum``, ``maximum`` and ``pattern`` unchanged, ``requires`` →
+    ``dependentRequired``, ``one_of`` → ``oneOf`` of ``required`` groups and
+    other rules → ``x-imgw.rules``. ``x-imgw`` also names the group, the
+    function, the check twin, the result shape and type, the CLI flags and
+    the REST route.
 
     Parameters
     ----------
-    command : str
-        Catalog command name.
-    options : Mapping[str, object]
-        Option values keyed by their Python (``snake_case``) names.
-    on_progress : ProgressHook or None, optional
-        Progress callback forwarded to the public function.
-    on_notice : NoticeHook or None, optional
-        Notice callback forwarded to the public function.
-    cancel : Cancel or None, optional
-        Cancellation callback forwarded to the public function.
+    command : str or None, optional
+        Catalog command name; ``None`` returns the whole catalog.
 
     Returns
     -------
-    object
-        Result of the dispatched public function: `StoreHandle`, `StoreInfo`,
-        tuple of `StoreEntry`, `StorePlan`, `SyncReport`, `SeriesReport`,
-        `SeriesSelection`, `CatalogReport`, `PMaXTPStoreResult`, `PMaXTPResult`,
-        `Project`, `ProjectReport` or `Path` (``fetch hydro|meteo`` return the
-        output directory, ``store read`` with ``path`` the written file).
-        ``store read`` without ``path`` returns an iterator of formatted text
-        lines (CSV with header or JSONL, line terminators included); the
-        archive is validated and verified before it is returned.
+    dict of {str : object}
+        JSON Schema of the command options, or the ``imgw-commands/1``
+        document with ``version``, ``result_schema``, ``groups``,
+        ``commands`` (35 schemas), ``errors`` (the error code registry) and
+        ``exit_codes`` of the envelope statuses.
 
     Raises
     ------
     IMGWValidationError
-        If the command or its options are invalid (see `validate_command`).
-    IMGWError
-        Errors of the dispatched public function are propagated.
+        If ``command`` is not a catalog command (``details.allowed`` lists
+        the names).
     """
-    normalized = validate_command(command, options=options)
-    return _RUN[command](normalized, _hooks(on_progress, on_notice, cancel))
+    if command is not None:
+        return _schema(_spec(command))
+    return {
+        "schema": "imgw-commands/1",
+        "version": __version__,
+        "result_schema": "imgw-result/1",
+        "groups": dict(_GROUPS),
+        "commands": [_schema(spec) for spec in _COMMANDS],
+        "errors": [
+            {
+                "code": spec.code,
+                "title": spec.title,
+                "exit_code": spec.exit_code,
+                "http_status": spec.http_status,
+            }
+            for spec in ERROR_CODES.values()
+        ],
+        "exit_codes": dict(_EXIT_CODES),
+    }

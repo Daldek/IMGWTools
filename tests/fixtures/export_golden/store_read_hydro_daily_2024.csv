@@ -1,0 +1,4 @@
+station_code,dataset,date,hydro_year,period,H [cm],H_flag,Q [m3/s],Q_flag,T [degC],T_flag
+149190310,pl.imgw.hydro_daily,2023-12-01,2024,,152.0,value,,missing,4.1,value
+149190310,pl.imgw.hydro_daily,2024-02-29,2024,,154.0,value,3.4,value,4.3,value
+149190311,pl.imgw.hydro_daily,2023-11-01,2024,,155.0,value,,missing,5.5,value

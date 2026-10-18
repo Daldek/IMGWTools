@@ -186,7 +186,9 @@ class FakeImgw:
 
 
 # --------------------------------------------------------------------------
-# JSON Schema Draft 2020-12: the keyword subset used by the §11 contracts
+# JSON Schema Draft 2020-12: the keyword subset used by the §11 contracts and
+# by ``command_schema`` (§13.8: anyOf, oneOf, items, required,
+# dependentRequired, additionalProperties, minimum/maximum)
 # --------------------------------------------------------------------------
 
 _TYPES = {
@@ -225,9 +227,20 @@ def _format_error(value: str, name: str) -> bool:
     return False
 
 
+def _matches(value: object, schema: dict | bool, root: dict, path: str) -> bool:
+    problems: list[str] = []
+    _check(value, schema, root, path, problems)
+    return not problems
+
+
 def _check(
-    value: object, schema: dict, root: dict, path: str, errors: list[str]
+    value: object, schema: dict | bool, root: dict, path: str, errors: list[str]
 ) -> None:
+    if schema is True:
+        return
+    if schema is False:
+        errors.append(f"{path}: schemat false nie dopuszcza wartości {value!r}")
+        return
     if "$ref" in schema:
         target = root
         for part in schema["$ref"].removeprefix("#/").split("/"):
@@ -242,12 +255,14 @@ def _check(
         errors.append(f"{path}: {value!r} zamiast {schema['const']!r}")
     if "enum" in schema and not any(_same(value, item) for item in schema["enum"]):
         errors.append(f"{path}: {value!r} spoza {schema['enum']!r}")
+    if "anyOf" in schema and not any(
+        _matches(value, option, root, path) for option in schema["anyOf"]
+    ):
+        errors.append(f"{path}: {value!r} nie pasuje do żadnego wariantu anyOf")
     if "oneOf" in schema:
-        matching = 0
-        for option in schema["oneOf"]:
-            problems: list[str] = []
-            _check(value, option, root, path, problems)
-            matching += not problems
+        matching = sum(
+            _matches(value, option, root, path) for option in schema["oneOf"]
+        )
         if matching != 1:
             errors.append(f"{path}: pasuje do {matching} wariantów oneOf zamiast 1")
     if isinstance(value, str):
@@ -259,6 +274,8 @@ def _check(
             errors.append(f"{path}: {value!r} nie jest w formacie {schema['format']}")
     if _TYPES["number"](value) and value < schema.get("minimum", value):
         errors.append(f"{path}: {value!r} < {schema['minimum']}")
+    if _TYPES["number"](value) and value > schema.get("maximum", value):
+        errors.append(f"{path}: {value!r} > {schema['maximum']}")
     if isinstance(value, list):
         prefix = schema.get("prefixItems", [])
         for index, (item, option) in enumerate(zip(value, prefix, strict=False)):
@@ -277,6 +294,13 @@ def _check(
             f"{path}: brak pola {key}"
             for key in schema.get("required", ())
             if key not in value
+        )
+        errors.extend(
+            f"{path}: pole {key} wymaga pola {name}"
+            for key, names in schema.get("dependentRequired", {}).items()
+            if key in value
+            for name in names
+            if name not in value
         )
         if len(value) < schema.get("minProperties", 0):
             errors.append(f"{path}: za mało pól")
@@ -299,7 +323,11 @@ def _check(
 
 def schema_errors(document: object, contract: str) -> list[str]:
     """Violations of the §11 JSON Schema ``contract`` (e.g. ``"imgw-meta/1"``)."""
-    schema = SCHEMAS["schemas"][contract]
+    return violations(document, SCHEMAS["schemas"][contract])
+
+
+def violations(document: object, schema: dict) -> list[str]:
+    """Violations of any JSON Schema of the supported keyword subset."""
     errors: list[str] = []
     _check(document, schema, schema, "$", errors)
     return errors

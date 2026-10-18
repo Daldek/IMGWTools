@@ -275,7 +275,9 @@ def test_to_json_rejects_values_without_json_form():
 def test_new_fields_have_defaults_and_catalog_constructs():
     operation = OperationResult("archive:x", "created", None, None)
     option = CommandOption("root", "path", True, "--root", (), "Katalog magazynu")
-    command = DataCommand("store info", "Opis", (option,))
+    command = DataCommand(
+        "store info", "Opis", (option,), "store_info", None, "object", "GET"
+    )
 
     assert (operation.task, operation.error_code) == (None, None)
     assert OperationResult(None, "failed", None, "Błąd").slot is None
@@ -287,7 +289,6 @@ def test_new_fields_have_defaults_and_catalog_constructs():
         "param",
     )
     assert (option.minimum, option.maximum, option.pattern) == (None, None, None)
-    assert (command.check, command.result, command.method) == (None, "object", None)
     assert (command.requires, command.one_of, command.rules) == ({}, (), ())
 
 

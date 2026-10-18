@@ -22,6 +22,7 @@ import pytest
 
 from imgwtools import (
     DownloadResult,
+    IMGWCancelledError,
     IMGWDataError,
     IMGWStoreError,
     StorePlan,
@@ -648,7 +649,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
     assert snapshot(root) == before
     series = build_series(root, dataset=DAILY)
     target = tmp_path / "eksport.csv"
-    with pytest.raises(IMGWStoreError):
+    with pytest.raises(IMGWCancelledError):
         export_series(
             series.version,
             station=RABA,
