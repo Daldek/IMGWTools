@@ -27,7 +27,6 @@ from imgwtools import fetch as _fetch
 from imgwtools import stations as _stations
 from imgwtools import store as _store
 from imgwtools._version import __version__
-from imgwtools.core.url_builder import build_api_url, build_pmaxtp_url
 from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
@@ -64,6 +63,7 @@ from imgwtools.store.types import (
     StorePlan,
     SyncReport,
 )
+from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 __all__ = [
     "check_command",

@@ -1,14 +1,20 @@
-"""Shared pieces of the offline contract suite: §11 schemas, recorded IMGW, snapshots.
+"""Shared pieces of the offline contract suite: schemas, recorded IMGW, snapshots.
 
 Fixtures and recordings are read only through the public ``imgwtools.testing``
-resources, the way a consumer of the store reads them.
+resources, the way a consumer of the store reads them. The interface helpers
+turn the JSON form of command options into ``imgw`` words and REST requests the
+way a user of each interface writes them (spec §13.2, §13.10).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import subprocess
+import sys
+from collections.abc import Iterator, Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -17,7 +23,7 @@ from urllib.parse import urlsplit
 import httpx
 import respx
 
-from imgwtools import archive_files
+from imgwtools import archive_files, command_schema
 from imgwtools.datasets import ArchiveFile
 from imgwtools.testing import fixture_files
 
@@ -44,16 +50,32 @@ def _json(name: str) -> Any:
 
 def _recordings() -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
-    for name in ("recordings.json", "builder_recordings.json"):
+    for name in (
+        "recordings.json",
+        "builder_recordings.json",
+        "contract_recordings.json",
+    ):
         document = _json(name)
         for row in document["interactions"]:
-            row.setdefault("url", f"{document['base_url']}/{row.get('path')}")
+            if "url" not in row:
+                row["url"] = f"{document['base_url']}/{row['path']}"
             result[row["case"]] = row
     return result
 
 
 RECORDINGS = _recordings()
 SCHEMAS: dict[str, Any] = _json("contract_schemas.json")
+# Recorded answers of every live endpoint (contract_recordings.json, recordings.json).
+LIVE = (
+    "hydro_current",
+    "hydro_current_station",
+    "meteo_current",
+    "synop_current",
+    "warnings_hydro",
+    "warnings_meteo",
+    "hydro_states",
+    "hydro_states_main",
+)
 
 
 def signal(case: str) -> dict[str, str]:
@@ -159,18 +181,29 @@ class FakeImgw:
                     200, headers=row["headers"], content=content.read_bytes()
                 )
             )
-        for case in ("hydro_current", "meteo_current"):
-            row = RECORDINGS[case]
-            self.router.get(row["url"]).mock(
-                return_value=httpx.Response(200, json=row["json"])
-            )
+        self.answer("hydro_current", "meteo_current")
 
     def publish_pmaxtp(self, *cases: str) -> None:
+        self.answer(*cases)
+
+    def publish_live(self) -> None:
+        """Recorded answers of every live endpoint: current data, warnings, map."""
+        self.answer(*LIVE)
+
+    def answer(self, *cases: str) -> None:
+        """GET of each recorded case answers its status and JSON body."""
         for case in cases:
             row = RECORDINGS[case]
             self.router.get(row["url"]).mock(
                 return_value=httpx.Response(row["status"], json=row["json"])
             )
+
+    def traffic(self, start: int = 0) -> list[tuple[str, str]]:
+        """Method and URL of every request from call number ``start`` on."""
+        return [
+            (call.request.method, str(call.request.url))
+            for call in self.router.calls[start:]
+        ]
 
     def requests(self, method: str) -> list[str]:
         """URLs requested with ``method`` so far, in order."""
@@ -322,7 +355,7 @@ def _check(
 
 
 def schema_errors(document: object, contract: str) -> list[str]:
-    """Violations of the §11 JSON Schema ``contract`` (e.g. ``"imgw-meta/1"``)."""
+    """Violations of the JSON Schema ``contract`` (e.g. ``"imgw-meta/1"``)."""
     return violations(document, SCHEMAS["schemas"][contract])
 
 
@@ -331,3 +364,129 @@ def violations(document: object, schema: dict) -> list[str]:
     errors: list[str] = []
     _check(document, schema, schema, "$", errors)
     return errors
+
+
+def envelope_errors(document: Any) -> list[str]:
+    """
+    Violations of the ``imgw-result/1`` envelope (spec §13.6).
+
+    The result of a list command must be a ``#/$defs/page`` and the result of
+    a check (``check=true``) an ``imgw-plan/1`` plan.
+    """
+    schema = SCHEMAS["schemas"]["imgw-result/1"]
+    errors = violations(document, schema)
+    if errors or document["result"] is None:
+        return errors
+    if document["check"]:
+        return schema_errors(document["result"], "imgw-plan/1")
+    if command_schema(document["command"])["x-imgw"]["result"] == "list":
+        _check(document["result"], {"$ref": "#/$defs/page"}, schema, "$.result", errors)
+    return errors
+
+
+# --------------------------------------------------------------------------
+# Interfaces: options in the JSON form → imgw words and REST requests
+# --------------------------------------------------------------------------
+
+
+def canonical(document: object) -> str:
+    """Canonical JSON dump: sorted keys, compact; ``1``, ``1.0`` and ``true`` differ."""
+    return json.dumps(
+        document, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
+
+
+def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
+    """
+    ``imgw`` arguments of ``options`` given in their JSON form (spec §13.10).
+
+    Every option takes its canonical flag from the catalog schema; a list is
+    comma-separated text, an object is JSON text and a boolean is ``--x`` or
+    ``--no-x``.
+    """
+    flags = command_schema(command)["x-imgw"]["cli"]["flags"]
+    words = command.split()
+    for name, value in options.items():
+        flag = flags[name][0]
+        if isinstance(value, bool):
+            words.append(flag if value else f"--no-{flag[2:]}")
+        elif isinstance(value, list | tuple):
+            words += [flag, ",".join(str(item) for item in value)]
+        elif isinstance(value, Mapping):
+            words += [flag, json.dumps(value, ensure_ascii=False)]
+        else:
+            words += [flag, str(value)]
+    return words
+
+
+def _query(value: object) -> str | list[str]:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value]
+    return str(value)
+
+
+def rest_request(command: str, options: Mapping[str, object]) -> dict[str, Any]:
+    """
+    Keyword arguments of ``TestClient.request`` for ``options`` (spec §13.10).
+
+    GET options are query parameters (a list repeats its parameter, a boolean
+    is ``true``/``false``); POST options form the JSON body.
+    """
+    rest = command_schema(command)["x-imgw"]["rest"]
+    if rest["method"] == "POST":
+        return {"method": "POST", "url": rest["path"], "json": dict(options)}
+    params = {name: _query(value) for name, value in options.items()}
+    return {"method": "GET", "url": rest["path"], "params": params}
+
+
+def slots(value: object) -> Iterator[str]:
+    """Every slot named in a JSON document (``null`` slots skipped)."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "slot" and isinstance(item, str):
+                yield item
+            else:
+                yield from slots(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from slots(item)
+
+
+def version_slot(slot: str) -> str:
+    """
+    Slot that ``current_version`` takes for ``slot`` (spec §13.7).
+
+    A project pins the station file of a series as ``series:<key>:<code>``;
+    the station selector exists only in pins, the version is the series one.
+    """
+    kind, _, rest = slot.partition(":")
+    key, _, selector = rest.partition(":")
+    return f"{kind}:{key}" if kind == "series" and selector else slot
+
+
+def imgw_executable() -> list[str]:
+    """Command line of the installed ``imgw`` script (module run as a fallback)."""
+    script = Path(sys.executable).with_name("imgw")
+    if script.exists():
+        return [str(script)]
+    return [sys.executable, "-m", "imgwtools.cli.main"]
+
+
+def run_imgw(*args: object, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """The installed ``imgw`` in a separate process whose proxies lead nowhere."""
+    dead = "http://127.0.0.1:9"
+    env = {key: value for key, value in os.environ.items() if key != "IMGW_STORE_ROOT"}
+    env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "ALL_PROXY": dead, "NO_PROXY": ""}
+    result = subprocess.run(
+        [*imgw_executable(), *(str(arg) for arg in args)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if check:
+        assert result.returncode == 0, result.stderr
+    return result

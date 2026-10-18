@@ -25,7 +25,6 @@ import httpx
 
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools._version import __version__
-from imgwtools.core.url_builder import IMGW_API_URL
 from imgwtools.datasets import (
     ArchiveFile,
     datasets,
@@ -67,6 +66,7 @@ from imgwtools.store.writer import (
     open_store,
     write_archive,
 )
+from imgwtools.urls import IMGW_API_URL
 
 RootArg = PathArg | StoreHandle
 

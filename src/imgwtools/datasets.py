@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
 
-from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 YearsArg = int | str | Iterable[int | str]
 """Years: ``2024``, ``"2020-2023"``, ``"2020,2022"`` or ``[2020, "2022-2023"]``."""

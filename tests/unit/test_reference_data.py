@@ -18,8 +18,6 @@ BASE = reference_data.DESC_BASE
 METEO = f"{BASE}/dane_meteorologiczne"
 CODZ, ZJAW, MIES, POLR = (f"{BASE}/{rel}" for rel in reference_data.HYDRO_DESC)
 
-HYDRO_CSV = '"149190310","RABA GÓRNA","Raba (2138)"\n"149190311","ŻABIE",""\n'
-METEO_CSV = '"249190310","SAN ESCOBAR"\n'
 MAP_PAYLOAD = {
     "stations": [
         {"id": "149190310", "n": "Raba Górna", "la": 49.61, "lo": 20.05},
@@ -35,8 +33,6 @@ def _listing(*names: str) -> httpx.Response:
 
 def _sources() -> dict[str, httpx.Response | Exception]:
     return {
-        HYDRO_STATIONS_CSV_URL: httpx.Response(200, content=HYDRO_CSV.encode("cp1250")),
-        METEO_STATIONS_CSV_URL: httpx.Response(200, content=METEO_CSV.encode("cp1250")),
         HYDRO_MAP_API_URL: httpx.Response(200, json=MAP_PAYLOAD),
         CODZ: httpx.Response(200, content=b"CODZ opis\xb9"),
         ZJAW: httpx.Response(404),
@@ -83,17 +79,12 @@ def test_reference_data_main_writes_stations_and_descriptions(
         "skipped: dane_hydrologiczne/dobowe/ZJAW_publiczne_format.txt: HTTP 404" in out
     )
     assert "skipped: k_d_t_format.txt: HTTP 500" in out
-    assert (isolated_data_dir / "hydro_stations_names.csv").read_text(
-        encoding="utf-8"
-    ).splitlines() == [
-        "id,name,river",
-        "149190310,RABA GÓRNA,Raba",
-        "149190311,ŻABIE,",
-    ]
-    assert (isolated_data_dir / "meteo_stations_names.csv").read_text(
-        encoding="utf-8"
-    ).splitlines() == ["id,name", "249190310,SAN ESCOBAR"]
-    # Latitude before longitude; stations without coordinates are omitted.
+    # Only the locations file and format descriptions are written; latitude
+    # before longitude; stations without coordinates are omitted.
+    assert {
+        path.relative_to(isolated_data_dir).as_posix()
+        for path in isolated_data_dir.iterdir()
+    } == {"hydro_stations_locations.csv", "desc"}
     assert (isolated_data_dir / "hydro_stations_locations.csv").read_text(
         encoding="utf-8"
     ).splitlines() == ["station_code,latitude,longitude", "149190310,49.61,20.05"]
@@ -111,6 +102,7 @@ def test_reference_data_main_writes_stations_and_descriptions(
         "dane_meteorologiczne/o_d_format.txt": b"od",
     }
     assert f"{METEO}/dobowe/opad/k_d_format.txt" not in requested
+    assert not {HYDRO_STATIONS_CSV_URL, METEO_STATIONS_CSV_URL} & set(requested)
     assert {
         f"{METEO}/{interval}/{subtype}/"
         for interval in reference_data.METEO_INTERVALS
@@ -182,7 +174,7 @@ def test_reference_data_main_connection_error_in_descriptions_returns_1(
     assert reference_data.main() == 1
 
     assert "Error fetching data: brak sieci" in capsys.readouterr().err
-    assert (isolated_data_dir / "meteo_stations_names.csv").is_file()
+    assert (isolated_data_dir / "hydro_stations_locations.csv").is_file()
     assert not (isolated_data_dir / "desc" / "dane_meteorologiczne").exists()
 
 
@@ -192,7 +184,7 @@ def test_reference_data_run_as_module_exits_with_main_status(
 ):
     sources = _sources()
     if fail:
-        sources[HYDRO_STATIONS_CSV_URL] = httpx.Response(500)
+        sources[HYDRO_MAP_API_URL] = httpx.Response(500)
     _serve(respx_mock, sources)
 
     with warnings.catch_warnings():
@@ -201,4 +193,4 @@ def test_reference_data_run_as_module_exits_with_main_status(
             runpy.run_module("imgwtools.reference_data", run_name="__main__")
 
     assert exit_info.value.code == code
-    assert (isolated_data_dir / "hydro_stations_names.csv").exists() is not fail
+    assert (isolated_data_dir / "hydro_stations_locations.csv").exists() is not fail

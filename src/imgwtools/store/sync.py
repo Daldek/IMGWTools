@@ -12,7 +12,6 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
-from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.datasets import (
     ArchiveFile,
     MonthsArg,
@@ -60,6 +59,7 @@ from imgwtools.store.types import (
     SyncReport,
 )
 from imgwtools.store.writer import write_archive
+from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 UNPUBLISHED = "nieopublikowany"
 CANCELLED = "anulowano"

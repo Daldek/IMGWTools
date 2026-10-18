@@ -1,11 +1,6 @@
 """Offline reading of stored station lists and archive versions (SHA-verified)."""
 
-import csv
-import io
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -14,9 +9,13 @@ from typer.testing import CliRunner
 from imgwtools import StationListEntry, read_archive, read_station_list
 from imgwtools._parsing import normalize_archive
 from imgwtools.cli.main import app
-from imgwtools.commands import run_command
 from imgwtools.datasets import archive_files, station_source_files
-from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
+from imgwtools.exceptions import (
+    ERROR_CODES,
+    IMGWDataError,
+    IMGWStoreError,
+    IMGWValidationError,
+)
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import init_store, write_archive
 
@@ -122,78 +121,11 @@ def test_read_archive_rejects_station_list_versions(root):
         read_archive(version.parent)
 
 
-def test_store_read_cli_streams_the_same_records_as_python(root, tmp_path):
-    version = store_file(root, PRECIP_2001).parent
-    records = list(read_archive(version))
-    printed = RUNNER.invoke(app, ["store", "read", "--version", str(version)])
-    assert printed.exit_code == 0, printed.output
-    # stdout_bytes: Result.stdout folds the RFC 4180 CRLF row terminators to LF.
-    assert printed.stdout_bytes.decode("utf-8") == "".join(
-        run_command("store read", options={"version": version})
-    )
-    rows = list(csv.DictReader(io.StringIO(printed.stdout)))
-    assert len(rows) == len(records)
-    accumulated = next(r for r in records if r.measurements["P"].flag == "accumulated")
-    row = rows[records.index(accumulated)]
-    assert (row["station_code"], row["date"], row["P_flag"]) == (
-        accumulated.station_code,
-        accumulated.date.isoformat(),
-        "accumulated",
-    )
-    assert float(row["P [mm]"]) == accumulated.measurements["P"].value
-    assert row["precip_type"] == (accumulated.attributes["precip_type"] or "")
-
-    target = tmp_path / "out" / "opad.jsonl"
-    target.parent.mkdir()
-    written = RUNNER.invoke(
-        app,
-        [
-            "store",
-            "read",
-            "--version",
-            str(version),
-            "--format",
-            "jsonl",
-            "--path",
-            str(target),
-        ],
-    )
-    assert written.exit_code == 0, written.output
-    assert written.stdout.strip() == str(target)
-    assert [p.name for p in target.parent.iterdir()] == ["opad.jsonl"]
-    lines = [
-        json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()
-    ]
-    assert [(d["station_code"], d["date"], d["measurements"]["P"]) for d in lines] == [
-        (
-            r.station_code,
-            r.date.isoformat(),
-            {"value": r.measurements["P"].value, "flag": r.measurements["P"].flag},
-        )
-        for r in records
-    ]
-
-
-def test_store_read_cli_exits_quietly_when_reader_closes_the_pipe(root):
-    version = store_file(root, DAILY_2024).parent
-    reader, writer = os.pipe()
-    os.close(reader)  # like ``| head`` that already exited: every write gets EPIPE
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "imgwtools.cli.main", "store", "read"]
-            + ["--version", str(version)],
-            stdout=writer,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=120,
-        )
-    finally:
-        os.close(writer)
-    assert (result.returncode, result.stderr) == (0, "")
-
-
-def test_store_read_cli_reports_station_list_version_in_polish(root):
+def test_store_export_cli_rejects_a_station_list_version_with_guidance(root):
     version = store_file(root, HYDRO_LIST).parent
-    result = RUNNER.invoke(app, ["store", "read", "--version", str(version)])
-    assert result.exit_code == 1
-    assert "read_station_list" in result.stderr and not result.stdout
+    result = RUNNER.invoke(app, ["store", "export", "--version", str(version)])
+    assert result.stdout == ""
+    error = json.loads(result.stderr.splitlines()[-1])
+    assert error["code"] == "validation_error"
+    assert "read_station_list(root, kind='hydro')" in error["detail"]
+    assert result.exit_code == ERROR_CODES["validation_error"].exit_code

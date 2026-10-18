@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
-from imgwtools.core.url_builder import build_pmaxtp_url
 from imgwtools.datasets import get_dataset
 from imgwtools.exceptions import (
     IMGWDataError,
@@ -42,6 +41,7 @@ from imgwtools.store.types import (
     StorePlan,
 )
 from imgwtools.store.writer import _canonical, _existing, _utc, _validate_slot
+from imgwtools.urls import build_pmaxtp_url
 
 CELL_FILE = "cell.json"
 RESPONSE_FILE = "response.json"

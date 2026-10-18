@@ -29,10 +29,10 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
-from imgwtools.core.url_builder import IMGW_API_URL
 from imgwtools.exceptions import ERROR_CODES
 from imgwtools.store.types import CommandResult, Notice, SeriesReport, SyncReport
 from imgwtools.testing import build_fixture_store
+from imgwtools.urls import IMGW_API_URL
 from tests.contract.support import (
     DAILY,
     H2023,
