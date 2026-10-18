@@ -25,6 +25,8 @@ from imgwtools.fetch import DownloadResult
 from imgwtools.store import (
     build_catalog,
     build_series,
+    check_catalog,
+    check_series,
     current_version,
     init_store,
     iter_store,
@@ -40,7 +42,9 @@ from imgwtools.store import (
     sync_pmaxtp,
     write_archive,
 )
-from imgwtools.store.types import SeriesSelection
+from imgwtools.store.reader import _reference_signal
+from imgwtools.store.types import Observation, SeriesSelection
+from tests.contract.support import schema_errors
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
@@ -56,6 +60,81 @@ STATION = "149190310"
 DAILY_2024 = "archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
 SERIES_DAILY = "series:pl.imgw.hydro_daily"
 CELL_SLOT = "pmaxtp:pl.imgw.pmaxtp:POT/751_317"
+CONTENT = {"content_sha256": "1" * 64, "content_form": "chmi-json/1"}
+# Fictional ČHMÚ sidecar (spec 2026-10-18 §3; codes 0-203-1-9… are not published).
+CHMI_PATH = "hydrology/historical/data/daily/H_0-203-1-900001_DQ_2025.json"
+CHMI_META = {
+    "schema": "imgw-meta/1",
+    "producer": "imgwtools",
+    "producer_version": "3.1.0",
+    "dataset": "cz.chmi.hydro_daily",
+    "country": "CZ",
+    "provider": "CHMI",
+    "request": {
+        "server_path": CHMI_PATH,
+        "year": 2025,
+        "month": None,
+        "station_code": "0-203-1-900001",
+        "param": None,
+    },
+    "license": {
+        "id": "CC-BY-4.0",
+        "attribution": "Źródło danych: Český hydrometeorologický ústav (ČHMÚ), "
+        "https://opendata.chmi.cz, licencja CC BY 4.0",
+        "url": "https://creativecommons.org/licenses/by/4.0/",
+    },
+    "downloaded_at": "2026-10-18T18:00:00Z",
+    "sha256": hashlib.sha256(b"{}").hexdigest(),
+    "size_bytes": 2,
+    "extra": {
+        "version": {"label": "2026-05-21", "label_source": "last_modified"},
+        "http": {
+            "url": f"https://opendata.chmi.cz/{CHMI_PATH}",
+            "etag": '"6a0eea27-2"',
+            "last_modified": "Thu, 21 May 2026 11:19:03 GMT",
+            "content_length": 2,
+        },
+    },
+}
+
+
+def with_content(version):
+    """Give an archive version the content fields of a dataset with a canonical form."""
+    sidecar = Path(f"{version}.meta.json")
+    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+    sidecar.write_text(json.dumps({**meta, **CONTENT}), encoding="utf-8")
+
+
+def observe(version, *, seen_at="2026-10-19T06:00:00Z", etag='"v2"', **changes):
+    """Write an observation of ``version`` named by spec §3.2 into its slot register."""
+    meta = json.loads(Path(f"{version}.meta.json").read_text(encoding="utf-8"))
+    document = {
+        "schema": "imgw-observation/1",
+        "producer": "imgwtools",
+        "producer_version": "3.1.0",
+        "dataset": meta["dataset"],
+        "seen_at": seen_at,
+        "url": meta["extra"]["http"]["url"],
+        "last_modified": "Mon, 19 Oct 2026 03:12:44 GMT",
+        "etag": etag,
+        "size_bytes": meta["size_bytes"] + 1,
+        "sha256": "2" * 64,
+        "content_sha256": meta.get("content_sha256"),
+        "content_form": meta.get("content_form"),
+        "same_content_as": version.parent.name,
+        **changes,
+    }
+    signal = json.dumps(
+        {key: document[key] for key in ("etag", "last_modified", "size_bytes", "url")},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(signal.encode("utf-8")).hexdigest()[:8]
+    path = version.parent.parent / "observations" / f"{seen_at[:10]}_{digest}.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
 
 
 def store_archives(root, dataset, years, months=None, *, signal=SIGNAL):
@@ -748,3 +827,306 @@ def test_select_series_matches_series_select_semantics(complete, offline):
         with pytest.raises(IMGWValidationError) as error:
             select_series(root, dataset=dataset, **kwargs)
         assert error.value.details["option"] == option
+
+
+def test_chmi_sidecar_meets_the_widened_meta_contract_with_optional_content(tmp_path):
+    sidecar = tmp_path / "H_0-203-1-900001_DQ_2025.json.meta.json"
+    with_content = {**CHMI_META, **CONTENT}
+    for document in (CHMI_META, with_content):
+        assert schema_errors(document, "imgw-meta/1") == []
+        sidecar.write_text(json.dumps(document), encoding="utf-8")
+        meta = read_meta(sidecar)
+        assert (meta.dataset, meta.license.id) == ("cz.chmi.hydro_daily", "CC-BY-4.0")
+        assert (meta.content_sha256, meta.content_form) == (
+            document.get("content_sha256"),
+            document.get("content_form"),
+        )
+    for document in (
+        {**CHMI_META, "content_sha256": "1" * 64},
+        {**CHMI_META, "content_form": "chmi-json/1"},
+        {**with_content, "content_sha256": "1" * 63 + "A"},
+        {**with_content, "content_sha256": None},
+        {**with_content, "content_form": ""},
+    ):
+        assert schema_errors(document, "imgw-meta/1")
+        sidecar.write_text(json.dumps(document), encoding="utf-8")
+        with pytest.raises(IMGWDataError, match="content_"):
+            read_meta(sidecar)
+
+
+def test_scan_enforces_content_pair_and_registry_origin_of_known_datasets(
+    root, offline
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar = Path(f"{written.path}.meta.json")
+    original = json.loads(sidecar.read_text(encoding="utf-8"))
+
+    def scan(document):
+        sidecar.write_text(json.dumps(document), encoding="utf-8")
+        return [
+            (entry.kind, entry.slot, entry.problem_code) for entry in iter_store(root)
+        ]
+
+    assert scan({**original, **CONTENT}) == [("archive", DAILY_2024, None)]
+    assert read_meta(written.path).content_sha256 == "1" * 64
+    for document in (
+        {**original, "content_sha256": "1" * 64},
+        {**original, "content_form": "chmi-json/1"},
+        {**original, **CONTENT, "content_sha256": "X" * 64},
+    ):
+        assert schema_errors(document, "imgw-meta/1")
+        assert scan(document) == [("problem", DAILY_2024, "invalid_meta")]
+    # The schema knows no registry: a pl.imgw.* sidecar of another provider is valid
+    # JSON of imgw-meta/1, but the reader rejects it.
+    for change in ({"provider": "CHMI"}, {"country": "CZ"}):
+        document = {**original, **change}
+        assert schema_errors(document, "imgw-meta/1") == []
+        assert scan(document) == [("problem", DAILY_2024, "invalid_meta")]
+        with pytest.raises(IMGWDataError, match="rejestrze"):
+            read_meta(written.path)
+
+
+def test_valid_sidecar_of_an_unknown_dataset_is_an_unknown_entry(root, offline):
+    stem = "H_0-203-1-900001_DQ_2025"
+    version = (
+        root
+        / "archives/versions/hydrology/historical/data/daily"
+        / stem
+        / f"2026-05-21_{CHMI_META['sha256'][:8]}"
+    )
+    version.mkdir(parents=True)
+    (version / f"{stem}.json").write_bytes(b"{}")
+    (version / f"{stem}.json.meta.json").write_text(
+        json.dumps({**CHMI_META, **CONTENT}), encoding="utf-8"
+    )
+    assert read_meta(version / f"{stem}.json").content_form == "chmi-json/1"
+    assert [(e.kind, e.slot, e.problem_code, e.version) for e in iter_store(root)] == [
+        ("problem", None, "unknown_entry", version)
+    ]
+
+
+def test_series_index_reads_wigos_station_codes_without_pyarrow(
+    root, tmp_path, monkeypatch
+):
+    store_archives(root, DAILY, [2024])
+    moved = tmp_path / "moved"
+    shutil.copytree(build_series(root, dataset=DAILY).version.parent, moved)
+    original = json.loads((moved / "series.json").read_text(encoding="utf-8"))
+    sidecar = json.loads((moved / "series.json.meta.json").read_text(encoding="utf-8"))
+    monkeypatch.setitem(sys.modules, "pyarrow", None)
+    monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
+
+    def index_with(code):
+        """``series.json`` with the station renamed to ``code``, verified by its sidecar."""
+        document = json.loads(json.dumps(original))
+        entry = document["stations"].pop(STATION)
+        entry["file"] = f"stations/{code}.parquet"
+        document["stations"][code] = entry
+        shutil.copy(moved / "stations" / f"{STATION}.parquet", moved / entry["file"])
+        data = json.dumps(document).encode("utf-8")
+        (moved / "series.json").write_bytes(data)
+        (moved / "series.json.meta.json").write_text(
+            json.dumps(
+                {
+                    **sidecar,
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "size_bytes": len(data),
+                }
+            ),
+            encoding="utf-8",
+        )
+        return document
+
+    assert schema_errors(index_with("0-203-1-CB900003"), "imgw-series/1") == []
+    index = read_series_index(moved)
+    assert STATION not in index.stations
+    assert index.stations["0-203-1-CB900003"].file == Path(
+        "stations/0-203-1-CB900003.parquet"
+    )
+    for code in ("0-203-1-cb900003", "12345678"):
+        assert schema_errors(index_with(code), "imgw-series/1")
+        with pytest.raises(IMGWDataError, match="kod stacji"):
+            read_series_index(moved)
+
+
+def test_observation_is_a_scan_entry_of_its_archive_slot_not_a_version(root, offline):
+    (written,) = store_archives(root, DAILY, [2024])
+    with_content(written.path)
+    before = current_version(root, slot=DAILY_2024)
+    path = observe(written.path)
+
+    assert [(e.kind, e.slot, e.version) for e in iter_store(root)] == [
+        ("archive", DAILY_2024, written.path),
+        ("observation", DAILY_2024, path),
+    ]
+    (entry,) = iter_store(root, kind="observation")
+    assert (entry.meta, entry.problem_code, entry.problem) == (None, None, None)
+    assert entry.observation == Observation(
+        DAILY,
+        "2026-10-19T06:00:00Z",
+        before.meta.extra["http"]["url"],
+        "Mon, 19 Oct 2026 03:12:44 GMT",
+        '"v2"',
+        before.meta.size_bytes + 1,
+        "2" * 64,
+        "1" * 64,
+        "chmi-json/1",
+        written.path.parent.name,
+    )
+    assert current_version(root, slot=DAILY_2024) == before
+    assert store_info(root).contracts["observation"] == "imgw-observation/1"
+
+
+def test_observation_register_reports_each_broken_element(root, tmp_path, offline):
+    (written,) = store_archives(root, DAILY, [2024])
+    with_content(written.path)
+    valid = observe(written.path)
+    register = valid.parent
+    (register / "notatka.txt").write_text("x", encoding="utf-8")
+    (register / "2026-10-19_aaaaaaaa.json").mkdir()
+    linked = observe(written.path, etag='"v3"')
+    linked.rename(tmp_path / linked.name)
+    linked.symlink_to(tmp_path / linked.name)
+    (register / "2026-10-19_bbbbbbbb.json").write_text("{zepsuty", encoding="utf-8")
+    future = observe(written.path, etag='"v4"', schema="imgw-observation/2")
+    dated = observe(written.path, etag='"v5"')
+    dated = dated.rename(dated.with_name(f"2026-10-18{dated.name[10:]}"))
+    signed = observe(written.path, etag='"v6"')
+    signed = signed.rename(signed.with_name("2026-10-19_00000000.json"))
+    orphan = observe(written.path, etag='"v7"', same_content_as="2026-01-01_deadbeef")
+    other = observe(written.path, etag='"v8"', content_sha256="3" * 64)
+    foreign = observe(written.path, etag='"v9"', dataset="pl.imgw.hydro_monthly")
+
+    problems = sorted(
+        (entry.version.name, entry.slot or "", entry.problem_code)
+        for entry in iter_store(root, kind="problem")
+    )
+    assert problems == sorted(
+        [
+            ("notatka.txt", "", "unknown_entry"),
+            ("2026-10-19_aaaaaaaa.json", "", "unknown_entry"),
+            (linked.name, DAILY_2024, "symlink"),
+            ("2026-10-19_bbbbbbbb.json", DAILY_2024, "invalid_json"),
+            (future.name, DAILY_2024, "unknown_schema"),
+            (dated.name, DAILY_2024, "invalid_meta"),
+            (signed.name, DAILY_2024, "invalid_meta"),
+            (orphan.name, DAILY_2024, "invalid_meta"),
+            (other.name, DAILY_2024, "invalid_meta"),
+            (foreign.name, DAILY_2024, "invalid_meta"),
+        ]
+    )
+    assert [entry.version for entry in iter_store(root, kind="observation")] == [valid]
+    assert current_version(root, slot=DAILY_2024).version == written.path
+
+
+def test_observations_outside_an_archive_slot_register_are_unknown_entries(
+    root, offline
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    misplaced = [
+        written.path.parent.parent.parent / "observations",  # no versions beside it
+        root / "stations" / "versions" / "observations",  # catalog slot
+    ]
+    for directory in misplaced:
+        directory.mkdir(parents=True)
+        (directory / "2026-10-19_00000000.json").write_text("{}", encoding="utf-8")
+    assert sorted(
+        (entry.version, entry.slot, entry.problem_code)
+        for entry in iter_store(root, kind="problem")
+    ) == sorted((directory, None, "unknown_entry") for directory in misplaced)
+
+
+def test_reference_signal_is_the_newest_observation_of_the_current_version(
+    root, offline
+):
+    (older,) = store_archives(root, DAILY, [2024])
+    (archive,) = archive_files(DAILY, years=[2024])
+    changed = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
+    signal = ('"v2"', "Mon, 19 Oct 2026 12:00:00 GMT")
+    newer = write_archive(
+        root,
+        archive=archive,
+        response=DownloadResult(changed, archive.url, *signal, len(changed)),
+    )
+    with_content(older.path)
+    with_content(newer.path)
+
+    reference = _reference_signal(root, slot=DAILY_2024)
+    assert reference is not None
+    assert (reference.version.version, reference.observation) == (newer.path, None)
+    assert (
+        reference.url,
+        reference.etag,
+        reference.last_modified,
+        reference.size_bytes,
+    ) == (archive.url, *signal, len(changed))
+
+    observe(older.path, seen_at="2026-10-21T06:00:00Z", etag='"older"')
+    observe(newer.path, seen_at="2026-10-19T06:00:00Z", etag='"v3"')
+    latest = observe(newer.path, seen_at="2026-10-20T06:00:00Z", etag='"v4"')
+    reference = _reference_signal(root, slot=DAILY_2024)
+    assert reference is not None
+    assert (reference.version.version, reference.observation) == (newer.path, latest)
+    assert (
+        reference.url,
+        reference.etag,
+        reference.last_modified,
+        reference.size_bytes,
+    ) == (archive.url, '"v4"', "Mon, 19 Oct 2026 03:12:44 GMT", len(changed) + 1)
+
+    broken = observe(newer.path, seen_at="2026-10-22T06:00:00Z", etag='"v5"')
+    broken.write_text("{zepsuty", encoding="utf-8")
+    with pytest.raises(IMGWDataError, match="obserwacja"):
+        _reference_signal(root, slot=DAILY_2024)
+    broken.unlink()
+    observe(newer.path, etag='"v6"', content_sha256="3" * 64)
+    with pytest.raises(IMGWDataError, match="pola treści"):
+        _reference_signal(root, slot=DAILY_2024)
+    assert (
+        _reference_signal(root, slot="archive:pl.imgw.hydro_daily:2030/x.zip") is None
+    )
+
+
+def test_registers_change_no_version_choice_of_series_or_catalog(tmp_path):
+    def catalog_sources(router):
+        record_catalog_sources(router)
+        headers = {"ETag": '"list-v1"', "Last-Modified": SIGNAL[1]}
+        for archive in station_source_files():
+            router.head(archive.url).mock(
+                return_value=httpx.Response(200, headers=headers)
+            )
+
+    outcomes = {}
+    for name in ("plain", "observed"):
+        root = init_store(tmp_path / name).root
+        store_archives(root, DAILY, [2024])
+        with respx.mock(assert_all_called=False) as router:
+            catalog_sources(router)
+            build_catalog(root)
+            if name == "observed":
+                for sidecar in list(root.glob("archives/versions/**/*.meta.json")):
+                    register = sidecar.parent.parent / "observations"
+                    register.mkdir(exist_ok=True)
+                    (register / "2026-10-19_00000000.json").write_text(
+                        "{}", encoding="utf-8"
+                    )
+            plan = check_catalog(root)
+            catalog = build_catalog(root)
+        series = build_series(root, dataset=DAILY)
+        outcomes[name] = (
+            [
+                (
+                    item.archive.server_path,
+                    item.status,
+                    item.local_path and item.local_path.relative_to(root),
+                )
+                for item in plan.items
+            ],
+            catalog.status,
+            catalog.version.read_bytes(),
+            series.status,
+            series.version.read_bytes(),
+            check_series(root, dataset=DAILY).series_state,
+        )
+    assert outcomes["observed"] == outcomes["plain"]
+    assert outcomes["plain"][1] == "unchanged" and outcomes["plain"][3] == "created"

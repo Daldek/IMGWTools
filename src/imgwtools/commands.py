@@ -28,6 +28,7 @@ from imgwtools import stations as _stations
 from imgwtools import store as _store
 from imgwtools._version import __version__
 from imgwtools.datasets import (
+    STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
     MonthsArg,
@@ -90,12 +91,16 @@ _STORE_MARKER = "imgw-store.json"
 _DEFAULT_OUTPUT = Path("data/downloaded")
 _DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _RANGE = "^[0-9]{1,4}-[0-9]{1,4}$"
-_STATION = "^[0-9]{9}$"
+_STATION = STATION_CODE_PATTERN
+# Live IMGW-PIB readings accept only IMGW-PIB codes.
+_IMGW_STATION = "^[0-9]{9}$"
 _SYNOP_STATION = "^[0-9]{5}$"
 _TASK_PATTERN = "^[a-z0-9][a-z0-9_-]{0,63}$"
 _TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _PATTERN_TEXT = {
-    _STATION: "kod stacji z 9 cyfr",
+    _STATION: "kod stacji z 9 cyfr (IMGW-PIB) albo identyfikator WIGOS, "
+    "np. 0-203-1-001000",
+    _IMGW_STATION: "kod stacji IMGW-PIB z 9 cyfr",
     _SYNOP_STATION: "kod stacji synoptycznej z 5 cyfr",
     _TASK_PATTERN: "nazwa zadania z 1–64 znaków a-z, 0-9, _ lub -, "
     "zaczynająca się literą lub cyfrą",
@@ -343,14 +348,14 @@ _OUTPUT = _option(
 _STATION_OPTION = _option(
     "station",
     "str",
-    "Kod stacji (9 cyfr)",
+    "Kod stacji (9 cyfr IMGW-PIB albo identyfikator WIGOS)",
     pattern=_STATION,
     aliases=("-s",),
 )
 _STATIONS = _option(
     "stations",
     "list",
-    "Kody stacji (9 cyfr) rozdzielone przecinkami",
+    "Kody stacji (9 cyfr IMGW-PIB albo identyfikatory WIGOS) rozdzielone przecinkami",
     items="str",
     pattern=_STATION,
     aliases=("-s",),
@@ -520,7 +525,9 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         "Pobierz bieżące dane hydrologiczne z API IMGW.",
         (
             replace(
-                _STATION_OPTION, help="Kod stacji (9 cyfr); brak = wszystkie stacje"
+                _STATION_OPTION,
+                help="Kod stacji (9 cyfr); brak = wszystkie stacje",
+                pattern=_IMGW_STATION,
             ),
         ),
         function="fetch_hydro_current",
@@ -534,7 +541,9 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         "Pobierz bieżące dane meteorologiczne z API IMGW.",
         (
             replace(
-                _STATION_OPTION, help="Kod stacji (9 cyfr); brak = wszystkie stacje"
+                _STATION_OPTION,
+                help="Kod stacji (9 cyfr); brak = wszystkie stacje",
+                pattern=_IMGW_STATION,
             ),
         ),
         function="fetch_meteo_current",
@@ -664,9 +673,16 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "kind",
                 "choice",
-                "Rodzaj wpisów: archive, series, catalog, pmaxtp albo problem; "
-                "brak = wszystkie",
-                choices=("archive", "series", "catalog", "pmaxtp", "problem"),
+                "Rodzaj wpisów: archive, series, catalog, pmaxtp, observation albo "
+                "problem; brak = wszystkie",
+                choices=(
+                    "archive",
+                    "series",
+                    "catalog",
+                    "pmaxtp",
+                    "observation",
+                    "problem",
+                ),
                 aliases=("-k",),
             ),
         ),
@@ -838,7 +854,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _SERIES_DATASET,
             replace(
                 _STATIONS,
-                help="Kody stacji (9 cyfr) rozdzielone przecinkami (domyślnie wszystkie)",
+                help="Kody stacji (9 cyfr IMGW-PIB albo identyfikatory WIGOS) "
+                "rozdzielone przecinkami (domyślnie wszystkie)",
             ),
             _VARIABLES,
         ),

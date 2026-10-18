@@ -7,6 +7,7 @@ import json
 import re
 import time
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
@@ -14,6 +15,7 @@ from typing import Any, Literal, cast
 from imgwtools._parsing import normalize_archive
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools.datasets import (
+    STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
     License,
@@ -48,6 +50,7 @@ from imgwtools.store.series import (
 )
 from imgwtools.store.types import (
     Meta,
+    Observation,
     PathArg,
     SeriesIndex,
     SeriesSelection,
@@ -58,7 +61,16 @@ from imgwtools.store.types import (
     StoreHandle,
     StoreInfo,
 )
-from imgwtools.store.writer import _MARKER, _safe_root, _validate_slot
+from imgwtools.store.writer import (
+    _MARKER,
+    _OBSERVATIONS,
+    OBSERVATION_SCHEMA,
+    _is_register,
+    _is_seen_at,
+    _observation_name,
+    _safe_root,
+    _validate_slot,
+)
 
 STORE_SCHEMA = "imgw-store/1"
 META_SCHEMA = "imgw-meta/1"
@@ -70,18 +82,34 @@ CONTRACTS: Mapping[str, str] = {
     "plan": "imgw-plan/1",
     "project": "imgw-project/1",
     "pmaxtp": CELL_SCHEMA,
+    "observation": OBSERVATION_SCHEMA,
 }
 
-EntryKind = Literal["archive", "series", "catalog", "pmaxtp", "problem"]
-_KINDS: tuple[EntryKind, ...] = ("archive", "series", "catalog", "pmaxtp", "problem")
+EntryKind = Literal["archive", "series", "catalog", "pmaxtp", "observation", "problem"]
+_KINDS: tuple[EntryKind, ...] = (
+    "archive",
+    "series",
+    "catalog",
+    "pmaxtp",
+    "observation",
+    "problem",
+)
 _STALE_SECONDS = 24 * 60 * 60
 _SIDECAR = ".meta.json"
 _SHA = re.compile(r"^[0-9a-f]{64}$")
-_DATASET = re.compile(r"^pl\.imgw\.[a-z_]+$")
-_CODE = re.compile(r"^[0-9]{9}$")
+# Dataset key <country>.<provider>.<name> of any provider (ADR-003 D1).
+_DATASET = re.compile(r"^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$")
+_COUNTRY = re.compile(r"^[A-Z]{2}$")
+# Country and provider of every dataset the registry knows: all are IMGW-PIB's.
+_REGISTRY_ORIGIN = ("PL", "IMGW-PIB")
+_CODE = re.compile(STATION_CODE_PATTERN)
 _VERSION_DIR = re.compile(r"^.+_[0-9a-f]{8}$")
 _CELL = re.compile(r"^[0-9]+_[0-9]+$")
-_PARQUET = re.compile(r"^stations/[0-9]{9}\.parquet$")
+_PARQUET = re.compile(
+    rf"^stations/{STATION_CODE_PATTERN.removeprefix('^').removesuffix('$')}\.parquet$"
+)
+_OBSERVATION_FILE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9a-f]{8}\.json$")
+_SAME_CONTENT = re.compile(r"^[^/]+_[0-9a-f]{8}$")
 _LABEL_SOURCES = ("last_modified", "downloaded", "inputs")
 _PERIODS = ("winter", "summer", "annual")
 _SCALARS = (str, int, float, bool, type(None))
@@ -199,6 +227,31 @@ def _object(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
+def _registry_origin(dataset: str) -> tuple[str, str] | None:
+    """``(country, provider)`` the registry gives ``dataset``; None for an unknown key."""
+    if dataset == _CATALOG_KEY or any(item.key == dataset for item in datasets()):
+        return _REGISTRY_ORIGIN
+    return None
+
+
+def _content_fields(payload: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """``content_sha256`` and ``content_form``: both absent (None) or both valid."""
+    present = [key for key in ("content_sha256", "content_form") if key in payload]
+    if not present:
+        return None, None
+    if len(present) == 1:
+        raise _Invalid(
+            "invalid_meta",
+            "pola content_sha256 i content_form występują razem albo wcale",
+        )
+    digest = payload["content_sha256"]
+    if not isinstance(digest, str) or not _SHA.fullmatch(digest):
+        raise _Invalid(
+            "invalid_meta", "pole content_sha256 musi mieć 64 małe cyfry szesnastkowe"
+        )
+    return digest, _text(payload, "content_form")
+
+
 def _parse_meta(payload: object) -> Meta:
     """Validate the required ``imgw-meta/1`` fields; additional fields are tolerated."""
     if not isinstance(payload, dict):
@@ -211,14 +264,27 @@ def _parse_meta(payload: object) -> Meta:
     _text(payload, "producer", const="imgwtools")
     _text(payload, "producer_version")
     dataset = _text(payload, "dataset")
-    if not _DATASET.match(dataset):
-        raise _Invalid("invalid_meta", "pole dataset musi być kluczem zbioru pl.imgw.*")
-    _text(payload, "country", const="PL")
-    _text(payload, "provider", const="IMGW-PIB")
+    if not _DATASET.fullmatch(dataset):
+        raise _Invalid(
+            "invalid_meta",
+            "pole dataset musi być kluczem zbioru <kraj>.<dostawca>.<nazwa>",
+        )
+    country = _text(payload, "country")
+    if not _COUNTRY.fullmatch(country):
+        raise _Invalid(
+            "invalid_meta", "pole country musi być kodem kraju z dwóch wielkich liter"
+        )
+    provider = _text(payload, "provider")
+    origin = _registry_origin(dataset)
+    if origin is not None and (country, provider) != origin:
+        raise _Invalid(
+            "invalid_meta",
+            f"zbiór {dataset} ma w rejestrze country {origin[0]} i provider {origin[1]}",
+        )
     request = _object(payload, "request")
     license_ = _object(payload, "license")
     extra = _object(payload, "extra")
-    _text(license_, "id", const="IMGW-PIB")
+    license_id = _text(license_, "id")
     attribution = _text(license_, "attribution")
     url = _text(license_, "url")
     sha = payload.get("sha256")
@@ -244,15 +310,18 @@ def _parse_meta(payload: object) -> Meta:
             "invalid_meta",
             f"pole label_source musi być jednym z {', '.join(_LABEL_SOURCES)}",
         )
+    content_sha256, content_form = _content_fields(payload)
     return Meta(
         schema,
         dataset,
         sha,
         size,
         downloaded_at,
-        License("IMGW-PIB", attribution, url),
+        License(license_id, attribution, url),
         request,
         extra,
+        content_sha256,
+        content_form,
     )
 
 
@@ -483,6 +552,179 @@ def _entry(
 
 
 # --------------------------------------------------------------------------
+# Observation register (ADR-003 D18)
+# --------------------------------------------------------------------------
+
+
+def _optional_text(payload: Mapping[str, Any], key: str) -> str | None:
+    """A required field holding a non-empty text or null."""
+    if key not in payload:
+        raise _Invalid("invalid_meta", f"brak pola {key}")
+    value = payload[key]
+    if value is not None and (not isinstance(value, str) or not value):
+        raise _Invalid(
+            "invalid_meta", f"pole {key} musi być niepustym tekstem albo null"
+        )
+    return value
+
+
+def _digest(payload: Mapping[str, Any], key: str) -> str:
+    """A required SHA-256 hex digest field."""
+    value = payload.get(key)
+    if not isinstance(value, str) or not _SHA.fullmatch(value):
+        raise _Invalid(
+            "invalid_meta", f"pole {key} musi mieć 64 małe cyfry szesnastkowe"
+        )
+    return value
+
+
+def _parse_observation(payload: object) -> Observation:
+    """Validate the ``imgw-observation/1`` fields; additional fields are tolerated."""
+    if not isinstance(payload, dict):
+        raise _Invalid("invalid_meta", "obserwacja nie jest obiektem JSON")
+    schema = payload.get("schema")
+    if not isinstance(schema, str):
+        raise _Invalid("invalid_meta", "brak pola schema")
+    if schema != OBSERVATION_SCHEMA:
+        raise _Invalid("unknown_schema", f"nieobsługiwany schemat obserwacji {schema}")
+    _text(payload, "producer")
+    _text(payload, "producer_version")
+    dataset = _text(payload, "dataset")
+    if not _DATASET.fullmatch(dataset):
+        raise _Invalid(
+            "invalid_meta",
+            "pole dataset musi być kluczem zbioru <kraj>.<dostawca>.<nazwa>",
+        )
+    seen_at = payload.get("seen_at")
+    if not isinstance(seen_at, str) or not _is_seen_at(seen_at):
+        raise _Invalid(
+            "invalid_meta", "pole seen_at musi być czasem UTC RRRR-MM-DDTGG:MM:SSZ"
+        )
+    url = _text(payload, "url")
+    last_modified = _optional_text(payload, "last_modified")
+    etag = _optional_text(payload, "etag")
+    size = payload.get("size_bytes")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise _Invalid(
+            "invalid_meta", "pole size_bytes musi być nieujemną liczbą całkowitą"
+        )
+    sha = _digest(payload, "sha256")
+    content_sha256 = _digest(payload, "content_sha256")
+    content_form = _text(payload, "content_form")
+    same = payload.get("same_content_as")
+    if not isinstance(same, str) or not _SAME_CONTENT.fullmatch(same):
+        raise _Invalid(
+            "invalid_meta",
+            "pole same_content_as musi być nazwą katalogu wersji <etykieta>_<sha8>",
+        )
+    return Observation(
+        dataset,
+        seen_at,
+        url,
+        last_modified,
+        etag,
+        size,
+        sha,
+        content_sha256,
+        content_form,
+        same,
+    )
+
+
+def _load_observation(path: Path) -> Observation:
+    """Read and parse one observation file of a register."""
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise _Invalid(
+            "unreadable", f"nieczytelna obserwacja {path.name}: {exc}"
+        ) from exc
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except ValueError as exc:
+        raise _Invalid(
+            "invalid_json", f"uszkodzony JSON obserwacji {path.name}: {exc}"
+        ) from exc
+    return _parse_observation(payload)
+
+
+def _check_observation(
+    path: Path, observation: Observation, dataset: str, versions: Mapping[str, Meta]
+) -> None:
+    """
+    Check an observation against its file name and its archive slot.
+
+    The name must follow ``seen_at`` and the signal, ``dataset`` must be the
+    slot's, and ``same_content_as`` must name a valid version of the slot
+    (``versions``: directory name → sidecar) with equal content fields.
+    """
+    expected = _observation_name(observation)
+    if not path.name.startswith(f"{observation.seen_at[:10]}_"):
+        raise _Invalid(
+            "invalid_meta",
+            f"nazwa {path.name} nie odpowiada dacie seen_at {observation.seen_at}",
+        )
+    if path.name != expected:
+        raise _Invalid(
+            "invalid_meta",
+            f"nazwa {path.name} nie odpowiada sygnałowi obserwacji (oczekiwano {expected})",
+        )
+    if observation.dataset != dataset:
+        raise _Invalid(
+            "invalid_meta",
+            f"pole dataset {observation.dataset} różni się od zbioru slotu {dataset}",
+        )
+    meta = versions.get(observation.same_content_as)
+    if meta is None:
+        raise _Invalid(
+            "invalid_meta",
+            f"same_content_as {observation.same_content_as} nie wskazuje poprawnej "
+            "wersji w slocie",
+        )
+    if (meta.content_sha256, meta.content_form) != (
+        observation.content_sha256,
+        observation.content_form,
+    ):
+        raise _Invalid(
+            "invalid_meta",
+            f"pola treści różnią się od pól wersji {observation.same_content_as}",
+        )
+
+
+def _scan_register(
+    root: Path, register: Path, slot: str, versions: Mapping[str, Meta]
+) -> Iterator[StoreEntry]:
+    """
+    Observations and problems of the register ``observations/`` of an archive slot.
+
+    ``versions`` maps the directory names of the slot's valid versions to their
+    sidecars. Files are not hashed.
+    """
+    dataset = slot.split(":")[1]
+    for child in sorted(register.iterdir()):
+        relative = _relative(root, child)
+        if child.is_symlink():
+            yield _problem(
+                slot,
+                child,
+                "symlink",
+                f"Dowiązanie symboliczne w rejestrze obserwacji: {relative}",
+            )
+        elif not child.is_file() or not _OBSERVATION_FILE.fullmatch(child.name):
+            yield _unknown(root, child)
+        else:
+            try:
+                observation = _load_observation(child)
+                _check_observation(child, observation, dataset, versions)
+            except _Invalid as exc:
+                yield _problem(slot, child, exc.code, f"Obserwacja {relative}: {exc}")
+            else:
+                yield StoreEntry(
+                    "observation", slot, child, None, None, None, observation
+                )
+
+
+# --------------------------------------------------------------------------
 # Slots (spec §13.7)
 # --------------------------------------------------------------------------
 
@@ -580,9 +822,22 @@ def _versions_dir(root: Path, top: Path) -> Iterator[Path | StoreEntry]:
 
 
 def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEntry]:
+    """
+    Archive versions, observations and problems below ``directory``.
+
+    A directory ``observations`` is recognized before the version-directory
+    rule: beside versions of exactly one slot it is that slot's observation
+    register (ADR-003 D18), anywhere else an unknown element.
+    """
+    register: Path | None = None
+    slots: set[str] = set()
+    versions: dict[str, Meta] = {}
     for child in _directories(root, directory):
         if isinstance(child, StoreEntry):
             yield child
+            continue
+        if child.name == _OBSERVATIONS:
+            register = child
             continue
         has_files = any(
             not item.is_dir() or item.is_symlink() for item in child.iterdir()
@@ -597,7 +852,7 @@ def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEnt
                 yield _unknown(root, child)
             else:
                 slot, server_path = found
-                yield _entry(
+                entry = _entry(
                     root,
                     "archive",
                     slot,
@@ -605,8 +860,17 @@ def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEnt
                     PurePosixPath(server_path).name,
                     server_path=server_path,
                 )
+                slots.add(slot)
+                if entry.meta is not None:
+                    versions[child.name] = entry.meta
+                yield entry
         else:
             yield from _scan_archives(root, base, child)
+    if register is not None:
+        if len(slots) == 1:
+            yield from _scan_register(root, register, slots.pop(), versions)
+        else:
+            yield _unknown(root, register)
 
 
 def _series_datasets() -> dict[str, DatasetDescriptor]:
@@ -618,6 +882,22 @@ def _series_datasets() -> dict[str, DatasetDescriptor]:
     }
 
 
+def _derived_entry(
+    root: Path,
+    version: Path | StoreEntry,
+    kind: EntryKind,
+    slot: str,
+    name: str,
+    **options: Any,
+) -> StoreEntry:
+    """Entry of a series, catalog or PMAXTP slot child; only archives have a register."""
+    if isinstance(version, StoreEntry):
+        return version
+    if version.name == _OBSERVATIONS:
+        return _unknown(root, version)
+    return _entry(root, kind, slot, version, name, **options)
+
+
 def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
     for versions in _versions_dir(root, top):
         if isinstance(versions, StoreEntry):
@@ -626,16 +906,8 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
             yield from _scan_archives(root, versions, versions)
         elif top.name == "stations":
             for version in _directories(root, versions):
-                yield (
-                    version
-                    if isinstance(version, StoreEntry)
-                    else _entry(
-                        root,
-                        "catalog",
-                        f"catalog:{_CATALOG_KEY}",
-                        version,
-                        CATALOG_FILE,
-                    )
+                yield _derived_entry(
+                    root, version, "catalog", f"catalog:{_CATALOG_KEY}", CATALOG_FILE
                 )
         elif top.name == "series":
             series = _series_datasets()
@@ -644,17 +916,13 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                     yield slug if isinstance(slug, StoreEntry) else _unknown(root, slug)
                     continue
                 for version in _directories(root, slug):
-                    yield (
-                        version
-                        if isinstance(version, StoreEntry)
-                        else _entry(
-                            root,
-                            "series",
-                            f"series:{series[slug.name].key}",
-                            version,
-                            SERIES_FILE,
-                            subdirs=("stations",),
-                        )
+                    yield _derived_entry(
+                        root,
+                        version,
+                        "series",
+                        f"series:{series[slug.name].key}",
+                        SERIES_FILE,
+                        subdirs=("stations",),
                     )
         else:
             for method in _directories(root, versions):
@@ -674,17 +942,13 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                         )
                         continue
                     for version in _directories(root, cell):
-                        yield (
-                            version
-                            if isinstance(version, StoreEntry)
-                            else _entry(
-                                root,
-                                "pmaxtp",
-                                f"pmaxtp:{_PMAXTP_KEY}:{method.name}/{cell.name}",
-                                version,
-                                CELL_FILE,
-                                attachments=(RESPONSE_FILE,),
-                            )
+                        yield _derived_entry(
+                            root,
+                            version,
+                            "pmaxtp",
+                            f"pmaxtp:{_PMAXTP_KEY}:{method.name}/{cell.name}",
+                            CELL_FILE,
+                            attachments=(RESPONSE_FILE,),
                         )
 
 
@@ -727,26 +991,29 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
 
 def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEntry]:
     """
-    Scan every published version and every problem offline, without writing anything.
+    Scan every published version, observation and problem offline, without writing.
 
     Unknown directories, missing sidecars, corrupted JSON, unknown schemas
     (of the sidecar or, for series, of ``extra.series_schema``), size
     mismatches and ``.incoming`` stagings older than 24 hours are
     reported as separate ``StoreEntry(kind="problem")`` entries; younger
     stagings are private and are not versions. Files are not hashed during
-    the scan (only their size is compared with ``size_bytes``).
+    the scan (only their size is compared with ``size_bytes``). Each valid
+    file of the observation register ``observations/`` of an archive slot
+    is a ``StoreEntry(kind="observation")`` (never a version); a broken one
+    is a problem with the slot.
 
     Parameters
     ----------
     root : str, os.PathLike or StoreHandle
         Store root directory or an open store handle.
-    kind : {"archive", "series", "catalog", "pmaxtp", "problem"} or None, optional
+    kind : {"archive", "series", "catalog", "pmaxtp", "observation", "problem"} or None, optional
         Return only entries of this kind; ``None`` returns all entries.
 
     Returns
     -------
     Iterator[StoreEntry]
-        Lazily scanned published versions and problems.
+        Lazily scanned published versions, observations and problems.
 
     Raises
     ------
@@ -823,7 +1090,9 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
 
     Archive versions are ordered by ``Last-Modified``, then ``downloaded_at``,
     then path; derived versions (series, catalog, PMAXTP) by
-    ``downloaded_at``, then path. Staging directories are never returned.
+    ``downloaded_at``, then path. Staging directories are never returned, and
+    the observation register ``observations/`` of an archive slot is not a
+    version.
 
     Parameters
     ----------
@@ -866,6 +1135,8 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     versions: list[tuple[Path, dict[str, Any]]] = []
     entries: dict[Path, StoreEntry] = {}
     for version in sorted(directory.iterdir()):
+        if kind == "archive" and _is_register(version):
+            continue
         entry = (
             _entry(path, kind, slot, version, name, strict=True, **options)
             if version.is_dir()
@@ -894,6 +1165,120 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     else:
         current = _newest_downloaded(versions)
     return entries[current[0]] if current is not None else None
+
+
+@dataclass(frozen=True)
+class _Reference:
+    """
+    Reference signal of an archive slot (ADR-003 D18).
+
+    Attributes
+    ----------
+    version : StoreEntry
+        Current version of the slot.
+    url, etag, last_modified : str or None
+        Signal of the newest observation of the current version, or without
+        one the version's ``extra.http``.
+    size_bytes : int
+        Size of the observed bytes, or of the version's main file.
+    observation : Path or None
+        Observation giving the signal; None when it is the version's own.
+    """
+
+    version: StoreEntry
+    url: str | None
+    etag: str | None
+    last_modified: str | None
+    size_bytes: int
+    observation: Path | None
+
+
+def _reference_signal(root: RootArg, /, *, slot: str) -> _Reference | None:
+    """
+    Signal the next download of an archive slot is compared with (ADR-003 D18).
+
+    The newest observation of the current version (by ``seen_at``, then file
+    name) gives the signal; observations of older versions are history. Without
+    such an observation the signal is the version's ``extra.http`` and
+    ``size_bytes``, exactly as in a slot without a register.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    slot : str
+        Archive slot ``archive:<key>:<selector>``.
+
+    Returns
+    -------
+    _Reference or None
+        Reference signal with the current version; None for a slot without
+        versions.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``slot`` is not an archive slot of the grammar.
+    IMGWDataError
+        If a version of the slot is broken (as `current_version`), an
+        observation of the current version is broken or contradicts it, or a
+        register file cannot be told apart from such an observation; with
+        code ``io_error`` if the system cannot read one.
+    """
+    if not slot.startswith("archive:"):
+        raise _invalid_slot(slot, "sygnał odniesienia ma wyłącznie slot archiwum")
+    entry = current_version(root, slot=slot)
+    if entry is None or entry.version is None or entry.meta is None:
+        return None
+    current = entry.version.parent
+    register = current.parent / _OBSERVATIONS
+    newest: tuple[tuple[str, str], Observation, Path] | None = None
+    for child in sorted(register.iterdir()) if _is_register(register) else ():
+        if not _OBSERVATION_FILE.fullmatch(child.name) or not (
+            child.is_symlink() or child.is_file()
+        ):
+            continue
+        try:
+            if child.is_symlink():
+                raise _Invalid("symlink", "dowiązanie symboliczne zamiast obserwacji")
+            observation = _load_observation(child)
+            if observation.same_content_as != current.name:
+                continue
+            _check_observation(
+                child, observation, slot.split(":")[1], {current.name: entry.meta}
+            )
+        except _Invalid as exc:
+            if exc.code == "unreadable" and isinstance(exc.__cause__, OSError):
+                raise io_error(exc.__cause__) from exc.__cause__
+            raise IMGWDataError(
+                f"Uszkodzona obserwacja w slocie {slot}: {child.name}: {exc}"
+            ) from exc
+        order = (observation.seen_at, child.name)
+        if newest is None or order > newest[0]:
+            newest = (order, observation, child)
+    if newest is not None:
+        _, observation, path = newest
+        return _Reference(
+            entry,
+            observation.url,
+            observation.etag,
+            observation.last_modified,
+            observation.size_bytes,
+            path,
+        )
+    http = entry.meta.extra.get("http")
+    signal: Mapping[str, object] = http if isinstance(http, Mapping) else {}
+    texts: list[str | None] = []
+    for key in ("url", "etag", "last_modified"):
+        value = signal.get(key)
+        if value is not None and not isinstance(value, str):
+            raise IMGWDataError(
+                f"Uszkodzona wersja w slocie {slot}: extra.http.{key} musi być "
+                "tekstem albo null"
+            )
+        texts.append(value)
+    url, etag, last_modified = texts
+    return _Reference(entry, url, etag, last_modified, entry.meta.size_bytes, None)
 
 
 # --------------------------------------------------------------------------
@@ -993,7 +1378,7 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
             if (
                 feature["type"] != "Feature"
                 or not isinstance(code, str)
-                or not _CODE.match(code)
+                or not _CODE.fullmatch(code)
             ):
                 raise ValueError(f"nieprawidłowy obiekt stacji {code!r}")
             properties = feature["properties"]
@@ -1269,10 +1654,10 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
             raise ValueError("stations musi być obiektem")
         stations: dict[str, StationSeriesIndex] = {}
         for code, entry in raw_stations.items():
-            if not _CODE.match(code):
+            if not _CODE.fullmatch(code):
                 raise ValueError(f"nieprawidłowy kod stacji {code!r}")
             file, sha = entry["file"], entry["sha256"]
-            if not isinstance(file, str) or not _PARQUET.match(file):
+            if not isinstance(file, str) or not _PARQUET.fullmatch(file):
                 raise ValueError(
                     f"nieprawidłowa ścieżka Parquet stacji {code}: {file!r}"
                 )
@@ -1358,18 +1743,19 @@ def _variables(
 
 
 def _stations(stations: Iterable[str]) -> tuple[str, ...]:
-    """Non-empty nine-digit station codes without duplicates, in the given order."""
+    """Non-empty station codes (``STATION_CODE_PATTERN``) without duplicates, in order."""
     if isinstance(stations, str) or not isinstance(stations, Iterable):
         raise IMGWValidationError(
             "stations musi być listą kodów stacji, nie pojedynczym tekstem",
             details={"option": "stations", "value": str(stations)},
         )
     codes = tuple(dict.fromkeys(stations))
-    invalid = [str(code) for code in codes if not _CODE.match(str(code))]
+    invalid = [str(code) for code in codes if not _CODE.fullmatch(str(code))]
     if not codes or invalid:
         raise IMGWValidationError(
             f"Nieprawidłowe kody stacji {', '.join(invalid) or '(brak)'}; "
-            "oczekiwano co najmniej jednego kodu z 9 cyfr",
+            "oczekiwano co najmniej jednego kodu z 9 cyfr (IMGW-PIB) albo "
+            "identyfikatora WIGOS",
             details={"option": "stations", "value": invalid},
         )
     return codes
@@ -1418,7 +1804,7 @@ def read_series(
         Series dataset (key, slug or legacy alias) whose current version in
         ``root`` is read.
     station : str
-        Nine-digit station code present in the series.
+        Station code (``STATION_CODE_PATTERN``) present in the series.
     variables : Iterable[str] or None, optional
         Dataset variable names; duplicates are merged, a single string or an
         empty collection is rejected. ``None`` (default) means every variable
@@ -1595,8 +1981,8 @@ def summarize_series(
         Series dataset (key, slug or legacy alias) whose current version in
         ``root`` is summarized.
     stations : Iterable[str] or None, optional
-        Nine-digit codes of stations in the series; ``None`` (default) means
-        every station.
+        Station codes (``STATION_CODE_PATTERN``) in the series; ``None``
+        (default) means every station.
     variables : Iterable[str] or None, optional
         Dataset variable names; ``None`` (default) means every variable.
 
@@ -1690,8 +2076,8 @@ def select_series(
     dataset : str
         Series dataset (key, slug or legacy alias).
     stations : Iterable[str]
-        Non-empty nine-digit station codes; duplicates are merged, order is
-        kept.
+        Non-empty station codes (``STATION_CODE_PATTERN``); duplicates are
+        merged, order is kept.
     variables : Iterable[str] or None, optional
         Dataset variable names; ``None`` (default) means every variable.
     years : YearsArg or None, optional

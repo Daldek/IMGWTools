@@ -7,6 +7,7 @@ import errno
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import sys
@@ -33,6 +34,7 @@ from imgwtools.store.types import (
     Cancel,
     Notice,
     NoticeHook,
+    Observation,
     PathArg,
     Progress,
     ProgressHook,
@@ -46,6 +48,10 @@ _ATTRIBUTION_CODE = "license_terms"
 # anything unexpected there, so the Kartograf probe does not walk into them.
 _MANAGED_TREES = frozenset({"archives", "series", "stations", "pmaxtp", ".incoming"})
 _PATH_CONFLICT = {"reason": "path_conflict"}
+OBSERVATION_SCHEMA = "imgw-observation/1"
+# Observation register of an archive slot, beside its version directories.
+_OBSERVATIONS = "observations"
+_SEEN_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
 def _canonical(value: object) -> bytes:
@@ -71,7 +77,7 @@ def _fsync_dir(path: Path) -> None:
 
 
 def _atomic_publish(staged_dir: Path, target_dir: Path) -> None:
-    """Rename a whole directory, refusing replacement even of an empty directory."""
+    """Rename a staged directory or file without replacing an existing target."""
     if not sys.platform.startswith("linux"):
         raise IMGWStoreConflictError(
             "System plików nie zapewnia atomowego zapisu bez zastąpienia celu"
@@ -405,11 +411,38 @@ def _cleanup(incoming: Path, *, on_notice: NoticeHook | None = None) -> None:
             )
 
 
-def _existing(slot: Path, name: str) -> list[tuple[Path, dict[str, Any]]]:
+def _existing(
+    slot: Path, name: str, *, archive: bool = False
+) -> list[tuple[Path, dict[str, Any]]]:
+    """
+    Every version of a slot with its sidecar, verified by SHA-256.
+
+    Parameters
+    ----------
+    slot : pathlib.Path
+        Slot directory.
+    name : str
+        Main file name of the slot's versions.
+    archive : bool, optional
+        Whether ``slot`` is an archive slot: its observation register
+        ``observations/`` is then not a version.
+
+    Returns
+    -------
+    list of tuple
+        ``(main file, sidecar)`` of every version in name order.
+
+    Raises
+    ------
+    IMGWStoreConflictError
+        If an element of the slot is not a readable, consistent version.
+    """
     if not slot.exists():
         return []
     entries = []
     for directory in sorted(slot.iterdir()):
+        if archive and _is_register(directory):
+            continue
         if directory.is_symlink() or not directory.is_dir():
             raise IMGWStoreConflictError(f"Nieprawidłowa wersja archiwum: {directory}")
         meta_path = directory / f"{name}.meta.json"
@@ -463,6 +496,149 @@ def _archive_signal(version: Path, meta: dict[str, Any]) -> tuple[Any, Any]:
     if not isinstance(http, dict):
         raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {version}")
     return http.get("etag"), http.get("last_modified")
+
+
+def _is_register(path: Path) -> bool:
+    """Whether ``path`` is the observation register directory of an archive slot."""
+    return path.name == _OBSERVATIONS and path.is_dir() and not path.is_symlink()
+
+
+def _is_seen_at(value: object) -> bool:
+    """Whether ``value`` is a UTC time with whole seconds, ``YYYY-MM-DDTHH:MM:SSZ``."""
+    if not isinstance(value, str) or not _SEEN_AT.fullmatch(value):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
+def _observation_name(observation: Observation) -> str:
+    """
+    File name ``<YYYY-MM-DD>_<sha8>.json`` of an observation (ADR-003 D18).
+
+    The date is the UTC day of ``seen_at``; ``<sha8>`` starts the SHA-256 of
+    the signal ``{"etag", "last_modified", "size_bytes", "url"}`` written
+    with sorted keys, without whitespace and without escaping non-ASCII
+    characters (the JCS form of this flat object).
+
+    Parameters
+    ----------
+    observation : Observation
+        Observation with a valid ``seen_at``.
+
+    Returns
+    -------
+    str
+        File name inside ``observations/``.
+    """
+    signal = json.dumps(
+        {
+            "etag": observation.etag,
+            "last_modified": observation.last_modified,
+            "size_bytes": observation.size_bytes,
+            "url": observation.url,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(signal.encode("utf-8")).hexdigest()[:8]
+    return f"{observation.seen_at[:10]}_{digest}.json"
+
+
+def _publish_observation(
+    root: Path,
+    *,
+    slot: str,
+    observation: Observation,
+    cancel: Cancel | None = None,
+) -> Path:
+    """
+    Publish an observation into ``<slot>/observations/`` without replacing a file.
+
+    The canonical ``imgw-observation/1`` document is staged in a unique
+    ``.incoming`` directory and moved by a single no-replace rename; the
+    register directory is created when needed. A file of the same name (the
+    same signal seen on the same day) is kept unchanged and returned.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        Store root.
+    slot : str
+        Archive slot directory relative to ``root``, e.g.
+        ``"archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024"``.
+    observation : Observation
+        Observed signal; ``seen_at`` must be ``YYYY-MM-DDTHH:MM:SSZ``.
+    cancel : Cancel or None, optional
+        Polled before the register is touched; returning ``True`` aborts the
+        write without leaving a file.
+
+    Returns
+    -------
+    pathlib.Path
+        Published or already existing observation file.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``seen_at`` is not a UTC time with whole seconds or the slot path
+        is unsafe.
+    IMGWStoreError
+        If a path component is a symbolic link (code ``validation_error``).
+    IMGWStoreConflictError
+        If ``observations`` or the target name is not a regular entry of its
+        kind, or the file system cannot rename without replacement.
+    IMGWCancelledError
+        If ``cancel`` returns ``True`` before publication.
+    """
+    if not _is_seen_at(observation.seen_at):
+        raise IMGWValidationError(
+            f"Czas obserwacji musi mieć postać RRRR-MM-DDTGG:MM:SSZ: {observation.seen_at!r}"
+        )
+    name = _observation_name(observation)
+    register = _validate_slot(root, f"{slot}/{_OBSERVATIONS}")
+    target = _validate_slot(root, f"{slot}/{_OBSERVATIONS}/{name}")
+    incoming = root / ".incoming"
+    incoming.mkdir(exist_ok=True)
+    staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
+    staging.mkdir()
+    try:
+        _write_json(
+            staging / name,
+            {
+                "schema": OBSERVATION_SCHEMA,
+                "producer": "imgwtools",
+                "producer_version": __version__,
+                **asdict(observation),
+            },
+        )
+        _fsync_dir(staging)
+        if cancel is not None and cancel():
+            raise IMGWCancelledError("Anulowano zapis obserwacji")
+        try:
+            register.mkdir()
+        except FileExistsError:
+            if not _is_register(register):
+                raise IMGWStoreConflictError(
+                    f"Rejestr obserwacji nie jest katalogiem: {register}"
+                ) from None
+        else:
+            _fsync_dir(register.parent)
+        try:
+            _atomic_publish(staging / name, target)
+        except FileExistsError:
+            # The same signal on the same day is already recorded; keep that file.
+            if target.is_symlink() or not target.is_file():
+                raise IMGWStoreConflictError(
+                    f"Kolizja pliku obserwacji: {target}"
+                ) from None
+        return target
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
 
 
 def write_archive(
@@ -584,7 +760,7 @@ def write_archive(
         # deciding on a relabel, so an older signal reappearing stays unchanged.
         same = [
             (old_file, old_meta, _archive_signal(old_file.parent, old_meta))
-            for old_file, old_meta in _existing(slot, filename)
+            for old_file, old_meta in _existing(slot, filename, archive=True)
         ]
         same = [entry for entry in same if entry[1]["sha256"] == sha]
         for old_file, old_meta, old_signal in same:
@@ -649,7 +825,7 @@ def write_archive(
         try:
             _atomic_publish(staging, target)
         except FileExistsError as exc:
-            for old_file, old_meta in _existing(slot, filename):
+            for old_file, old_meta in _existing(slot, filename, archive=True):
                 if old_file.parent == target and old_meta["sha256"] == sha:
                     if signal == _archive_signal(old_file.parent, old_meta):
                         return VersionResult("unchanged", old_file, sha, label)

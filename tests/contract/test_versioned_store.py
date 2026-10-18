@@ -156,12 +156,12 @@ def test_reader_enforces_required_sidecar_fields_and_tolerates_additions(
         "suma wielkimi literami": lambda d: d.update(sha256=d["sha256"].upper()),
         "ujemny rozmiar": lambda d: d.update(size_bytes=-1),
         "rozmiar jako tekst": lambda d: d.update(size_bytes=str(d["size_bytes"])),
-        "obca licencja": lambda d: d["license"].update(id="CC-BY-4.0"),
+        "pusty identyfikator licencji": lambda d: d["license"].update(id=""),
         "brak atrybucji": lambda d: d["license"].pop("attribution"),
         "brak etykiety wersji": lambda d: d["extra"].pop("version"),
         "zgadywana etykieta": lambda d: d["extra"]["version"].update(label_source="x"),
         "obcy zbiór": lambda d: d.update(dataset="kartograf.dem"),
-        "inny kraj": lambda d: d.update(country="DE"),
+        "kraj spoza wzorca": lambda d: d.update(country="Polska"),
         "data bez formatu": lambda d: d.update(downloaded_at="wczoraj"),
     }
     for name, mutate in violations.items():
