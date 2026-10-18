@@ -49,6 +49,7 @@ from imgwtools.store.types import (
 from imgwtools.store.writer import _canonical, _existing, _utc, _validate_slot
 
 CELL_FILE = "cell.json"
+RESPONSE_FILE = "response.json"
 CELL_SCHEMA = "imgw-pmaxtp/1"
 PMAXTP_DATASET = "pl.imgw.pmaxtp"
 PROCESSED_ATTRIBUTION = (
@@ -295,7 +296,10 @@ def sync_pmaxtp(
     Fetch PMAXTP once and store it under the cell indices returned by the API.
 
     Points in the same cell and method share one version; identical ``cell.json`` is
-    ``unchanged``. Given ``ind_x``/``ind_y`` must match the response or nothing is written.
+    ``unchanged`` and writes nothing. Given ``ind_x``/``ind_y`` must match the response
+    or nothing is written. A new version also keeps the raw API response byte for byte
+    as ``response.json``; its SHA-256 and size are recorded in the ``cell.json`` sidecar
+    under ``extra.response`` (the version identity remains the ``cell.json`` SHA-256).
 
     Parameters
     ----------
@@ -406,6 +410,11 @@ def sync_pmaxtp(
         "extra": {
             "version": {"label": label, "label_source": "downloaded"},
             "derived": "pmaxtp",
+            "response": {
+                "name": RESPONSE_FILE,
+                "sha256": hashlib.sha256(response.content).hexdigest(),
+                "size_bytes": len(response.content),
+            },
         },
     }
     path, created = _publish_version(
@@ -416,6 +425,7 @@ def sync_pmaxtp(
         meta=meta,
         label=label,
         on_notice=on_notice,
+        attachments={RESPONSE_FILE: response.content},
     )
     status: Literal["created", "unchanged"] = "created" if created else "unchanged"
     if on_progress is not None:

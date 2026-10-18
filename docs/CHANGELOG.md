@@ -40,6 +40,14 @@ Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite. Decyzje:
   `zipfile.BadZipFile`; ZIP jest czytany z limitami liczby/rozmiaru plików i bez
   niebezpiecznych ścieżek.
 - **`imgwtools[full]`** obejmuje teraz `store` (`pyarrow>=15`) obok `api`, `cli`, `pandas`.
+- **`parse_stations_csv(content, /, *, kind, encoding=…)`** wymaga `kind="hydro"|"meteo"`
+  i zwraca `StationListEntry` (zamrożona dataclass: `kind`, `station_code`, `name`; tylko
+  hydro `river`, `hydrographic_code`, `river_order`; tylko meteo `short_code`) zamiast
+  `HydroArchiveStation`. Lista meteo nie jest już czytana układem kolumn hydro (trzecia
+  kolumna to `short_code`, nie rzeka). Migracja: `parse_stations_csv(data)` →
+  `parse_stations_csv(data, kind="hydro")`, `.station_name`/`.river_name` → `.name`/`.river`.
+  `HydroArchiveStation` opisuje wyłącznie stację z wierszy archiwów danych (pola
+  `hydrographic_code`, `river_order`, `latitude`, `longitude` usunięte).
 
 ### Dodane
 
@@ -54,6 +62,16 @@ Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite. Decyzje:
   (PMAXTP per komórka siatki), odczyt `store_info`, `iter_store`, `read_meta`,
   `current_version`, `read_catalog`, `read_series_index`, `read_series` oraz
   `export_series` (CSV z jednostkami i atrybucją IMGW-PIB).
+- **Odczyt list stacji i archiwów z magazynu (offline, SHA-256)**:
+  `read_station_list(root, kind="hydro"|"meteo")` czyta bieżącą wersję zbioru
+  `pl.imgw.hydro_stations`/`pl.imgw.meteo_stations` jako krotkę `StationListEntry`;
+  `read_archive(version)` zwraca rekordy `NormalizedRecord` zapisanej wersji archiwum
+  (zbiór i plik z sidecara, parser zbioru), wersję listy stacji odrzuca z odesłaniem do
+  `read_station_list`. CLI `imgw store read --version … [--format csv|jsonl] [--path …]`
+  (katalog komend; bez `--path` na stdout, zapis przez `.part` i `os.replace`).
+- `sync_pmaxtp` zapisuje dodatkowo surową odpowiedź API PMAXTP bajt w bajt jako
+  `response.json` w katalogu wersji komórki; SHA-256 i rozmiar w sidecarze
+  `cell.json.meta.json` (`extra.response`), tożsamość wersji nadal wyznacza SHA `cell.json`.
 - **Rejestr zbiorów** `imgwtools.datasets`: `datasets()`, `get_dataset()`,
   `archive_files()`, `station_source_files()`, `DatasetDescriptor`, `ArchiveFile`,
   `License`. Pięć zbiorów archiwalnych (`pl.imgw.hydro_daily`, `pl.imgw.hydro_monthly`,
@@ -71,7 +89,7 @@ Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite. Decyzje:
   `set_project_store`, `add_project_task`, `remove_project_task`, `check_project`,
   `download_project`, `get_project_status`, `verify_project` — przypięcia wersji po
   SHA-256, blokada `.imgw-project.lock`.
-- **CLI**: grupy `imgw store init|info|scan|check|sync|catalog`,
+- **CLI**: grupy `imgw store init|info|scan|check|sync|catalog|read`,
   `imgw series build|export|select`, `imgw pmaxtp check|sync|read`,
   `imgw project init|add|remove|set-store|download|check|status|verify`; flaga `--check`
   każdej komendy uruchamia jej bliźniaczy `check_*` bez zapisu; Ctrl+C anuluje między

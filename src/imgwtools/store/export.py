@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import csv
+import io
+import json
 import os
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+from imgwtools._parsing.meteo import DATASET_ATTRIBUTES
 from imgwtools.datasets import get_dataset
 from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
 from imgwtools.models import NormalizedRecord
@@ -44,6 +47,148 @@ def _timestamp(value: date | datetime | None) -> str:
 
 def _cancelled(cancel: Cancel | None) -> bool:
     return cancel is not None and cancel()
+
+
+_RECORD_FORMATS = ("csv", "jsonl")
+
+
+def _record_lines(
+    records: Iterable[NormalizedRecord], /, *, format: Literal["csv", "jsonl"]
+) -> Iterator[str]:
+    """
+    Text lines (with line terminators) of normalized records in CSV or JSONL.
+
+    CSV (comma, CRLF rows) starts with the header ``station_code,dataset,date,
+    hydro_year,period``, then ``<V> [<unit>],<V>_flag`` for every dataset
+    variable (half-year datasets add ``<V>_start,<V>_end``) and one column per
+    qualitative attribute of the dataset (meteo ``precip_type`` etc.). A
+    variable or attribute absent from a record gives empty cells. JSONL writes
+    one JSON object per record with the `NormalizedRecord` fields. No records
+    yield no lines.
+    """
+    if format not in _RECORD_FORMATS:
+        raise IMGWValidationError(
+            f"Nieobsługiwany format {format!r}; dostępne: {', '.join(_RECORD_FORMATS)}"
+        )
+    iterator = iter(records)
+    first = next(iterator, None)
+    if first is None:
+        return
+    if format == "jsonl":
+        for record in _chain(first, iterator):
+            yield json.dumps(_record_json(record), ensure_ascii=False) + "\n"
+        return
+    descriptor = get_dataset(first.dataset)
+    half_year = descriptor.time_unit == "half_year"
+    attributes = DATASET_ATTRIBUTES.get(first.dataset, ())
+    header = ["station_code", "dataset", "date", "hydro_year", "period"]
+    for name, unit in descriptor.variables.items():
+        header += [f"{name} [{unit}]", f"{name}_flag"]
+        if half_year:
+            header += [f"{name}_start", f"{name}_end"]
+    header += attributes
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    def line(cells: list[str]) -> str:
+        buffer.seek(0)
+        buffer.truncate()
+        writer.writerow(cells)
+        return buffer.getvalue()
+
+    yield line(header)
+    for record in _chain(first, iterator):
+        unknown = sorted(
+            {*record.measurements} - set(descriptor.variables)
+            | {*record.attributes} - set(attributes)
+        )
+        if unknown:
+            raise IMGWDataError(
+                f"Rekord stacji {record.station_code} z {record.date} ma kolumny "
+                f"spoza zbioru {record.dataset}: {', '.join(unknown)}"
+            )
+        cells = [
+            record.station_code,
+            record.dataset,
+            record.date.isoformat(),
+            str(record.hydro_year),
+            record.period or "",
+        ]
+        for name in descriptor.variables:
+            measurement = record.measurements.get(name)
+            if measurement is None:
+                cells += ["", ""]
+            else:
+                cells += [
+                    "" if measurement.value is None else _number(measurement.value),
+                    measurement.flag,
+                ]
+            if half_year:
+                start, end = record.extrema_dates.get(name, (None, None))
+                cells += [_timestamp(start), _timestamp(end)]
+        cells += [record.attributes.get(key) or "" for key in attributes]
+        yield line(cells)
+
+
+def _chain(
+    first: NormalizedRecord, rest: Iterator[NormalizedRecord]
+) -> Iterator[NormalizedRecord]:
+    yield first
+    yield from rest
+
+
+def _record_json(record: NormalizedRecord) -> dict[str, object]:
+    return {
+        "station_code": record.station_code,
+        "dataset": record.dataset,
+        "date": record.date.isoformat(),
+        "hydro_year": record.hydro_year,
+        "period": record.period,
+        "measurements": {
+            name: {"value": measurement.value, "flag": measurement.flag}
+            for name, measurement in record.measurements.items()
+        },
+        "attributes": dict(record.attributes),
+        "extrema_dates": {
+            name: [None if day is None else day.isoformat() for day in span]
+            for name, span in record.extrema_dates.items()
+        },
+    }
+
+
+def _write_lines(
+    path: PathArg, lines: Iterable[str], /, *, cancel: Cancel | None = None
+) -> Path:
+    """
+    Write text lines atomically: hidden unique ``.part`` beside the target, fsync, replace.
+
+    The target must be a file in an existing directory; ``cancel`` is polled
+    every 256 lines and before replacing the target, and cancellation or a
+    failure leaves the target untouched.
+    """
+    target = Path(path).expanduser()
+    if target.is_dir():
+        raise IMGWValidationError(f"Ścieżka docelowa wskazuje katalog: {target}")
+    if not target.parent.is_dir():
+        raise IMGWValidationError(f"Katalog docelowy nie istnieje: {target.parent}")
+    part = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")
+    try:
+        with part.open("x", encoding="utf-8", newline="") as stream:
+            for number, text in enumerate(lines, start=1):
+                stream.write(text)
+                if number % _PROGRESS_ROWS == 0 and _cancelled(cancel):
+                    raise IMGWStoreError(
+                        "Anulowano zapis; plik docelowy pozostaje nietknięty"
+                    )
+            stream.flush()
+            os.fsync(stream.fileno())
+        if _cancelled(cancel):
+            raise IMGWStoreError("Anulowano zapis; plik docelowy pozostaje nietknięty")
+        os.replace(part, target)
+        _fsync_dir(target.parent)
+    finally:
+        part.unlink(missing_ok=True)
+    return target
 
 
 def export_series(

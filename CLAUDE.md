@@ -77,6 +77,7 @@ imgw store scan --root /data/imgw              # versions + problems, offline
 imgw store check --root /data/imgw --dataset pl.imgw.hydro_daily --years 2023-2025 --plan plan.json
 imgw store sync --root /data/imgw --plan plan.json [--no-series]
 imgw store catalog --root /data/imgw [--user-locations locations.csv]
+imgw store read --version <archive version dir|file|sidecar> [--format csv|jsonl] [--path out.csv]  # stdout without --path
 imgw series build --root /data/imgw --dataset pl.imgw.hydro_daily
 imgw series select --root /data/imgw --dataset pl.imgw.hydro_daily --stations 123456789
 imgw series export --version <series version dir or series.json> --station 123456789 --path out.csv --variables H,Q
@@ -114,7 +115,7 @@ src/imgwtools/
 │   ├── series.py         # check_series/build_series (Parquet, imgw-series/1)
 │   ├── catalog.py        # check_catalog/build_catalog (stations.geojson)
 │   ├── pmaxtp.py         # check_pmaxtp/sync_pmaxtp/read_pmaxtp
-│   ├── reader.py         # store_info, iter_store, read_meta, current_version, read_series*, read_catalog
+│   ├── reader.py         # store_info, iter_store, read_meta, current_version, read_series*, read_catalog, read_station_list, read_archive
 │   └── export.py         # export_series (CSV with IMGW-PIB attribution)
 ├── api/                  # FastAPI REST API [optional: imgwtools[api]]
 │   ├── main.py           # App entry point
@@ -163,7 +164,8 @@ Everything is exposed via `from imgwtools import ...` (one `__all__`; `imgwtools
 | `datasets()`, `get_dataset(key)` | `DatasetDescriptor` registry (full keys `pl.imgw.*`) |
 | `archive_files(key, years=, months=)` | Offline list of `ArchiveFile` (server path, URL, period) |
 | `station_source_files()` | Hydro/meteo station list CSV sources |
-| `parse_zip_file`, `parse_daily_csv`, `parse_monthly_csv`, `parse_semi_annual_csv`, `parse_stations_csv` | Hydro archive parsers |
+| `parse_zip_file`, `parse_daily_csv`, `parse_monthly_csv`, `parse_semi_annual_csv` | Hydro archive parsers |
+| `parse_stations_csv(content, kind=)` | Hydro/meteo station list → `StationListEntry` (`kind`; hydro-only `river`/`hydrographic_code`/`river_order`, meteo-only `short_code`) |
 | `parse_meteo_climate_daily`, `parse_meteo_precip_daily` | Meteo `k_d`/`o_d` parsers → `NormalizedRecord` |
 | `normalize_archive(archive, data=)` | Any supported archive → `NormalizedRecord` with flags |
 | `summarize_coverage(records, dataset=)` | Coverage per station × variable (gaps, first/last) |
@@ -179,6 +181,8 @@ Everything is exposed via `from imgwtools import ...` (one `__all__`; `imgwtools
 | `check_pmaxtp`, `sync_pmaxtp`, `read_pmaxtp` | PMAXTP per grid cell (`POT`/`AMP`) |
 | `store_info`, `iter_store`, `read_meta`, `current_version` | Offline read/scan (problems reported, not raised) |
 | `read_catalog`, `read_series_index`, `read_series`, `export_series` | Read catalog/series, CSV export |
+| `read_station_list(root, kind=)` | Current stored `pl.imgw.hydro_stations`/`pl.imgw.meteo_stations` list, SHA-verified → `StationListEntry` |
+| `read_archive(version)` | Records of one stored archive version (dataset + server path from the sidecar, SHA-verified, `normalize_archive`); station lists rejected |
 
 **Commands and Projects:**
 | Function | Description |
@@ -387,7 +391,7 @@ Writes require `IMGW_STORE_WRITES_ENABLED=true`, a non-empty `IMGW_STORE_WRITE_T
 
 ### Store, Series, PMAXTP and Project Commands
 
-Generated from `data_commands()` by `cli/_dispatch.py`: help = catalog description (Polish), options in `--kebab-case`, list options comma-separated, years accept ranges (`2020-2023`). `--check` runs the command's `check_*` twin (prints `imgw-plan/1`, no writes, no data GET). Output: `Path` as plain text, other results as JSON. Ctrl+C requests cancellation between files; a second Ctrl+C aborts.
+Generated from `data_commands()` by `cli/_dispatch.py`: help = catalog description (Polish), options in `--kebab-case`, list options comma-separated, years accept ranges (`2020-2023`). `--check` runs the command's `check_*` twin (prints `imgw-plan/1`, no writes, no data GET). Output: `Path` as plain text, text-line iterators (`store read` without `--path`) streamed verbatim, other results as JSON. Ctrl+C requests cancellation between files; a second Ctrl+C aborts.
 
 | Command | Public API |
 |---------|------------|
@@ -395,6 +399,7 @@ Generated from `data_commands()` by `cli/_dispatch.py`: help = catalog descripti
 | `store check` (`--dataset`, `--years`, `--months`, `--plan`) | `check_store` + `StorePlan.to_json` (plan outside the store) |
 | `store sync` (`--plan` or `--dataset/--years`, `--no-series`) | `sync_store` |
 | `store catalog` (`--user-locations`) | `build_catalog` |
+| `store read` (`--version`, `--format csv\|jsonl`, `--path`) | `read_archive` (stdout without `--path`; file via `.part` + `os.replace`) |
 | `series build`, `series export`, `series select` | `build_series` / `export_series` / validated selection from `current_version` |
 | `pmaxtp check`, `pmaxtp sync`, `pmaxtp read` | `check_pmaxtp` / `sync_pmaxtp` / `read_pmaxtp` (not the live `fetch pmaxtp`) |
 | `project init`, `add`, `remove`, `set-store`, `download`, `check`, `status`, `verify` | `project.py` functions |

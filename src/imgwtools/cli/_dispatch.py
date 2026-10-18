@@ -9,7 +9,9 @@ the Python API. Progress and notices go to stderr, the result to stdout.
 
 import inspect
 import json
+import os
 import signal
+import sys
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -136,6 +138,19 @@ def _execute(
                 on_notice=_print_notice,
                 cancel=requested.is_set,
             )
+            if isinstance(result, Iterator):
+                # Text lines streamed as produced (e.g. ``store read`` without --path).
+                try:
+                    for line in result:
+                        if requested.is_set():
+                            break
+                        typer.echo(line, nl=False)
+                    sys.stdout.flush()
+                except BrokenPipeError:
+                    # Reader closed the pipe (e.g. ``| head``): stop quietly; route the
+                    # interpreter's final flush to devnull instead of failing again.
+                    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+                    raise typer.Exit(1) from None
         except KeyboardInterrupt:
             _ERR.print("Przerwano natychmiast (Ctrl+C)", style="red", markup=False)
             raise typer.Exit(EXIT_CANCELLED) from None
@@ -144,7 +159,7 @@ def _execute(
             raise typer.Exit(1) from None
     if isinstance(result, Path):
         typer.echo(str(result))
-    else:
+    elif not isinstance(result, Iterator):
         typer.echo(json.dumps(_plain(result), ensure_ascii=False, indent=2))
     if summary is not None:
         summary(events)

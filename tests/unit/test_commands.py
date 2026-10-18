@@ -17,6 +17,7 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
+from imgwtools.datasets import station_source_files
 from imgwtools.exceptions import IMGWProjectError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
 from imgwtools.project import (
@@ -37,6 +38,7 @@ SPEC_COMMANDS = {
     "store check",
     "store sync",
     "store catalog",
+    "store read",
     "series build",
     "series export",
     "series select",
@@ -74,6 +76,14 @@ SAMPLES = [
         {"root": "/data/imgw", "dataset": [DAILY], "years": [2024], "no_series": True},
     ),
     ("store catalog", {"root": "/data/imgw", "user_locations": "moje położenia.csv"}),
+    (
+        "store read",
+        {
+            "version": "/data/imgw/archives/versions/a/codz_2024/v_00000000",
+            "format": "jsonl",
+            "path": "wyniki dir/codz.jsonl",
+        },
+    ),
     ("series build", {"root": "/data/imgw", "dataset": DAILY}),
     (
         "series export",
@@ -307,6 +317,8 @@ def test_validate_command_normalizes_values():
         ("store info", {"root": "/s", "dataset": DAILY}),
         ("store info", {}),
         ("store scan", {"root": "/s", "kind": "everything"}),
+        ("store read", {"version": "/s/v", "format": "parquet"}),
+        ("store read", {"version": "/s/a/v", "path": "/s/a/v/out.csv"}),
         ("store check", {"root": "/s", "dataset": "pl.imgw.pmaxtp", "years": 2024}),
         ("store check", {"root": "/s", "dataset": DAILY, "years": 1900}),
         (
@@ -439,11 +451,21 @@ def test_check_command_never_writes_or_downloads(offline, fixture_root, tmp_path
         "imgw-plan/1", fixture_root, datetime.now(UTC), (), {}
     ).to_json(tmp_path / "plan.json")
     project = tmp_path / "project"
+    daily, hydro_list = (
+        store.current_version(fixture_root, slot=f"archive:{path}").version
+        for path in (
+            "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+            station_source_files()[0].server_path,
+        )
+    )
     cases = [
         ("store init", {"root": fixture_root}, "current"),
         ("store init", {"root": tmp_path / "new"}, "missing"),
         ("store info", {"root": fixture_root}, "current"),
         ("store scan", {"root": fixture_root}, "current"),
+        ("store read", {"version": daily}, "current"),
+        ("store read", {"version": daily, "path": tmp_path / "x.csv"}, "missing"),
+        ("store read", {"version": hydro_list}, "check_failed"),
         (
             "series build",
             {"root": fixture_root, "dataset": "pl.imgw.meteo_precip_daily"},
@@ -588,6 +610,7 @@ RUN_CASES = [
         (Path("/s"),),
         {"user_locations": None, "hooks": HOOKED},
     ),
+    ("store read", {"version": "v"}, "read_archive", (Path("v"),), {}),
     (
         "series build",
         {"root": "/s", "dataset": DAILY},
@@ -785,6 +808,7 @@ def public_api(monkeypatch, tmp_path):
     ):
         recorder(store, name)
     recorder(store, "iter_store", iter(()))
+    recorder(store, "read_archive", iter(()))
     recorder(importlib.import_module("imgwtools.store.export"), "export_series")
     project = importlib.import_module("imgwtools.project")
     for name in (
@@ -823,7 +847,7 @@ def test_run_command_calls_exactly_one_public_api_with_same_hooks(
     if expected.pop("hooks", None) is HOOKED:
         expected.update(hooks)
     assert calls == [(function, args, expected)]
-    if not command.startswith(("fetch", "store scan")):
+    if not command.startswith(("fetch", "store scan", "store read")):
         assert returned is result
 
 

@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
-from imgwtools.store import init_store
+from imgwtools.store import init_store, iter_store
 from imgwtools.store.pmaxtp import check_pmaxtp, read_pmaxtp, sync_pmaxtp
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -109,6 +109,49 @@ def test_second_point_in_same_cell_reuses_version_and_amp_is_separate(store):
         "751_317",
     )
     assert amp.result.data.get_precipitation(15, 50) == 12.8
+
+
+def test_raw_response_is_stored_byte_identical_beside_cell(store):
+    # Non-canonical JSON (indentation, extra spaces) proves the bytes are not re-encoded.
+    raw = (
+        json.dumps(FIRST["json"], indent=1, ensure_ascii=True)
+        .replace('"point"', '"point" ')
+        .encode()
+    )
+    with respx.mock as router:
+        router.get(FIRST["url"]).mock(return_value=httpx.Response(200, content=raw))
+        recorded(router, SAME_CELL)
+        first = sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01)
+        before = tree(store.root)
+        again = sync_pmaxtp(store, method="POT", latitude=52.2301, longitude=21.0101)
+    stored = first.version.with_name("response.json").read_bytes()
+    assert stored == raw
+    meta = json.loads(
+        first.version.with_name("cell.json.meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["extra"]["response"] == {
+        "name": "response.json",
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    }
+    # The version identity stays the cell.json SHA; only cell + sidecar + response exist.
+    assert meta["sha256"] == hashlib.sha256(first.version.read_bytes()).hexdigest()
+    assert sorted(p.name for p in first.version.parent.iterdir()) == [
+        "cell.json",
+        "cell.json.meta.json",
+        "response.json",
+    ]
+    assert (again.status, again.version) == ("unchanged", first.version)
+    assert tree(store.root) == before
+    entries = list(iter_store(store))
+    assert [e.kind for e in entries] == ["pmaxtp"], entries
+    with respx.mock:  # offline
+        assert read_pmaxtp(store, method="POT", ind_x=751, ind_y=317) == read_pmaxtp(
+            store, method="POT", ind_x=751, ind_y=317, version=first.version.parent
+        )
+    assert (
+        read_pmaxtp(store, method="POT", ind_x=751, ind_y=317).data == first.result.data
+    )
 
 
 def test_mismatched_user_indices_and_empty_data_create_nothing(store):

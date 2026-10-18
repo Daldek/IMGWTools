@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 import httpx
 
-from imgwtools._parsing.common import _decode_content
+from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools._version import __version__
 from imgwtools.core.url_builder import IMGW_API_URL
 from imgwtools.datasets import ArchiveFile, get_dataset, station_source_files
@@ -34,7 +34,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.fetch import DEFAULT_TIMEOUT, DownloadResult
-from imgwtools.stations import _parse_hydro_stations_csv, _parse_meteo_stations_csv
+from imgwtools.models import StationListEntry
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -127,12 +127,15 @@ def _publish_version(
     meta: dict[str, Any],
     label: str,
     on_notice: NoticeHook | None = None,
+    attachments: Mapping[str, bytes] | None = None,
 ) -> tuple[Path, bool]:
     """Stage ``name`` + sidecar and publish ``<slot>/<label>_<sha8>`` without replacement.
 
     Returns the main file path and ``True`` when a new version was created; an identical
     concurrently published version yields ``False``. ``on_notice`` receives a
     ``leftover_incoming`` warning for every removed staging directory older than 24 h.
+    ``attachments`` are extra files (name → bytes) published in the same rename; the
+    caller documents them in ``meta``.
     """
     sha = meta["sha256"]
     slot_dir = _validate_slot(root, slot)
@@ -143,10 +146,11 @@ def _publish_version(
     staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
     staging.mkdir()
     try:
-        with (staging / name).open("xb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
+        for file_name, content in ((name, data), *(attachments or {}).items()):
+            with (staging / file_name).open("xb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
         _write_json(staging / f"{name}.meta.json", meta)
         _fsync_dir(staging)
         slot_dir.mkdir(parents=True, exist_ok=True)
@@ -542,7 +546,7 @@ def _feature(
     code: str,
     *,
     kind: Literal["hydro", "meteo"],
-    listed: Mapping[str, Any] | None,
+    listed: StationListEntry | None,
     api: Mapping[str, Any] | None,
     candidates: list[tuple[str, object, object]],
     rejections: list[str],
@@ -567,17 +571,17 @@ def _feature(
         break
     if geometry is None:
         reason = first_rejection or "none"
-    river = (api or {}).get("rzeka") or (listed or {}).get("river")
+    river = (api or {}).get("rzeka") or (listed.river if listed else None)
     api_row = api or {}
     properties: dict[str, Any] = {
         "station_code": code,
         "kind": kind,
         "meteo_kind": None,
-        "name": (listed or {}).get("name")
+        "name": (listed.name if listed else None)
         or str(api_row.get("stacja") or api_row.get("nazwa_stacji") or ""),
         "river": str(river) if river else None,
-        "hydrographic_code": (listed or {}).get("hydrographic_code"),
-        "river_order": (listed or {}).get("river_order"),
+        "hydrographic_code": listed.hydrographic_code if listed else None,
+        "river_order": listed.river_order if listed else None,
         "location_source": location_source,
         "location_uncertainty_m": uncertainty,
         "location_missing_reason": reason,
@@ -598,31 +602,20 @@ def _feature(
 
 def _list_rows(
     data: bytes, *, kind: Literal["hydro", "meteo"], problems: list[str]
-) -> dict[str, dict[str, Any]]:
-    text = _decode_content(data)
-    rows: dict[str, dict[str, Any]] = {}
-    parsed: list[Any] = (
-        _parse_hydro_stations_csv(text)
-        if kind == "hydro"
-        else _parse_meteo_stations_csv(text)
-    )
-    for station in parsed:
-        code = station.station_id.strip()
+) -> dict[str, StationListEntry]:
+    rows: dict[str, StationListEntry] = {}
+    for station in parse_stations_csv(data, kind=kind):
+        code = station.station_code
         if not (len(code) == 9 and code.isdecimal()):
             problems.append(f"Lista {kind}: pominięto niepoprawny kod stacji '{code}'")
             continue
-        rows[code] = {
-            "name": station.name,
-            "river": getattr(station, "river", None),
-            "hydrographic_code": getattr(station, "hydrographic_code", None),
-            "river_order": getattr(station, "river_order", None),
-        }
+        rows[code] = station
     return rows
 
 
 def _catalog_bytes(
     *,
-    lists: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    lists: Mapping[str, Mapping[str, StationListEntry]],
     apis: Mapping[str, Mapping[str, Mapping[str, Any]]],
     static: Mapping[str, tuple[str, str, str | None]],
     user: Mapping[str, tuple[str, str, str | None]],

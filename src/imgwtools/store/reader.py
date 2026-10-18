@@ -11,9 +11,17 @@ from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
 
-from imgwtools.datasets import License, datasets, get_dataset
+from imgwtools._parsing import normalize_archive
+from imgwtools._parsing.stations import parse_stations_csv
+from imgwtools.datasets import (
+    ArchiveFile,
+    License,
+    datasets,
+    get_dataset,
+    station_source_files,
+)
 from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
-from imgwtools.models import Measurement, NormalizedRecord
+from imgwtools.models import Measurement, NormalizedRecord, StationListEntry
 from imgwtools.store.catalog import (
     CATALOG_FILE,
     CATALOG_SLOT,
@@ -22,8 +30,8 @@ from imgwtools.store.catalog import (
     _signal_time,
     _timestamp,
 )
-from imgwtools.store.pmaxtp import CELL_FILE, CELL_SCHEMA
-from imgwtools.store.series import _FLAGS, SERIES_SCHEMA, _pyarrow
+from imgwtools.store.pmaxtp import CELL_FILE, CELL_SCHEMA, RESPONSE_FILE
+from imgwtools.store.series import _FLAGS, SERIES_SCHEMA, _pyarrow, _restore_archive
 from imgwtools.store.types import (
     Meta,
     PathArg,
@@ -298,9 +306,21 @@ def read_meta(path: PathArg, /) -> Meta:
 
 
 def _check_version(
-    directory: Path, name: str, *, subdirs: tuple[str, ...] = ()
+    directory: Path,
+    name: str,
+    *,
+    subdirs: tuple[str, ...] = (),
+    attachments: tuple[str, ...] = (),
 ) -> tuple[Path, Meta]:
-    """Validate one published version directory; ``name`` is the expected main file."""
+    """
+    Validate one published version directory; ``name`` is the expected main file.
+
+    An attachment (e.g. the raw PMAXTP ``response.json``) has no sidecar of its
+    own: it is allowed only when ``extra.response`` of the main sidecar
+    describes it (``name``, ``sha256``, ``size_bytes``), and then it must exist
+    with that size. Versions without the description and without the file are
+    valid (written before attachments existed).
+    """
     if directory.is_symlink():
         raise _Invalid("symlink", "dowiązanie symboliczne zamiast katalogu wersji")
     files: set[str] = set()
@@ -316,7 +336,7 @@ def _check_version(
             files.add(child.name)
     if name not in files and name + _SIDECAR in files:
         raise _Invalid("missing_file", f"brak pliku głównego {name}")
-    unexpected = sorted(files - {name, name + _SIDECAR})
+    unexpected = sorted(files - {name, name + _SIDECAR, *attachments})
     if unexpected:
         raise _Invalid(
             "unknown_entry", f"nieznane pliki w wersji: {', '.join(unexpected)}"
@@ -335,7 +355,42 @@ def _check_version(
         raise _Invalid(
             "size_mismatch", f"rozmiar {name} różni się od size_bytes w sidecarze"
         )
+    for attachment in attachments:
+        _check_attachment(directory, attachment, meta, present=attachment in files)
     return main, meta
+
+
+def _check_attachment(directory: Path, name: str, meta: Meta, *, present: bool) -> None:
+    """Validate an attachment against ``extra.response`` of the main sidecar (no hashing)."""
+    info = meta.extra.get("response")
+    if info is None:
+        if present:
+            raise _Invalid(
+                "unknown_entry", f"plik {name} bez opisu extra.response w sidecarze"
+            )
+        return
+    if not isinstance(info, Mapping):
+        raise _Invalid("invalid_meta", "pole extra.response musi być obiektem")
+    size = info.get("size_bytes")
+    sha = info.get("sha256")
+    if (
+        info.get("name") != name
+        or not isinstance(sha, str)
+        or not _SHA.match(sha)
+        or isinstance(size, bool)
+        or not isinstance(size, int)
+        or size < 0
+    ):
+        raise _Invalid(
+            "invalid_meta",
+            f"pole extra.response musi mieć name={name}, sha256 i size_bytes",
+        )
+    if not present:
+        raise _Invalid("missing_file", f"brak pliku {name} opisanego w sidecarze")
+    if (directory / name).stat().st_size != size:
+        raise _Invalid(
+            "size_mismatch", f"rozmiar {name} różni się od extra.response w sidecarze"
+        )
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -518,6 +573,7 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                                 f"pmaxtp:{method.name}:{cell.name}",
                                 version,
                                 CELL_FILE,
+                                attachments=(RESPONSE_FILE,),
                             )
                         )
 
@@ -599,7 +655,7 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
 
 def _slot_location(
     root: Path, slot: str
-) -> tuple[EntryKind, Path, str, tuple[str, ...]]:
+) -> tuple[EntryKind, Path, str, dict[str, tuple[str, ...]]]:
     kind, _, rest = slot.partition(":")
     if kind == "archive" and rest:
         relative = PurePosixPath(rest)
@@ -608,23 +664,23 @@ def _slot_location(
         )
         if relative.parent == PurePosixPath("."):
             raise IMGWValidationError(f"Niepełna ścieżka archiwum w slocie: {slot}")
-        return "archive", directory, relative.name, ()
+        return "archive", directory, relative.name, {}
     if kind == "series" and rest in _series_slugs():
         return (
             "series",
             _validate_slot(root, f"series/versions/{rest}"),
             SERIES_FILE,
-            ("stations",),
+            {"subdirs": ("stations",)},
         )
     if slot == "catalog:stations":
-        return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, ()
+        return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, {}
     method, _, cell = rest.partition(":")
     if kind == "pmaxtp" and method in ("POT", "AMP") and _CELL.match(cell):
         return (
             "pmaxtp",
             _validate_slot(root, f"pmaxtp/versions/{method}/{cell}"),
             CELL_FILE,
-            (),
+            {"attachments": (RESPONSE_FILE,)},
         )
     raise IMGWValidationError(
         f"Nieprawidłowy slot {slot!r}; oczekiwano archive:<server_path>, series:<slug>, "
@@ -666,14 +722,14 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
         silently selected instead).
     """
     path = _open(root)
-    kind, directory, name, subdirs = _slot_location(path, slot)
+    kind, directory, name, options = _slot_location(path, slot)
     if not directory.is_dir():
         return None
     versions: list[tuple[Path, dict[str, Any]]] = []
     entries: dict[Path, StoreEntry] = {}
     for version in sorted(directory.iterdir()):
         entry = (
-            _entry(path, kind, slot, version, name, subdirs=subdirs)
+            _entry(path, kind, slot, version, name, **options)
             if version.is_dir()
             else _unknown(path, version)
         )
@@ -824,6 +880,151 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
     except (KeyError, TypeError, ValueError) as exc:
         raise IMGWDataError(f"Nieprawidłowy katalog stacji {path}: {exc}") from exc
     return tuple(result)
+
+
+# --------------------------------------------------------------------------
+# Archives and station lists
+# --------------------------------------------------------------------------
+
+
+def _station_lists() -> dict[str, ArchiveFile]:
+    """Station list source of each kind, keyed ``"hydro"`` / ``"meteo"``."""
+    return dict(zip(("hydro", "meteo"), station_source_files(), strict=True))
+
+
+def read_station_list(
+    root: RootArg, /, *, kind: Literal["hydro", "meteo"]
+) -> tuple[StationListEntry, ...]:
+    """
+    Stations of the current stored station list of one family (offline).
+
+    Reads the current version of dataset ``pl.imgw.hydro_stations``
+    (``kind="hydro"``) or ``pl.imgw.meteo_stations`` (``kind="meteo"``),
+    verifies its bytes against the SHA-256 and size of the sidecar and parses
+    it with :func:`imgwtools.parsers.parse_stations_csv`. Lists are stored
+    by :func:`build_catalog` (``imgw store catalog``).
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    kind : {"hydro", "meteo"}
+        Station family of the list.
+
+    Returns
+    -------
+    tuple of StationListEntry
+        Stations in file order, each with ``kind`` set; hydro-only fields
+        are ``None`` for meteorological stations.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``kind`` is neither ``"hydro"`` nor ``"meteo"``.
+    IMGWStoreError
+        If the root is not a supported store or the store holds no version
+        of the list.
+    IMGWDataError
+        If a version of the list is broken, or the current list does not
+        match its sidecar.
+    """
+    lists = _station_lists()
+    if kind not in lists:
+        raise IMGWValidationError(
+            f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo"
+        )
+    source = lists[kind]
+    entry = current_version(root, slot=f"archive:{source.server_path}")
+    if entry is None or entry.version is None or entry.meta is None:
+        raise IMGWStoreError(
+            f"Magazyn nie zawiera listy stacji {source.dataset}; zapisuje ją "
+            "budowa katalogu stacji (build_catalog, imgw store catalog)"
+        )
+    if entry.meta.dataset != source.dataset:
+        raise IMGWDataError(
+            f"Wersja {entry.version} należy do zbioru {entry.meta.dataset}, "
+            f"a nie {source.dataset}"
+        )
+    return tuple(parse_stations_csv(_verified(entry.version), kind=kind))
+
+
+def _archive_main(version: PathArg) -> Path:
+    """Main file of an archive version given as its directory, file or sidecar."""
+    path = Path(version).expanduser()
+    if path.is_dir():
+        sidecars = sorted(
+            child.name for child in path.iterdir() if child.name.endswith(_SIDECAR)
+        )
+        if len(sidecars) != 1:
+            raise IMGWValidationError(
+                f"Katalog {version} nie jest katalogiem wersji archiwum "
+                "(oczekiwano dokładnie jednego sidecara)"
+            )
+        return path / sidecars[0].removesuffix(_SIDECAR)
+    if path.name.endswith(_SIDECAR):
+        return path.with_name(path.name.removesuffix(_SIDECAR))
+    return path
+
+
+def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
+    """
+    Normalized records of one stored archive version (offline).
+
+    The archive is identified by its sidecar: ``dataset`` and
+    ``request.server_path`` are resolved to the registry `ArchiveFile`, the
+    stored bytes are verified against the sidecar SHA-256 and size, and the
+    dataset parser (:func:`imgwtools.parsers.normalize_archive`) is applied.
+    Validation and verification happen before the iterator is returned;
+    parsing is lazy.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        Archive version directory, its main file or its sidecar.
+
+    Returns
+    -------
+    Iterator of NormalizedRecord
+        Records exactly as produced by ``normalize_archive`` for the stored
+        bytes.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``version`` is not an archive version (e.g. a series, catalog or
+        PMAXTP version, or a directory without exactly one sidecar), or is a
+        station list version (read it with :func:`read_station_list`).
+    IMGWStoreError
+        If the archive file or its sidecar does not exist.
+    IMGWDataError
+        If the sidecar is invalid or does not describe a registry archive,
+        or the file does not match its sidecar; while iterating, if the
+        archive content is malformed.
+    """
+    main = _archive_main(version)
+    meta = read_meta(main)
+    server_path = meta.request.get("server_path")
+    descriptor = next((d for d in datasets() if d.key == meta.dataset), None)
+    if not isinstance(server_path, str) or descriptor is None:
+        raise IMGWValidationError(
+            f"{main} nie jest wersją archiwum IMGW (zbiór {meta.dataset}); szeregi "
+            "czyta read_series, katalog read_catalog, komórki PMAXTP read_pmaxtp"
+        )
+    if descriptor.time_unit == "station_list":
+        kind = next(k for k, a in _station_lists().items() if a.dataset == meta.dataset)
+        raise IMGWValidationError(
+            f"{main} jest wersją listy stacji {meta.dataset}; listy stacji czyta "
+            f"read_station_list(root, kind={kind!r})"
+        )
+    if PurePosixPath(server_path).name != main.name:
+        raise IMGWDataError(
+            f"Plik {main.name} nie odpowiada request.server_path {server_path} sidecara"
+        )
+    try:
+        archive = _restore_archive(meta.dataset, {"request": meta.request})
+    except (KeyError, TypeError, ValueError, IMGWValidationError) as exc:
+        raise IMGWDataError(f"Sidecar {main} nie opisuje archiwum: {exc}") from exc
+    return normalize_archive(archive, data=_verified(main))
 
 
 def _date(value: object) -> date:
