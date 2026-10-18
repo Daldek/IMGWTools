@@ -53,9 +53,9 @@ cli = [
     "pydantic-settings>=2.0",
 ]
 
-# SQLite database cache for hydro data
-db = [
-    "pydantic-settings>=2.0",
+# Versioned store: Parquet series (imgwtools.store)
+store = [
+    "pyarrow>=15",
 ]
 
 # DataFrame export (PMaXTPData.to_dataframe, imgw list)
@@ -65,7 +65,7 @@ pandas = [
 
 # Full installation with all features
 full = [
-    "imgwtools[api,cli,db,pandas]",
+    "imgwtools[api,cli,pandas,store]",
 ]
 
 # Development dependencies
@@ -76,6 +76,7 @@ dev = [
     "pytest-asyncio>=0.21",
     "ruff>=0.1",
     "respx>=0.20",
+    "pyright>=1.1",
 ]
 
 [project.scripts]

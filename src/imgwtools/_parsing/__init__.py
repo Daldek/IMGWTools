@@ -1,4 +1,4 @@
-"""Archive parsing independent of the retired database cache."""
+"""Archive parsing for IMGW hydro and meteo ZIP/CSV files."""
 
 from collections.abc import Iterator
 

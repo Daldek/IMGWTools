@@ -195,43 +195,6 @@ class HealthCheck(BaseModel):
     version: str = "1.0.0"
 
 
-# Cached hydro data schemas
-class HydroDailyDataPoint(BaseModel):
-    """Single daily measurement from cache."""
-
-    date: str = Field(..., description="Measurement date (YYYY-MM-DD)")
-    water_level_cm: float | None = Field(default=None, description="Water level in cm")
-    flow_m3s: float | None = Field(default=None, description="Discharge in m3/s")
-    water_temp_c: float | None = Field(
-        default=None, description="Water temperature in Celsius"
-    )
-
-
-class HydroMonthlyDataPoint(BaseModel):
-    """Single monthly measurement from cache."""
-
-    year: int
-    month: int
-    extremum: str = Field(..., description="'min', 'mean', or 'max'")
-    water_level_cm: float | None = None
-    flow_m3s: float | None = None
-    water_temp_c: float | None = None
-
-
-class HydroDataResponse(BaseModel):
-    """Response with cached hydrological data."""
-
-    station_id: str
-    station_name: str | None = None
-    river: str | None = None
-    interval: str
-    start_year: int
-    end_year: int
-    data: list[HydroDailyDataPoint | HydroMonthlyDataPoint]
-    count: int
-    source: str = Field(..., description="'cache' or 'imgw'")
-
-
 # Versioned store schemas (/api/v1/store, /api/v1/series, /api/v1/pmaxtp/store).
 # Every path in these responses is a POSIX path relative to the store root.
 VersionStatus = Literal["created", "unchanged", "cancelled", "failed"]
