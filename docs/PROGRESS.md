@@ -4,9 +4,9 @@
 
 | Pole | Wartość |
 |------|---------|
-| **Wersja** | 2.2.0 |
-| **Data** | 2026-08-22 |
-| **Gałąź robocza** | slave (20 commitów przed master, oczekuje scalenia) |
+| **Wersja** | 3.0.0 |
+| **Data** | 2026-10-18 |
+| **Gałąź robocza** | `feature/versioned-store` (magazyn wersjonowany, ADR-001) |
 | **Python** | >=3.12 |
 
 ---
@@ -15,6 +15,7 @@
 
 | Wersja | Data | Zakres |
 |--------|------|--------|
+| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, rejestr zbiorów, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, katalog komend, projekty `imgw-project/1`, CLI `imgw store`/`series`/`pmaxtp`/`project`, REST `/api/v1/store`; **breaking:** `download_*` → `DownloadResult`, usunięcie cache SQLite. Szczegóły: `docs/CHANGELOG.md` |
 | v2.2.0 | 2026-08 | Licencja (rok, PEP 639), ręczny proces CLA, moduł danych referencyjnych IMGW-PIB (`reference_data.py`), usunięcie danych IMGW z repo, **usunięcie legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` usunięty) |
 | v2.1.1 | 2026-07 | Parsery: auto-detekcja separatora/kodowania (UTF-8 BOM)/cudzysłowów; URL-e meteo zgodne z serwerem IMGW; zgodność z pyright; audyt dokumentacji |
 | v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
@@ -23,6 +24,22 @@
 | v1.0.0 | 2025-xx | Pierwsze stabilne wydanie |
 
 ---
+
+## v3.0.0 — szczegóły wydania (2026-10-18)
+
+Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/superpowers/plans/2026-10-17-versioned-store.md` (zadania T01–T24) i kontraktu `docs/superpowers/specs/2026-10-17-versioned-store-design.md`. Pełna lista zmian: `docs/CHANGELOG.md`.
+
+- **Fala 0 (T01–T06):** rejestr `datasets.py` (`pl.imgw.*`, `archive_files`, `station_source_files`), `DownloadResult` w `download_*`, parsery w `_parsing/` (hydro przeniesione z `db/`, nowe meteo `k_d`/`o_d` z flagami), poprawki `stations.py` (`river_order`, `hydrographic_code`, pole `rzeka`), syntetyczne archiwa i nagrania w `tests/fixtures/store/`, typy i wyjątki magazynu.
+- **Fala 1 (T07–T10):** writer z atomową publikacją bez zastępowania i sidecarem `imgw-meta/1`, `summarize_coverage`, `imgw fetch` odwzorowujące ścieżki serwera, URL-e REST z rejestru.
+- **Fala 2 (T11–T14):** katalog `stations.geojson` (obrys Polski Natural Earth, bez GIS w runtime), `check_store`/`sync_store` z planem `imgw-plan/1`, szeregi Parquet `imgw-series/1`, PMAXTP per komórka.
+- **Fala 3 (T15–T16):** publiczne API odczytu (read-only, problemy raportowane) i `imgwtools.testing.build_fixture_store`.
+- **Fala 4–5 (T17–T19):** eksport CSV z atrybucją IMGW-PIB, katalog komend `commands.py`, projekty `imgw-project/1`.
+- **Fala 6 (T20–T21):** CLI `imgw store|series|pmaxtp|project` generowane z katalogu, REST magazynu za `IMGW_STORE_ROOT` i tokenem zapisu.
+- **Fala 7 (T22–T24):** usunięcie cache SQLite bez shimów (pakiet `db/`, komenda CLI, `/api/v1/hydro/data`, ustawienia, dodatek), jedna lista eksportów `imgwtools.__all__`, dodatek `[store]`, wersja 3.0.0, `docs/CHANGELOG.md` i aktualizacja dokumentacji.
+
+**Decyzja właściciela (2026-10-17):** magazyn wersjonowany wchodzi teraz, jako 3.0.0; dawna wizja „Obserwator 3.0” (`docs/OBSERWATOR_SPEC.md`) pozostaje przyszłym rozszerzeniem (zmiana nazwy, providery) i nie obejmuje już cache SQLite v2.
+
+**Stan końcowy v3.0.0 (2026-10-18):** 998 passed (w tym kontrakt T25 w `tests/contract/`), pokrycie 93% (`pytest --cov=imgwtools`), `ruff check` czysto, `pyright` 0 błędów.
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
@@ -188,18 +205,26 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 - [ ] API key enforcement — middleware walidujące nagłówek `X-API-Key`. CLAUDE.md odnotowuje, że klucze są zarządzane przez CLI (`imgw admin`), ale nieegzekwowane w żądaniach API — to brakująca warstwa bezpieczeństwa, nie nowa funkcja. Priorytet: wysoki.
 - [ ] Per-key rate limiting — śledzenie i limitowanie żądań per klucz API. Zależne od API key enforcement. Priorytet: średni.
-- [ ] GeoJSON export — zwracanie danych w formacie zgodnym z GIS. Priorytet: średni.
+- [ ] GeoJSON w REST/GUI — wersjonowany katalog `stations.geojson` istnieje od 3.0.0 (`build_catalog`, `read_catalog`); brakuje udostępnienia go w trasach REST i mapie Web GUI. Priorytet: średni.
 - [ ] Data charts — wizualizacja szeregów czasowych. Możliwy wzorzec: podejście repo hydro-dane — agregaty min/avg/max z walidacją pełnego roku hydrologicznego i eksport do kompaktowych statycznych JSON-ów. Priorytet: niski.
-- [ ] CSV direct export — bezpośredni eksport danych jako CSV. Priorytet: niski.
+- [ ] Eksport CSV w REST/GUI dla danych bez magazynu — od 3.0.0 `export_series`/`imgw series export`/`POST /api/v1/series/export` eksportują szeregi z magazynu; brak eksportu „na żądanie” bez magazynu. Priorytet: niski.
 - [ ] Request logging — śledzenie użycia API do analityki. Priorytet: niski.
 - [ ] Redis caching layer — cache dla często pobieranych danych. Priorytet: niski.
 
 - [ ] Lepsze nazewnictwo KS/SG/RB w `PMaXTPData` — aliasy właściwości i metoda `get_design_precipitation()`; szczegóły w sekcji "TODO: Poprawa czytelności PMaXTPData" poniżej. Priorytet: średni.
-- [ ] Natywna siatka PMAXTP — parser odrzuca blok `point` (środek i indeksy komórki), dokumentacja podaje błędny zakres danych (7×6 zamiast 16×27), brak API do pobierania po komórkach siatki; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
+- [ ] Natywna siatka PMAXTP w `fetch_pmaxtp` — od 3.0.0 magazyn PMAXTP (`sync_pmaxtp`/`read_pmaxtp`) kluczuje komórki indeksami `indX/indY` z odpowiedzi i zapisuje środek komórki w `cell.json`, ale `PMaXTPResult` z `fetch_pmaxtp` nadal nie ma pól `point`, brak funkcji konwersji/iteracji komórek, a docstringi podają zakres 7×6 zamiast 16×27; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
+
+### Magazyn wersjonowany (po 3.0.0)
+
+- [x] T25 — końcowy zestaw kontraktowy (`tests/contract/`): offline state machine HEAD→plan→sync→series→catalog→CSV→projekt→verify/restore, parytet ścieżek/SHA CLI = API (zrobione 2026-10-18).
+- [ ] Lokalny, odbudowywalny indeks magazynu (ADR-001 D2: poza wydaniem 3.0.0; nigdy jako źródło prawdy). Priorytet: niski.
+- [ ] Wniosek do IMGW-PIB o oficjalny wykaz współrzędnych stacji (ADR-001 Q6) oraz potwierdzenie znaczenia kodu hydrograficznego i kolejności `river_order` (Q4, Q5) — do tego czasu bez interpretacji. Priorytet: średni.
+- [ ] Rozszerzenie magazynu o kolejne zbiory (meteo miesięczne/terminowe, synop) — D6 ogranicza 3.0.0 do pięciu zbiorów Archiwisty i PMAXTP. Priorytet: niski.
+- [ ] Obserwator — przyszła zmiana nazwy i warstwa providerów (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem). Priorytet: niski.
 
 ### Infrastruktura i jakość kodu
 
-- [ ] Fallbackowe listy stacji zaszyte w kodzie zamiast ładowane z CSV: `src/imgwtools/api/routes/hydro.py:38` oraz `src/imgwtools/api/routes/meteo.py:31` (oba `# TODO: Load from CSV file`).
+- [ ] Fallbackowe listy stacji zaszyte w kodzie zamiast ładowane z CSV: `src/imgwtools/api/routes/hydro.py` oraz `src/imgwtools/api/routes/meteo.py` (oba `# TODO: Load from CSV file`).
 
 ### Zrobione (archiwum)
 
@@ -210,7 +235,10 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [x] Current hydro/meteo/synop data
 - [x] Archive data download
 - [x] Warnings
-- [x] SQLite cache (optional)
+- [x] ~~SQLite cache (optional)~~ — usunięty w 3.0.0 (ADR-001 D5), zastąpiony magazynem wersjonowanym
+- [x] Wersjonowany magazyn danych: archiwa 1:1 z sidecarami, plan aktualności, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, eksport CSV, projekty, CLI i REST (v3.0.0)
+- [x] Parsery meteo dobowych `k_d`/`o_d` z flagami braków (v3.0.0)
+- [x] Publiczny budowniczy magazynu testowego `imgwtools.testing` dla Archiwisty i Retmana (v3.0.0)
 - [x] Podniesienie Pythona do `>=3.12` dla spójności z innymi projektami (rekomendacja cross-project, v2.1.0)
 - [x] DEVELOPMENT_STANDARDS.md w formacie z Hydrolog (rekomendacja cross-project, v2.1.0)
 
@@ -327,18 +355,16 @@ Docstring `fetch_pmaxtp()` (`fetch.py`) i `PMaXTPData` podają nieaktualnie 7 cz
 ## Komendy
 
 ```bash
-# Aktywacja środowiska
-source .venv/bin/activate
+# Testy (zawsze przez venv projektu)
+.venv/bin/python -m pytest
+.venv/bin/python -m pytest --cov=imgwtools
 
-# Testy
-pytest tests/ -v
-
-# Linting
-ruff check src/imgwtools/
-ruff format src/imgwtools/
+# Linting i formatowanie
+.venv/bin/ruff check src/ tests/
+.venv/bin/ruff format --check src/ tests/
 
 # Type checking (config: [tool.pyright] w pyproject.toml)
-npx pyright src/imgwtools/
+npx -y pyright src/imgwtools/
 ```
 
 ---
@@ -346,8 +372,9 @@ npx pyright src/imgwtools/
 ## Git workflow
 
 - **master** - główna gałąź (stabilna)
-- **slave** - gałąź rozwojowa (v2.2.0 przygotowane, oczekuje scalenia do master)
+- **slave** - gałąź rozwojowa (v2.2.0)
+- **feature/versioned-store** - magazyn wersjonowany, wydanie 3.0.0
 
 ---
 
-**Ostatnia aktualizacja:** 2026-10-17
+**Ostatnia aktualizacja:** 2026-10-18

@@ -2,35 +2,37 @@
 
 ## 1. Architecture Model
 
-System consists of four main components:
+System consists of five main components:
 
-1. **Python Library** (v2.2.0)
+1. **Python Library** (v3.0.0)
    - `pip install imgwtools` for integration with external projects
-   - Sync and async functions for data fetching
-   - Pydantic models for type-safe data access
+   - Sync and async functions for live data and archive downloads (`DownloadResult`)
+   - Dataset registry (`pl.imgw.*`), hydro/meteo parsers with value flags
    - Minimal dependencies (httpx, pydantic)
 
-2. **Backend (FastAPI)** [optional: `imgwtools[api]`]
+2. **Versioned Store** [Parquet: `imgwtools[store]`]
+   - Append-only, immutable versions of IMGW archives with provenance sidecars
+   - Derived products: Parquet station series, `stations.geojson`, PMAXTP cells
+   - Explicit root only (no default location); readable offline, also from network shares
+   - Decision record: `docs/DECISIONS.md` (ADR-001); contract: `docs/superpowers/specs/2026-10-17-versioned-store-design.md`
+
+3. **Backend (FastAPI)** [optional: `imgwtools[api]`]
    - URL generation for IMGW data downloads
    - Proxy for real-time IMGW API data
-   - REST API for external integrations
+   - Store routes only with an explicit server-side `IMGW_STORE_ROOT`
    - Rate limiting via Nginx
 
-3. **Frontend Web (GUI)**
+4. **Frontend Web (GUI)**
    - HTMX + Jinja2 templates
    - Interactive forms for data downloads
    - Station listings and search
    - Interactive map with Leaflet.js
 
-4. **CLI** [optional: `imgwtools[cli]`]
-   - Local client using core library directly
-   - Data downloading to local filesystem
+5. **CLI** [optional: `imgwtools[cli]`]
+   - Local client using the library directly (never through the REST API)
+   - Archive downloads mirroring IMGW server paths
+   - Store, series, PMAXTP and project commands generated from the command catalog
    - API key management
-
-5. **Database Cache** [optional: `imgwtools[db]`]
-   - SQLite-based caching for hydrological data
-   - Lazy loading - data fetched on first query
-   - Enabled via `IMGW_DB_ENABLED=true`
 
 ---
 
@@ -42,37 +44,28 @@ System consists of four main components:
 │    (danepubliczne.imgw.pl, hydro.imgw.pl, hydro-back.imgw.pl)   │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
-                              │ HTTP requests
-                              │
+                              │ HTTP (URL generation, live proxy,
+                              │ listing/HEAD/GET for the store)
 ┌─────────────────────────────────────────────────────────────────┐
-│                      IMGWTools Backend                           │
+│                       imgwtools (library)                        │
+│  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────┐  │
+│  │ URL Builder│ │ fetch /    │ │ datasets     │ │ parsers    │  │
+│  │ (core)     │ │ stations   │ │ (registry)   │ │ (_parsing) │  │
+│  └────────────┘ └────────────┘ └──────────────┘ └────────────┘  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                    FastAPI Application                     │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────────────┐  │   │
-│  │  │ API Routes │  │ Web Routes │  │   URL Builder      │  │   │
-│  │  │ /api/v1/*  │  │   /*       │  │   (core module)    │  │   │
-│  │  └────────────┘  └────────────┘  └────────────────────┘  │   │
-│  │                                   ┌────────────────────┐  │   │
-│  │                                   │   DB Cache (opt)   │  │   │
-│  │                                   │   (SQLite hydro)   │  │   │
-│  │                                   └────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              ▲                                   │
-│                              │                                   │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                        Nginx                              │   │
-│  │              (reverse proxy, HTTPS, rate limiting)        │   │
+│  │ store/: writer · sync · series · catalog · pmaxtp ·       │   │
+│  │         reader · export        commands.py · project.py   │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
-                              ▲
-                              │ HTTPS
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-        ▼                     ▼                     ▼
-   ┌─────────┐          ┌─────────┐          ┌─────────┐
-   │   CLI   │          │ Web GUI │          │ API     │
-   │ (local) │          │ Browser │          │ Clients │
-   └─────────┘          └─────────┘          └─────────┘
+        ▲               ▲                ▲                ▲
+        │               │                │                │
+   ┌─────────┐   ┌────────────┐   ┌────────────┐   ┌──────────────┐
+   │   CLI   │   │  FastAPI   │   │ Archiwista │   │    Retman    │
+   │ (local) │   │ + Web GUI  │   │ (read API) │   │ (run_command)│
+   └─────────┘   └────────────┘   └────────────┘   └──────────────┘
+                       ▲
+                       │ HTTPS (Nginx: reverse proxy, rate limiting)
+                 Browsers / API clients
 ```
 
 ---
@@ -87,21 +80,17 @@ System consists of four main components:
 - Uvicorn (ASGI server)
 - Nginx (reverse proxy)
 
-### Technologies (Not Implemented)
-- ~~Redis (cache)~~ - not needed for general caching
-- ~~PostgreSQL~~ - SQLite sufficient for optional local cache
-
-### Optional: SQLite Cache
-- **Purpose**: Cache hydrological data locally for repeated queries
-- **Activation**: `IMGW_DB_ENABLED=true`
-- **Location**: `IMGW_DB_PATH` (default: `./data/imgw_hydro.db`)
-- **Mode**: Lazy loading - data fetched from IMGW on first access
+### Technologies (Not Used)
+- ~~Redis (cache)~~ - not needed
+- ~~SQLite / PostgreSQL~~ - the optional SQLite cache was removed in 3.0.0 (ADR-001 D5); the versioned store keeps files, not a database
 
 ### Key Design Principle
-**No data storage on server by default.** The backend only:
+**No data storage on the server by default.** Without configuration the backend only:
 1. Generates URLs pointing to IMGW servers
 2. Proxies real-time API requests to IMGW
-3. Returns results directly to client
+3. Returns results directly to the client
+
+Data is written only after explicit configuration: an absolute `IMGW_STORE_ROOT` enables store routes (otherwise 503), and writes additionally need `IMGW_STORE_WRITES_ENABLED=true`, a non-empty `IMGW_STORE_WRITE_TOKEN` and a matching `X-API-Key` header (otherwise 403). Locally, the CLI writes only to an explicit `--output` directory or `--root` store.
 
 ---
 
@@ -110,8 +99,9 @@ System consists of four main components:
 ### Implemented Features
 - Hydro/Meteo station listings
 - Real-time data from IMGW API
-- Download URL generation (single and batch)
-- PMAXTP data access
+- Download URL generation (single and batch); for the five store datasets derived from the registry (`archive_files`)
+- PMAXTP data access (live)
+- Versioned store routes (`/api/v1/store/*`, `/api/v1/series/*`, `/api/v1/pmaxtp/store/sync`) through the same public functions as the CLI (`run_command`, `read_series_index`, `read_series`)
 - OpenAPI/Swagger documentation (`/docs`)
 - Health check endpoint
 
@@ -119,9 +109,10 @@ System consists of four main components:
 - Rate limiting via Nginx (`limit_req_zone`)
 - CORS middleware configured
 - GZip compression enabled
+- Store routes: server-side root only (clients never pass a root or absolute path; `version` is confined to `versions/` under the root, symlinks rejected), write token compared in constant time, unknown request fields rejected (422)
 
 ### Security (Planned, Not Implemented)
-- ~~API key validation middleware~~ - keys managed but not enforced
+- ~~API key validation middleware~~ - keys managed but not enforced (store writes use their own token)
 - ~~Per-key rate limiting~~ - only nginx-level limiting
 
 ---
@@ -157,68 +148,64 @@ System consists of four main components:
 
 ### Technologies
 - **Typer** - CLI framework
-- **Rich** - terminal formatting and progress bars
+- **Rich** - terminal formatting
 - **HTTPX** - HTTP client
 
 ### Architecture
-CLI uses core library (`url_builder.py`) directly for URL generation and downloads data straight from IMGW servers. It does NOT communicate through the REST API.
+The CLI uses the library directly and downloads data straight from IMGW servers; it does NOT communicate through the REST API. `imgw store|series|pmaxtp|project` and `imgw fetch hydro|meteo` are generated from `data_commands()` by `cli/_dispatch.py`: help texts and flags come from the catalog, raw option text is validated by `validate_command`, execution goes through `run_command` (or `check_command` for `--check`). The CLI therefore has no validation or business rules of its own — CLI = Python API = REST.
 
 ---
 
-## 7. Database Layer (Optional)
+## 7. Versioned Store Layer
 
-SQLite-based cache for hydrological data. Disabled by default.
+### Layers
+1. **Source archives** — IMGW ZIP/CSV bytes 1:1 under their server path (station lists are archives too).
+2. **Derived products** — Parquet series per dataset/station (`imgw-series/1`), `stations.geojson` catalog, PMAXTP `cell.json` (`imgw-pmaxtp/1`).
+3. A rebuildable local index is out of scope; no `.db` file is ever part of the store.
 
-### Architecture
-```
-┌─────────────────────────────────────────────────┐
-│                 Cache Manager                    │
-│   (downloads from IMGW, parses ZIP, imports)    │
-└───────────────────────┬─────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────┐
-│                  Repository                      │
-│     (CRUD operations, queries, batch insert)    │
-└───────────────────────┬─────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────┐
-│                   SQLite DB                      │
-│  ┌──────────────┐ ┌──────────────────────────┐  │
-│  │ hydro_stations│ │ hydro_daily/monthly/semi │  │
-│  └──────────────┘ └──────────────────────────┘  │
-│  ┌──────────────────────────────────────────┐   │
-│  │           cached_ranges                   │   │
-│  │    (tracks which data has been cached)    │   │
-│  └──────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────┘
+### Layout
+```text
+<root>/imgw-store.json                                  # imgw-store/1 marker
+  archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
+  stations/versions/<label>_<sha8>/stations.geojson + .meta.json
+  series/versions/<slug>/<label>_<sha8>/series.json + .meta.json + stations/<code>.parquet
+  pmaxtp/versions/<POT|AMP>/<indX>_<indY>/<label>_<sha8>/cell.json + .meta.json
+  .incoming/<host>_<pid>_<token>/                       # staging; leftovers >24 h cleaned
 ```
 
-### Data Tables
-| Table | Description |
-|-------|-------------|
-| `hydro_stations` | Station metadata (code, name, river, coordinates) |
-| `hydro_daily` | Daily measurements (water level, flow, temperature) |
-| `hydro_monthly` | Monthly aggregates (min/mean/max) |
-| `hydro_semi_annual` | Semi-annual/annual extrema |
-| `cached_ranges` | Tracks which year/month combinations are cached |
-| `schema_version` | Applied schema version (migrations) |
+- `<sha8>` = first 8 hex digits of the full SHA-256 of the main file; labels come from `Last-Modified` (UTC) or download time.
+- Every main file has an immutable `imgw-meta/1` sidecar: producer/version, dataset, request, IMGW-PIB license and attribution, `downloaded_at`, `sha256`, `size_bytes`, HTTP signals.
+- Append-only: no overwrite, hardlinks or `latest` path. The current version is computed by `current_version(root, slot=...)`. A new HTTP signal with identical bytes is `relabeled` (a copy), identical signal and bytes are `unchanged`.
+- Publication: write into a unique `.incoming/` staging directory, `fsync`, then a single no-replace rename of the whole version directory (`renameat2(RENAME_NOREPLACE)` on POSIX); a filesystem without atomic no-replace rename is refused explicitly.
+- Kartograf stores are recognized by marker names/schema strings without importing Kartograf; nesting IMGW and Kartograf roots is refused.
 
-`hydro_daily` and `hydro_monthly` also store `calendar_month` next to the
-hydrological month, so calendar-based queries do not need a conversion.
+### Flow
+```
+check_store  ── listing + HEAD only ──▶ StorePlan (imgw-plan/1, saved outside the store)
+sync_store   ── HEAD again; changed → stale_plan; GET only new/missing ──▶ archive versions
+build_series ── current archive versions → Parquet snapshot (reused if inputs unchanged)
+build_catalog── station lists + public API (+ static/user locations) → stations.geojson
+read_*       ── offline, read-only; problems reported as StoreEntry(kind="problem")
+```
 
-### Lazy Loading Flow
-1. User queries data for station X, years 2020-2023
-2. System checks `cached_ranges` for each year
-3. Missing years: download ZIP from IMGW → parse CSV → insert
-4. Query data from local SQLite → return results
+Every write operation has a `check_*` twin that never writes or GETs data; long operations accept `on_progress`, `on_notice` (Polish messages) and `cancel` (between files; cancellation never publishes a partial version).
+
+### Schema Versioning (IMGW-13)
+`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1` and the extension `imgw-pmaxtp/1` carry their own `/N` counters, independent of the package version. Within `/1` only optional fields are added; readers tolerate extra fields in store files, while the project manifest is validated strictly (future optional data only under `extensions`). A breaking change requires `/2` with a transition period reading both. Unknown versions are reported (`store_info(...).supported is False`, scan problems) and never parsed or written by old code.
+
+### Integrations
+- **Archiwista** consumes the store only through the public read API (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_series_index`, `read_series`, `read_pmaxtp`). IMGWTools is the only writer; no Archiwista files or indexes live in the store. Offline fixtures: `imgwtools.testing.build_fixture_store`.
+- **Retman** runs data actions as a handler via the public command catalog (`data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`), getting the same options, validation, progress and notices as the CLI.
+- **Projects** (`imgw-project.json`, `imgw-project/1`) pin store versions by SHA-256 next to (not inside) Kartograf project manifests.
 
 ### CSV Parsing Notes
 IMGW archives are inconsistent between years; parsers auto-detect the format per file:
 - Encoding: CP1250 for most archives, UTF-8 with BOM for the 2023 daily archive (auto-detected)
 - Delimiter: comma with quoted fields (e.g. 2019-2022, 2024) or semicolon (e.g. 2023), auto-detected
 - Quoting: 2024 daily/monthly files wrap whole lines in outer quotes with doubled inner quotes (auto-unwrapped)
-- Missing data codes: `9999` (H), `99999.999` (Q), `99.9` (T)
+- Missing data codes: `9999` (H), `99999.999` (Q), `99.9` (T); meteo status 8 = `missing`, 9 = `no_phenomenon`; accumulated precipitation = `accumulated`
 - Hydrological year: Nov 1 - Oct 31
+- ZIP reading with member count/size limits and no path traversal; unreadable ZIP → `IMGWDataError`
 
 ---
 
@@ -226,14 +213,15 @@ IMGW archives are inconsistent between years; parsers auto-detect the format per
 
 ### Input (from IMGW)
 - ZIP archives with CSV files
-- JSON from real-time API
+- JSON from real-time API and PMAXTP
 
 ### Output (to clients)
 - JSON (all API responses)
 - Generated URLs (for direct IMGW downloads)
+- Store products: Parquet series, GeoJSON (RFC 7946) station catalog, CSV export with units and IMGW-PIB attribution
 
-### Potential GIS Integration
-- Station coordinates available in API responses
+### GIS Integration
+- `stations.geojson` with WGS84 points (stations without a valid location keep `geometry: null` and a reason)
 - Map visualization implemented with Leaflet
 - ~~WFS/WMS integration~~ - not implemented
 
@@ -241,16 +229,15 @@ IMGW archives are inconsistent between years; parsers auto-detect the format per
 
 ## 9. Scaling Considerations
 
-Current architecture is simple and mostly stateless:
+The service is stateless by default:
 - No session state
-- Optional SQLite database (local cache only)
-- No distributed cache layer
+- No database
+- The optional store is a plain directory (local disk or network share) with append-only versions; concurrent writers are safe thanks to unique staging and no-replace publication
 
 Scaling options if needed:
 - Horizontal scaling of FastAPI instances behind Nginx
 - CDN for static files
-- SQLite DB per instance (each instance has its own cache)
-- Add Redis for shared caching across instances
+- Shared read-only store root for several API instances (writes through one configured instance)
 
 ---
 
@@ -260,8 +247,9 @@ Scaling options if needed:
 CI pipeline) in the repository; tests, linting and formatting are run locally.
 
 ### Recommended Setup
-- pytest for automated testing
+- pytest for automated testing (offline; recorded IMGW responses)
 - ruff for linting (PEP8 compliance) and docstring checks (numpy `D` rules)
+- pyright for type checking
 - GitHub Actions for CI pipeline
 - Docker for deployment
 
@@ -272,41 +260,40 @@ CI pipeline) in the repository; tests, linting and formatting are run locally.
 ```
 IMGWTools/
 ├── src/imgwtools/
-│   ├── __init__.py       # PUBLIC API entry point
-│   ├── _version.py       # Version (2.2.0)
-│   ├── fetch.py          # PUBLIC: Data fetching functions
-│   ├── models.py         # PUBLIC: Data models (PMaXTPData, etc.)
+│   ├── __init__.py       # PUBLIC API entry point (single __all__)
+│   ├── _version.py       # Version (3.0.0)
+│   ├── fetch.py          # PUBLIC: fetch_* (live), download_* -> DownloadResult
+│   ├── models.py         # PUBLIC: Data models incl. NormalizedRecord
 │   ├── stations.py       # PUBLIC: Station functions
 │   ├── exceptions.py     # PUBLIC: Custom exceptions
 │   ├── urls.py           # PUBLIC: URL builder re-exports
-│   ├── parsers.py        # PUBLIC: Parser re-exports
+│   ├── parsers.py        # PUBLIC: Parser re-exports (hydro + meteo)
+│   ├── datasets.py       # PUBLIC: Dataset registry, archive_files
+│   ├── coverage.py       # PUBLIC: summarize_coverage
+│   ├── commands.py       # PUBLIC: Data command catalog
+│   ├── project.py        # PUBLIC: imgw-project/1
+│   ├── testing.py        # PUBLIC: build_fixture_store
 │   ├── reference_data.py # Fetch IMGW-PIB reference data into data/
 │   ├── config.py         # Settings
-│   │
+│   ├── _data/            # Poland border (Natural Earth) + packaged fixtures
+│   ├── _parsing/         # common.py, hydro.py, meteo.py
+│   ├── store/            # types, writer, sync, series, catalog, pmaxtp, reader, export
 │   ├── api/              # REST API [optional]
 │   │   ├── main.py       # FastAPI app
-│   │   ├── routes/       # Endpoint handlers
+│   │   ├── routes/       # hydro, meteo, download, pmaxtp, store
 │   │   └── schemas.py    # Pydantic models
 │   ├── cli/              # CLI commands [optional]
 │   │   ├── main.py       # Entry point
-│   │   ├── fetch.py      # Download commands
-│   │   ├── list_cmd.py   # Listing commands
-│   │   ├── admin.py      # API key management
-│   │   └── db.py         # Database management
-│   ├── db/               # SQLite cache [optional]
-│   │   ├── connection.py # Connection manager
-│   │   ├── schema.py     # DDL and migrations
-│   │   ├── models.py     # Pydantic models
-│   │   ├── repository.py # Data access layer
-│   │   ├── cache_manager.py # Lazy loading
-│   │   └── parsers.py    # CSV parsing
-│   ├── core/             # Internal core logic
+│   │   ├── _dispatch.py  # Catalog-driven command generation
+│   │   ├── fetch.py, list_cmd.py, admin.py
+│   │   └── store.py, series.py, pmaxtp.py, project.py
+│   ├── core/
 │   │   └── url_builder.py    # URL generation
 │   └── web/              # Web GUI
 │       ├── app.py        # HTMX routes
 │       ├── templates/    # Jinja2 templates
 │       └── static/       # CSS, JS
 ├── docker/               # Docker configuration
-├── tests/                # Test files
+├── tests/                # Tests (unit; fixtures/store with synthetic archives)
 └── pyproject.toml        # Project configuration
 ```

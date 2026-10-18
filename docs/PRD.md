@@ -2,10 +2,12 @@
 
 ## 1. Product Goal
 
-IMGWTools is a tool for downloading, exposing, and basic visualization of hydrological and meteorological data published by IMGW-PIB. The product provides:
+IMGWTools is a tool for downloading, exposing, versioning and basic visualization of hydrological and meteorological data published by IMGW-PIB. The product provides:
+- Python library (public API)
 - CLI application
 - Web GUI application
 - Public REST API
+- Optional versioned data store (ADR-001, `docs/DECISIONS.md`) for consumers such as Archiwista and Retman
 
 Analytical and statistical parts (hydrological calculations, probabilistic models, statistical analyses) live in a separate repository (Hydrolog) and are out of scope for this PRD.
 
@@ -16,6 +18,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 - Individual users interested in IMGW data
 - GIS specialists
 - Developers requiring API access to data
+- Downstream projects: Hydrograf, Hydrolog, Archiwista (store reader), Retman (command handler)
 - Service administrator (owner)
 
 ---
@@ -30,12 +33,13 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | Archive data (ZIP/CSV) | Implemented | URL generation for IMGW archives |
 | PMAXTP data | Implemented | Probabilistic max precipitation |
 | Warnings | Implemented | Hydro/meteo warnings from API |
+| Versioned store | Implemented (3.0.0) | Immutable archive versions with provenance, freshness plan, Parquet series, `stations.geojson`, PMAXTP cells, projects |
 
 ### 3.2. Interfaces
 
 | Interface | Status | Description |
 |-----------|--------|-------------|
-| CLI | Implemented | `imgw` command with fetch/list/admin subcommands |
+| CLI | Implemented | `imgw` command with fetch/list/admin/store/series/pmaxtp/project subcommands |
 | Web GUI | Implemented | HTMX + Jinja2 web interface |
 | REST API | Implemented | FastAPI with OpenAPI documentation |
 
@@ -53,8 +57,9 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 |--------|--------|-------------|
 | JSON | Implemented | All API responses |
 | URLs | Implemented | Direct links to IMGW servers |
-| CSV | Implemented | PMAXTP export in the Web GUI, `imgw db query -o <file>` |
-| GeoJSON | Not Implemented | GIS-compatible format |
+| CSV | Implemented | PMAXTP export in the Web GUI; station series export (`export_series`, `imgw series export`) with units and IMGW-PIB attribution |
+| GeoJSON | Implemented (store) | Versioned `stations.geojson` station catalog (RFC 7946); not yet exposed in REST/GUI |
+| Parquet | Implemented (store) | Station series per dataset (`imgw-series/1`, `imgwtools[store]`) |
 
 ---
 
@@ -70,6 +75,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | Meteo data endpoints | Implemented |
 | PMAXTP endpoints | Implemented |
 | Health check | Implemented |
+| Store endpoints (`/api/v1/store`, `/api/v1/series`, `/api/v1/pmaxtp/store`) | Implemented — only with server-side `IMGW_STORE_ROOT`; writes need `IMGW_STORE_WRITES_ENABLED` + write token |
 
 ### Not Implemented
 
@@ -113,7 +119,8 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | `imgw list` command | Implemented |
 | `imgw admin` command | Implemented |
 | `imgw server` command | Implemented |
-| `imgw db` command | Implemented |
+| `imgw store`, `imgw series`, `imgw pmaxtp`, `imgw project` | Implemented (3.0.0, generated from the command catalog) |
+| `--check` (plan only, no writes) | Implemented |
 | `--output` flag | Implemented |
 | `--station` filtering | Implemented |
 | Progress bars | Implemented |
@@ -126,8 +133,8 @@ imgw version
 imgw server [--host] [--port] [--reload]
 
 # Fetch data
-imgw fetch hydro -i <interval> -y <year> [-m month] [-p param] [-o output]
-imgw fetch meteo -i <interval> -s <subtype> -y <year> [-m month] [-o output]
+imgw fetch hydro -i <interval> -y <year|range> [-m month] [-p param] [-o output] [--check]
+imgw fetch meteo -i <interval> -s <subtype> -y <year|range> [-m month] [-o output] [--check]
 imgw fetch current <type>  # hydro, meteo, synop
 imgw fetch pmaxtp --lat <lat> --lon <lon> [--method POT|AMP]
 imgw fetch warnings --type <hydro|meteo>
@@ -144,14 +151,17 @@ imgw admin revoke <key_id>
 imgw admin delete <key_id> [--force]
 imgw admin stats [key_id]
 
-# Database cache (requires IMGW_DB_ENABLED=true)
-imgw db init [--force]
-imgw db status
-imgw db stations [--search] [--refresh]
-imgw db cache --years <range> [--interval] [--param]
-imgw db query --station <code> --years <range> [--interval] [--output]
-imgw db clear [--interval] [--force]
-imgw db vacuum
+# Versioned store (explicit --root)
+imgw store init|info|scan --root <dir>
+imgw store check --root <dir> --dataset <keys> --years <range> [--months] [--plan plan.json]
+imgw store sync --root <dir> (--plan plan.json | --dataset <keys> --years <range>) [--no-series]
+imgw store catalog --root <dir> [--user-locations <csv>]
+imgw series build --root <dir> --dataset <key>
+imgw series select --root <dir> --dataset <key> --stations <codes> [--variables] [--years] [--year-type]
+imgw series export --version <series version> --station <code> --path <csv> --variables <list> [--year-type]
+imgw pmaxtp check|sync --root <dir> --method POT|AMP --lat <lat> --lon <lon>
+imgw pmaxtp read --root <dir> --method POT|AMP --ind-x <x> --ind-y <y>
+imgw project init|add|remove|set-store|download|check|status|verify --project-dir <dir> ...
 ```
 
 ---
@@ -160,10 +170,10 @@ imgw db vacuum
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| No server-side data storage | Implemented | Core design principle |
+| No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_STORE_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
-| Unit tests | Implemented | 109 tests in `/tests/unit` |
+| Unit tests | Implemented | 998 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-18) |
 | Integration tests | Not Implemented | Planned as a separate task |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
@@ -180,7 +190,7 @@ The following are explicitly out of scope for this project:
 - Stream data processing
 - User authentication/accounts
 
-**Note:** Optional SQLite caching for hydrological data has been implemented (`IMGW_DB_ENABLED=true`).
+**Note:** The optional SQLite cache of 2.x was removed in 3.0.0 and replaced by the file-based versioned store (ADR-001); no database is part of the product.
 
 ---
 
@@ -190,7 +200,7 @@ The following are explicitly out of scope for this project:
 |-----|--------|----------------|
 | API response time (proxied) | < 2s | Met |
 | API documentation completeness | 100% | Met (Swagger) |
-| Test coverage | 80% | 23% (measured 2026-08-22) |
+| Test coverage | 80% | 93% (measured 2026-10-18) |
 | Stability (no critical bugs) | 30 days | In progress |
 
 ---
@@ -198,7 +208,8 @@ The following are explicitly out of scope for this project:
 ## 10. Versioning
 
 - SemVer for API and CLI/GUI package
-- Current version: 2.2.0
+- Current version: 3.0.0 (release notes: `docs/CHANGELOG.md`)
+- Store schemas (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`) carry their own `/N` versions, independent of the package version (IMGW-13)
 
 ---
 
