@@ -9,9 +9,10 @@
 ---
 
 ## 2. Testy
-- **testy jednostkowe** — wymagane, stan: 109 testów w `tests/unit`
-- **testy integracyjne** — cel docelowy, nie ma ich jeszcze w repozytorium
-- pokrycie: stan **23%** (zmierzone 2026-08-22), cel docelowy **80%**
+- **testy jednostkowe i kontraktowe** — wymagane, stan: 1377 testów w `tests/unit` i `tests/contract` (2026-10-18), wszystkie offline
+- **testy integracyjne na żywo** — cel docelowy (pomijane bez `IMGW_LIVE=1`)
+- pokrycie: ostatni pomiar **93%** (2026-10-18, przed zmianami ADR-002), cel docelowy **80%**
+- zmiana katalogu komend, CLI, REST lub web musi utrzymać kontrakt Python = CLI = REST (`tests/contract/test_interface_contract.py`)
 - nie merge'ujemy PR bez testów
 
 ---

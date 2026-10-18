@@ -13,6 +13,14 @@ Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asynci
 > `settings.data_dir` na pusty katalog tymczasowy i zwraca go (testy potrzebujące pliku referencyjnego zapisują go tam).
 > Parsery hydro przeniesiono z `db/parsers.py`/`db/models.py` do `_parsing/common.py`, `_parsing/hydro.py` i `models.py`
 > (`HydroArchiveStation`, `Hydro*Record`); numery linii w sekcji 1 dotyczą stanu 2.2.0.
+>
+> **Aktualizacja 2026-10-18 (3.0.0, ADR-002):** `cli/fetch.py`, `cli/list_cmd.py` (`imgw fetch|list`), trasy
+> `api/routes/hydro|meteo|download|pmaxtp|store.py` i `core/url_builder.py` usunięto; CLI i REST generuje katalog komend
+> (`cli/_dispatch.py`, `api/routes/commands.py`), stdout CLI to koperta `imgw-result/1`, a kody wyjścia pochodzą
+> z rejestru `ERROR_CODES` (nie 0/1). Planowane tu testy tych modułów zastąpiły `tests/unit/test_cli_catalog.py`,
+> `test_api_commands.py`, `test_command_schema.py`, `test_commands.py` i kontrakt
+> `tests/contract/test_interface_contract.py`; testy builderów URL — `test_datasets.py` (`archive_files`) i `test_urls.py`
+> (`build_pmaxtp_url`, `build_api_url`). Stan: 1377 testów (`pytest --collect-only`). Sekcje 1–4 pozostają zapisem historycznym.
 
 Komendy bazowe:
 

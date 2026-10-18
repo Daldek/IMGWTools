@@ -145,4 +145,4 @@ document.addEventListener('keydown', function(event) {
 });
 
 // Log app initialization
-console.log('IMGWTools v1.0.0 initialized');
+console.log('IMGWTools initialized');

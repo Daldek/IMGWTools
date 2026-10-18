@@ -58,7 +58,7 @@ store = [
     "pyarrow>=15",
 ]
 
-# DataFrame export (PMaXTPData.to_dataframe, imgw list)
+# DataFrame export (PMaXTPData.to_dataframe)
 pandas = [
     "pandas>=2.0",
 ]

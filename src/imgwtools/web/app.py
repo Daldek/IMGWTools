@@ -30,6 +30,7 @@ from imgwtools import (
     run_command,
     validate_command,
 )
+from imgwtools._version import __version__
 from imgwtools.api.errors import hide_server_paths
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["version"] = __version__
 
 router = APIRouter()
 
