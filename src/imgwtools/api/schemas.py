@@ -369,6 +369,9 @@ class CatalogReportResponse(BaseModel):
     version: str | None = Field(..., description="Plik stations.geojson wersji")
     station_count: int
     without_location: int
+    from_series: int = Field(
+        ..., description="Stacje historyczne znane wyłącznie z indeksów szeregów"
+    )
     problems: list[str]
 
 

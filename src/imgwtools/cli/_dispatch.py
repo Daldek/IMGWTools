@@ -175,10 +175,11 @@ def _execute(
                         typer.echo(line, nl=False)
                     sys.stdout.flush()
                 except BrokenPipeError:
-                    # Reader closed the pipe (e.g. ``| head``): stop quietly; route the
-                    # interpreter's final flush to devnull instead of failing again.
+                    # Reader closed the pipe (e.g. ``| head``): it got all it wanted, so
+                    # stop quietly with success; route the interpreter's final flush to
+                    # devnull instead of failing again.
                     os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-                    raise typer.Exit(1) from None
+                    raise typer.Exit(0) from None
         except KeyboardInterrupt:
             _ERR.print("Przerwano natychmiast (Ctrl+C)", style="red", markup=False)
             raise typer.Exit(EXIT_CANCELLED) from None

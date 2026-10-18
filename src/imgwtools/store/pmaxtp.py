@@ -18,13 +18,7 @@ from imgwtools.exceptions import (
     IMGWStoreError,
     IMGWValidationError,
 )
-from imgwtools.fetch import (
-    POLAND_LAT_MAX,
-    POLAND_LAT_MIN,
-    POLAND_LON_MAX,
-    POLAND_LON_MIN,
-    _check_pmaxtp_payload,
-)
+from imgwtools.fetch import _check_pmaxtp_payload, _validate_poland_coords
 from imgwtools.models import PMaXTPData, PMaXTPResult
 from imgwtools.store.catalog import (
     LICENSE_NOTICE,
@@ -69,21 +63,6 @@ def _validate_method(method: object) -> Method:
             f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT lub AMP"
         )
     return cast(Method, method)
-
-
-def _validate_point(latitude: float, longitude: float) -> None:
-    for name, value, low, high in (
-        ("Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
-        ("Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
-    ):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int | float)
-            or not low <= value <= high
-        ):
-            raise IMGWValidationError(
-                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})"
-            )
 
 
 def _validate_index(name: str, value: object) -> int:
@@ -243,7 +222,7 @@ def check_pmaxtp(
     """
     handle = _handle(root)
     method = _validate_method(method)
-    _validate_point(latitude, longitude)
+    _validate_poland_coords(latitude, longitude)
     cell = _validate_cell(ind_x, ind_y)
     now = datetime.now(UTC)
     if _cancelled(cancel):
@@ -355,7 +334,7 @@ def sync_pmaxtp(
     """
     handle = _handle(root)
     method = _validate_method(method)
-    _validate_point(latitude, longitude)
+    _validate_poland_coords(latitude, longitude)
     expected = _validate_cell(ind_x, ind_y)
     _check_kartograf(handle.root)
     if _cancelled(cancel):

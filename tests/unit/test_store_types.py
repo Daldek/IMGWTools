@@ -61,7 +61,7 @@ def test_frozen_contracts():
         VersionResult("created", Path("/tmp/zip"), "a" * 64, "2026-10-17"),
         SeriesReport("reused", None, 0, (), ()),
         SyncReport((), (), False),
-        CatalogReport("unchanged", None, 0, 0, ()),
+        CatalogReport("unchanged", None, 0, 0, 0, ()),
         PMaXTPStoreResult("unchanged", None, None, None, None),
         ProjectReport({}, (), False),
         Meta(

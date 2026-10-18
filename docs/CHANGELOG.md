@@ -249,6 +249,19 @@ się nie zmienia.
   a stacje są składane i zapisywane po kolei. Szczyt RSS dla pełnych roczników 1950–2025:
   `meteo_precip_daily` (26,6 mln rekordów) 0,85 GB zamiast 9,0 GB, `hydro_daily` 0,41 GB
   zamiast 6,8 GB; `series.json` i pliki Parquet bajtowo bez zmian.
+- `build_catalog` obejmuje też każdy kod stacji z bieżących indeksów `series.json`
+  wszystkich zbiorów: stacje znane wyłącznie z archiwów (np. zamknięte wodowskazy
+  i umowny kod IMGW `123456789` z `mies_1997`) trafiają do `stations.geojson` jako
+  historyczne (`active=false`, `geometry=null`, `location_missing_reason="none"`),
+  z liczbą w nowym polu `CatalogReport.from_series` (REST `from_series`), komunikatem
+  `series_station` i wpisami `series` w `extra.catalog[]` sidecara; `check_catalog`
+  zgłasza `newer`, gdy kod szeregu brakuje w katalogu. Wersja katalogu zmienia się
+  tylko przy zmianie treści.
+- `imgw store read … | head` kończy się kodem 0 bez komunikatu, gdy odbiorca zamknie
+  potok (wcześniej kod 1).
+- `fetch_pmaxtp` i `fetch_pmaxtp_async` zgłaszają współrzędne spoza zakresu Polski
+  po polsku, tym samym komunikatem co `sync_pmaxtp`/`check_pmaxtp`
+  (np. „Szerokość geograficzna 40.0 poza zakresem Polski (49.0–55.0)”).
 
 ### Testy
 

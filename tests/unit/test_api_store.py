@@ -343,6 +343,7 @@ def test_catalog_problems_hide_data_dir(client, empty_root, writable, monkeypatc
         empty_root / "stations" / "versions" / "x" / "stations.geojson",
         1,
         1,
+        0,
         (
             f"Brak lokalnego pliku położeń {data_dir / 'hydro_stations_locations.csv'}; "
             "stacje bez położenia",

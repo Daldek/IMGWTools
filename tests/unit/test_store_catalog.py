@@ -1,10 +1,12 @@
 """Offline scenarios for the versioned station catalog (recorded HTTP only)."""
 
 import hashlib
+import io
 import json
 import os
 import subprocess
 import sys
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -12,9 +14,16 @@ import httpx
 import pytest
 import respx
 
-from imgwtools.datasets import station_source_files
+from imgwtools.datasets import archive_files, station_source_files
 from imgwtools.exceptions import IMGWConnectionError, IMGWDataError
-from imgwtools.store import catalog, init_store, read_station_list
+from imgwtools.fetch import DownloadResult
+from imgwtools.store import (
+    build_series,
+    catalog,
+    init_store,
+    read_station_list,
+    write_archive,
+)
 from imgwtools.store.catalog import build_catalog, check_catalog
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -225,6 +234,71 @@ def test_code_only_in_static_file_is_kept_as_hydro_station(
     # The user file only fills locations: its unknown codes are reported, not added.
     assert "150000098" not in found
     assert any("150000098" in problem for problem in report.problems)
+
+
+def put_monthly(store, codes, etag, *, shift=0):
+    """Store ``mies_2024.zip`` holding one month of the given fictional stations."""
+    (archive,) = archive_files("pl.imgw.hydro_monthly", years=[2024])
+    rows = "".join(
+        f"{code},Stacja Zamknięta,Rzeka Dawna,2024,4,{indicator},{level + shift},1.2,3.8,2\n"
+        for code in codes
+        for indicator, level in ((1, 142), (2, 151), (3, 164))
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr("mies_2024.csv", rows.encode("cp1250"))
+    content = buffer.getvalue()
+    response = DownloadResult(
+        content, archive.url, etag, "Sat, 17 Oct 2026 12:00:00 GMT", len(content)
+    )
+    write_archive(store, archive=archive, response=response)
+    report = build_series(store, dataset="pl.imgw.hydro_monthly")
+    assert report.status == "created", report.problems
+    return report.version
+
+
+def series_action(plan):
+    (action,) = [a for a in plan.actions if a.detail.startswith("indeksy szeregów")]
+    return action.status
+
+
+def test_code_only_in_series_index_is_kept_as_historical_station(
+    store, isolated_data_dir
+):
+    with respx.mock(assert_all_called=False) as router:
+        mock_sources(router)
+        empty = build_catalog(store)
+        version = put_monthly(store, ["149190310", "150000097"], '"m1"')
+        assert series_action(check_catalog(store)) == "newer"
+        notices = []
+        report = build_catalog(store, on_notice=notices.append)
+        assert series_action(check_catalog(store)) == "current"
+        # A new series version with the same station codes leaves the catalog as is.
+        put_monthly(store, ["149190310", "150000097"], '"m2"', shift=5)
+        again = build_catalog(store)
+    assert empty.from_series == 0 and "150000097" not in features(empty)
+    assert report.status == "created" and report.from_series == 1
+    found = features(report)
+    assert set(found) == set(features(empty)) | {"150000097"}
+    closed = found["150000097"]
+    assert closed["geometry"] is None
+    expected = {
+        "kind": "hydro",
+        "location_source": None,
+        "location_missing_reason": "none",
+        "active": False,
+        "river": None,
+    }
+    assert {key: closed["properties"][key] for key in expected} == expected
+    assert any(n.code == "series_station" and "150000097" in n.text for n in notices)
+    meta = json.loads(
+        report.version.with_name("stations.geojson.meta.json").read_text("utf-8")
+    )
+    (series,) = [e for e in meta["extra"]["catalog"] if e["source"] == "series"]
+    assert series["dataset"] == "pl.imgw.hydro_monthly" and series["count"] == 2
+    assert series["file"] == version.relative_to(store.root).as_posix()
+    assert (again.status, again.version) == ("unchanged", report.version)
+    assert again.from_series == 1
 
 
 def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_data_dir):
