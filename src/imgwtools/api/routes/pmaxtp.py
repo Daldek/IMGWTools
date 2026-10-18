@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from imgwtools.api.schemas import PMaXTPRequest
-from imgwtools.core.url_builder import PMaXTPMethod, build_pmaxtp_url
+from imgwtools.core.url_builder import build_pmaxtp_url
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 from imgwtools.fetch import _check_pmaxtp_payload
 
@@ -39,12 +39,8 @@ async def generate_pmaxtp_url(request: PMaXTPRequest):
 
     Zwraca URL do pobrania danych o opadach maksymalnych prawdopodobnych.
     """
-    method = PMaXTPMethod(request.method.value)
-
     url = build_pmaxtp_url(
-        method=method,
-        latitude=request.latitude,
-        longitude=request.longitude,
+        request.latitude, request.longitude, method=request.method.value
     )
 
     return {
@@ -63,12 +59,8 @@ async def fetch_pmaxtp_data(request: PMaXTPRequest) -> dict[str, Any]:
     Pobiera dane bezposrednio z API IMGW i zwraca do klienta.
     Dane NIE sa przechowywane na serwerze.
     """
-    method = PMaXTPMethod(request.method.value)
-
     url = build_pmaxtp_url(
-        method=method,
-        latitude=request.latitude,
-        longitude=request.longitude,
+        request.latitude, request.longitude, method=request.method.value
     )
 
     async with httpx.AsyncClient() as client:

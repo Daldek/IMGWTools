@@ -424,9 +424,10 @@ class OperationResult:
     Attributes
     ----------
     slot : str or None
-        Identifier of the processed slot, e.g.
-        ``archives/versions/<directory>/<stem>``; in project reports
-        ``<task>:<path relative to the store>``; None when the item has no slot.
+        Slot (spec §13.7) of the processed file, e.g.
+        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; the project task
+        name is kept separately in ``task``; None when the item has no slot
+        (e.g. an error of a whole project task).
     status : {"created", "relabeled", "unchanged", "reused", "failed", "stale_plan", "cancelled"}
         Outcome of the operation; ``"stale_plan"`` means the remote signal
         changed since the plan was made and the item was not downloaded.
@@ -630,10 +631,12 @@ class StoreEntry:
     kind : {"archive", "series", "catalog", "pmaxtp", "problem"}
         Kind of the entry.
     slot : str or None
-        Slot identifier, e.g. ``archive:<server_path>``, ``series:<slug>``,
-        ``catalog:stations`` or ``pmaxtp:<method>:<indX>_<indY>``; for a
-        problem, the version slot, a path relative to the root, or None when
-        the problem has no slot.
+        Slot (spec §13.7), e.g.
+        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``,
+        ``series:pl.imgw.hydro_daily``, ``catalog:pl.imgw.stations`` or
+        ``pmaxtp:pl.imgw.pmaxtp:POT/751_317``; for a problem, the slot of the
+        version it concerns, or None when it concerns no version (e.g. an
+        unknown directory, a symbolic link or a stale staging directory).
     version : Path or None
         Path of the version's main file; for a problem, the path of the
         faulty element.
@@ -681,7 +684,7 @@ class StationCoverage:
 
     Attributes
     ----------
-    station : str
+    station_code : str
         Nine-digit station code.
     variable : str
         Variable code, e.g. ``"Q"`` or ``"H_max"``.
@@ -703,7 +706,7 @@ class StationCoverage:
         and ``last``.
     """
 
-    station: str
+    station_code: str
     variable: str
     unit: str
     period: Literal["winter", "summer", "annual"] | None

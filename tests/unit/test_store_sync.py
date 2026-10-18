@@ -173,9 +173,24 @@ def test_plan_json_round_trip_including_cancellation(root, server, tmp_path):
     assert payload["schema"] == "imgw-plan/1" and payload["cancelled"] is True
     assert StorePlan.from_json(saved) == plan
 
-    full = check_store(root, datasets=[HYDRO], years=[2024])
-    assert StorePlan.from_json(full.to_json(tmp_path / "full.json")) == full
+    target = tmp_path / "full.json"
+    full = check_store(root, datasets=["hydro/dobowe"], years="2024", plan=target)
+    assert StorePlan.from_json(target) == full
     assert full.series_state == {"hydro_daily": "missing"}
+    assert [item.archive.dataset for item in full.items] == [HYDRO]
+
+
+def test_plan_file_inside_store_is_rejected_before_any_request(root, server, tmp_path):
+    for target in (root / "plan.json", root / "archives" / "plan.json", root):
+        with pytest.raises(IMGWValidationError) as error:
+            check_store(root, datasets=[HYDRO], years=[2024], plan=target)
+        assert error.value.details["option"] == "plan"
+        assert not target.is_file()
+    with pytest.raises(IMGWValidationError):
+        check_store(
+            root, datasets=[HYDRO], years=[2024], plan=tmp_path / "absent" / "p.json"
+        )
+    assert not server.calls
 
 
 def test_changed_header_after_check_is_stale_plan_without_get(root, server, tmp_path):
@@ -191,10 +206,8 @@ def test_changed_header_after_check_is_stale_plan_without_get(root, server, tmp_
     report = sync_store(root, plan=plan_path, series=False, on_notice=notices.append)
 
     assert [item.status for item in report.items] == ["stale_plan"]
-    assert (
-        report.items[0].slot
-        == "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024"
-    )
+    assert report.items[0].slot == "archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
+    assert report.items[0].error_code is None
     assert not download.called
     assert not (root / "archives/versions/dane_hydrologiczne/dobowe/2024").exists()
     assert "stale_plan" in {notice.code for notice in notices}
@@ -244,11 +257,19 @@ def test_unverifiable_and_failed_items_are_not_downloaded_from_plan(
         get(server, H2022_01, {}, data(H2022_01)),
         get(server, H2023, {}, data(H2023)),
     ]
-    plan = check_store(root, datasets=[HYDRO], years=[2022, 2023], months=[1])
+    plan = check_store(root, datasets=[HYDRO], years="2022-2023", months="1")
     assert [item.status for item in plan.items] == ["unverifiable", "check_failed"]
 
     from_plan = sync_store(root, plan=plan, series=False)
     assert [item.status for item in from_plan.items] == ["unchanged", "failed"]
+    assert [item.error_code for item in from_plan.items] == [
+        None,
+        "source_unavailable",
+    ]
+    assert [item.slot for item in from_plan.items] == [
+        "archive:pl.imgw.hydro_daily:2022/codz_2022_01.zip",
+        "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
+    ]
     assert not any(route.called for route in downloads)
 
     notices = []
@@ -334,9 +355,10 @@ def test_series_is_built_only_from_complete_inputs(root, server, monkeypatch):
     get(server, H2024, V1, data(H2024))
     broken = server.get(H2023.url).mock(return_value=httpx.Response(503))
 
-    partial = sync_store(root, datasets=[HYDRO], years=[2023, 2024])
+    partial = sync_store(root, datasets=[HYDRO], years="2023-2024")
     assert [item.status for item in partial.items] == ["failed", "created"]
     assert "503" in partial.items[0].error
+    assert [item.error_code for item in partial.items] == ["source_unavailable", None]
     assert built == []
     assert (
         partial.series[0].status == "failed"

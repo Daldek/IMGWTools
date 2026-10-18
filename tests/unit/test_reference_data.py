@@ -93,10 +93,10 @@ def test_reference_data_main_writes_stations_and_descriptions(
     assert (isolated_data_dir / "meteo_stations_names.csv").read_text(
         encoding="utf-8"
     ).splitlines() == ["id,name", "249190310,SAN ESCOBAR"]
-    # X = longitude, Y = latitude; stations without coordinates are omitted.
+    # Latitude before longitude; stations without coordinates are omitted.
     assert (isolated_data_dir / "hydro_stations_locations.csv").read_text(
         encoding="utf-8"
-    ).splitlines() == ["id,X,Y", "149190310,20.05,49.61"]
+    ).splitlines() == ["station_code,latitude,longitude", "149190310,49.61,20.05"]
 
     desc = isolated_data_dir / "desc"
     assert {
@@ -132,8 +132,8 @@ def test_reference_data_main_rerun_overwrites_stale_files(
 
     assert first == second
     assert stale.read_text(encoding="utf-8").splitlines() == [
-        "id,X,Y",
-        "149190310,20.05,49.61",
+        "station_code,latitude,longitude",
+        "149190310,49.61,20.05",
     ]
 
 
@@ -141,7 +141,9 @@ def test_reference_data_main_station_failure_keeps_previous_file(
     respx_mock, isolated_data_dir, capsys
 ):
     previous = isolated_data_dir / "hydro_stations_locations.csv"
-    previous.write_text("id,X,Y\n149190310,20.0,49.0\n", encoding="utf-8")
+    previous.write_text(
+        "station_code,latitude,longitude\n149190310,49.0,20.0\n", encoding="utf-8"
+    )
     sources = _sources()
     sources[HYDRO_MAP_API_URL] = httpx.Response(503)
     _serve(respx_mock, sources)
@@ -151,7 +153,9 @@ def test_reference_data_main_station_failure_keeps_previous_file(
     captured = capsys.readouterr()
     assert "Error fetching data:" in captured.err
     assert "Done." not in captured.out
-    assert previous.read_text(encoding="utf-8") == "id,X,Y\n149190310,20.0,49.0\n"
+    assert previous.read_text(encoding="utf-8") == (
+        "station_code,latitude,longitude\n149190310,49.0,20.0\n"
+    )
     assert not (isolated_data_dir / "desc").exists()
 
 

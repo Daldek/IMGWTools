@@ -15,7 +15,7 @@ import pytest
 import respx
 
 from imgwtools.datasets import archive_files, station_source_files
-from imgwtools.exceptions import IMGWConnectionError, IMGWDataError
+from imgwtools.exceptions import IMGWConnectionError, IMGWDataError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import (
     build_series,
@@ -215,10 +215,12 @@ def test_code_only_in_static_file_is_kept_as_hydro_station(
     store, tmp_path, isolated_data_dir
 ):
     static = isolated_data_dir / "hydro_stations_locations.csv"
-    static.write_text("id,X,Y\n150000099,19.9512,50.0512\n", encoding="utf-8")
+    static.write_text(
+        "station_code,latitude,longitude\n150000099,50.0512,19.9512\n", encoding="utf-8"
+    )
     user = tmp_path / "u.csv"
     user.write_text(
-        "station_code,lon,lat,source\n150000098,19.9512,50.0512,a\n",
+        "station_code,latitude,longitude,source\n150000098,50.0512,19.9512,a\n",
         encoding="utf-8",
     )
     with respx.mock(assert_all_called=False) as router:
@@ -234,6 +236,55 @@ def test_code_only_in_static_file_is_kept_as_hydro_station(
     # The user file only fills locations: its unknown codes are reported, not added.
     assert "150000098" not in found
     assert any("150000098" in problem for problem in report.problems)
+
+
+def test_user_file_source_column_is_optional(store, tmp_path):
+    user = tmp_path / "u.csv"
+    user.write_text(
+        "station_code,latitude,longitude\n149190312,50.0512,19.9512\n",
+        encoding="utf-8",
+    )
+    with respx.mock(assert_all_called=False) as router:
+        mock_sources(router)
+        report = build_catalog(store, user_locations=user)
+    located = features(report)["149190312"]
+    assert located["geometry"]["coordinates"] == [19.9512, 50.0512]
+    assert located["properties"]["location_source"] == "user"
+
+
+@pytest.mark.parametrize(
+    "static_text, user_text, option, hint",
+    [
+        ("id,X,Y\n149190312,19.9512,50.0512\n", None, None, "imgwtools.reference_data"),
+        (
+            None,
+            "station_code,lon,lat,source\n149190312,19.9512,50.0512,a\n",
+            "user_locations",
+            "station_code,latitude,longitude[,source]",
+        ),
+    ],
+    ids=["static_id_x_y", "user_lon_lat"],
+)
+def test_old_location_headers_are_rejected_before_any_download(
+    store, tmp_path, isolated_data_dir, static_text, user_text, option, hint
+):
+    if static_text is not None:
+        (isolated_data_dir / "hydro_stations_locations.csv").write_text(
+            static_text, encoding="utf-8"
+        )
+    user = None
+    if user_text is not None:
+        user = tmp_path / "u.csv"
+        user.write_text(user_text, encoding="utf-8")
+    before = tree(store.root)
+    with respx.mock as router:  # any request would fail the test
+        with pytest.raises(IMGWValidationError) as error:
+            build_catalog(store, user_locations=user)
+        assert not router.calls
+    assert error.value.code == "validation_error"
+    assert hint in error.value.detail
+    assert error.value.details.get("option") == option
+    assert tree(store.root) == before
 
 
 def put_monthly(store, codes, etag, *, shift=0):
@@ -318,15 +369,16 @@ def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_da
     ]
     static = isolated_data_dir / "hydro_stations_locations.csv"
     static.write_text(
-        "id,X,Y\n150000020,18.4000,50.0000\n150000021,18.32665589,49.95453369\n",
+        "station_code,latitude,longitude\n"
+        "150000020,50.0000,18.4000\n150000021,49.95453369,18.32665589\n",
         encoding="utf-8",
     )
     user = tmp_path / "moje.csv"
     user.write_text(
-        "station_code,lon,lat,source\n"
-        "149190311,19.9512,50.0512,GPS\n"  # API point is 0,0 -> user fills the gap
-        "150000021,18.5000,50.1000,ręczny\n"  # static location wins over user
-        "150000020,18.5000,50.1000,ręczny\n",  # API wins over static and user
+        "station_code,latitude,longitude,source\n"
+        "149190311,50.0512,19.9512,GPS\n"  # API point is 0,0 -> user fills the gap
+        "150000021,50.1000,18.5000,ręczny\n"  # static location wins over user
+        "150000020,50.1000,18.5000,ręczny\n",  # API wins over static and user
         encoding="utf-8",
     )
     notices = []
@@ -431,9 +483,9 @@ def test_border_points_are_checked_against_polygon(store, tmp_path):
     )
     user = tmp_path / "granica.csv"
     user.write_text(
-        "station_code,lon,lat,source\n"
+        "station_code,latitude,longitude,source\n"
         + "".join(
-            f"{code},{lon:.4f},{lat:.4f},test\n"
+            f"{code},{lat:.4f},{lon:.4f},test\n"
             for code, (lon, lat, _) in BORDER_POINTS.items()
         ),
         encoding="utf-8",
@@ -469,7 +521,8 @@ def test_uncertainty_follows_published_decimals(store, tmp_path):
     hydro_csv = HYDRO_CSV + cp1250('"150000010","DWA MIEJSCA","Raba (213)","1"')
     user = tmp_path / "u.csv"
     user.write_text(
-        "station_code,lon,lat,source\n149190312,19.9512,50.0512,a\n150000010,19.95,50.05,b\n",
+        "station_code,latitude,longitude,source\n"
+        "149190312,50.0512,19.9512,a\n150000010,50.05,19.95,b\n",
         encoding="utf-8",
     )
     with respx.mock(assert_all_called=False) as router:
@@ -515,7 +568,9 @@ def test_hydrographic_code_text_prefix_and_river_order(store):
 
 def test_geojson_is_rfc7946_and_sidecar_records_sources(store, isolated_data_dir):
     static = isolated_data_dir / "hydro_stations_locations.csv"
-    static.write_text("id,X,Y\n149190312,19.9512,50.0512\n", encoding="utf-8")
+    static.write_text(
+        "station_code,latitude,longitude\n149190312,50.0512,19.9512\n", encoding="utf-8"
+    )
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router)
         report = build_catalog(store)
@@ -604,7 +659,7 @@ def test_identical_content_next_day_is_unchanged(store, tmp_path, monkeypatch):
         )
         user = tmp_path / "u.csv"
         user.write_text(
-            "station_code,lon,lat,source\n149190312,19.9512,50.0512,a\n",
+            "station_code,latitude,longitude,source\n149190312,50.0512,19.9512,a\n",
             encoding="utf-8",
         )
         third = build_catalog(store, user_locations=user)
@@ -641,7 +696,7 @@ def test_check_catalog_uses_head_only_and_writes_nothing(store, tmp_path):
         routes["meteo_head"].mock(return_value=httpx.Response(200))
         user = tmp_path / "u.csv"
         user.write_text(
-            "station_code,lon,lat,source\n149190312,19.9512,50.0512,a\n",
+            "station_code,latitude,longitude,source\n149190312,50.0512,19.9512,a\n",
             encoding="utf-8",
         )
         plan = check_catalog(store, user_locations=user)
@@ -672,7 +727,10 @@ def test_check_catalog_tracks_static_file_presence(store, isolated_data_dir):
         build_catalog(store)
         absent = static_action()
         assert absent.status == "current" and "brak pliku" in absent.detail
-        static.write_text("id,X,Y\n149190312,19.9512,50.0512\n", encoding="utf-8")
+        static.write_text(
+            "station_code,latitude,longitude\n149190312,50.0512,19.9512\n",
+            encoding="utf-8",
+        )
         assert static_action().status == "newer"
         assert build_catalog(store).status == "created"
         assert static_action().status == "current"

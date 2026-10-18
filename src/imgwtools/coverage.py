@@ -143,7 +143,7 @@ def _station_coverage(
             )
             result.append(
                 StationCoverage(
-                    station=station,
+                    station_code=station,
                     variable=variable,
                     unit=unit,
                     period=period,

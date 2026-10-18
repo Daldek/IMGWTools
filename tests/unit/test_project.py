@@ -398,7 +398,7 @@ def test_area_selection_hashes_geometry_and_stores_an_explicit_station_list(
         geometry=area,
     )
     (task,) = added.tasks
-    catalog = current_version(fixture_root, slot="catalog:stations")
+    catalog = current_version(fixture_root, slot="catalog:pl.imgw.stations")
     assert task.options["stations"] == [RABA, BEZ_Q]
     assert task.options["geometry"] == "obszary/raba.geojson"
     assert task.geometry_sha256 == {"obszary/raba.geojson": sha(area.read_bytes())}

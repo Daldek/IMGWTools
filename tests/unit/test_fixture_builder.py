@@ -123,7 +123,10 @@ def test_local_reference_data_does_not_leak_into_fixture_catalog(
     tmp_path, isolated_data_dir
 ):
     static = isolated_data_dir / "hydro_stations_locations.csv"
-    static.write_text("id,X,Y\n149190312,19.9512,50.0512\n", encoding="utf-8")
+    static.write_text(
+        "station_code,latitude,longitude\n149190312,50.0512,19.9512\n",
+        encoding="utf-8",
+    )
     root = build_fixture_store(tmp_path / "store").root
     (geojson,) = (root / "stations" / "versions").glob("*/stations.geojson")
     features = {

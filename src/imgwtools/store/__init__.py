@@ -16,7 +16,9 @@ from imgwtools.store.reader import (
     read_series,
     read_series_index,
     read_station_list,
+    select_series,
     store_info,
+    summarize_series,
 )
 from imgwtools.store.series import build_series, check_series
 from imgwtools.store.sync import check_store, sync_store
@@ -92,7 +94,9 @@ __all__ = [
     "read_series",
     "read_series_index",
     "read_station_list",
+    "select_series",
     "store_info",
+    "summarize_series",
     "sync_pmaxtp",
     "sync_store",
     "write_archive",

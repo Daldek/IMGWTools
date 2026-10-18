@@ -14,7 +14,7 @@ import pytest
 import respx
 
 from imgwtools._parsing import normalize_archive
-from imgwtools.datasets import archive_files, station_source_files
+from imgwtools.datasets import archive_files, get_dataset, station_source_files
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWStoreDependencyError,
@@ -33,10 +33,14 @@ from imgwtools.store import (
     read_pmaxtp,
     read_series,
     read_series_index,
+    read_station_list,
+    select_series,
     store_info,
+    summarize_series,
     sync_pmaxtp,
     write_archive,
 )
+from imgwtools.store.types import SeriesSelection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
@@ -49,7 +53,9 @@ SIGNAL = ('"v1"', "Sat, 17 Oct 2026 12:00:00 GMT")
 DAILY = "pl.imgw.hydro_daily"
 HALF = "pl.imgw.hydro_semiannual"
 STATION = "149190310"
-DAILY_2024 = "archive:dane_hydrologiczne/dobowe/2024/codz_2024.zip"
+DAILY_2024 = "archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
+SERIES_DAILY = "series:pl.imgw.hydro_daily"
+CELL_SLOT = "pmaxtp:pl.imgw.pmaxtp:POT/751_317"
 
 
 def store_archives(root, dataset, years, months=None, *, signal=SIGNAL):
@@ -175,29 +181,33 @@ def test_every_reader_works_on_read_only_store_without_writes_or_network(
         "pmaxtp",
     }
     assert {
-        "series:hydro_daily",
-        "series:hydro_monthly",
-        "series:hydro_semiannual",
-        "catalog:stations",
-        "pmaxtp:POT:751_317",
+        SERIES_DAILY,
+        "series:pl.imgw.hydro_monthly",
+        "series:pl.imgw.hydro_semiannual",
+        "catalog:pl.imgw.stations",
+        CELL_SLOT,
         DAILY_2024,
-        "archive:dane_hydrologiczne/lista_stacji_hydro.csv",
+        "archive:pl.imgw.hydro_stations:lista_stacji_hydro.csv",
+        "archive:pl.imgw.meteo_stations:wykaz_stacji.csv",
     } <= set(slots)
     assert (
         len(entries) == 13
     )  # 2 daily + 1 monthly + 3 semi-annual + 2 station lists, 3 series, catalog, cell
     assert [entry.slot for entry in iter_store(root, kind="series")] == [
-        "series:hydro_daily",
-        "series:hydro_monthly",
-        "series:hydro_semiannual",
+        SERIES_DAILY,
+        "series:pl.imgw.hydro_monthly",
+        "series:pl.imgw.hydro_semiannual",
     ]
+    # Every scanned slot names its own (single, hence current) version.
+    for slot, entry in slots.items():
+        assert current_version(root, slot=slot) == entry
 
+    assert current_version(root, slot=SERIES_DAILY).version == reports[DAILY].version
     assert (
-        current_version(root, slot="series:hydro_daily").version
-        == reports[DAILY].version
+        current_version(root, slot="catalog:pl.imgw.stations").version
+        == catalog.version
     )
-    assert current_version(root, slot="catalog:stations").version == catalog.version
-    pmaxtp_entry = current_version(root, slot="pmaxtp:POT:751_317")
+    pmaxtp_entry = current_version(root, slot=CELL_SLOT)
     assert (
         pmaxtp_entry.version == cell.version
         and pmaxtp_entry.meta.dataset == "pl.imgw.pmaxtp"
@@ -398,7 +408,7 @@ def test_unknown_series_schema_is_a_scan_problem_not_a_version(root, offline):
     assert problems == {(later, "unknown_schema")}
     assert [entry.version for entry in iter_store(root, kind="series")] == [version]
     with pytest.raises(IMGWDataError, match="nieobsługiwany schemat szeregu"):
-        current_version(root, slot="series:hydro_daily")
+        current_version(root, slot=SERIES_DAILY)
 
 
 def test_catalog_is_verified_against_sidecar(complete, tmp_path):
@@ -457,11 +467,14 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
     assert problems == {
         (DAILY_2024, "missing_sidecar"),
         (DAILY_2024, "invalid_meta"),
-        ("archive:dane_hydrologiczne/dobowe/2023/codz_2023.zip", "invalid_json"),
-        ("archive:dane_hydrologiczne/dobowe/2022/codz_2022_01.zip", "unknown_schema"),
-        ("junk", "unknown_entry"),
-        (".incoming/host_1_old", "stale_incoming"),
+        ("archive:pl.imgw.hydro_daily:2023/codz_2023.zip", "invalid_json"),
+        ("archive:pl.imgw.hydro_daily:2022/codz_2022_01.zip", "unknown_schema"),
+        (None, "unknown_entry"),
+        (None, "stale_incoming"),
     }
+    assert {
+        entry.version for entry in iter_store(root, kind="problem") if not entry.slot
+    } == {root / "junk", stale}
     assert all(entry.problem for entry in iter_store(root, kind="problem"))
     (valid,) = iter_store(root, kind="archive")
     assert valid.version == newest.path and valid.meta.extra["future"] is True
@@ -471,8 +484,9 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
         current_version(root, slot=DAILY_2024)
     with pytest.raises(IMGWDataError, match="unknown_schema|nieobsługiwany schemat"):
         read_meta(oldest.path)
-    with pytest.raises(IMGWStoreError, match="Brak sidecara"):
+    with pytest.raises(IMGWStoreError, match="Brak sidecara") as missing:
         read_meta(no_sidecar / "codz_2024.zip")
+    assert missing.value.code == "not_found"
     with pytest.raises(IMGWValidationError):
         list(iter_store(root, kind="archives"))
     assert tree(root) == before
@@ -499,23 +513,50 @@ def test_current_version_follows_last_modified_rule(root):
         and entry.version == newer.path
         and entry.meta.sha256 == newer.sha256
     )
-    assert current_version(root, slot="series:hydro_daily") is None
+    assert current_version(root, slot=SERIES_DAILY) is None
     assert (
-        current_version(
-            root, slot="archive:dane_hydrologiczne/dobowe/2030/codz_2030.zip"
-        )
+        current_version(root, slot="archive:pl.imgw.hydro_daily:2030/codz_2030.zip")
         is None
     )
-    for slot in (
-        "series:unknown",
-        "catalog:other",
-        "pmaxtp:XYZ:1_2",
-        "archive:../x.zip",
-        "archive:codz.zip",
+
+
+@pytest.mark.parametrize(
+    "slot",
+    [
+        # Pre-3.0.0 forms.
+        "archive:dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+        "series:hydro_daily",
+        "catalog:stations",
+        "pmaxtp:POT:751_317",
+        "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024",
+        "raba:archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024",
+        # Station selectors exist only in project pins.
+        "series:pl.imgw.hydro_daily:149190310",
+        # Wrong key, selector or kind.
+        "archive:pl.imgw.hydro_daily:codz_2024.zip",
+        "archive:pl.imgw.hydro_daily",
+        "archive:pl.imgw.hydro_stations:dobowe/2024/codz_2024.zip",
+        "archive:pl.imgw.hydro_stations:inna_lista.csv",
+        "archive:pl.imgw.hydro_phenomena:2024/zjaw_2024.zip",
+        "series:pl.imgw.pmaxtp",
+        "catalog:pl.imgw.stations:x",
+        "pmaxtp:pl.imgw.pmaxtp:XYZ/1_2",
+        "pmaxtp:pl.imgw.pmaxtp",
         "foo",
-    ):
-        with pytest.raises(IMGWValidationError):
-            current_version(root, slot=slot)
+    ],
+)
+def test_current_version_rejects_slots_outside_the_grammar(root, slot):
+    with pytest.raises(
+        IMGWValidationError, match="oczekiwano archive:<klucz>"
+    ) as error:
+        current_version(root, slot=slot)
+    assert error.value.code == "validation_error"
+    assert error.value.details == {"option": "slot", "value": slot}
+
+
+def test_current_version_rejects_unsafe_archive_selector(root):
+    with pytest.raises(IMGWValidationError):
+        current_version(root, slot="archive:pl.imgw.hydro_daily:../2024/x.zip")
 
 
 def test_unknown_store_version_is_reported_not_raised(tmp_path):
@@ -529,8 +570,9 @@ def test_unknown_store_version_is_reported_not_raised(tmp_path):
     assert "imgw-store/2" in info.problems[0]
     (problem,) = iter_store(future)
     assert (problem.kind, problem.problem_code) == ("problem", "unsupported_store")
-    with pytest.raises(IMGWStoreError):
-        current_version(future, slot="catalog:stations")
+    with pytest.raises(IMGWStoreError) as unsupported:
+        current_version(future, slot="catalog:pl.imgw.stations")
+    assert unsupported.value.code == "store_unavailable"
 
     missing = store_info(tmp_path / "absent")
     assert (missing.exists, missing.schema, missing.supported) == (False, None, False)
@@ -556,3 +598,153 @@ def test_read_meta_rejects_wrong_required_field_types(root):
         with pytest.raises(IMGWDataError):
             read_meta(written.path)
     assert hashlib.sha256(written.path.read_bytes()).hexdigest() == written.sha256
+
+
+def test_read_series_resolves_version_or_current_series(complete, offline):
+    root, reports, _, _ = complete
+    version = reports[DAILY].version
+    expected = list(read_series(version, station=STATION))
+    assert {name for record in expected for name in record.measurements} == {
+        "H",
+        "Q",
+        "T",
+    }
+    assert list(read_series(version, station=STATION, variables=["H", "Q", "T"])) == (
+        expected
+    )
+    relative = version.relative_to(root)
+    for given, kwargs in (
+        (relative, {"root": root}),
+        (relative.parent, {"root": root}),
+        (Path(f"{version}.meta.json"), {}),
+        (None, {"root": root, "dataset": DAILY}),
+        (None, {"root": root, "dataset": "hydro/dobowe"}),
+    ):
+        args = () if given is None else (given,)
+        assert list(read_series(*args, station=STATION, **kwargs)) == expected
+
+
+@pytest.mark.parametrize(
+    ("given", "kwargs"),
+    [
+        (True, {"root": True, "dataset": DAILY}),
+        (True, {"dataset": DAILY}),
+        (False, {}),
+        (False, {"root": True}),
+        (False, {"dataset": DAILY}),
+        (False, {"root": True, "dataset": "pl.imgw.pmaxtp"}),
+    ],
+)
+def test_series_readers_need_version_or_root_with_dataset(complete, given, kwargs):
+    root, reports, _, _ = complete
+    args = (reports[DAILY].version,) if given else ()
+    options = {**kwargs, **({"root": root} if kwargs.get("root") else {})}
+    with pytest.raises(IMGWValidationError):
+        read_series(*args, station=STATION, **options)
+    with pytest.raises(IMGWValidationError):
+        summarize_series(*args, **options)
+
+
+def test_missing_series_or_station_list_is_not_found(root):
+    for call in (
+        lambda: read_series(root=root, dataset=DAILY, station=STATION),
+        lambda: summarize_series(root=root, dataset=DAILY),
+        lambda: select_series(root, dataset=DAILY, stations=[STATION]),
+        lambda: read_station_list(root, kind="hydro"),
+    ):
+        with pytest.raises(IMGWStoreError) as error:
+            call()
+        assert error.value.code == "not_found"
+
+
+def test_summarize_series_equals_index_without_pyarrow(complete, monkeypatch):
+    root, reports, _, _ = complete
+    monkeypatch.setitem(sys.modules, "pyarrow", None)
+    monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
+    index = read_series_index(reports[HALF].version)
+    variables = list(get_dataset(HALF).variables)
+    periods = ["winter", "summer", "annual"]
+
+    summary = summarize_series(root=root, dataset=HALF)
+    listed = [
+        coverage
+        for station in index.stations.values()
+        for coverage in station.variables.values()
+    ]
+    assert sorted(summary, key=repr) == sorted(listed, key=repr)
+    assert [(c.station_code, c.variable, c.period) for c in summary] == sorted(
+        ((c.station_code, c.variable, c.period) for c in listed),
+        key=lambda row: (row[0], variables.index(row[1]), periods.index(row[2])),
+    )
+
+    filtered = summarize_series(
+        reports[HALF].version, stations=[STATION], variables=["Q_min", "H_max"]
+    )
+    assert [(c.station_code, c.variable, c.period) for c in filtered] == [
+        (STATION, name, period) for name in ("H_max", "Q_min") for period in periods
+    ]
+    assert all(
+        coverage
+        == index.stations[coverage.station_code].variables[
+            f"{coverage.variable}@{coverage.period}"
+        ]
+        for coverage in filtered
+    )
+    daily = read_series_index(reports[DAILY].version)
+    other = max(daily.stations)
+    assert other != STATION
+    both = summarize_series(reports[DAILY].version, stations=[other, STATION, other])
+    assert [(c.station_code, c.variable) for c in both] == [
+        (code, name) for code in sorted([other, STATION]) for name in ("H", "Q", "T")
+    ]
+    for kwargs in (
+        {"stations": ["999999999"]},
+        {"stations": ["1491"]},
+        {"stations": STATION},
+        {"variables": ["Tmax"]},
+    ):
+        with pytest.raises(IMGWValidationError):
+            summarize_series(reports[HALF].version, **kwargs)
+
+
+def test_select_series_matches_series_select_semantics(complete, offline):
+    root, reports, _, _ = complete
+    index = read_series_index(reports[DAILY].version)
+    hydrological = {start.year + (start.month >= 11) for start, _ in index.periods} | {
+        end.year + (end.month >= 11) for _, end in index.periods
+    }
+
+    selection = select_series(root, dataset="hydro/dobowe", stations=[STATION, STATION])
+    assert selection == SeriesSelection(
+        DAILY,
+        reports[DAILY].version,
+        (STATION,),
+        ("H", "Q", "T"),
+        tuple(sorted(hydrological)),
+        "hydrological",
+    )
+    explicit = select_series(
+        root,
+        dataset=DAILY,
+        stations=[STATION],
+        variables=["Q"],
+        years="2023-2024",
+        year_type="calendar",
+    )
+    assert (explicit.variables, explicit.years, explicit.year_type) == (
+        ("Q",),
+        (2023, 2024),
+        "calendar",
+    )
+    for dataset, kwargs, option in (
+        (DAILY, {"stations": ["999999999"]}, "stations"),
+        (DAILY, {"stations": STATION}, "stations"),
+        (DAILY, {"stations": [STATION], "variables": ["Tmax"]}, "variables"),
+        (DAILY, {"stations": [STATION], "years": [2030]}, "years"),
+        (DAILY, {"stations": [STATION], "years": "abc"}, "years"),
+        (HALF, {"stations": [STATION], "year_type": "calendar"}, "year_type"),
+        ("pl.imgw.pmaxtp", {"stations": [STATION]}, "dataset"),
+    ):
+        with pytest.raises(IMGWValidationError) as error:
+            select_series(root, dataset=dataset, **kwargs)
+        assert error.value.details["option"] == option

@@ -22,6 +22,7 @@ from typing import Any
 from imgwtools._version import __version__
 from imgwtools.datasets import ArchiveFile, get_dataset
 from imgwtools.exceptions import (
+    IMGWCancelledError,
     IMGWStoreConflictError,
     IMGWStoreError,
     IMGWValidationError,
@@ -43,6 +44,7 @@ _ATTRIBUTION_CODE = "license_terms"
 # Trees directly under a store root written only by IMGWTools; the reader reports
 # anything unexpected there, so the Kartograf probe does not walk into them.
 _MANAGED_TREES = frozenset({"archives", "series", "stations", "pmaxtp", ".incoming"})
+_PATH_CONFLICT = {"reason": "path_conflict"}
 
 
 def _canonical(value: object) -> bytes:
@@ -105,7 +107,10 @@ def _safe_root(root: PathArg) -> Path:
         raise IMGWValidationError("Ścieżka magazynu nie może zawierać '..'")
     for part in (supplied, *supplied.parents):
         if part.is_symlink():
-            raise IMGWStoreError(f"Dowiązanie symboliczne w ścieżce magazynu: {part}")
+            raise IMGWStoreError(
+                f"Dowiązanie symboliczne w ścieżce magazynu: {part}",
+                code="validation_error",
+            )
     return supplied
 
 
@@ -146,31 +151,42 @@ def _check_kartograf(path: Path) -> None:
     # trees (_MANAGED_TREES) are skipped so their sidecars are never parsed here.
     for ancestor in (path, *path.parents):
         if ancestor != path and (ancestor / _MARKER).exists():
-            raise IMGWStoreError(
-                f"Magazyn IMGW jest już przodkiem katalogu: {ancestor}"
+            raise IMGWStoreConflictError(
+                f"Magazyn IMGW jest już przodkiem katalogu: {ancestor}",
+                details=_PATH_CONFLICT,
             )
         output = _kartograf_project(ancestor / "kartograf-project.json")
         if output is not None and _overlaps(path, output):
-            raise IMGWStoreError(f"Ścieżka koliduje z magazynem Kartografa: {output}")
+            raise IMGWStoreConflictError(
+                f"Ścieżka koliduje z magazynem Kartografa: {output}",
+                details=_PATH_CONFLICT,
+            )
         versions = ancestor / "versions"
         if versions.is_dir() and _has_kartograf_meta(versions):
-            raise IMGWStoreError(f"Ścieżka koliduje z wersjami Kartografa: {versions}")
+            raise IMGWStoreConflictError(
+                f"Ścieżka koliduje z wersjami Kartografa: {versions}",
+                details=_PATH_CONFLICT,
+            )
     if path.is_dir():
         store_root = (path / _MARKER).exists()
         for base, dirs, files in os.walk(path, followlinks=False):
             folder = Path(base)
             if folder != path and _MARKER in files:
                 _marker(folder / _MARKER)
-                raise IMGWStoreError(f"Zagnieżdżony magazyn IMGW: {folder}")
+                raise IMGWStoreConflictError(
+                    f"Zagnieżdżony magazyn IMGW: {folder}", details=_PATH_CONFLICT
+                )
             if "kartograf-project.json" in files:
                 output = _kartograf_project(folder / "kartograf-project.json")
                 if output is not None and _overlaps(path, output):
-                    raise IMGWStoreError(
-                        f"Ścieżka koliduje z magazynem Kartografa: {output}"
+                    raise IMGWStoreConflictError(
+                        f"Ścieżka koliduje z magazynem Kartografa: {output}",
+                        details=_PATH_CONFLICT,
                     )
             if folder.name == "versions" and _has_kartograf_meta(folder):
-                raise IMGWStoreError(
-                    f"Ścieżka koliduje z wersjami Kartografa: {folder}"
+                raise IMGWStoreConflictError(
+                    f"Ścieżka koliduje z wersjami Kartografa: {folder}",
+                    details=_PATH_CONFLICT,
                 )
             dirs[:] = [
                 name
@@ -183,7 +199,9 @@ def _check_kartograf(path: Path) -> None:
 def _has_kartograf_meta(versions: Path) -> bool:
     for sidecar in versions.rglob("*.meta.json"):
         if sidecar.is_symlink():
-            raise IMGWStoreError(f"Dowiązanie w wersjach: {sidecar}")
+            raise IMGWStoreConflictError(
+                f"Dowiązanie w wersjach: {sidecar}", details=_PATH_CONFLICT
+            )
         if _marker(sidecar) == "kartograf-meta/1":
             return True
     return False
@@ -203,7 +221,9 @@ def _validate_slot(root: Path, relative: str) -> Path:
         if path == root.parent:
             break
         if path.is_symlink():
-            raise IMGWStoreError(f"Dowiązanie w ścieżce slotu: {path}")
+            raise IMGWStoreError(
+                f"Dowiązanie w ścieżce slotu: {path}", code="validation_error"
+            )
     return result
 
 
@@ -233,11 +253,14 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     IMGWValidationError
         If the root path contains ``..`` or ``created_at`` is naive.
     IMGWStoreError
-        If the root path contains a symbolic link, the directory is not empty
-        and has no marker, it overlaps another IMGW store or a Kartograf
-        store, a relevant marker is unreadable, the existing marker is not
-        a supported store, or the file system cannot create the hard link
-        used to publish the marker atomically (e.g. SMB, FAT).
+        If the root path contains a symbolic link (code ``validation_error``),
+        a relevant marker is unreadable or the existing marker is not a
+        supported store (code ``store_unavailable``).
+    IMGWStoreConflictError
+        If the directory is not empty and has no marker, it is nested in or
+        contains another IMGW store, it overlaps a Kartograf store, or the
+        file system cannot create the hard link used to publish the marker
+        atomically (e.g. SMB, FAT); code ``conflict``.
     """
     path = _safe_root(root)
     _check_kartograf(path)
@@ -245,7 +268,9 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     if marker.exists():
         return open_store(path)
     if path.exists() and (not path.is_dir() or any(path.iterdir())):
-        raise IMGWStoreError(f"Katalog nie jest pustym magazynem IMGW: {path}")
+        raise IMGWStoreConflictError(
+            f"Katalog nie jest pustym magazynem IMGW: {path}", details=_PATH_CONFLICT
+        )
     path.mkdir(parents=True, exist_ok=True)
     payload: dict[str, str] = {
         "schema": "imgw-store/1",
@@ -263,9 +288,10 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
         except FileExistsError:
             return open_store(path)
         except OSError as exc:
-            raise IMGWStoreError(
+            raise IMGWStoreConflictError(
                 "System plików nie obsługuje atomowego zapisu znacznika magazynu "
-                f"(dowiązanie twarde): {path} ({exc.strerror})"
+                f"(dowiązanie twarde): {path} ({exc.strerror})",
+                details={"reason": "not_atomic"},
             ) from exc
         _fsync_dir(path)
     finally:
@@ -297,7 +323,10 @@ def open_store(root: PathArg, /) -> StoreHandle:
     """
     path = _safe_root(root)
     if _marker(path / _MARKER) != "imgw-store/1":
-        raise IMGWStoreError(f"Brak znacznika lub nieobsługiwany magazyn IMGW: {path}")
+        raise IMGWStoreError(
+            f"Brak znacznika lub nieobsługiwany magazyn IMGW: {path}",
+            details={"reason": "unsupported"},
+        )
     return StoreHandle(path, "imgw-store/1")
 
 
@@ -485,14 +514,16 @@ def write_archive(
         dataset or has a disallowed extension, the path is unsafe, or the
         ``Last-Modified`` header is invalid.
     IMGWStoreError
-        If the root is not a supported store, a path contains a symbolic
-        link, the store overlaps a Kartograf store, or the write is
-        cancelled.
+        If the root is not a supported store (code ``store_unavailable``) or a
+        path contains a symbolic link (code ``validation_error``).
     IMGWStoreConflictError
-        If an existing version in the slot is corrupted (including a sidecar
-        without ``extra.http``), the version directory collides with
-        different content, or the file system cannot publish atomically
-        without replacement.
+        If the store overlaps another IMGW or a Kartograf store, an existing
+        version in the slot is corrupted (including a sidecar without
+        ``extra.http``), the version directory collides with different
+        content, or the file system cannot publish atomically without
+        replacement.
+    IMGWCancelledError
+        If ``cancel`` returns ``True`` before publication.
     """
     handle = open_store(root.root if isinstance(root, StoreHandle) else root)
     path = handle.root
@@ -510,7 +541,7 @@ def write_archive(
         path, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
     )
     if cancel is not None and cancel():
-        raise IMGWStoreError("Anulowano zapis archiwum")
+        raise IMGWCancelledError("Anulowano zapis archiwum")
     incoming = path / ".incoming"
     incoming.mkdir(exist_ok=True)
     _cleanup(incoming, on_notice=on_notice)
@@ -565,7 +596,7 @@ def write_archive(
         ):
             label += "+" + hashlib.sha256(_canonical(signal)).hexdigest()[:8]
         if cancel is not None and cancel():
-            raise IMGWStoreError("Anulowano zapis archiwum")
+            raise IMGWCancelledError("Anulowano zapis archiwum")
         meta = {
             "schema": "imgw-meta/1",
             "producer": "imgwtools",

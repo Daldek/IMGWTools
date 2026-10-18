@@ -301,7 +301,9 @@ def test_pmaxtp_sync_point_outside_grid_exits_1_in_polish(tmp_path):
 def test_series_export_runs_through_dispatcher_like_python(
     tmp_path, fixture_root, offline
 ):
-    version = store.current_version(fixture_root, slot="series:hydro_daily").version
+    version = store.current_version(
+        fixture_root, slot="series:pl.imgw.hydro_daily"
+    ).version
     before = mtimes(fixture_root)
     cli, api = parity(
         tmp_path / "work",

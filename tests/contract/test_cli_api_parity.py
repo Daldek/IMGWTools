@@ -255,7 +255,7 @@ def test_rest_reads_answer_what_the_readers_return(
     entries = rest.get("/api/v1/store/entries").json()
     assert entries == plain(list(iter_store(root)), root)
 
-    version = current_version(root, slot="series:hydro_daily").version
+    version = current_version(root, slot="series:pl.imgw.hydro_daily").version
     relative = version.relative_to(root).parent.as_posix()
     index = read_series_index(version)
     answered = rest.get("/api/v1/series/index", params={"version": relative}).json()
@@ -270,7 +270,7 @@ def test_rest_reads_answer_what_the_readers_return(
         )
         for name, coverage in station.variables.items():
             expected = dict(plain(coverage))
-            del expected["station"]  # the REST coverage omits the repeated station code
+            del expected["station_code"]  # the REST coverage omits the repeated code
             assert remote["variables"][name] == expected
     records = rest.get(
         f"/api/v1/series/{RABA}",
@@ -397,7 +397,7 @@ def test_installed_imgw_executable_reads_offline_like_the_python_api(
     assert json.loads(problems.stdout) == plain(
         list(iter_store(corrupt, kind="problem"))
     )
-    version = current_version(root, slot="series:hydro_daily").version
+    version = current_version(root, slot="series:pl.imgw.hydro_daily").version
     target = tmp_path / "raba.csv"
     exported = run_imgw(
         "series", "export", "--version", version, "--station", RABA,

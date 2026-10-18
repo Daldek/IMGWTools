@@ -453,7 +453,10 @@ def test_reverted_input_builds_new_current_series_instead_of_reusing_old(root):
     assert third.version not in (first.version, second.version)
     assert third.version.read_bytes() == first.version.read_bytes()
     assert third.version.parent.name.startswith("2026-10-30_")
-    assert current_version(root, slot="series:hydro_daily").version == third.version
+    assert (
+        current_version(root, slot="series:pl.imgw.hydro_daily").version
+        == third.version
+    )
     assert check_series(root, dataset=HYDRO).series_state == {"hydro_daily": "current"}
     again = build_series(root, dataset=HYDRO)
     assert (again.status, again.version) == ("reused", third.version)
@@ -471,7 +474,8 @@ def test_alternating_input_under_dominating_label_keeps_series_current(root):
         assert report.status == "created" and report.version not in built
         built.append(report.version)
         assert (
-            current_version(root, slot="series:hydro_daily").version == report.version
+            current_version(root, slot="series:pl.imgw.hydro_daily").version
+            == report.version
         )
         assert check_series(root, dataset=HYDRO).series_state == {
             "hydro_daily": "current"

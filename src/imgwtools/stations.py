@@ -32,7 +32,7 @@ _MAP_HEADERS = {
 }
 _KINDS: tuple[Literal["hydro", "meteo"], ...] = ("hydro", "meteo")
 _SOURCES = ("live", "store")
-_CATALOG_SLOT = "catalog:stations"
+_CATALOG_SLOT = "catalog:pl.imgw.stations"
 
 
 # ============================================================================

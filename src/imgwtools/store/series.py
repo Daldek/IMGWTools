@@ -25,6 +25,7 @@ from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
     archive_files,
+    datasets,
     get_dataset,
 )
 from imgwtools.exceptions import (
@@ -105,12 +106,16 @@ def _root(root: PathArg | StoreHandle) -> Path:
 
 def _series_descriptor(dataset: str) -> DatasetDescriptor:
     descriptor = get_dataset(dataset)
-    if not descriptor.in_store or descriptor.time_unit not in (
-        "day",
-        "month",
-        "half_year",
-    ):
-        raise IMGWValidationError(f"Zbiór {dataset} nie tworzy szeregów pomiarowych")
+    allowed = [
+        item.key
+        for item in datasets()
+        if item.in_store and item.time_unit in ("day", "month", "half_year")
+    ]
+    if descriptor.key not in allowed:
+        raise IMGWValidationError(
+            f"Zbiór {dataset} nie tworzy szeregów pomiarowych; dozwolone: {', '.join(allowed)}",
+            details={"option": "dataset", "value": dataset, "allowed": allowed},
+        )
     return descriptor
 
 

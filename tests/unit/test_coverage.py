@@ -17,7 +17,7 @@ def value(amount, flag="value"):
 
 def by_variable(records, dataset):
     return {
-        (item.station, item.variable, item.period): item
+        (item.station_code, item.variable, item.period): item
         for item in summarize_coverage(records, dataset=dataset)
     }
 

@@ -17,7 +17,6 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
-from imgwtools.datasets import station_source_files
 from imgwtools.exceptions import IMGWProjectError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
 from imgwtools.project import (
@@ -452,10 +451,10 @@ def test_check_command_never_writes_or_downloads(offline, fixture_root, tmp_path
     ).to_json(tmp_path / "plan.json")
     project = tmp_path / "project"
     daily, hydro_list = (
-        store.current_version(fixture_root, slot=f"archive:{path}").version
-        for path in (
-            "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
-            station_source_files()[0].server_path,
+        store.current_version(fixture_root, slot=slot).version
+        for slot in (
+            "archive:pl.imgw.hydro_daily:2024/codz_2024.zip",
+            "archive:pl.imgw.hydro_stations:lista_stacji_hydro.csv",
         )
     )
     cases = [
@@ -878,7 +877,9 @@ def test_series_select_validates_selection_against_current_series(
     assert isinstance(selection, SeriesSelection)
     assert (
         selection.version
-        == store.current_version(fixture_root, slot="series:hydro_daily").version
+        == store.current_version(
+            fixture_root, slot="series:pl.imgw.hydro_daily"
+        ).version
     )
     assert (selection.stations, selection.variables, selection.year_type) == (
         (STATION,),
@@ -963,7 +964,9 @@ def test_series_export_reports_same_progress_and_notices_as_direct_call(
 ):
     from imgwtools.store.export import export_series
 
-    version = store.current_version(fixture_root, slot="series:hydro_daily").version
+    version = store.current_version(
+        fixture_root, slot="series:pl.imgw.hydro_daily"
+    ).version
     direct_events, command_events = [], []
     direct = export_series(
         version,

@@ -13,7 +13,11 @@ from pathlib import Path
 import pytest
 
 from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWStoreConflictError, IMGWStoreError
+from imgwtools.exceptions import (
+    IMGWCancelledError,
+    IMGWStoreConflictError,
+    IMGWStoreError,
+)
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import init_store, open_store, write_archive, writer
 
@@ -128,7 +132,7 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
         return original(fd)
 
     monkeypatch.setattr(writer.os, "fsync", record)
-    with pytest.raises(IMGWStoreError, match="Anulowano"):
+    with pytest.raises(IMGWCancelledError, match="Anulowano"):
         write_archive(root, archive=ARCHIVE, response=response(), cancel=lambda: True)
     assert old.exists()  # no operation began, so nothing was cleaned
     write_archive(root, archive=ARCHIVE, response=response())
@@ -176,13 +180,33 @@ def test_nested_kartograf_detection_without_import(tmp_path):
 
 def test_foreign_or_nested_store_and_path_escape(tmp_path):
     root = init_store(tmp_path / "store")
-    with pytest.raises(IMGWStoreError):
+    with pytest.raises(IMGWStoreError) as inside:
         init_store(root.root / "nested")
-    with pytest.raises(IMGWStoreError):
+    with pytest.raises(IMGWStoreError) as around:
         init_store(tmp_path)
+    busy = tmp_path / "busy"
+    busy.mkdir()
+    (busy / "notes.txt").write_text("x")
+    with pytest.raises(IMGWStoreError, match="pustym") as not_empty:
+        init_store(busy)
+    for error in (inside, around, not_empty):
+        assert error.value.code == "conflict"
+        assert error.value.details == {"reason": "path_conflict"}
     unsafe = replace(ARCHIVE, server_path="dane_hydrologiczne/dobowe/../escape.zip")
     with pytest.raises(Exception, match="Niebezpieczna"):
         write_archive(root, archive=unsafe, response=response())
+
+
+def test_symbolic_link_in_store_path_is_a_validation_error(tmp_path):
+    init_store(tmp_path / "real")
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    for call in (
+        lambda: init_store(tmp_path / "link" / "inner"),
+        lambda: open_store(tmp_path / "link"),
+    ):
+        with pytest.raises(IMGWStoreError, match="Dowiązanie") as error:
+            call()
+        assert error.value.code == "validation_error"
 
 
 def test_identical_signal_after_relabel_is_unchanged(tmp_path):
@@ -282,7 +306,8 @@ def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(writer.os, "link", refuse)
     path = tmp_path / "store"
-    with pytest.raises(IMGWStoreError, match="dowiązanie twarde"):
+    with pytest.raises(IMGWStoreError, match="dowiązanie twarde") as error:
         init_store(path)
+    assert error.value.code == "conflict"
     assert not (path / "imgw-store.json").exists()
     assert not list(path.glob(".imgw-store.json.*.tmp"))
