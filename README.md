@@ -539,10 +539,11 @@ tests/
 │   ├── test_cli_*.py, test_api_*.py, test_web_app.py   # CLI, REST i Web GUI
 │   ├── test_reference_data.py                          # python -m imgwtools.reference_data
 │   └── test_public_store_api.py                        # kontrakt eksportów publicznych
-└── contract/                # kontrakt magazynu, zgodność Python = CLI = REST, projekt
+├── contract/                # kontrakt magazynu, zgodność Python = CLI = REST, projekt
+└── live/                    # regresja na żywo 35 komend × Python/CLI/REST (tylko z IMGW_LIVE=1)
 ```
 
-**Łącznie: 1377 testów** (`pytest --collect-only`, 2026-10-18).
+**Łącznie: 1419 testów** (`pytest --collect-only`, 2026-10-18): 1377 offline i 42 na żywo, pomijane bez `IMGW_LIVE=1` (`IMGW_LIVE=1 .venv/bin/python -m pytest tests/live`).
 
 ---
 

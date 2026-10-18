@@ -243,6 +243,7 @@ tests/
 │   ├── test_cli_*.py, test_api_*.py, test_web_app.py  # Adaptery CLI, REST i web
 │   └── test_public_store_api.py                   # __all__ = spec §13.12
 ├── contract/                # Kontrakt magazynu i Python = CLI = REST
+├── live/                    # Regresja na żywo (tylko z IMGW_LIVE=1)
 ├── fixtures/                # Syntetyczne archiwa, nagrania, złote eksporty
 └── conftest.py              # Shared fixtures
 ```
@@ -285,7 +286,7 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **1377 testów** (2026-10-18, `pytest --collect-only`); ostatni pomiar
+Stan faktyczny: **1419 testów** (2026-10-18, `pytest --collect-only`; 1377 offline, 42 na żywo z `IMGW_LIVE=1`); ostatni pomiar
 pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
 — bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
 

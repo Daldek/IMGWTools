@@ -1021,8 +1021,10 @@ class CommandResult[T]:
         Parameters
         ----------
         root : str or os.PathLike or None, optional
-            Store root; paths below it become POSIX paths relative to it,
-            other paths stay absolute.
+            Store root; absolute paths below it become POSIX paths relative to
+            it, other absolute paths stay absolute. Relative paths of the
+            result (project pins, relative to the project's store) stay
+            relative in every working directory.
         server : bool, optional
             REST mode: the root is written as ``"."`` and its prefix is
             removed from every text.

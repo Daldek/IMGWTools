@@ -4,9 +4,11 @@ Single JSON conversion of public results for the CLI, REST and ``CommandResult``
 Rules (spec §13.1 p. 4): dates as ``YYYY-MM-DD``, instants as ISO 8601 UTC with
 ``Z``, tuples, lists and sets as arrays, dataclasses and pydantic models as
 objects of their fields (a ``StorePlan`` as its ``imgw-plan/1`` document, spec
-§11.5 and §13.6), paths inside the store as POSIX paths relative to the root,
-other paths as absolute paths. The root itself is absolute, or ``"."`` in
-server mode, where the root prefix is also removed from free text.
+§11.5 and §13.6), absolute paths inside the store as POSIX paths relative to the
+root, other absolute paths as they are, relative paths (relative to a base the
+result names, e.g. a project pin to the project's store) as POSIX text. The root
+itself is absolute, or ``"."`` in server mode, where the root prefix is also
+removed from free text.
 """
 
 from __future__ import annotations
@@ -46,8 +48,11 @@ def jsonable(
         ``StorePlan`` is written as its ``imgw-plan/1`` document (flat items
         readable by ``StorePlan.from_json``).
     root : str or os.PathLike or None, optional
-        Store root; paths below it become POSIX paths relative to it. Without a
-        root every path is written as an absolute path.
+        Store root; absolute paths below it become POSIX paths relative to it,
+        other absolute paths stay absolute. A relative path is relative to a
+        base named by the result (a project pin to the project's store, a
+        Parquet file to its series version) and stays a relative POSIX path in
+        every working directory.
     server : bool, optional
         REST mode: the root itself is written as ``"."`` and the root prefix is
         removed from every text (``<root>/x`` → ``x``, bare ``<root>`` → ``.``);
@@ -143,10 +148,12 @@ def _key(
 
 
 def _path(path: Path, roots: tuple[Path, ...], server: bool) -> str:
-    absolute = path.absolute()
+    if not path.is_absolute():
+        # Never resolved against the working directory of the printing process.
+        return path.as_posix()
     for root in roots:
-        if absolute == root:
-            return "." if server else str(absolute)
-        if absolute.is_relative_to(root):
-            return absolute.relative_to(root).as_posix()
-    return str(absolute)
+        if path == root:
+            return "." if server else str(path)
+        if path.is_relative_to(root):
+            return path.relative_to(root).as_posix()
+    return str(path)

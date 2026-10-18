@@ -10,7 +10,7 @@
 
 ## 2. Testy
 - **testy jednostkowe i kontraktowe** — wymagane, stan: 1377 testów w `tests/unit` i `tests/contract` (2026-10-18), wszystkie offline
-- **testy integracyjne na żywo** — cel docelowy (pomijane bez `IMGW_LIVE=1`)
+- **testy na żywo** — 42 testy w `tests/live` (35 komend × Python/CLI/REST na serwerach IMGW), uruchamiane wyłącznie z `IMGW_LIVE=1`
 - pokrycie: ostatni pomiar **93%** (2026-10-18, przed zmianami ADR-002), cel docelowy **80%**
 - zmiana katalogu komend, CLI, REST lub web musi utrzymać kontrakt Python = CLI = REST (`tests/contract/test_interface_contract.py`)
 - nie merge'ujemy PR bez testów

@@ -20,7 +20,7 @@ Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asynci
 > z rejestru `ERROR_CODES` (nie 0/1). Planowane tu testy tych modułów zastąpiły `tests/unit/test_cli_catalog.py`,
 > `test_api_commands.py`, `test_command_schema.py`, `test_commands.py` i kontrakt
 > `tests/contract/test_interface_contract.py`; testy builderów URL — `test_datasets.py` (`archive_files`) i `test_urls.py`
-> (`build_pmaxtp_url`, `build_api_url`). Stan: 1377 testów (`pytest --collect-only`). Sekcje 1–4 pozostają zapisem historycznym.
+> (`build_pmaxtp_url`, `build_api_url`). Regresję na żywo daje `tests/live/test_interfaces_live.py` (`IMGW_LIVE=1`). Stan: 1419 testów (1377 offline, 42 na żywo; `pytest --collect-only`). Sekcje 1–4 pozostają zapisem historycznym.
 
 Komendy bazowe:
 

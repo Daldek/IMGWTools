@@ -498,8 +498,9 @@ npx -y pyright src/imgwtools/
 |`tests/unit/` other files|147|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
 |`tests/contract/test_interface_contract.py`|78|Python = CLI = REST for all 25 REST commands, error matrix, paging|
 |`tests/contract/` other files|15|Store contract, CLI = API parity, project contract|
+|`tests/live/test_interfaces_live.py`|42|Live regression: 35 commands × Python/`imgw`/REST on real IMGW servers, live errors; skipped without `IMGW_LIVE=1`|
 
-**Total: 1377 tests** (`pytest --collect-only`, 2026-10-18).
+**Total: 1419 tests** (`pytest --collect-only`, 2026-10-18): 1377 offline, 42 live (`IMGW_LIVE=1 .venv/bin/python -m pytest tests/live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
 
 ---
 
