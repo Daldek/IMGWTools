@@ -32,34 +32,20 @@ def test_api_main_health_reports_package_version(client):
     assert response.json() == {"status": "ok", "version": imgwtools.__version__}
 
 
-def test_api_main_info_lists_every_router_prefix(client):
+def test_api_main_info_names_the_api_and_links_the_catalog_schema(client):
     response = client.get("/api/v1")
     assert response.status_code == 200
     body = response.json()
     assert (body["name"], body["version"]) == ("IMGWTools API", imgwtools.__version__)
-    assert body["endpoints"] == {
-        "hydro": "/api/v1/hydro",
-        "meteo": "/api/v1/meteo",
-        "download": "/api/v1/download",
-        "pmaxtp": "/api/v1/pmaxtp",
-        "store": "/api/v1/store",
-        "series": "/api/v1/series",
-        "pmaxtp_store": "/api/v1/pmaxtp/store",
-    }
-
-
-def test_api_main_advertised_prefixes_are_served(client):
-    schema = client.get("/openapi.json")
-    assert schema.status_code == 200
-    assert schema.json()["info"]["version"] == imgwtools.__version__
-    paths = schema.json()["paths"]
-    for prefix in client.get("/api/v1").json()["endpoints"].values():
-        assert any(path.startswith(f"{prefix}/") for path in paths), prefix
+    schema = client.get(body["schema"])
+    assert schema.json()["result"]["schema"] == "imgw-commands/1"
+    openapi = client.get("/openapi.json").json()
+    assert openapi["info"]["version"] == imgwtools.__version__
 
 
 def test_api_main_cors_preflight_allows_any_origin(client):
     response = client.options(
-        "/api/v1/hydro/stations",
+        "/api/v1/stations/find",
         headers={
             "Origin": "https://raba.example",
             "Access-Control-Request-Method": "GET",

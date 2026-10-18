@@ -1,9 +1,11 @@
-"""Contract of ``imgw-project/1`` (spec §10.1, §11.6, IMGW-14).
+"""Contract of ``imgw-project/1`` (spec §10.1, §11.6, §13.5, §13.7, IMGW-14).
 
 The manifest follows its strict schema exactly as ``open_project`` does; every
 project command of the catalog leaves a neighbouring Kartograf manifest and its
-outputs untouched; status/verify/check/restore follow the pins; concurrent
-``imgw project add`` processes merge different tasks and refuse a conflict.
+outputs untouched; the catalog scenario pins the same files as before ADR-002
+and reports them under §13.7 slots; status/verify/check/restore follow the pins;
+concurrent ``imgw project add`` processes merge different tasks and refuse a
+conflict with the ``conflict`` code.
 """
 
 import copy
@@ -25,6 +27,8 @@ from imgwtools import (
     run_command,
     verify_project,
 )
+from imgwtools.store import current_version
+from imgwtools.testing import build_fixture_store
 from tests.contract.support import (
     BEZ_Q,
     DAILY,
@@ -40,6 +44,7 @@ from tests.contract.support import (
     stamps,
 )
 from tests.contract.test_cli_api_parity import run_imgw
+from tests.unit.test_commands import PINS_BEFORE
 
 TASK = {"dataset": DAILY, "stations": [RABA], "years": [2024]}
 MANIFEST = "imgw-project.json"
@@ -81,7 +86,12 @@ def test_manifest_follows_the_strict_schema_exactly_as_the_reader(
         "skrócona suma": lambda d: d["tasks"][0]["files"][0].update(sha256="abc"),
         "nieznana rola": lambda d: d["tasks"][0]["files"][0].update(role="raster"),
         "zła nazwa zadania": lambda d: d["tasks"][0].update(name="Raba Górna"),
-        "zła stacja pliku": lambda d: d["tasks"][0]["files"][1].update(station="1491"),
+        "zła stacja pliku": lambda d: d["tasks"][0]["files"][1].update(
+            station_code="1491"
+        ),
+        "dawna nazwa pola stacji": lambda d: d["tasks"][0]["files"][1].update(
+            station=d["tasks"][0]["files"][1].pop("station_code")
+        ),
         "obca wersja schematu": lambda d: d.update(schema="imgw-project/2"),
         "pusty magazyn": lambda d: d.update(store_dir=""),
     }
@@ -150,10 +160,80 @@ def test_every_project_command_leaves_a_kartograf_project_beside_it_untouched(
             for path, digest in snapshot(project).items()
             if path != MANIFEST
         } == kartograf, command
-    assert [results[index].tasks for index in (3, 4, 5, 7)] == [{"raba": "current"}] * 4
+    assert [results[index].status for index in range(len(steps))] == ["ok"] * len(steps)
+    assert [results[index].result.tasks for index in (3, 4, 5, 7)] == [
+        {"raba": "current"}
+    ] * 4
     assert load(project / MANIFEST)["store_dir"] == str(moved)
     assert open_project(project).tasks == ()
     assert schema_errors(load(tmp_path / "plan.json"), "imgw-plan/1") == []
+
+
+def test_catalog_scenario_pins_the_same_files_as_before_under_their_slots(
+    tmp_path, imgw, frozen
+):
+    root = build_fixture_store(tmp_path / "store").root
+    project = tmp_path / "project"
+    imgw.publish(H2024, V3, NEW)
+    imgw.publish_catalog_sources()
+    imgw.publish_pmaxtp("pmaxtp_pot_first")
+    tasks = {
+        "raba": ("series select", TASK),
+        "sync": ("store sync", {"datasets": [DAILY], "years": [2024]}),
+        "build": ("series build", {"dataset": DAILY}),
+        "cell": ("pmaxtp sync", {"latitude": 52.23, "longitude": 21.01}),
+        "catalog": ("store catalog", {}),
+    }
+
+    def run(name, /, **options):
+        result = run_command(name, options={"project_dir": project, **options})
+        assert result.status == "ok", (name, result)
+        return result.result
+
+    run("project init", store_dir="../store")
+    for name, (command, options) in tasks.items():
+        run("project add", name=name, command=command, options=options)
+    plan = run("project check")
+    assert [
+        (action.detail.split(":")[0], action.status)
+        for action in plan.actions
+        if action.command == "project download"
+    ] == [(name, "missing") for name in tasks]
+    downloaded = run("project download")
+    assert downloaded.tasks == dict.fromkeys(tasks, "current")
+    pinned = {
+        task.name: [(pin.role, pin.path.as_posix()) for pin in task.files]
+        for task in open_project(project).tasks
+    }
+    assert pinned == PINS_BEFORE
+
+    series, archive = f"series:{DAILY}", f"archive:{DAILY}:2024/codz_2024.zip"
+    slots = {
+        "raba": [series, f"{series}:{RABA}", archive],
+        "sync": [series, f"{series}:{RABA}", f"{series}:{BEZ_Q}", archive],
+        "cell": ["pmaxtp:pl.imgw.pmaxtp:POT/751_317"],
+        "catalog": ["catalog:pl.imgw.stations"],
+    }
+    slots["build"] = slots["sync"]
+    expected = [
+        (name, slot, path)
+        for name in tasks
+        for slot, (_, path) in zip(slots[name], PINS_BEFORE[name], strict=True)
+    ]
+    for command in ("project status", "project verify"):
+        report = run(command)
+        assert report.tasks == dict.fromkeys(tasks, "current"), command
+        assert [
+            (item.task, item.slot, item.version.relative_to(root).as_posix())
+            for item in report.files
+        ] == expected, command
+        assert {item.error_code for item in report.files} == {None}
+    # The slot of a pinned version (without a station selector) is its store slot.
+    for name, slot, path in expected:
+        if slot.count(":") == 1 or not slot.startswith("series:"):
+            entry = current_version(root, slot=slot)
+            assert entry is not None and entry.slot == slot, (name, slot)
+            assert entry.version.relative_to(root).as_posix() == path
 
 
 def test_status_verify_check_and_restore_follow_the_pins(tmp_path, fixture_root, imgw):
@@ -221,9 +301,15 @@ def test_concurrent_imgw_processes_merge_tasks_and_refuse_a_conflict(
     assert sorted(task.name for task in open_project(project).tasks) == list("abcd")
     with ThreadPoolExecutor(2) as pool:
         rivals = list(pool.map(add, ["x", "x"], [[RABA], [BEZ_Q]]))
-    assert sorted(result.returncode for result in rivals) == [0, 1]
-    (loser,) = [result for result in rivals if result.returncode == 1]
-    assert "Błąd: Zadanie 'x' już istnieje w projekcie" in loser.stderr
+    assert sorted(result.returncode for result in rivals) == [0, 4]
+    (loser,) = [result for result in rivals if result.returncode == 4]
+    assert loser.stdout == ""
+    error = json.loads(loser.stderr.strip().splitlines()[-1])
+    assert (error["code"], error["details"]) == (
+        "conflict",
+        {"option": "name", "value": "x"},
+    )
+    assert error["detail"] == "Zadanie 'x' już istnieje w projekcie"
     winner = rivals.index(next(result for result in rivals if result.returncode == 0))
     (task,) = [task for task in open_project(project).tasks if task.name == "x"]
     assert list(task.options["stations"]) == [[RABA], [BEZ_Q]][winner]

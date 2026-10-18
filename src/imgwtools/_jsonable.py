@@ -3,8 +3,9 @@ Single JSON conversion of public results for the CLI, REST and ``CommandResult``
 
 Rules (spec §13.1 p. 4): dates as ``YYYY-MM-DD``, instants as ISO 8601 UTC with
 ``Z``, tuples, lists and sets as arrays, dataclasses and pydantic models as
-objects of their fields, paths inside the store as POSIX paths relative to the
-root, other paths as absolute paths. The root itself is absolute, or ``"."`` in
+objects of their fields (a ``StorePlan`` as its ``imgw-plan/1`` document, spec
+§11.5 and §13.6), paths inside the store as POSIX paths relative to the root,
+other paths as absolute paths. The root itself is absolute, or ``"."`` in
 server mode, where the root prefix is also removed from free text.
 """
 
@@ -16,10 +17,15 @@ from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from datetime import UTC, date, datetime
 from enum import Enum
+from functools import cache
 from os import PathLike
 from pathlib import Path, PurePath
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from imgwtools.store.types import StorePlan
 
 __all__ = ["jsonable"]
 
@@ -36,13 +42,16 @@ def jsonable(
     Parameters
     ----------
     value : object
-        Result, dataclass, pydantic model, mapping, sequence or scalar.
+        Result, dataclass, pydantic model, mapping, sequence or scalar; a
+        ``StorePlan`` is written as its ``imgw-plan/1`` document (flat items
+        readable by ``StorePlan.from_json``).
     root : str or os.PathLike or None, optional
         Store root; paths below it become POSIX paths relative to it. Without a
         root every path is written as an absolute path.
     server : bool, optional
         REST mode: the root itself is written as ``"."`` and the root prefix is
-        removed from every text (``<root>/x`` → ``x``, bare ``<root>`` → ``.``).
+        removed from every text (``<root>/x`` → ``x``, bare ``<root>`` → ``.``);
+        the root inside a URL or a longer path is not a path and stays.
 
     Returns
     -------
@@ -68,7 +77,16 @@ def _prefix_pattern(roots: tuple[Path, ...]) -> re.Pattern[str] | None:
     if not prefixes:
         return None
     alternatives = "|".join(re.escape(prefix) for prefix in prefixes)
-    return re.compile(rf"(?:{alternatives})(?:[/\\]|(?![^\s'\"),:;]))")
+    # A path starts a token: the root inside a URL or another path is kept.
+    return re.compile(rf"(?<![\w.~/-])(?:{alternatives})(?:[/\\]|(?![^\s'\"),:;]))")
+
+
+@cache
+def _plan_type() -> type[StorePlan]:
+    """`StorePlan`, imported lazily: ``imgwtools.store.types`` imports this module."""
+    from imgwtools.store.types import StorePlan
+
+    return StorePlan
 
 
 def _convert(
@@ -94,6 +112,8 @@ def _convert(
         return value.isoformat()
     if isinstance(value, BaseModel):
         return _convert(dict(value), roots, server, pattern)
+    if isinstance(value, _plan_type()):
+        return _convert(value._document(), roots, server, pattern)
     if is_dataclass(value) and not isinstance(value, type):
         return {
             item.name: _convert(getattr(value, item.name), roots, server, pattern)

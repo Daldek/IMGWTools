@@ -248,32 +248,26 @@ class StorePlan:
     actions: tuple[PlanAction, ...] = ()
     cancelled: bool = False
 
-    def to_json(self, path: PathArg, /) -> Path:
+    def _document(self) -> dict[str, Any]:
         """
-        Save the plan as a portable ``imgw-plan/1`` JSON document.
+        Build the fields of the ``imgw-plan/1`` document (spec §11.5).
 
-        Local archive paths are written as relative POSIX paths, timestamps
-        in UTC with a ``Z`` suffix. The document is canonical UTF-8 JSON
-        with sorted keys; archive publication periods are omitted and
-        restored from the offline registry by `from_json`.
-
-        Parameters
-        ----------
-        path : str or os.PathLike
-            Target file path; an existing file is overwritten.
+        Archive descriptors are flattened into the items without their
+        publication periods (`from_json` restores them from the registry)
+        and local archive paths become relative POSIX texts. ``root`` stays
+        a `Path` and ``checked_at`` a `datetime`, so `to_json` and the JSON
+        envelope converter (``imgwtools._jsonable``) render them by their
+        own rules.
 
         Returns
         -------
-        Path
-            Path of the written file.
+        dict of str to object
+            Document fields in contract order.
         """
-        target = Path(path)
-        payload = {
+        return {
             "schema": self.schema,
-            "root": str(self.root),
-            "checked_at": self.checked_at.astimezone(UTC)
-            .isoformat()
-            .replace("+00:00", "Z"),
+            "root": self.root,
+            "checked_at": self.checked_at,
             "cancelled": self.cancelled,
             "items": [
                 {
@@ -299,6 +293,32 @@ class StorePlan:
             "series_state": dict(self.series_state),
             "actions": [asdict(action) for action in self.actions],
         }
+
+    def to_json(self, path: PathArg, /) -> Path:
+        """
+        Save the plan as a portable ``imgw-plan/1`` JSON document.
+
+        Local archive paths are written as relative POSIX paths, timestamps
+        in UTC with a ``Z`` suffix. The document is canonical UTF-8 JSON
+        with sorted keys; archive publication periods are omitted and
+        restored from the offline registry by `from_json`.
+
+        Parameters
+        ----------
+        path : str or os.PathLike
+            Target file path; an existing file is overwritten.
+
+        Returns
+        -------
+        Path
+            Path of the written file.
+        """
+        target = Path(path)
+        payload = self._document()
+        payload["root"] = str(self.root)
+        payload["checked_at"] = (
+            self.checked_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        )
         target.write_text(
             json.dumps(
                 payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -1007,14 +1027,14 @@ class ProjectFile:
         Version file path relative to the project's store directory.
     sha256 : str
         Full SHA-256 hex digest of the file.
-    station : str or None, optional
-        Station code; required for ``"station_series"`` files.
+    station_code : str or None, optional
+        Station code (9 digits); required for ``"station_series"`` files.
     """
 
     role: Literal["series", "station_series", "catalog", "input"]
     path: Path
     sha256: str
-    station: str | None = None
+    station_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1060,7 +1080,10 @@ class ProjectReport:
     tasks : Mapping of str to {"unpinned", "current", "missing", "changed", "upgraded", "failed", "cancelled"}
         State of each processed task, keyed by task name.
     files : tuple of OperationResult
-        Per-file outcomes; slots are ``<task>:<path relative to the store>``.
+        Per-file outcomes with the §13.7 slot of the pinned file (a station
+        file of a series has the selector ``series:<key>:<station_code>``)
+        and the task name in ``task``; an error of a whole task has
+        ``slot=None``, and failed items carry ``error_code``.
     cancelled : bool
         Whether the operation was cancelled.
     """

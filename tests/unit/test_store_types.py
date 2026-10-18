@@ -234,6 +234,33 @@ def test_to_json_without_root_writes_absolute_paths(tmp_path, monkeypatch):
     assert envelope.to_json()["result"] == str(tmp_path / "out" / "a.zip")
 
 
+def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):
+    plan = _plan(tmp_path)
+    envelope = CommandResult("store check", True, "ok", plan, ())
+    saved = json.loads(plan.to_json(tmp_path / "plan.json").read_text())
+
+    local = envelope.to_json(root=tmp_path)["result"]
+    served = envelope.to_json(root=tmp_path, server=True)["result"]
+
+    assert local == saved
+    assert served == {**saved, "root": "."}
+    (tmp_path / "result.json").write_text(json.dumps(local))
+    assert StorePlan.from_json(tmp_path / "result.json") == plan
+
+
+def test_to_json_server_mode_keeps_the_root_inside_urls_and_other_paths():
+    text = (
+        "Plik https://danepubliczne.imgw.pl/data/a.zip do /data/a.zip, nie /srv/data/b"
+    )
+    envelope = CommandResult("datasets files", False, "ok", text, ())
+
+    served = envelope.to_json(root="/data", server=True)
+
+    assert served["result"] == (
+        "Plik https://danepubliczne.imgw.pl/data/a.zip do a.zip, nie /srv/data/b"
+    )
+
+
 def test_to_json_converts_dates_tuples_dataclasses_and_models(tmp_path):
     warsaw = timezone(timedelta(hours=2))
     result = Page(

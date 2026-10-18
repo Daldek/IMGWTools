@@ -563,7 +563,7 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     pins = {pin["role"]: pin for pin in document["tasks"][0]["files"]}
     assert pins["series"]["path"] == series.version.relative_to(root).as_posix()
     assert pins["input"]["path"] == newer.version.relative_to(root).as_posix()
-    assert pins["station_series"]["station"] == RABA
+    assert pins["station_series"]["station_code"] == RABA
     assert all(sha256(root / pin["path"]) == pin["sha256"] for pin in pins.values())
     assert verify_project(project).tasks == {"raba": "current"}
 
