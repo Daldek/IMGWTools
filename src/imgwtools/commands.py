@@ -14,7 +14,7 @@ import os
 import re
 import shlex
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from functools import partial
@@ -248,6 +248,29 @@ _COMMANDS = (
                 "user_locations",
                 "path",
                 "Plik CSV UTF-8 użytkownika z kolumnami station_code,lon,lat,source",
+            ),
+        ),
+    ),
+    DataCommand(
+        "store read",
+        "Odczytaj rekordy jednej wersji archiwum z magazynu (offline, weryfikacja SHA-256).",
+        (
+            _opt(
+                "version",
+                "path",
+                "Wersja archiwum: katalog wersji, plik archiwum albo jego sidecar",
+                required=True,
+            ),
+            _opt(
+                "format",
+                "choice",
+                "Format wyniku: csv albo jsonl (domyślnie csv)",
+                choices=("csv", "jsonl"),
+            ),
+            _opt(
+                "path",
+                "path",
+                "Plik wyniku poza magazynem (domyślnie standardowe wyjście)",
             ),
         ),
     ),
@@ -664,6 +687,11 @@ def _rules_store_sync(options: Options) -> None:
         _check_selectors(options)
 
 
+def _rules_store_read(options: Options) -> None:
+    if "path" in options and _inside(options["path"], _store_root(options["version"])):
+        _fail("Plik wyniku store read musi być zapisany poza magazynem")
+
+
 def _rules_series_select(options: Options) -> None:
     descriptor = get_dataset(options["dataset"])
     unknown = [
@@ -712,6 +740,7 @@ def _rules_fetch_meteo(options: Options) -> None:
 _RULES: dict[str, Callable[[Options], None]] = {
     "store check": _rules_store_check,
     "store sync": _rules_store_sync,
+    "store read": _rules_store_read,
     "series select": _rules_series_select,
     "pmaxtp check": _rules_pmaxtp,
     "pmaxtp sync": _rules_pmaxtp,
@@ -1115,6 +1144,39 @@ def _store_root(version: Path) -> Path:
     return path.parent
 
 
+def _run_store_read(options: Options, hooks: Hooks) -> Path | Iterator[str]:
+    export = importlib.import_module("imgwtools.store.export")
+    records = _store.read_archive(options["version"])
+    lines = export._record_lines(records, format=options.get("format", "csv"))
+    if "path" not in options:
+        return lines
+    return export._write_lines(options["path"], lines, cancel=hooks["cancel"])
+
+
+def _check_store_read(options: Options, hooks: Hooks) -> StorePlan:
+    version, format_ = options["version"], options.get("format", "csv")
+    try:
+        _store.read_archive(version)
+    except IMGWError as exc:
+        action = PlanAction("store read", "check_failed", str(exc))
+    else:
+        if "path" not in options:
+            action = PlanAction(
+                "store read",
+                "current",
+                f"Odczyt rekordów {version} ({format_}) na standardowe wyjście",
+            )
+        else:
+            target = _absolute(options["path"])
+            action = PlanAction(
+                "store read",
+                "newer" if target.exists() else "missing",
+                f"Zapis rekordów {version} ({format_}) do {target}"
+                + (" (istniejący plik zostanie zastąpiony)" if target.exists() else ""),
+            )
+    return _plan(_store_root(version), [action])
+
+
 def _run_export(options: Options, hooks: Hooks) -> Path:
     export = importlib.import_module("imgwtools.store.export")
     return export.export_series(
@@ -1318,6 +1380,7 @@ _RUN: dict[str, Runner] = {
     "store catalog": lambda o, h: _store.build_catalog(
         o["root"], user_locations=o.get("user_locations"), **h
     ),
+    "store read": _run_store_read,
     "series build": lambda o, h: _store.build_series(
         o["root"], dataset=o["dataset"], **h
     ),
@@ -1377,6 +1440,7 @@ _CHECK: dict[str, Runner] = {
     "store catalog": lambda o, h: _store.check_catalog(
         o["root"], user_locations=o.get("user_locations"), **h
     ),
+    "store read": _check_store_read,
     "series build": lambda o, h: _store.check_series(
         o["root"], dataset=o["dataset"], **h
     ),
@@ -1474,6 +1538,7 @@ def run_command(
     | Project
     | ProjectReport
     | Path
+    | Iterator[str]
 ):
     """
     Run a catalog command through exactly one public API function.
@@ -1498,7 +1563,10 @@ def run_command(
         tuple of `StoreEntry`, `StorePlan`, `SyncReport`, `SeriesReport`,
         `SeriesSelection`, `CatalogReport`, `PMaXTPStoreResult`, `PMaXTPResult`,
         `Project`, `ProjectReport` or `Path` (``fetch hydro|meteo`` return the
-        output directory).
+        output directory, ``store read`` with ``path`` the written file).
+        ``store read`` without ``path`` returns an iterator of formatted text
+        lines (CSV with header or JSONL, line terminators included); the
+        archive is validated and verified before it is returned.
 
     Raises
     ------

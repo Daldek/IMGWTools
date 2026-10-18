@@ -365,16 +365,47 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
+@dataclass(frozen=True)
+class StationListEntry:
+    """
+    One row of an IMGW station list (hydrological or meteorological).
+
+    Attributes
+    ----------
+    kind : {"hydro", "meteo"}
+        Station family of the list the row comes from.
+    station_code : str
+        Station code as text (normally nine digits; kept verbatim).
+    name : str
+        Station name.
+    river : str or None
+        Hydro only: river name without the hydrographic code suffix.
+    hydrographic_code : str or None
+        Hydro only: hydrographic code from the parentheses of the river
+        column, kept as text (leading zeros preserved).
+    river_order : int or None
+        Hydro only: fourth column of the list, without assigned hydrological
+        meaning.
+    short_code : str or None
+        Meteo only: third column of the list (IMGW short station number),
+        kept as text without surrounding whitespace.
+    """
+
+    kind: Literal["hydro", "meteo"]
+    station_code: str
+    name: str
+    river: str | None = None
+    hydrographic_code: str | None = None
+    river_order: int | None = None
+    short_code: str | None = None
+
+
 class HydroArchiveStation(BaseModel):
-    """Station metadata found in hydrological archive CSV files."""
+    """Station metadata found in hydrological archive data CSV files."""
 
     station_code: str
     station_name: str
     river_name: str | None = None
-    hydrographic_code: str | None = None
-    river_order: int | None = None
-    latitude: float | None = None
-    longitude: float | None = None
 
 
 class HydroDailyRecord(BaseModel):

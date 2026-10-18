@@ -6,18 +6,11 @@ Provides access to hydrological and meteorological station data from IMGW.
 
 from __future__ import annotations
 
-import csv
-import io
-import re
-from typing import TYPE_CHECKING
-
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools.exceptions import IMGWConnectionError, IMGWDataError
-
-if TYPE_CHECKING:
-    pass
 
 # URLs for station data
 HYDRO_STATIONS_CSV_URL = (
@@ -313,67 +306,24 @@ def _json_payload(response: httpx.Response) -> dict | list:
 
 def _parse_hydro_stations_csv(content: str) -> list[HydroStation]:
     """Parse hydro stations CSV content."""
-    stations = []
-    reader = csv.reader(io.StringIO(content))
-
-    for row in reader:
-        if len(row) < 2:
-            continue
-
-        try:
-            station_id = row[0].strip().strip('"')
-            name = row[1].strip().strip('"')
-
-            river = None
-            hydrographic_code = None
-            if len(row) > 2:
-                river_raw = row[2].strip().strip('"')
-                match = re.match(r"^(.+?)\s*\((\d+)\)$", river_raw)
-                if match:
-                    river = match.group(1).strip()
-                    hydrographic_code = match.group(2)
-                else:
-                    river = river_raw or None
-            order = row[3].strip() if len(row) > 3 else ""
-            river_order = int(order) if order.isdecimal() else None
-            stations.append(
-                HydroStation(
-                    station_code=station_id,
-                    station_name=name,
-                    river_name=river,
-                    hydrographic_code=hydrographic_code,
-                    river_order=river_order,
-                )
-            )
-        except (IndexError, ValueError):
-            continue
-
-    return stations
+    return [
+        HydroStation(
+            station_code=entry.station_code,
+            station_name=entry.name,
+            river_name=entry.river,
+            hydrographic_code=entry.hydrographic_code,
+            river_order=entry.river_order,
+        )
+        for entry in parse_stations_csv(content, kind="hydro")
+    ]
 
 
 def _parse_meteo_stations_csv(content: str) -> list[MeteoStation]:
     """Parse meteo stations CSV content."""
-    stations = []
-    reader = csv.reader(io.StringIO(content))
-
-    for row in reader:
-        if len(row) < 2:
-            continue
-
-        try:
-            station_id = row[0].strip().strip('"')
-            name = row[1].strip().strip('"')
-
-            stations.append(
-                MeteoStation(
-                    station_id=station_id,
-                    name=name,
-                )
-            )
-        except (IndexError, ValueError):
-            continue
-
-    return stations
+    return [
+        MeteoStation(station_id=entry.station_code, name=entry.name)
+        for entry in parse_stations_csv(content, kind="meteo")
+    ]
 
 
 def _parse_map_stations_response(data: dict | list) -> list[HydroStation]:

@@ -14,10 +14,10 @@ from imgwtools._parsing.hydro import (
     parse_daily_csv,
     parse_monthly_csv,
     parse_semi_annual_csv,
-    parse_stations_csv,
     parse_zip_file,
 )
 from imgwtools._parsing.meteo import parse_meteo_climate_daily, parse_meteo_precip_daily
+from imgwtools._parsing.stations import parse_stations_csv
 
 __all__ = [
     "IMGW_ENCODING",

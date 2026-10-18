@@ -9,6 +9,16 @@ from imgwtools._parsing.common import _decode_content, _detect_delimiter, _iter_
 from imgwtools.exceptions import IMGWDataError
 from imgwtools.models import Measurement, NormalizedRecord
 
+_ATTRIBUTE_COLUMNS = {
+    "k_d": (("precip_type", 15),),
+    "o_d": (("precip_type", 7), ("snow_species", 12), ("snow_cover_type", 14)),
+}
+DATASET_ATTRIBUTES = {
+    "pl.imgw.meteo_climate_daily": tuple(k for k, _ in _ATTRIBUTE_COLUMNS["k_d"]),
+    "pl.imgw.meteo_precip_daily": tuple(k for k, _ in _ATTRIBUTE_COLUMNS["o_d"]),
+}
+"""Qualitative ``NormalizedRecord.attributes`` keys of each meteorological dataset."""
+
 
 def _measurement(raw: str, status: str, *, filename: str, number: int) -> Measurement:
     status = status.strip()
@@ -67,7 +77,6 @@ def _parse_daily(
                         ("snow_cover", 16),
                     )
                 }
-                attributes = {"precip_type": row[15].strip() or None}
             else:
                 values = {
                     key: _measurement(
@@ -75,11 +84,10 @@ def _parse_daily(
                     )
                     for key, offset in (("P", 5), ("snow_cover", 8), ("fresh_snow", 10))
                 }
-                attributes = {
-                    "precip_type": row[7].strip() or None,
-                    "snow_species": row[12].strip() or None,
-                    "snow_cover_type": row[14].strip() or None,
-                }
+            attributes = {
+                key: row[column].strip() or None
+                for key, column in _ATTRIBUTE_COLUMNS[kind]
+            }
             record = NormalizedRecord(
                 station,
                 "pl.imgw.meteo_climate_daily"

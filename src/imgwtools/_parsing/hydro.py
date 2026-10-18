@@ -1,7 +1,5 @@
 """Hydrological archive CSV parsers and normalization, without database dependencies."""
 
-import csv
-import io
 import re
 from collections.abc import Iterator
 from datetime import date, datetime
@@ -354,46 +352,6 @@ def parse_zip_file(
     interval = "polroczne_i_roczne" if interval == "polroczne" else interval
     for _, content in archive_csv_members(zip_data):
         yield from _parse(content, interval)
-
-
-def parse_stations_csv(
-    content: str | bytes, encoding: str = IMGW_ENCODING
-) -> Iterator[HydroArchiveStation]:
-    """
-    Parse station list CSV.
-
-    CSV format (from lista_stacji_hydro.csv):
-    1. ID
-    2. Nazwa stacji
-    3. Rzeka (kod hydrograficzny) - format: "Odra (1)"
-    4. Kolejnosc (optional, kept as ``river_order``)
-
-    Parameters
-    ----------
-    content : str or bytes
-        CSV content.
-    encoding : str, optional
-        Character encoding used when ``content`` is bytes (default CP1250).
-
-    Yields
-    ------
-    HydroArchiveStation
-        Station parsed from a CSV row.
-    """
-    text = content if isinstance(content, str) else _decode_content(content, encoding)
-    for row in csv.reader(io.StringIO(text)):
-        if len(row) < 2:
-            continue
-        raw_river = row[2].strip() if len(row) > 2 else ""
-        match = re.match(r"^(.+?)\s*\((\d+)\)$", raw_river)
-        order = row[3].strip() if len(row) > 3 else ""
-        yield HydroArchiveStation(
-            station_code=row[0].strip().strip('"'),
-            station_name=row[1].strip().strip('"'),
-            river_name=match.group(1).strip() if match else raw_river or None,
-            hydrographic_code=match.group(2) if match else None,
-            river_order=int(order) if order.isdecimal() else None,
-        )
 
 
 def _measurement(value: float | None) -> Measurement:

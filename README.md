@@ -139,13 +139,16 @@ for station, record in parse_zip_file(result.data, "dobowe"):
 
 ```python
 from imgwtools import (
+    archive_files,
     build_series,
     check_store,
     current_version,
     export_series,
     init_store,
+    read_archive,
     read_series,
     read_series_index,
+    read_station_list,
     sync_store,
 )
 
@@ -167,6 +170,16 @@ for record in read_series(series.version, station="149180020", variables=["H", "
 
 # 4. Eksport CSV z jednostkami i atrybucją IMGW-PIB
 export_series(series.version, station="149180020", path="q.csv", variables=["Q"])
+
+# 5. Rekordy jednej zapisanej wersji archiwum (SHA-256 weryfikowane, parser zbioru)
+(daily_2024,) = archive_files("pl.imgw.hydro_daily", years=[2024])
+archive = current_version(store, slot=f"archive:{daily_2024.server_path}")
+records = list(read_archive(archive.version))
+
+# 6. Bieżąca lista stacji zbioru pl.imgw.hydro_stations / pl.imgw.meteo_stations
+#    (zapisuje ją build_catalog); jeden typ StationListEntry z polem kind
+for station in read_station_list(store, kind="meteo"):
+    print(station.station_code, station.name, station.short_code)
 ```
 
 Do testów offline służy `imgwtools.testing.build_fixture_store(root)` — buduje mały magazyn z nagranych odpowiedzi, bez internetu.
@@ -230,6 +243,7 @@ imgw store init --root /dane/imgw
 imgw store check --root /dane/imgw --dataset pl.imgw.hydro_daily --years 2023-2024 --plan plan.json
 imgw store sync --root /dane/imgw --plan plan.json
 imgw store catalog --root /dane/imgw          # stations.geojson
+imgw store read --version /dane/imgw/archives/versions/<ścieżka>/<wersja> --format jsonl
 imgw series select --root /dane/imgw --dataset pl.imgw.hydro_daily --stations 149180020
 imgw series export --version /dane/imgw/series/versions/hydro_daily/<wersja> \
     --station 149180020 --path q.csv --variables H,Q
@@ -371,7 +385,7 @@ Dane bieżące (hydro, synop), ostrzeżenia i `fetch_pmaxtp` pozostają zapytani
 
 ### Integracje
 
-- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_series_index`, `read_series`, `read_pmaxtp`); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty.
+- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_station_list`, `read_archive`, `read_series_index`, `read_series`, `read_pmaxtp`); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty.
 - **Retman** uruchamia działania jako handler przez publiczny katalog komend (`data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`) — te same opcje, walidacja i komunikaty co w CLI.
 
 Poprzedni opcjonalny cache SQLite został usunięty w 3.0.0 bez migracji — zob. `docs/CHANGELOG.md`.
@@ -473,6 +487,7 @@ Pełna lista: [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (także wcześniejsze wyd
   Istniejące pliki `.db` nie są usuwane ani migrowane.
 - `imgw fetch hydro|meteo -o` zapisuje pliki w podkatalogach ścieżek serwera IMGW.
 - `parse_zip_file` zgłasza uszkodzony ZIP jako `IMGWDataError`.
+- `parse_stations_csv` wymaga `kind="hydro"|"meteo"` i zwraca `StationListEntry`.
 
 ### Nowe
 
@@ -483,6 +498,8 @@ Pełna lista: [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (także wcześniejsze wyd
   `normalize_archive`), rejestr zbiorów (`datasets`, `archive_files`), katalog komend
   (`run_command`) i projekty (`imgw project …`).
 - Publiczny budowniczy magazynu testowego `imgwtools.testing.build_fixture_store`.
+- Odczyt offline list stacji (`read_station_list`) i wersji archiwów (`read_archive`,
+  `imgw store read`) z weryfikacją SHA-256.
 
 ---
 

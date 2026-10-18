@@ -21,7 +21,8 @@ import pytest
 
 from imgwtools._parsing.common import _decode_content, _detect_delimiter
 from imgwtools.datasets import ArchiveFile
-from imgwtools.exceptions import IMGWDataError
+from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.models import StationListEntry
 from imgwtools.parsers import (
     normalize_archive,
     parse_daily_csv,
@@ -584,8 +585,24 @@ def test_semiannual_generic_missing_sentinel():
     assert record.measurements["H_mean"].flag == "missing"
 
 
-def test_archive_station_parser_keeps_hydrographic_fields():
-    (station,) = list(parse_stations_csv("149190310,Raba,Raba (02138),1\n"))
-    assert station.river_name == "Raba"
-    assert station.hydrographic_code == "02138"
-    assert station.river_order == 1
+def test_station_list_parser_keeps_hydrographic_fields():
+    (station,) = list(
+        parse_stations_csv("149190310,Raba,Raba (02138),1\n", kind="hydro")
+    )
+    assert station == StationListEntry(
+        "hydro", "149190310", "Raba", "Raba", "02138", 1, None
+    )
+
+
+def test_station_list_parser_reads_meteo_columns_without_river_fields():
+    content = '"123750000","Warszawa"," 375"\n"123760000","Bez Numeru",""\n'
+    stations = list(parse_stations_csv(content.encode("cp1250"), kind="meteo"))
+    assert stations == [
+        StationListEntry("meteo", "123750000", "Warszawa", short_code="375"),
+        StationListEntry("meteo", "123760000", "Bez Numeru"),
+    ]
+
+
+def test_station_list_parser_rejects_unknown_kind():
+    with pytest.raises(IMGWValidationError):
+        list(parse_stations_csv("1,A\n", kind="synop"))  # type: ignore[arg-type]
