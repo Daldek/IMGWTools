@@ -15,13 +15,14 @@
             <select id="station-type" onchange="loadStations()">
                 <option value="hydro">Stacje hydrologiczne</option>
                 <option value="meteo">Stacje meteorologiczne</option>
+                <option value="">Wszystkie stacje</option>
             </select>
         </label>
 
         <label>
             Szukaj
             <input type="search" id="station-search"
-                   placeholder="Wpisz nazwę stacji lub rzeki..."
+                   placeholder="Nazwa stacji, rzeka lub początek kodu (np. lodz)"
                    onkeyup="debounceSearch()">
         </label>
 
@@ -51,16 +52,19 @@
     }
 
     function loadStations() {
-        const type = document.getElementById('station-type').value;
-        const search = document.getElementById('station-search').value;
-        const limit = document.getElementById('station-limit').value;
-
-        let url = '/stations/' + type + '?limit=' + limit;
-        if (search) {
-            url += '&search=' + encodeURIComponent(search);
+        const params = new URLSearchParams({
+            limit: document.getElementById('station-limit').value,
+        });
+        const kind = document.getElementById('station-type').value;
+        const query = document.getElementById('station-search').value.trim();
+        if (kind) {
+            params.set('kind', kind);
+        }
+        if (query) {
+            params.set('query', query);
         }
 
-        htmx.ajax('GET', url, {target: '#stations-results'});
+        htmx.ajax('GET', '/stations/find?' + params, {target: '#stations-results'});
     }
 
     // Load initial data

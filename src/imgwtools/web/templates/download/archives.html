@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <hgroup>
+        <h1>Dane archiwalne</h1>
+        <p>Generator linków do archiwów hydrologicznych i meteorologicznych IMGW</p>
+    </hgroup>
+</header>
+
+<article>
+    <form hx-post="/download/files"
+          hx-target="#results"
+          hx-indicator="#loading-indicator">
+
+        <label>
+            Zbiór danych
+            <select name="dataset" required>
+                {% for group_title, items in groups %}
+                <optgroup label="{{ group_title }}">
+                    {% for item in items %}
+                    <option value="{{ item.key }}">{{ item.title }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+        </label>
+
+        <div class="grid">
+            <label>
+                Lata
+                <input type="text" name="years" value="2023" required
+                       placeholder="np. 2023, 2020-2023 lub 2019,2021">
+                <small>Rok, zakres <code>a-b</code> albo lista po przecinku</small>
+            </label>
+
+            <label>
+                Miesiące (opcjonalnie)
+                <input type="text" name="months" placeholder="np. 1,2,3">
+                <small>1–12, tylko pliki miesięczne; w danych hydrologicznych 1 = listopad</small>
+            </label>
+        </div>
+
+        <fieldset>
+            <legend>Parametry (tylko dane hydrologiczne półroczne i roczne)</legend>
+            <label><input type="checkbox" name="params" value="H"> Stan wody (H)</label>
+            <label><input type="checkbox" name="params" value="Q"> Przepływ (Q)</label>
+            <label><input type="checkbox" name="params" value="T"> Temperatura wody (T)</label>
+            <small>Bez zaznaczenia — wszystkie trzy parametry</small>
+        </fieldset>
+
+        <button type="submit">Generuj linki do pobrania</button>
+    </form>
+</article>
+
+<section id="results">
+    <!-- HTMX will load results here -->
+</section>
+
+<article>
+    <header>
+        <h3>Zbiory archiwalne</h3>
+    </header>
+    <table>
+        <thead>
+            <tr>
+                <th>Zbiór</th>
+                <th>Klucz</th>
+                <th>Od roku</th>
+                <th>Rok</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in archives %}
+            <tr>
+                <td>{{ item.title }}</td>
+                <td><code>{{ item.key }}</code></td>
+                <td>{{ item.first_year }}</td>
+                <td>{{ "hydrologiczny (XI–X)" if item.year_type == "hydrological" else "kalendarzowy" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p><small>{{ archives[0].license.attribution }}</small></p>
+</article>
+{% endblock %}

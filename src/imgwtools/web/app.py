@@ -1,548 +1,303 @@
 """
-Web GUI application using HTMX + Jinja2.
+Web GUI of IMGWTools (HTMX + Jinja2) built on the public library API.
 
-This module provides a web interface for generating download URLs
-and browsing IMGW data.
+Handlers call only public functions: `datasets` and `archive_files` (archive
+download links by dataset key), `run_command` (``stations find`` with paging),
+`validate_command` and `fetch_pmaxtp_async` (PMAXTP tables). The station map
+reads the catalog route ``GET /api/v1/current/hydro-states`` from the browser.
+Every `IMGWError` is rendered as ``partials/error.html`` with its ``code`` and
+``detail`` and the HTTP status of the error registry; HTMX swaps those answers
+too (``static/js/app.js``).
 """
 
-from pathlib import Path
+from __future__ import annotations
 
-import httpx
-from fastapi import APIRouter, Form, Query, Request
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Literal, cast
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from imgwtools.core.url_builder import (
-    HydroInterval,
-    HydroParam,
-    MeteoInterval,
-    MeteoSubtype,
-    PMaXTPMethod,
-    build_hydro_url,
-    build_meteo_url,
-    build_pmaxtp_url,
+from imgwtools import (
+    ERROR_CODES,
+    DatasetDescriptor,
+    IMGWError,
+    archive_files,
+    datasets,
+    fetch_pmaxtp_async,
+    run_command,
+    validate_command,
 )
+from imgwtools.api.errors import hide_server_paths
 
-# Templates directory
+if TYPE_CHECKING:
+    from imgwtools import StationListEntry
+    from imgwtools.store.types import Page
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Router for web GUI
 router = APIRouter()
+
+_KIND_TITLES = {"hydro": "Dane hydrologiczne", "meteo": "Dane meteorologiczne"}
+_PMAXTP_METHODS = (
+    ("POT", "Peak Over Threshold"),
+    ("AMP", "Annual Max Precipitation"),
+)
+_STATION_PAGE_SIZE = "50"
+
+
+def _error(request: Request, error: IMGWError) -> HTMLResponse:
+    """
+    Render an IMGWTools error as the error partial.
+
+    Parameters
+    ----------
+    request : Request
+        Current request.
+    error : IMGWError
+        Error raised by a public function.
+
+    Returns
+    -------
+    HTMLResponse
+        ``partials/error.html`` with the code, its Polish title and the
+        ``detail`` without absolute server paths, with the HTTP status of the
+        error registry (500 for codes that REST never reports).
+    """
+    spec = ERROR_CODES[error.code]
+    return templates.TemplateResponse(
+        request,
+        "partials/error.html",
+        {
+            "code": error.code,
+            "title": spec.title,
+            "detail": hide_server_paths(error.detail),
+            "option": error.details.get("option"),
+        },
+        status_code=spec.http_status or 500,
+    )
+
+
+def _archive_datasets() -> tuple[DatasetDescriptor, ...]:
+    """The ten archive datasets of the registry (yearly server archives)."""
+    return tuple(
+        descriptor
+        for descriptor in datasets()
+        if descriptor.first_year is not None and descriptor.server_dir is not None
+    )
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    """Main page - dashboard."""
+async def index(request: Request) -> HTMLResponse:
+    """Render the dashboard."""
     return templates.TemplateResponse(
-        request,
-        "index.html",
-        {
-            "title": "IMGWTools - Pobieranie danych IMGW",
-        },
+        request, "index.html", {"title": "IMGWTools - Pobieranie danych IMGW"}
     )
 
 
 @router.get("/download", response_class=HTMLResponse)
-async def download_page(request: Request):
-    """Download page with forms."""
+async def download_page(request: Request) -> HTMLResponse:
+    """Render the choice of downloadable data."""
     return templates.TemplateResponse(
-        request,
-        "download/index.html",
-        {
-            "title": "Pobieranie danych",
-        },
+        request, "download/index.html", {"title": "Pobieranie danych"}
     )
 
 
-@router.get("/download/hydro", response_class=HTMLResponse)
-async def download_hydro_page(request: Request):
-    """Hydrological data download form."""
+@router.get("/download/archives", response_class=HTMLResponse)
+async def download_archives_page(request: Request) -> HTMLResponse:
+    """Render the archive download form with the registry's archive datasets."""
+    archives = _archive_datasets()
+    groups = [
+        (title, [item for item in archives if item.kind == kind])
+        for kind, title in _KIND_TITLES.items()
+    ]
     return templates.TemplateResponse(
         request,
-        "download/hydro.html",
-        {
-            "title": "Dane hydrologiczne",
-            "intervals": [
-                ("dobowe", "Dobowe"),
-                ("miesieczne", "Miesięczne"),
-                ("polroczne_i_roczne", "Półroczne i roczne"),
-            ],
-            "params": [
-                ("Q", "Przepływ (Q)"),
-                ("H", "Stan wody (H)"),
-                ("T", "Temperatura (T)"),
-            ],
-        },
+        "download/archives.html",
+        {"title": "Dane archiwalne", "groups": groups, "archives": archives},
     )
 
 
-@router.post("/download/hydro/generate", response_class=HTMLResponse)
-async def generate_hydro_urls(
+@router.post("/download/files", response_class=HTMLResponse)
+async def download_files(
     request: Request,
-    interval: str = Form(...),
-    start_year: int = Form(...),
-    end_year: int = Form(...),
-    param: str | None = Form(None),
-):
-    """Generate hydro download URLs (HTMX partial)."""
-    urls = []
-    errors = []
+    dataset: Annotated[str, Form()] = "",
+    years: Annotated[str, Form()] = "",
+    months: Annotated[str, Form()] = "",
+    params: Annotated[list[str] | None, Form()] = None,
+) -> HTMLResponse:
+    """
+    Render the download links of the selected archives (HTMX partial).
 
+    Parameters
+    ----------
+    request : Request
+        Current request.
+    dataset : str
+        Archive dataset key (form field).
+    years : str
+        Years as text: ``2023``, ``2020-2023`` or ``2019,2021`` (form field).
+    months : str
+        Optional months 1-12 as comma-separated text (form field).
+    params : list of str or None
+        Optional semi-annual parameters ``H``, ``Q``, ``T`` (form checkboxes).
+
+    Returns
+    -------
+    HTMLResponse
+        ``partials/download_links.html`` with the files of `archive_files`,
+        or the error partial for invalid input.
+    """
     try:
-        hydro_interval = HydroInterval(interval)
-        hydro_param = HydroParam(param) if param else None
-
-        for year in range(start_year, end_year + 1):
-            try:
-                if hydro_interval == HydroInterval.DAILY:
-                    if year >= 2023:
-                        # From 2023: single file per year
-                        result = build_hydro_url(hydro_interval, year)
-                        urls.append(
-                            {
-                                "url": result.url,
-                                "filename": result.filename,
-                                "year": year,
-                            }
-                        )
-                    else:
-                        # Before 2023: monthly files
-                        for month in range(1, 13):
-                            result = build_hydro_url(hydro_interval, year, month)
-                            urls.append(
-                                {
-                                    "url": result.url,
-                                    "filename": result.filename,
-                                    "year": year,
-                                    "month": month,
-                                }
-                            )
-                elif hydro_interval == HydroInterval.SEMI_ANNUAL:
-                    if hydro_param:
-                        result = build_hydro_url(
-                            hydro_interval, year, param=hydro_param
-                        )
-                        urls.append(
-                            {
-                                "url": result.url,
-                                "filename": result.filename,
-                                "year": year,
-                            }
-                        )
-                    else:
-                        for p in [
-                            HydroParam.FLOW,
-                            HydroParam.DEPTH,
-                            HydroParam.TEMPERATURE,
-                        ]:
-                            result = build_hydro_url(hydro_interval, year, param=p)
-                            urls.append(
-                                {
-                                    "url": result.url,
-                                    "filename": result.filename,
-                                    "year": year,
-                                    "param": p.value,
-                                }
-                            )
-                else:
-                    result = build_hydro_url(hydro_interval, year)
-                    urls.append(
-                        {
-                            "url": result.url,
-                            "filename": result.filename,
-                            "year": year,
-                        }
-                    )
-            except ValueError as e:
-                errors.append(f"Rok {year}: {e}")
-
-    except ValueError as e:
-        errors.append(str(e))
-
+        files = archive_files(
+            dataset,
+            years=years,
+            months=months or None,
+            params=cast("list[Literal['H', 'Q', 'T']]", params) if params else None,
+        )
+    except IMGWError as error:
+        return _error(request, error)
     return templates.TemplateResponse(
-        request,
-        "partials/download_links.html",
-        {
-            "urls": urls,
-            "errors": errors,
-            "count": len(urls),
-        },
-    )
-
-
-@router.get("/download/meteo", response_class=HTMLResponse)
-async def download_meteo_page(request: Request):
-    """Meteorological data download form."""
-    return templates.TemplateResponse(
-        request,
-        "download/meteo.html",
-        {
-            "title": "Dane meteorologiczne",
-            "intervals": [
-                ("dobowe", "Dobowe"),
-                ("miesieczne", "Miesięczne"),
-                ("terminowe", "Terminowe (godzinowe)"),
-            ],
-            "subtypes": [
-                ("klimat", "Klimat"),
-                ("opad", "Opad"),
-                ("synop", "Synop"),
-            ],
-        },
-    )
-
-
-@router.post("/download/meteo/generate", response_class=HTMLResponse)
-async def generate_meteo_urls(
-    request: Request,
-    interval: str = Form(...),
-    subtype: str = Form(...),
-    start_year: int = Form(...),
-    end_year: int = Form(...),
-):
-    """Generate meteo download URLs (HTMX partial)."""
-    urls = []
-    errors = []
-
-    try:
-        meteo_interval = MeteoInterval(interval)
-        meteo_subtype = MeteoSubtype(subtype)
-
-        for year in range(start_year, end_year + 1):
-            try:
-                if year <= 2000:
-                    # 1951-2000: yearly files (no monthly split)
-                    result = build_meteo_url(meteo_interval, meteo_subtype, year)
-                    urls.append(
-                        {
-                            "url": result.url,
-                            "filename": result.filename,
-                            "year": year,
-                        }
-                    )
-                elif meteo_interval in [MeteoInterval.DAILY, MeteoInterval.HOURLY]:
-                    # 2001+: monthly files
-                    for month in range(1, 13):
-                        result = build_meteo_url(
-                            meteo_interval, meteo_subtype, year, month
-                        )
-                        urls.append(
-                            {
-                                "url": result.url,
-                                "filename": result.filename,
-                                "year": year,
-                                "month": month,
-                            }
-                        )
-                else:
-                    result = build_meteo_url(meteo_interval, meteo_subtype, year)
-                    urls.append(
-                        {
-                            "url": result.url,
-                            "filename": result.filename,
-                            "year": year,
-                        }
-                    )
-            except ValueError as e:
-                errors.append(f"Rok {year}: {e}")
-
-    except ValueError as e:
-        errors.append(str(e))
-
-    # Monthly archives before 2001 are one file per 5-year folder,
-    # so consecutive years map to the same URL - deduplicate
-    seen: set[str] = set()
-    unique_urls = []
-    for u in urls:
-        if u["url"] not in seen:
-            seen.add(u["url"])
-            unique_urls.append(u)
-    urls = unique_urls
-
-    return templates.TemplateResponse(
-        request,
-        "partials/download_links.html",
-        {
-            "urls": urls,
-            "errors": errors,
-            "count": len(urls),
-        },
+        request, "partials/download_links.html", {"files": files}
     )
 
 
 @router.get("/download/pmaxtp", response_class=HTMLResponse)
-async def download_pmaxtp_page(request: Request):
-    """PMAXTP data download form."""
+async def download_pmaxtp_page(request: Request) -> HTMLResponse:
+    """Render the PMAXTP form."""
     return templates.TemplateResponse(
         request,
         "download/pmaxtp.html",
-        {
-            "title": "Opady maksymalne (PMAXTP)",
-            "methods": [
-                ("POT", "Peak Over Threshold"),
-                ("AMP", "Annual Max Precipitation"),
-            ],
-        },
+        {"title": "Opady maksymalne (PMAXTP)", "methods": _PMAXTP_METHODS},
     )
 
 
 @router.post("/download/pmaxtp/generate", response_class=HTMLResponse)
-async def generate_pmaxtp_url(
+async def generate_pmaxtp(
     request: Request,
-    method: str = Form(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-):
-    """Generate PMAXTP URL and fetch data (HTMX partial)."""
+    method: Annotated[str, Form()] = "",
+    latitude: Annotated[str, Form()] = "",
+    longitude: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    """
+    Fetch PMAXTP data for a point and render its tables (HTMX partial).
+
+    Parameters
+    ----------
+    request : Request
+        Current request.
+    method : str
+        ``POT`` or ``AMP`` (form field; empty selects ``POT``).
+    latitude : str
+        Latitude WGS84 as text (form field).
+    longitude : str
+        Longitude WGS84 as text (form field).
+
+    Returns
+    -------
+    HTMLResponse
+        ``partials/pmaxtp_result.html``, or the error partial when the input
+        is invalid, the point lies outside the PMAXTP grid or IMGW fails.
+    """
+    given = {"latitude": latitude, "longitude": longitude, "method": method}
     try:
-        pmaxtp_method = PMaXTPMethod(method)
-        url = build_pmaxtp_url(latitude, longitude, method=pmaxtp_method.value)
-
-        # Fetch data from IMGW
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=30.0)
-            response.raise_for_status()
-            data = response.json()
-
-        return templates.TemplateResponse(
-            request,
-            "partials/pmaxtp_result.html",
-            {
-                "url": url,
-                "method": method,
-                "latitude": latitude,
-                "longitude": longitude,
-                "data": data,
-            },
+        options = validate_command(
+            "pmaxtp fetch",
+            options={key: value for key, value in given.items() if value},
         )
-
-    except httpx.HTTPError as e:
-        return templates.TemplateResponse(
-            request,
-            "partials/error.html",
-            {
-                "error": f"Błąd pobierania danych: {e}",
-            },
+        result = await fetch_pmaxtp_async(
+            cast(float, options["latitude"]),
+            cast(float, options["longitude"]),
+            method=cast(Literal["POT", "AMP"], options.get("method", "POT")),
         )
-    except ValueError as e:
-        return templates.TemplateResponse(
-            request,
-            "partials/error.html",
-            {
-                "error": str(e),
-            },
-        )
+    except IMGWError as error:
+        return _error(request, error)
+    return templates.TemplateResponse(
+        request,
+        "partials/pmaxtp_result.html",
+        {"result": result, "methods": dict(_PMAXTP_METHODS)},
+    )
 
 
 @router.get("/stations", response_class=HTMLResponse)
-async def stations_page(request: Request):
-    """Stations list page."""
+async def stations_page(request: Request) -> HTMLResponse:
+    """Render the station search page."""
     return templates.TemplateResponse(
-        request,
-        "stations/list.html",
-        {
-            "title": "Lista stacji",
-        },
+        request, "stations/list.html", {"title": "Lista stacji"}
     )
 
 
-@router.get("/stations/hydro", response_class=HTMLResponse)
-async def hydro_stations_partial(
+@router.get("/stations/find", response_class=HTMLResponse)
+def find_stations_partial(
     request: Request,
-    search: str | None = Query(None),
-    limit: int = Query(50),
-):
+    kind: str = "",
+    query: str = "",
+    limit: str = _STATION_PAGE_SIZE,
+    offset: str = "0",
+) -> HTMLResponse:
     """
-    Hydrological stations list (HTMX partial).
+    Search IMGW station lists with ``stations find`` (HTMX partial).
 
-    Fetches station data from IMGW CSV file (CP1250 encoding).
-    CSV format: ID, name, river (hydro_id), code
-    Links to station pages: https://hydro.imgw.pl/#/station/hydro/{id}
+    The command runs through `run_command`, so results, ordering and paging
+    equal those of ``imgw stations find`` and ``GET /api/v1/stations/find``.
+
+    Parameters
+    ----------
+    request : Request
+        Current request.
+    kind : str
+        ``hydro``, ``meteo`` or empty for both station lists.
+    query : str
+        Station name, river or code prefix; empty lists every station.
+    limit : str
+        Page size as text.
+    offset : str
+        Index of the first station as text.
+
+    Returns
+    -------
+    HTMLResponse
+        ``partials/station_table.html`` with the page and links to the
+        neighbouring pages, or the error partial.
     """
-    csv_url = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne/lista_stacji_hydro.csv"
-
+    given = {"kind": kind, "query": query, "limit": limit, "offset": offset}
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(csv_url, timeout=30.0)
-            response.raise_for_status()
-            content = response.content.decode("cp1250")
+        outcome = run_command(
+            "stations find",
+            options={key: value for key, value in given.items() if value},
+        )
+    except IMGWError as error:
+        return _error(request, error)
+    page = cast("Page[StationListEntry]", outcome.result)
+    size = page.limit or len(page.items)
 
-        import csv
-        import io
-        import re
-
-        stations = []
-        reader = csv.reader(io.StringIO(content))
-        for row in reader:
-            if len(row) >= 3:
-                river_raw = row[2].strip('"')
-                # Extract river name and hydro ID from "Odra (1)" format
-                match = re.match(r"^(.+?)\s*\((\d+)\)$", river_raw)
-                if match:
-                    river_name = match.group(1).strip()
-                    river_id = match.group(2)
-                else:
-                    river_name = river_raw
-                    river_id = None
-
-                station = {
-                    "id": row[0].strip().strip('"'),
-                    "name": row[1].strip('"'),
-                    "river": river_name,
-                    "river_id": river_id,
-                }
-                if search:
-                    if (
-                        search.lower() in station["name"].lower()
-                        or search.lower() in station["river"].lower()
-                    ):
-                        stations.append(station)
-                else:
-                    stations.append(station)
-
-        stations = stations[:limit]
-
-        return templates.TemplateResponse(
-            request,
-            "partials/station_table.html",
-            {
-                "stations": stations,
-                "data_type": "hydro",
-                "count": len(stations),
-            },
+    def _page_url(start: int) -> str:
+        values = {"kind": kind, "query": query, "limit": size, "offset": start}
+        return "/stations/find?" + urlencode(
+            {key: value for key, value in values.items() if value != ""}
         )
 
-    except httpx.HTTPError as e:
-        return templates.TemplateResponse(
-            request,
-            "partials/error.html",
-            {
-                "error": f"Błąd pobierania stacji: {e}",
-            },
-        )
-
-
-@router.get("/stations/meteo", response_class=HTMLResponse)
-async def meteo_stations_partial(
-    request: Request,
-    search: str | None = Query(None),
-    limit: int = Query(50),
-):
-    """
-    Meteorological stations list (HTMX partial).
-
-    Fetches station data from IMGW CSV file (CP1250 encoding).
-    CSV format: ID, name, code
-    Links to station pages: https://hydro.imgw.pl/#/station/meteo/{id}
-    """
-    csv_url = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_meteorologiczne/wykaz_stacji.csv"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(csv_url, timeout=30.0)
-            response.raise_for_status()
-            content = response.content.decode("cp1250")
-
-        import csv
-        import io
-
-        stations = []
-        reader = csv.reader(io.StringIO(content))
-        for row in reader:
-            if len(row) >= 2:
-                station = {
-                    "id": row[0].strip('"'),
-                    "name": row[1].strip('"'),
-                }
-                if search:
-                    if search.lower() in station["name"].lower():
-                        stations.append(station)
-                else:
-                    stations.append(station)
-
-        stations = stations[:limit]
-
-        return templates.TemplateResponse(
-            request,
-            "partials/station_table.html",
-            {
-                "stations": stations,
-                "data_type": "meteo",
-                "count": len(stations),
-            },
-        )
-
-    except httpx.HTTPError as e:
-        return templates.TemplateResponse(
-            request,
-            "partials/error.html",
-            {
-                "error": f"Błąd pobierania stacji: {e}",
-            },
-        )
+    end = page.offset + len(page.items)
+    return templates.TemplateResponse(
+        request,
+        "partials/station_table.html",
+        {
+            "page": page,
+            "kind": kind,
+            "first": page.offset + 1 if page.items else 0,
+            "last": end,
+            "previous_url": _page_url(max(page.offset - size, 0))
+            if page.offset > 0
+            else None,
+            "next_url": _page_url(end) if end < page.total else None,
+        },
+    )
 
 
 @router.get("/map", response_class=HTMLResponse)
-async def map_page(request: Request):
-    """Map page with station locations."""
-    return templates.TemplateResponse(
-        request,
-        "map.html",
-        {
-            "title": "Mapa stacji",
-        },
-    )
-
-
-@router.get("/map/stations")
-async def map_stations_data(request: Request):
-    """
-    Get hydro stations data for map (JSON response for Leaflet).
-
-    Fetches data from IMGW hydro-back API (https://hydro-back.imgw.pl).
-    Returns 900+ stations with coordinates and current water state.
-
-    Water states: alarm, warning, high, medium, low, below, normal, unknown, etc.
-    """
-    url = "https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=false"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url,
-                timeout=30.0,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; IMGWTools/1.0)",
-                    "Accept": "application/json",
-                    "Referer": "https://hydro.imgw.pl/",
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        stations = []
-        for item in data.get("stations", []):
-            if item.get("la") and item.get("lo"):
-                stations.append(
-                    {
-                        "id": item.get("id", ""),
-                        "name": item.get("n", ""),
-                        "lat": float(item["la"]),
-                        "lon": float(item["lo"]),
-                        "state": item.get("s", "unknown"),
-                    }
-                )
-
-        return {
-            "stations": stations,
-            "summary": {
-                "total": len(stations),
-                "alarm": data.get("numOfAlarmStates", 0),
-                "warning": data.get("numOfWarningStates", 0),
-                "below": data.get("numOfBelowStates", 0),
-            },
-        }
-
-    except httpx.HTTPError as e:
-        return {"stations": [], "error": f"Błąd pobierania danych: {e}"}
+async def map_page(request: Request) -> HTMLResponse:
+    """Render the station map; markers come from ``current hydro-states``."""
+    return templates.TemplateResponse(request, "map.html", {"title": "Mapa stacji"})
