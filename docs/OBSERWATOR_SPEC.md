@@ -1,6 +1,6 @@
 # Obserwator — Specyfikacja techniczna (przyszłe wydanie major, roboczo 4.0.0)
 
-**Status:** Draft do review · **Data:** 2026-08-11 · **Aktualizacja:** 2026-10-18 (częściowo zastąpiony)
+**Status:** Draft do review · **Data:** 2026-08-11 · **Aktualizacja:** 2026-10-18 (częściowo zastąpiony: §7 przez ADR-001, część ČHMÚ przez ADR-003)
 **Podstawa:** `docs/OBSERWATOR_RESEARCH.md` (badanie wykonalności z 2026-08-11)
 
 > **Uwaga (decyzja właściciela z 2026-10-17):** wydanie **3.0.0** pakietu `imgwtools` to wersjonowany magazyn danych według ADR-001 (`docs/DECISIONS.md`, `docs/CHANGELOG.md`), a nie Obserwator. Wynikają z tego dwie zmiany tego szkicu:
@@ -8,6 +8,8 @@
 > 2. **Obserwator to wyłącznie przyszła zmiana nazwy i rozszerzenie o providery** (warstwa providerów, ČHMÚ, angielskie API) w kolejnym wydaniu major — roboczo 4.0.0, nie 3.0.0. Kontrakty magazynu (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`) zmieniają się tylko według polityki IMGW-13 (nowe `/N`, okres przejściowy).
 >
 > Pozostałe sekcje opisują stan planu z 2026-08-11 i wymagają ponownego przeglądu przed realizacją.
+
+> **Uwaga (2026-10-18, ADR-003 — propozycja):** część ČHMÚ tego szkicu zastępują `docs/DECISIONS.md` ADR-003 („Dostawca ČHMÚ w magazynie IMGW”) i `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`. ČHMÚ wchodzi jako drugi dostawca w kontraktach 3.x (wydanie 3.1.0, bez zmiany nazwy pakietu): w rejestrze zbiorów (`cz.chmi.*`), magazynie, katalogu komend ADR-002 i kodach błędów `IMGWError`. W zakresie ČHMÚ zastąpione są: §6 w całości (niżej zachowany jako zapis historyczny z erratą), interfejs i rejestr providerów z §3.2–§3.4 oraz fasada `provider=` z §4 (zamiast nich `ProviderDescriptor` i opcja `provider` katalogu komend), komendy ČHMÚ z §8, trasy `/api/v2/{provider}` z §9, mapa stanów ČHMÚ z §10, etap 7 z §12, ryzyka ČHMÚ z §13 i punkt 3 z §14. Zakres ČHMÚ to archiwa dobowe hydro (H, Q, T) i meteo (opad, temperatura powietrza) z katalogiem stacji; dane bieżące, ostrzeżenia CAP i archiwa miesięczne ČHMÚ są poza zakresem. Zmiana nazwy na Obserwator pozostaje przyszłą decyzją.
 
 ---
 
@@ -257,7 +259,18 @@ Przeniesienie istniejącej, przetestowanej logiki bez zmian merytorycznych:
 - `ProviderInfo`: bbox Polski (49.0–55.0 / 14.0–24.5), `capabilities = {CURRENT_HYDRO, CURRENT_WEATHER, ARCHIVE_HYDRO, ARCHIVE_WEATHER, STATIONS, WARNINGS, PMAX}`, `archive_encoding="cp1250"`, atrybucja „Źródłem pochodzenia danych jest IMGW-PIB".
 - Znane rozszerzenie z researchu (nie blokuje wydania, ale warto od razu): stacje mareograficzne są w API bieżącym, lecz nie w CSV stacji — `list_stations` dla IMGW powinno łączyć oba źródła.
 
-## 6. Provider ČHMÚ (`providers/chmi/`)
+## 6. ~~Provider ČHMÚ (`providers/chmi/`)~~ (ZASTĄPIONE przez ADR-003 — nie realizować)
+
+> **Zastąpione 2026-10-18** przez ADR-003 i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (zakres §1, rejestr §2, inwentarz z listingu §4, parsery §5, katalog stacji §7, licencja §8). Treść poniżej to zapis historyczny szkicu z 2026-08-11. **Errata z rozpoznania opendata.chmi.cz na żywo 2026-10-18** (fakty błędne albo niepełne w tabeli i decyzjach poniżej; źródła — spec 2026-10-18 §0):
+>
+> - `hydrology/now/data/{WIGOS}.json` jest przepisywany co 20 minut (:00, :20, :40), gdy przyszły nowe dane, a nie „co 1 h”; krok pomiaru zależy od stacji (5, 10, 15, 30 albo 60 min); temperatura wody ma kod `TH`; w tym samym pliku są prognozy `H_F`/`Q_F` (158 stacji).
+> - Archiwa `HQ`, `MQ` i `MMQ` nie leżą w `daily/`: każdy kod ma własny katalog (`hourly/`, `monthly/`, `monthly_max/` …). Lata stacji mają dziury, więc inwentarz wymaga listingu katalogu (rada researchu §3 „konstruować nazwy, nie listować” nie działa dla archiwów), a 404 oznacza rocznik nieopublikowany, nie błąd.
+> - W `meta1.json` `SPA4H`/`SPA4Q` to stan albo przepływ odpowiadający przepływowi 50-letniemu, nie czwarty stopień; progi bywają puste; przypisanie SPA do stanów ostrzegawczych i alarmowych IMGW (§3.3 „≙ SPA1-3”, §7 „SPA2/SPA3”) jest niezweryfikowane.
+> - Czas: dane `now` i `recent` hydro są w UTC (sprawdzone), a PDF klimatu też podaje UTC; zapis „SEČ a SELČ” pochodzi z PDF hydrologii, a dla danych `historical` UTC czy stały SEČ — niepotwierdzone. Dane dobowe meteo mają dobę klimatologiczną (opad od terminu 06 UTC dnia D, Tmax i Tmin za okres 20–20 UTC). Czasy w CAP mają przesunięcie lokalne (`+01:00`/`+02:00`).
+> - CAP: pliki typu 50 mają 0,86–2,35 MB, pliki typu 70 (susza HAMR) 0,4–61 KB i mogą nie mieć żadnego `<info>`; obszar opisuje `EMMA_ID`, nie NUTS3.
+> - Metadane stacji zawierają stacje zagraniczne (np. Reykjavik, baza Marambio), więc prostokąt CZ nie wystarcza do walidacji położenia.
+> - Tabela `DT,VAL` dotyczy wyłącznie archiwów `historical` hydro; `now` i `recent` hydro mają `objList` z listą `{dt, value}`, a meteo — tabele `STATION,ELEMENT,…`.
+> - JSON meteo i pliki metadanych mają kopertę (`zaznamID`, `datumVytvoreni`) zmienianą przy każdej generacji: te same dane dają inną sumę SHA-256.
 
 Na podstawie zweryfikowanych endpointów (research §3):
 

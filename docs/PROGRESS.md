@@ -220,7 +220,9 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [ ] Lokalny, odbudowywalny indeks magazynu (ADR-001 D2: poza wydaniem 3.0.0; nigdy jako źródło prawdy). Priorytet: niski.
 - [ ] Wniosek do IMGW-PIB o oficjalny wykaz współrzędnych stacji (ADR-001 Q6) oraz potwierdzenie znaczenia kodu hydrograficznego i kolejności `river_order` (Q4, Q5) — do tego czasu bez interpretacji. Priorytet: średni.
 - [ ] Rozszerzenie magazynu o kolejne zbiory (meteo miesięczne/terminowe, synop) — D6 ogranicza 3.0.0 do pięciu zbiorów Archiwisty i PMAXTP. Priorytet: niski.
-- [ ] Obserwator — przyszła zmiana nazwy i warstwa providerów (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem). Priorytet: niski.
+- [ ] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`) bez zmiany zachowania i bajtów IMGW; bez tego dostawca ČHMÚ wymaga `imgw-meta/2`, `imgw-series/2` i `imgw-project/2` (spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` §11, ADR-003 D2). Zależność: po U14, przed U16. Priorytet: wysoki (termin: tag v3.0.0).
+- [ ] Dostawca ČHMÚ (Czechy, opendata.chmi.cz) — ADR-003 (proponowana) i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10 w §16). Zakres: `cz.chmi.hydro_daily` (H, Q, T; plik na stację i rok), `cz.chmi.meteo_daily` (opad, Tmean, Tmax, Tmin z `historical_csv`), listy stacji i katalog `cz.chmi.stations` z progami SPA, inwentarz i aktualność z listingu katalogów, licencja CC BY 4.0; poza zakresem dane bieżące (`now`, `recent`), CAP i PMAXTP. Spełnia wymagania Archiwisty IMGW-15..19 (P3, v0.6 „PL + CZ”). Zależność: zakończony ADR-002 (U01–U16) i wydanie 3.0.0; wydanie 3.1.0. Otwarte: zatwierdzenie ADR-003 i pytania do ČHMÚ (spec §15). Priorytet: wysoki (blokuje MVP Archiwisty).
+- [ ] Obserwator — przyszła zmiana nazwy (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem); dostawcę ČHMÚ opisuje ADR-003 (pozycja wyżej). Priorytet: niski.
 
 ### Infrastruktura i jakość kodu
 
