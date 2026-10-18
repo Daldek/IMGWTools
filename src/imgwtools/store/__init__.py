@@ -5,7 +5,7 @@ and raise ``IMGWStoreDependencyError`` when the ``[store]`` extra is missing.
 """
 
 from imgwtools.store.catalog import RootArg, build_catalog, check_catalog
-from imgwtools.store.export import export_series
+from imgwtools.store.export import export_archive, export_series
 from imgwtools.store.pmaxtp import check_pmaxtp, read_pmaxtp, sync_pmaxtp
 from imgwtools.store.reader import (
     current_version,
@@ -83,6 +83,7 @@ __all__ = [
     "check_series",
     "check_store",
     "current_version",
+    "export_archive",
     "export_series",
     "init_store",
     "iter_store",

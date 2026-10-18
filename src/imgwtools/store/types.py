@@ -857,13 +857,13 @@ class DataCommand:
         Command description (in Polish), matching ``--help``.
     options : tuple of CommandOption
         Options accepted by the command.
-    function : str, optional
+    function : str
         Name of the function from ``imgwtools.__all__`` the command calls.
-    check : str or None, optional
+    check : str or None
         Twin function for ``--check``, ``"check_command"``, or None.
-    result : {"object", "list", "stream"}, optional
+    result : {"object", "list", "stream"}
         Result shape: one object, a ``Page`` of items, or a stream of lines.
-    method : {"GET", "POST"} or None, optional
+    method : {"GET", "POST"} or None
         HTTP method of the REST endpoint, or None for a local-only command.
     requires : Mapping of str to tuple of str, optional
         Options required when the key option is given (``dependentRequired``).
@@ -876,10 +876,10 @@ class DataCommand:
     name: str
     description: str
     options: tuple[CommandOption, ...]
-    function: str = ""
-    check: str | None = None
-    result: Literal["object", "list", "stream"] = "object"
-    method: Literal["GET", "POST"] | None = None
+    function: str
+    check: str | None
+    result: Literal["object", "list", "stream"]
+    method: Literal["GET", "POST"] | None
     requires: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     one_of: tuple[tuple[str, ...], ...] = ()
     rules: tuple[str, ...] = ()

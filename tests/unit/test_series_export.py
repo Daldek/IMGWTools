@@ -12,7 +12,11 @@ import pytest
 
 import imgwtools.store.export as export_module
 from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
+from imgwtools.exceptions import (
+    IMGWCancelledError,
+    IMGWDataError,
+    IMGWValidationError,
+)
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import (
     build_series,
@@ -349,7 +353,7 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
         return len(calls) >= 2
 
     for cancel in (lambda: True, cancel_on_second_check):
-        with pytest.raises(IMGWStoreError, match="Anulowano"):
+        with pytest.raises(IMGWCancelledError, match="Anulowano") as error:
             export_series(
                 hydro_year,
                 station=STATION,
@@ -358,6 +362,7 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
                 cancel=cancel,
             )
         assert target.read_bytes() == before
+        assert error.value.code == "cancelled"
     assert len(calls) == 2
 
     def broken_replace(source, destination):
@@ -379,3 +384,109 @@ def test_exported_file_mode_follows_umask(hydro_year, tmp_path):
     finally:
         os.umask(previous)
     assert stat.S_IMODE(target.stat().st_mode) == 0o644
+
+
+def test_lines_without_path_equal_the_written_file_and_terms_come_first(
+    hydro_year, tmp_path
+):
+    events = []
+    lines = export_series(
+        hydro_year,
+        station=STATION,
+        on_notice=lambda notice: events.append(notice.code),
+    )
+    assert events == ["license_terms"]
+    text = "".join(lines)
+    target = export_series(hydro_year, station=STATION, path=tmp_path / "out.csv")
+    assert text.encode("utf-8") == target.read_bytes()
+    assert text.startswith("date,year,H [cm],H_flag,Q [m3/s],Q_flag,T [degC]")
+    assert text.count("\r\n") == 367 and "\n" not in text.replace("\r\n", "")
+
+
+def test_root_with_dataset_exports_the_current_version(hydro_year, root, tmp_path):
+    expected = "".join(export_series(hydro_year, station=STATION, variables=["H"]))
+    current = export_series(root=root, dataset=DAILY, station=STATION, variables=["H"])
+    relative = export_series(
+        hydro_year.relative_to(root), root=root, station=STATION, variables=["H"]
+    )
+    assert "".join(current) == "".join(relative) == expected
+    with pytest.raises(IMGWValidationError) as error:
+        export_series(hydro_year, root=root, dataset=DAILY, station=STATION)
+    assert error.value.details["option"] == "version"
+
+
+def test_start_and_end_are_inclusive_and_attribution_moves_to_the_first_row(
+    hydro_year, tmp_path
+):
+    lines = list(
+        export_series(
+            hydro_year,
+            station=STATION,
+            variables=["H"],
+            start=date(2023, 11, 2),
+            end=date(2023, 11, 4),
+        )
+    )
+    data = list(csv.DictReader(io.StringIO("".join(lines))))
+    assert [row["date"] for row in data] == ["2023-11-02", "2023-11-03", "2023-11-04"]
+    assert (data[0]["H_flag"], data[0]["attribution_source"]) == ("missing", SOURCE)
+    assert data[1]["attribution_source"] == data[1]["attribution_processed"] == ""
+
+
+@pytest.mark.parametrize(
+    "dataset, start, end, expected",
+    [
+        (MONTHLY, date(2024, 2, 1), date(2024, 2, 1), ["2024-02-01"]),
+        (MONTHLY, None, date(2024, 2, 15), ["2024-02-01"]),
+        (HALF, date(2024, 5, 1), None, [("2024-05-01", "summer")]),
+        (
+            HALF,
+            None,
+            date(2024, 4, 30),
+            [("2023-11-01", "winter"), ("2023-11-01", "annual")],
+        ),
+    ],
+)
+def test_month_and_half_year_ranges_match_the_period_start(
+    root, dataset, start, end, expected
+):
+    version = store(root, dataset, [2024])
+    data = list(
+        csv.DictReader(
+            io.StringIO(
+                "".join(export_series(version, station=STATION, start=start, end=end))
+            )
+        )
+    )
+    assert [
+        (row["date"], row["period"]) if "period" in row else row["date"] for row in data
+    ] == expected
+
+
+def test_empty_range_is_a_data_error(root):
+    version = store(root, MONTHLY, [2024])
+    with pytest.raises(IMGWDataError, match="pusty") as error:
+        export_series(version, station=STATION, start=date(2024, 2, 2))
+    assert error.value.code == "data_error"
+
+
+def test_target_inside_a_store_is_rejected_without_writing(hydro_year, root):
+    target = root / "export.csv"
+    with pytest.raises(IMGWValidationError, match="poza magazynem") as error:
+        export_series(hydro_year, station=STATION, path=target)
+    assert error.value.details["option"] == "path"
+    assert not target.exists()
+
+
+def test_cancel_while_iterating_raises_cancelled(hydro_year):
+    calls = []
+    lines = export_series(
+        hydro_year,
+        station=STATION,
+        cancel=lambda: bool(calls.append(None)) or len(calls) > 1,
+    )
+    received = []
+    with pytest.raises(IMGWCancelledError):
+        for line in lines:
+            received.append(line)
+    assert len(received) == 1 + 256

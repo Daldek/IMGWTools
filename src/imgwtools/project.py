@@ -58,15 +58,17 @@ from imgwtools.store import (
     read_catalog,
     read_meta,
     read_series_index,
+    select_series,
     store_info,
     sync_store,
     write_archive,
 )
 from imgwtools.store.catalog import _Border
-from imgwtools.store.sync import CANCELLED, UNPUBLISHED, _download
+from imgwtools.store.sync import CANCELLED, UNPUBLISHED, _download, _plan_target
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
+    DownloadReport,
     Notice,
     NoticeHook,
     OperationResult,
@@ -82,7 +84,6 @@ from imgwtools.store.types import (
     ProjectTask,
     SeriesIndex,
     SeriesReport,
-    StoreEntry,
     StorePlan,
     SyncReport,
 )
@@ -273,13 +274,15 @@ def _options_json(
     *,
     inputs: bool,
 ) -> dict[str, Any]:
-    """Opcje w postaci manifestu: listy JSON, ścieżki względne (``version`` wobec magazynu)."""
+    """Opcje w postaci manifestu: listy JSON, daty ISO, ścieżki względne (``version`` wobec magazynu)."""
     spec = _OPTIONS[command]
     relative = _input_relative if inputs else _relative
     result: dict[str, Any] = {}
     for name, value in normalized.items():
         if spec[name].type == "path":
             value = relative(value, root if name == "version" else directory, name)
+        elif spec[name].type == "date":
+            value = value.isoformat()
         result[name] = list(value) if isinstance(value, tuple) else value
     return result
 
@@ -1386,7 +1389,7 @@ def _command_options(task: ProjectTask, directory: Path, root: Path) -> dict[str
     if "root" in spec:
         options["root"] = root
     if "output" in spec and "output" not in options:
-        # Domyślny katalog pobierania fetch liczymy względem projektu, nie bieżącego katalogu.
+        # Domyślny katalog datasets download liczymy względem projektu, nie bieżącego katalogu.
         options["output"] = directory / commands._DEFAULT_OUTPUT
     return options
 
@@ -1420,9 +1423,12 @@ def _check_task(
                 **hooks,
             )
         else:
-            plan = commands.check_command(
+            checked = commands.check_command(
                 task.command, options=_command_options(task, directory, root), **hooks
-            )
+            ).result
+            if checked is None:  # anulowanie bez planu
+                return "unverifiable", CANCELLED, None
+            plan = checked
     except IMGWError as exc:
         return "check_failed", str(exc), None
     found = [(item.status, item.error) for item in plan.items] + [
@@ -1493,6 +1499,7 @@ def check_project(
     /,
     *,
     tasks: Iterable[str] | None = None,
+    plan: PathArg | None = None,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
@@ -1514,6 +1521,10 @@ def check_project(
         Project directory holding the manifest.
     tasks : Iterable[str] or None, optional
         Names of the tasks to check; ``None`` means all tasks.
+    plan : str, os.PathLike or None, optional
+        File to save the plan to (``imgw-plan/1``, see `StorePlan.to_json`);
+        it must lie outside the project store in an existing directory and is
+        checked before any request.
     on_progress : ProgressHook or None, optional
         Called after each task with ``Progress(unit="task")``.
     on_notice : NoticeHook or None, optional
@@ -1530,13 +1541,15 @@ def check_project(
     Raises
     ------
     IMGWValidationError
-        If ``project_dir`` is not a path or ``tasks`` is not a collection of names.
+        If ``project_dir`` is not a path, ``tasks`` is not a collection of names
+        or ``plan`` lies inside the store or in a missing directory.
     IMGWProjectError
         If the manifest is missing or invalid, or ``tasks`` names unknown tasks.
     """
     project = open_project(project_dir)
     selected = _selected(project, tasks)
     root = project.store_dir
+    target = _plan_target(root, plan) if plan is not None else None
     hooks = {"on_progress": on_progress, "on_notice": on_notice, "cancel": cancel}
     ready = _store_ready(root)
     items: dict[str, PlanItem] = {}
@@ -1545,7 +1558,7 @@ def check_project(
     cancelled = False
     for index, task in enumerate(selected, start=1):
         cancelled = cancelled or (cancel is not None and cancel())
-        plan: StorePlan | None = None
+        checked: StorePlan | None = None
         if cancelled:
             status, detail = "unverifiable", CANCELLED
         elif not ready:
@@ -1554,11 +1567,11 @@ def check_project(
                 f"magazyn {root} nie istnieje; project download utworzy go i pobierze dane",
             )
         else:
-            status, detail, plan = _check_task(root, project.path, task, hooks)
-        if plan is not None:
-            for item in plan.items:
+            status, detail, checked = _check_task(root, project.path, task, hooks)
+        if checked is not None:
+            for item in checked.items:
                 items.setdefault(item.archive.server_path, item)
-            for slug, state in plan.series_state.items():
+            for slug, state in checked.series_state.items():
                 series_state[slug] = max(
                     state, series_state.get(slug, state), key=_SEVERITY.__getitem__
                 )
@@ -1566,15 +1579,15 @@ def check_project(
                 PlanAction(
                     action.command, action.status, f"{task.name}: {action.detail}"
                 )
-                for action in plan.actions
+                for action in checked.actions
             )
-            cancelled = cancelled or plan.cancelled
+            cancelled = cancelled or checked.cancelled
         actions.append(PlanAction("project download", status, f"{task.name}: {detail}"))
         if on_progress is not None:
             on_progress(
                 Progress(index, len(selected), "task", status, f"Zadanie {task.name}")
             )
-    return StorePlan(
+    result = StorePlan(
         "imgw-plan/1",
         root,
         datetime.now(UTC),
@@ -1583,6 +1596,9 @@ def check_project(
         tuple(actions),
         cancelled,
     )
+    if target is not None:
+        result.to_json(target)
+    return result
 
 
 # --- pobieranie, przypinanie i odtwarzanie ----------------------------------------------------
@@ -1750,15 +1766,14 @@ def _produce_select(
     series = build_series(root, dataset=dataset, **hooks)
     stations: tuple[str, ...] = ()
     if series.status in ("created", "reused") and series.version is not None:
-        entry = StoreEntry(
-            "series",
-            f"series:{get_dataset(dataset).key}",
-            series.version,
-            None,
-            None,
-            None,
-        )
-        stations = commands._select(options, entry).stations
+        stations = select_series(
+            root,
+            dataset=dataset,
+            stations=options["stations"],
+            variables=options.get("variables"),
+            years=options.get("years"),
+            year_type=options.get("year_type"),
+        ).stations
     _add_series(produced, root, task, series, stations)
     return produced
 
@@ -1769,9 +1784,12 @@ def _produce_command(
     """Pozostałe komendy: jeden dispatcher ``run_command``; przypina wersje wskazane w wyniku."""
     result = commands.run_command(
         task.command, options=_command_options(task, directory, root), **hooks
-    )
+    ).result
     produced = _Produced()
-    if isinstance(result, SyncReport):
+    if result is None:  # IMGWCancelledError: anulowanie bez raportu
+        produced.cancelled = True
+        produced.failures.append(_task_result(task, "cancelled", CANCELLED))
+    elif isinstance(result, SyncReport):
         _add_sync(produced, root, task, result, pin=True)
         for series in result.series:
             _add_series(produced, root, task, series, None)
@@ -1789,6 +1807,13 @@ def _produce_command(
         )
     elif isinstance(result, PMaXTPStoreResult):
         _add_version(produced, root, task, "input", result.status, result.version, ())
+    elif isinstance(result, DownloadReport):
+        produced.cancelled = result.cancelled
+        produced.failures.extend(
+            _task_result(task, "failed", f"{item.url}: {item.error}")
+            for item in result.items
+            if item.status == "failed"
+        )
     return produced
 
 
