@@ -19,7 +19,6 @@ from zipfile import BadZipFile, ZipFile
 import httpx
 from pydantic import ValidationError
 
-from imgwtools.core.url_builder import build_api_url, build_pmaxtp_url
 from imgwtools.datasets import (
     ArchiveFile,
     MonthsArg,
@@ -41,6 +40,7 @@ from imgwtools.models import (
     SynopData,
     WarningData,
 )
+from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 if TYPE_CHECKING:
     from imgwtools.store.types import (

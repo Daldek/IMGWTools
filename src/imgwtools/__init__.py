@@ -44,6 +44,7 @@ from imgwtools._version import __version__
 # Data command catalog
 from imgwtools.commands import (
     check_command,
+    command_schema,
     data_commands,
     format_command,
     run_command,
@@ -58,6 +59,8 @@ from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
     License,
+    MonthsArg,
+    YearsArg,
     archive_files,
     datasets,
     get_dataset,
@@ -83,6 +86,7 @@ from imgwtools.exceptions import (
 # Fetch functions
 from imgwtools.fetch import (
     DownloadResult,
+    download_archives,
     download_hydro_data,
     download_hydro_data_async,
     download_meteo_data,
@@ -204,7 +208,11 @@ from imgwtools.store import (
 # Command and project types
 from imgwtools.store.types import (
     CommandOption,
+    CommandResult,
     DataCommand,
+    DownloadItem,
+    DownloadReport,
+    Page,
     Project,
     ProjectFile,
     ProjectReport,
@@ -212,23 +220,13 @@ from imgwtools.store.types import (
     SeriesSelection,
 )
 
-# URL builders and types
+# URL builders
 from imgwtools.urls import (
     IMGW_API_URL,
     IMGW_PMAXTP_URL,
     IMGW_PUBLIC_DATA_URL,
-    DataType,
-    DownloadURL,
-    HydroInterval,
-    HydroParam,
-    MeteoInterval,
-    MeteoSubtype,
-    PMaXTPMethod,
     build_api_url,
-    build_hydro_url,
-    build_meteo_url,
     build_pmaxtp_url,
-    get_available_years,
 )
 
 __all__ = [
@@ -260,19 +258,8 @@ __all__ = [
     "NormalizedRecord",
     "StationListEntry",
     # URL builders
-    "build_hydro_url",
-    "build_meteo_url",
     "build_pmaxtp_url",
     "build_api_url",
-    "get_available_years",
-    # URL types and enums
-    "DownloadURL",
-    "DataType",
-    "HydroInterval",
-    "MeteoInterval",
-    "MeteoSubtype",
-    "HydroParam",
-    "PMaXTPMethod",
     # URL constants
     "IMGW_PUBLIC_DATA_URL",
     "IMGW_API_URL",
@@ -285,6 +272,7 @@ __all__ = [
     "fetch_warnings",
     "download_hydro_data",
     "download_meteo_data",
+    "download_archives",
     # Fetch functions (async)
     "fetch_pmaxtp_async",
     "fetch_hydro_current_async",
@@ -295,6 +283,8 @@ __all__ = [
     "download_meteo_data_async",
     # Fetch types
     "DownloadResult",
+    "DownloadItem",
+    "DownloadReport",
     # Station functions
     "find_stations",
     "find_stations_async",
@@ -314,6 +304,8 @@ __all__ = [
     "License",
     "DatasetDescriptor",
     "ArchiveFile",
+    "YearsArg",
+    "MonthsArg",
     "datasets",
     "get_dataset",
     "archive_files",
@@ -374,8 +366,11 @@ __all__ = [
     # Data command catalog
     "CommandOption",
     "DataCommand",
+    "CommandResult",
+    "Page",
     "SeriesSelection",
     "data_commands",
+    "command_schema",
     "validate_command",
     "format_command",
     "check_command",

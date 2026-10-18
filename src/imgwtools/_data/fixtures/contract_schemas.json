@@ -1,5 +1,5 @@
 {
-  "description": "JSON Schema Draft 2020-12 kontraktów magazynu IMGW (spec 2026-10-17-versioned-store-design.md §11) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
+  "description": "JSON Schema Draft 2020-12 kontraktów IMGW (spec 2026-10-17-versioned-store-design.md §11 magazyn, §13.5 błędy problem+json i CLI, §13.6 koperta imgw-result/1) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
   "schemas": {
     "imgw-store/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -853,6 +853,193 @@
         }
       },
       "additionalProperties": true
+    },
+    "imgw-result/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "imgw-result/1",
+      "type": "object",
+      "required": [
+        "schema",
+        "command",
+        "check",
+        "status",
+        "result",
+        "notices"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-result/1"
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^[a-z]+ [a-z][a-z-]*$"
+        },
+        "check": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "result": true,
+        "notices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/notice"
+          }
+        }
+      },
+      "additionalProperties": true,
+      "$defs": {
+        "notice": {
+          "type": "object",
+          "required": [
+            "level",
+            "code",
+            "text"
+          ],
+          "properties": {
+            "level": {
+              "enum": [
+                "info",
+                "warning",
+                "error"
+              ]
+            },
+            "code": {
+              "type": "string",
+              "pattern": "^[a-z_]+$"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "page": {
+          "type": "object",
+          "required": [
+            "items",
+            "total",
+            "limit",
+            "offset"
+          ],
+          "properties": {
+            "items": {
+              "type": "array"
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "problem+json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "problem+json IMGWTools",
+      "type": "object",
+      "required": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "code",
+        "details"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^urn:imgwtools:error:[a-z_]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "instance": {
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "validation_error",
+            "not_found",
+            "conflict",
+            "source_unavailable",
+            "missing_dependency",
+            "data_error",
+            "store_unavailable",
+            "io_error",
+            "forbidden",
+            "method_not_allowed",
+            "internal_error"
+          ]
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "cli-error": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "błąd CLI IMGWTools (ostatnia linia stderr)",
+      "type": "object",
+      "required": [
+        "code",
+        "detail",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "validation_error",
+            "not_found",
+            "conflict",
+            "source_unavailable",
+            "missing_dependency",
+            "data_error",
+            "store_unavailable",
+            "io_error",
+            "cancelled",
+            "internal_error"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "examples": {
@@ -1049,6 +1236,71 @@
             "50": 0.3
           }
         }
+      }
+    },
+    "imgw-result/1": {
+      "schema": "imgw-result/1",
+      "command": "store sync",
+      "check": false,
+      "status": "partial",
+      "result": {
+        "items": [
+          {
+            "slot": "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
+            "status": "created",
+            "version": "archives/versions/dane_hydrologiczne/dobowe/2023/codz_2023/2024-08-28_1a2b3c4d/codz_2023.zip",
+            "error": null,
+            "task": null,
+            "error_code": null
+          },
+          {
+            "slot": "archive:pl.imgw.hydro_daily:2024/codz_2024.zip",
+            "status": "stale_plan",
+            "version": null,
+            "error": "…",
+            "task": null,
+            "error_code": null
+          }
+        ],
+        "series": [
+          {
+            "status": "failed",
+            "version": null,
+            "stations": 0,
+            "source_files": [],
+            "problems": [
+              "archive:pl.imgw.hydro_daily:2024/codz_2024.zip: stale_plan"
+            ]
+          }
+        ],
+        "cancelled": false
+      },
+      "notices": [
+        {
+          "level": "info",
+          "code": "license_terms",
+          "text": "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy …"
+        }
+      ]
+    },
+    "problem+json": {
+      "type": "urn:imgwtools:error:validation_error",
+      "title": "Nieprawidłowe dane wejściowe",
+      "status": 400,
+      "detail": "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)",
+      "instance": "/api/v1/pmaxtp/fetch",
+      "code": "validation_error",
+      "details": {
+        "option": "latitude",
+        "value": 1.0
+      }
+    },
+    "cli-error": {
+      "code": "validation_error",
+      "detail": "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)",
+      "details": {
+        "option": "latitude",
+        "value": 1.0
       }
     }
   }

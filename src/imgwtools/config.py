@@ -55,16 +55,6 @@ class Settings(BaseSettings):
         """Check if running in production mode."""
         return self.env == "production"
 
-    @property
-    def hydro_stations_file(self) -> Path:
-        """Path to hydrological stations CSV."""
-        return self.data_dir / "hydro_stations_names.csv"
-
-    @property
-    def meteo_stations_file(self) -> Path:
-        """Path to meteorological stations CSV."""
-        return self.data_dir / "meteo_stations_names.csv"
-
 
 # Global settings instance
 settings = Settings()

@@ -13,7 +13,6 @@ import respx
 
 from imgwtools import project as project_module
 from imgwtools._version import __version__
-from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWProjectError, IMGWValidationError
 from imgwtools.project import (
@@ -32,6 +31,7 @@ from imgwtools.project import (
 from imgwtools.store import current_version, init_store
 from imgwtools.store.types import Project, ProjectFile, StorePlan
 from imgwtools.testing import build_fixture_store
+from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 DAILY = "pl.imgw.hydro_daily"

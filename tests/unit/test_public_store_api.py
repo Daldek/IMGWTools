@@ -2,6 +2,7 @@
 
 import ast
 import dataclasses
+import importlib
 import inspect
 import subprocess
 import sys
@@ -12,9 +13,13 @@ from typing import Any
 import pytest
 
 import imgwtools
+import imgwtools.exceptions
+import imgwtools.stations
 import imgwtools.store
+import imgwtools.urls
 
-# Spec §2–10 and §12: every function, type and exception a consumer may need.
+# Spec §2–10, §12 and §13.12: every function, type and exception a consumer may
+# need; new functions take keyword-only options after the first object.
 SPEC_FUNCTIONS = (
     "datasets",
     "get_dataset",
@@ -47,6 +52,17 @@ SPEC_FUNCTIONS = (
     "read_series_index",
     "read_series",
     "export_series",
+    "export_archive",
+    "select_series",
+    "summarize_series",
+    "download_archives",
+    "find_stations",
+    "find_stations_async",
+    "fetch_meteo_current",
+    "fetch_meteo_current_async",
+    "fetch_hydro_states",
+    "fetch_hydro_states_async",
+    "command_schema",
     "check_pmaxtp",
     "sync_pmaxtp",
     "read_pmaxtp",
@@ -77,6 +93,8 @@ SPEC_TYPES = (
     "DatasetDescriptor",
     "ArchiveFile",
     "DownloadResult",
+    "DownloadItem",
+    "DownloadReport",
     "StoreHandle",
     "StoreInfo",
     "VersionResult",
@@ -100,11 +118,27 @@ SPEC_TYPES = (
     "PMaXTPStoreResult",
     "CommandOption",
     "DataCommand",
+    "CommandResult",
+    "Page",
     "SeriesSelection",
     "ProjectFile",
     "ProjectTask",
     "ProjectReport",
     "Project",
+    "ErrorSpec",
+)
+# Type aliases and constants.
+SPEC_VALUES = (
+    "__version__",
+    "ErrorCode",
+    "ERROR_CODES",
+    "Flag",
+    "YearsArg",
+    "MonthsArg",
+    "IMGW_ENCODING",
+    "IMGW_PUBLIC_DATA_URL",
+    "IMGW_API_URL",
+    "IMGW_PMAXTP_URL",
 )
 SPEC_EXCEPTIONS = (
     "IMGWError",
@@ -117,7 +151,7 @@ SPEC_EXCEPTIONS = (
     "IMGWCancelledError",
     "IMGWProjectError",
 )
-# 2.x public names that must stay importable (D7 changes only the download result).
+# 2.x names kept (signatures changed per spec §13.8 and §13.11).
 LEGACY_NAMES = (
     "fetch_pmaxtp",
     "fetch_pmaxtp_async",
@@ -130,6 +164,8 @@ LEGACY_NAMES = (
     "PMaXTPData",
     "PMaXTPResult",
     "HydroCurrentData",
+    "MeteoCurrentData",
+    "HydroState",
     "SynopData",
     "WarningData",
     "parse_daily_csv",
@@ -137,22 +173,37 @@ LEGACY_NAMES = (
     "parse_semi_annual_csv",
     "parse_zip_file",
     "parse_stations_csv",
-    "IMGW_ENCODING",
-    "build_hydro_url",
-    "build_meteo_url",
     "build_pmaxtp_url",
     "build_api_url",
+)
+# Spec §13.12: removed without aliases, also from imgwtools.urls.
+REMOVED_NAMES = (
+    "IMGWPlanStaleError",
+    "HydroStation",
+    "MeteoStation",
+    "list_hydro_stations",
+    "list_hydro_stations_async",
+    "list_meteo_stations",
+    "list_meteo_stations_async",
+    "get_hydro_stations_with_coords",
+    "get_hydro_stations_with_coords_async",
+    "build_hydro_url",
+    "build_meteo_url",
     "get_available_years",
     "DownloadURL",
     "DataType",
     "HydroInterval",
+    "HydroParam",
     "MeteoInterval",
     "MeteoSubtype",
-    "HydroParam",
     "PMaXTPMethod",
-    "IMGW_PUBLIC_DATA_URL",
-    "IMGW_API_URL",
-    "IMGW_PMAXTP_URL",
+)
+_MODULES = (
+    imgwtools,
+    imgwtools.urls,
+    imgwtools.store,
+    imgwtools.stations,
+    imgwtools.exceptions,
 )
 # Legacy download_* keep their 2.x positional parameters (spec §2, D7).
 LEGACY_POSITIONAL = {
@@ -194,11 +245,28 @@ def _is_stub(function: Callable[..., Any]) -> bool:
     return False
 
 
-def test_all_lists_every_spec_name_once() -> None:
-    expected = {*SPEC_FUNCTIONS, *SPEC_TYPES, *SPEC_EXCEPTIONS, *LEGACY_NAMES}
+def test_all_is_exactly_the_spec_public_api() -> None:
+    expected = {
+        *SPEC_FUNCTIONS,
+        *SPEC_TYPES,
+        *SPEC_EXCEPTIONS,
+        *SPEC_VALUES,
+        *LEGACY_NAMES,
+    }
 
-    assert expected <= set(imgwtools.__all__)
+    assert set(imgwtools.__all__) == expected
     assert len(imgwtools.__all__) == len(set(imgwtools.__all__))
+
+
+@pytest.mark.parametrize("name", REMOVED_NAMES)
+def test_removed_name_is_absent_from_public_modules(name: str) -> None:
+    for module in _MODULES:
+        assert not hasattr(module, name), f"{module.__name__}.{name}"
+
+
+def test_legacy_url_builder_module_is_gone() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("imgwtools.core.url_builder")
 
 
 def test_store_exports_are_the_same_objects_as_package_exports() -> None:
@@ -254,7 +322,7 @@ import sys
 
 class _Block(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        if name.split(".")[0] == "pyarrow" or name.startswith("imgwtools.db"):
+        if name.split(".")[0] == "pyarrow":
             raise ImportError(f"zablokowano {name}")
         return None
 
@@ -265,14 +333,16 @@ from imgwtools import *  # noqa: F403
 
 missing = [n for n in imgwtools.__all__ if n not in globals()]
 assert not missing, missing
-loaded = [m for m in sys.modules if m.split(".")[0] == "pyarrow"]
+# click comes with httpx's optional CLI when installed, so it is not checked.
+heavy = {"pyarrow", "fastapi", "starlette", "uvicorn", "typer"}
+loaded = sorted(m for m in sys.modules if m.split(".")[0] in heavy)
 assert not loaded, loaded
 assert "imgwtools.testing" not in sys.modules
 print("ok")
 """
 
 
-def test_import_works_without_pyarrow_and_db() -> None:
+def test_import_loads_no_optional_dependency() -> None:
     result = subprocess.run(
         [sys.executable, "-c", _BLOCKED_IMPORT],
         capture_output=True,

@@ -38,12 +38,12 @@ from tests.contract.support import (
     RABA,
     V3,
     load,
+    run_imgw,
     schema_errors,
     sha256,
     snapshot,
     stamps,
 )
-from tests.contract.test_cli_api_parity import run_imgw
 from tests.unit.test_commands import PINS_BEFORE
 
 TASK = {"dataset": DAILY, "stations": [RABA], "years": [2024]}

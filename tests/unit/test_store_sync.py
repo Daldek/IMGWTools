@@ -8,7 +8,6 @@ import httpx
 import pytest
 import respx
 
-from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWStoreError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
@@ -16,6 +15,7 @@ from imgwtools.store import init_store, write_archive
 from imgwtools.store import sync as sync_module
 from imgwtools.store.sync import check_store, sync_store
 from imgwtools.store.types import SeriesReport, StorePlan
+from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
