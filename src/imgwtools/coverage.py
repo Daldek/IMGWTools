@@ -203,7 +203,11 @@ def summarize_coverage(
         same station, variable and date.
     """
     descriptor = get_dataset(dataset)
-    if descriptor.time_unit not in ("day", "month", "half_year"):
+    if not descriptor.in_store or descriptor.time_unit not in (
+        "day",
+        "month",
+        "half_year",
+    ):
         raise IMGWValidationError(f"Zbiór {dataset} nie zawiera szeregu pomiarowego")
     known = _KnownUnits(descriptor.time_unit)
     stations: dict[str, dict[tuple[date, str | None], dict[str, Measurement]]] = (

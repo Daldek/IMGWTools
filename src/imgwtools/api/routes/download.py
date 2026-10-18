@@ -158,7 +158,11 @@ async def list_available_datasets():
     """List the five archive datasets represented by the canonical registry."""
     items = []
     for descriptor in datasets():
-        if descriptor.time_unit not in ("day", "month", "half_year"):
+        if not descriptor.in_store or descriptor.time_unit not in (
+            "day",
+            "month",
+            "half_year",
+        ):
             continue
         items.append(
             Dataset(

@@ -509,7 +509,7 @@ def _series_slugs() -> set[str]:
     return {
         item.slug
         for item in datasets()
-        if item.time_unit in ("day", "month", "half_year")
+        if item.in_store and item.time_unit in ("day", "month", "half_year")
     }
 
 

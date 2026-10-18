@@ -25,11 +25,7 @@ import httpx
 
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWError
-from imgwtools.stations import (
-    get_hydro_stations_with_coords,
-    list_hydro_stations,
-    list_meteo_stations,
-)
+from imgwtools.stations import fetch_hydro_states, find_stations
 
 # Format-description files are not covered by imgwtools.stations, so their URLs
 # are defined here (new resources, not a duplicate of the station-listing logic).
@@ -74,19 +70,19 @@ def fetch_stations(data_dir: Path) -> None:
     _write_csv(
         data_dir / "hydro_stations_names.csv",
         ["id", "name", "river"],
-        ([s.station_id, s.name, s.river or ""] for s in list_hydro_stations()),
+        ([s.station_code, s.name, s.river or ""] for s in find_stations(kind="hydro")),
     )
     _write_csv(
         data_dir / "meteo_stations_names.csv",
         ["id", "name"],
-        ([s.station_id, s.name] for s in list_meteo_stations()),
+        ([s.station_code, s.name] for s in find_stations(kind="meteo")),
     )
     _write_csv(
         data_dir / "hydro_stations_locations.csv",
         ["id", "X", "Y"],
         (
-            [s.station_id, s.longitude, s.latitude]
-            for s in get_hydro_stations_with_coords()
+            [s.station_code, s.longitude, s.latitude]
+            for s in fetch_hydro_states()
             if s.longitude is not None and s.latitude is not None
         ),
     )

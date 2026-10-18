@@ -1860,8 +1860,10 @@ def _archive_of(path: Path) -> ArchiveFile:
     parts = path.parts
     server_path = "/".join((*parts[2:-3], parts[-1]))
     for descriptor in datasets():
-        if descriptor.time_unit not in _SERIES_UNITS or not server_path.startswith(
-            f"{descriptor.server_dir}/"
+        if (
+            not descriptor.in_store
+            or descriptor.time_unit not in _SERIES_UNITS
+            or not server_path.startswith(f"{descriptor.server_dir}/")
         ):
             continue
         for year in sorted({int(text) for text in _YEAR.findall(server_path)}):
@@ -1913,7 +1915,7 @@ def _recreate_series(
         (
             item
             for item in datasets()
-            if item.slug == slug and item.time_unit in _SERIES_UNITS
+            if item.slug == slug and item.in_store and item.time_unit in _SERIES_UNITS
         ),
         None,
     )

@@ -907,9 +907,10 @@ Zbiory tylko do pobrania (`in_store=false`; bez parsera, magazynu i szeregów):
 | `pl.imgw.meteo_climate_terms` | `dane_meteorologiczne/terminowe/klimat` | do 2000 `<folder>/<year>_k.zip`, od 2001 `<year>/<year>_<mm>_k.zip` |
 
 - `get_dataset(value)` rozpoznaje kolejno klucz, slug i alias legacy; nieznana wartość → `validation_error` z `details.allowed` (klucze). Wyniki i komunikaty zawsze podają klucz; slug zostaje wyłącznie w nazwach katalogów magazynu (§3 bez zmian).
-- Archiwa publikowane per stacja (`meteo/dobowe/synop`, `meteo/terminowe/synop`) i nieistniejące `meteo/terminowe/opad` nie mają deskryptorów: alias → `validation_error` z powodem.
+- Archiwa publikowane per stacja (`meteo/dobowe/synop`, `meteo/terminowe/synop`) i nieistniejące `meteo/terminowe/opad` nie mają deskryptorów: alias → `validation_error` z `details.reason` (`per_station` \| `not_published`).
 - `download_hydro_data(interval, year, month, param)` i `download_meteo_data(interval, subtype, year, month)` mapują słowa przez aliasy (`hydro/<interval>`, `meteo/<interval>/<subtype>`; `dobowe` z `month=13` → `pl.imgw.hydro_phenomena`) i pobierają plik wskazany przez `archive_files`; podpisy i `DownloadResult` bez zmian.
 - `archive_files` zbiorów tylko do pobrania daje te same URL-e co usunięte `build_hydro_url`/`build_meteo_url` (złote URL-e w teście U03).
+- **Rozstrzygnięcia implementacji (U03):** jeden parser wejścia `imgwtools.datasets.parse_years(value, /, *, option="years")` i `parse_months(value, /, *, option="months")` (spoza `__all__`; korzystają z nich katalog i magazyn) zwraca posortowaną krotkę bez powtórzeń, a błąd ma `details.option`; `months` nie przyjmują zakresów. `ArchiveFile` miesięcznego archiwum meteo opisuje cały folder: `year` = pierwszy rok folderu, `period_end` = 31 XII ostatniego roku folderu, `month=None`. Rocznik poniżej `first_year` → `details.minimum`. `params` (także tekst `"H,Q"`) dla innego zbioru niż półroczny → `validation_error` z `details.option="params"`. Konsumenci szeregów wybierają zbiory przez `in_store` i `time_unit ∈ {day, month, half_year}` (zbiory tylko do pobrania mają `time_unit` `day`/`month`).
 
 ### 13.5 Błędy
 
@@ -1257,7 +1258,10 @@ class DataCommand:
 # StoreEntry          slot: str | None
 # HydroCurrentData    station_id → station_code; + latitude, longitude (API: lat, lon)
 # SynopData           station_id → station_code
-# WarningData         warning_type → kind: Literal["hydro", "meteo"]
+# WarningData         warning_type → kind: Literal["hydro", "meteo"]; + event (nazwa zdarzenia);
+#                     [ADR-002, U04] źródła API warningshydro/warningsmeteo: id|numer, nazwa_zdarzenia|zdarzenie,
+#                     stopien|stopień, obowiazuje_od|data_od, obowiazuje_do|data_do, tresc|przebieg,
+#                     region = województwa z obszary albo kody teryt; {"message": …} = brak ostrzeżeń
 # MeteoCurrentData z kluczy API meteo: kod_stacji, nazwa_stacji, lat, lon, temperatura_powietrza,
 # temperatura_powietrza_data, wiatr_srednia_predkosc, wilgotnosc_wzgledna, opad_10min
 class MeteoCurrentData(BaseModel):

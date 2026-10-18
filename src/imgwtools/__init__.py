@@ -6,24 +6,23 @@ hydrological and meteorological data for Poland. This library provides
 easy access to that data.
 
 Quick Start:
-    >>> from imgwtools import fetch_pmaxtp, list_hydro_stations
+    >>> from imgwtools import fetch_pmaxtp, find_stations
     >>>
     >>> # Get PMAXTP data for Warsaw
     >>> result = fetch_pmaxtp(latitude=52.23, longitude=21.01)
     >>> precip = result.data.get_precipitation(15, 50)
     >>> print(f"15-min precipitation, p=50%: {precip} mm")
     >>>
-    >>> # List hydro stations
-    >>> stations = list_hydro_stations()
-    >>> print(f"Total stations: {len(stations)}")
+    >>> # Find hydro stations in Łódź
+    >>> stations = find_stations(kind="hydro", query="lodz")
+    >>> print(f"Found stations: {len(stations)}")
 
 Features:
     - PMAXTP data (probabilistic maximum precipitation)
-    - Current hydrological data (water levels, flows)
-    - Current synoptic data (temperature, wind, precipitation)
+    - Current hydrological, meteorological and synoptic data
     - Weather and hydro warnings
     - Archive data download (daily, monthly, semi-annual)
-    - Station listings with coordinates
+    - Station search and hydrological station states with coordinates
     - Versioned local store of IMGW archives, Parquet series and station catalog
     - Data command catalog and ``imgw-project/1`` project manifests
 
@@ -90,6 +89,8 @@ from imgwtools.fetch import (
     download_meteo_data_async,
     fetch_hydro_current,
     fetch_hydro_current_async,
+    fetch_meteo_current,
+    fetch_meteo_current_async,
     fetch_pmaxtp,
     fetch_pmaxtp_async,
     fetch_synop,
@@ -102,7 +103,9 @@ from imgwtools.fetch import (
 from imgwtools.models import (
     Flag,
     HydroCurrentData,
+    HydroState,
     Measurement,
+    MeteoCurrentData,
     NormalizedRecord,
     PMaXTPData,
     PMaXTPResult,
@@ -139,14 +142,10 @@ from imgwtools.project import (
 
 # Station functions
 from imgwtools.stations import (
-    HydroStation,
-    MeteoStation,
-    get_hydro_stations_with_coords,
-    get_hydro_stations_with_coords_async,
-    list_hydro_stations,
-    list_hydro_stations_async,
-    list_meteo_stations,
-    list_meteo_stations_async,
+    fetch_hydro_states,
+    fetch_hydro_states_async,
+    find_stations,
+    find_stations_async,
 )
 
 # Versioned store
@@ -249,6 +248,8 @@ __all__ = [
     "PMaXTPData",
     "PMaXTPResult",
     "HydroCurrentData",
+    "MeteoCurrentData",
+    "HydroState",
     "SynopData",
     "WarningData",
     "Flag",
@@ -276,6 +277,7 @@ __all__ = [
     # Fetch functions (sync)
     "fetch_pmaxtp",
     "fetch_hydro_current",
+    "fetch_meteo_current",
     "fetch_synop",
     "fetch_warnings",
     "download_hydro_data",
@@ -283,23 +285,18 @@ __all__ = [
     # Fetch functions (async)
     "fetch_pmaxtp_async",
     "fetch_hydro_current_async",
+    "fetch_meteo_current_async",
     "fetch_synop_async",
     "fetch_warnings_async",
     "download_hydro_data_async",
     "download_meteo_data_async",
     # Fetch types
     "DownloadResult",
-    # Station functions (sync)
-    "list_hydro_stations",
-    "list_meteo_stations",
-    "get_hydro_stations_with_coords",
-    # Station functions (async)
-    "list_hydro_stations_async",
-    "list_meteo_stations_async",
-    "get_hydro_stations_with_coords_async",
-    # Station types
-    "HydroStation",
-    "MeteoStation",
+    # Station functions
+    "find_stations",
+    "find_stations_async",
+    "fetch_hydro_states",
+    "fetch_hydro_states_async",
     # Parsers
     "parse_daily_csv",
     "parse_monthly_csv",
