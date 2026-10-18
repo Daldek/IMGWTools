@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from imgwtools._jsonable import jsonable
 from imgwtools.config import settings
-from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError
+from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
 
 __all__ = [
     "EXCEPTION_HANDLERS",
@@ -227,7 +227,7 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> Response
 
 
 async def _os_error(request: Request, exc: OSError) -> Response:
-    return problem_response(request, "io_error", f"Błąd systemu plików: {exc}")
+    return problem_response(request, "io_error", *describe_os_error(exc))
 
 
 async def _internal_error(request: Request, exc: Exception) -> Response:

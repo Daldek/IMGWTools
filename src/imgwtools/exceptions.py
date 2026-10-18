@@ -12,6 +12,8 @@ adapters report the same error the same way.
 from __future__ import annotations
 
 import copy
+import errno
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -149,7 +151,8 @@ class IMGWDataError(IMGWError):
     """
     IMGW data or a stored version is invalid (format, SHA, size, JSON, CSV, ZIP).
 
-    Default code: ``data_error``.
+    Default code: ``data_error``; a stored file the system cannot read is
+    raised by `io_error` with ``code="io_error"``.
     """
 
     default_code: ClassVar[ErrorCode] = "data_error"
@@ -234,3 +237,68 @@ class IMGWCancelledError(IMGWError):
     """
 
     default_code: ClassVar[ErrorCode] = "cancelled"
+
+
+_OS_REASONS = {
+    errno.EACCES: "brak uprawnień",
+    errno.EPERM: "operacja niedozwolona",
+    errno.ENOENT: "nie ma takiego pliku ani katalogu",
+    errno.ENOTDIR: "element ścieżki nie jest katalogiem",
+    errno.EISDIR: "ścieżka jest katalogiem",
+    errno.EEXIST: "plik już istnieje",
+    errno.ENOSPC: "brak miejsca na urządzeniu",
+    errno.EROFS: "system plików tylko do odczytu",
+}
+
+
+def describe_os_error(exc: OSError, /) -> tuple[str, dict[str, object]]:
+    """
+    Describe a file-system error as an ``io_error`` (spec §13.5).
+
+    The CLI error line, the REST problem document and `io_error` share this
+    text, so every interface reports the same file-system error alike.
+
+    Parameters
+    ----------
+    exc : OSError
+        File-system error.
+
+    Returns
+    -------
+    tuple[str, dict[str, object]]
+        Polish ``detail`` (``Błąd systemu plików: <reason>[: <path>]``, the
+        reason in Polish for common ``errno`` values) and ``details`` with
+        ``path`` when the error names a file.
+    """
+    reason = _OS_REASONS.get(exc.errno or 0) or exc.strerror or str(exc)
+    target = exc.filename
+    if target is None:
+        return f"Błąd systemu plików: {reason}", {}
+    path = (
+        os.fsdecode(target)
+        if isinstance(target, str | bytes | os.PathLike)
+        else str(target)
+    )
+    return f"Błąd systemu plików: {reason}: {path}", {"path": path}
+
+
+def io_error(exc: OSError, /) -> IMGWDataError:
+    """
+    Error of a stored file the system cannot read (permissions, I/O).
+
+    Read sites of the store raise it instead of folding the `OSError` into
+    ``data_error``; being an `IMGWDataError`, it ends a per-item operation
+    like a damaged version does.
+
+    Parameters
+    ----------
+    exc : OSError
+        Error of the read; raise the result ``from exc``.
+
+    Returns
+    -------
+    IMGWDataError
+        Error with ``code="io_error"`` and the text of `describe_os_error`.
+    """
+    detail, details = describe_os_error(exc)
+    return IMGWDataError(detail, code="io_error", details=details)

@@ -36,6 +36,7 @@ from imgwtools.exceptions import (
     IMGWDataError,
     IMGWStoreConflictError,
     IMGWValidationError,
+    io_error,
 )
 from imgwtools.fetch import DEFAULT_TIMEOUT, DownloadResult
 from imgwtools.models import StationListEntry
@@ -585,10 +586,12 @@ def _series_codes(
             stations = json.loads(current.path.read_bytes())["stations"]
             if not isinstance(stations, dict):
                 raise TypeError("pole stations nie jest obiektem")
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+        except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
                 f"Nieczytelny indeks szeregu {relative}: {exc}"
             ) from exc
+        except OSError as exc:
+            raise io_error(exc) from exc
         family = "hydro" if descriptor.slug.startswith("hydro_") else "meteo"
         for code in stations:
             if len(code) == 9 and code.isdecimal():
@@ -848,10 +851,12 @@ def _catalog_codes(path: Path, meta: Mapping[str, Any]) -> set[str]:
         if hashlib.sha256(data).hexdigest() != meta["sha256"]:
             raise ValueError("SHA-256 niezgodne z sidecarem")
         return {feature["id"] for feature in json.loads(data)["features"]}
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         raise IMGWStoreConflictError(
             f"Uszkodzona wersja katalogu stacji {path}: {exc}"
         ) from exc
+    except OSError as exc:
+        raise io_error(exc) from exc
 
 
 def check_catalog(
@@ -912,7 +917,8 @@ def check_catalog(
         If a location file exists but cannot be read.
     IMGWDataError
         If a station list responds with an invalid ``Content-Length`` header, or
-        a current series index is unreadable.
+        a current series index is corrupted; with code ``io_error``
+        (``details.path``) if the system cannot read a stored version.
     """
     handle = _handle(root)
     user = _user_file(user_locations)

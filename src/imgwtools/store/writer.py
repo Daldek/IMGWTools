@@ -26,6 +26,7 @@ from imgwtools.exceptions import (
     IMGWStoreConflictError,
     IMGWStoreError,
     IMGWValidationError,
+    io_error,
 )
 from imgwtools.fetch import DownloadResult
 from imgwtools.store.types import (
@@ -427,10 +428,12 @@ def _existing(slot: Path, name: str) -> list[tuple[Path, dict[str, Any]]]:
                 or not isinstance(meta["extra"]["version"]["label"], str)
             ):
                 raise ValueError("niespójna suma, schemat lub etykieta")
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+        except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWStoreConflictError(
                 f"Uszkodzona wersja archiwum: {directory}"
             ) from exc
+        except OSError as exc:
+            raise io_error(exc) from exc
         entries.append((directory / name, meta))
     return entries
 

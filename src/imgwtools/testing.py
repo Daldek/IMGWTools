@@ -59,8 +59,13 @@ def fixture_files() -> Traversable:
     """
     Return the packaged fixture data directory.
 
-    Layout: ``archives/<IMGW server path>``, ``variants/``, ``recordings.json`` and
-    ``builder_recordings.json``. Data are short synthetic samples, not real yearbooks.
+    Layout: ``archives/<IMGW server path>``, ``variants/``, recorded HTTP
+    answers ``recordings.json``, ``builder_recordings.json`` and
+    ``contract_recordings.json`` (live endpoints of the interface contract
+    tests), and ``contract_schemas.json`` (JSON Schemas with examples of the
+    store documents ``imgw-store/1`` ... ``imgw-pmaxtp/1``, the envelope
+    ``imgw-result/1`` and the error documents ``problem+json`` and
+    ``cli-error``). Data are short synthetic samples, not real yearbooks.
 
     Returns
     -------

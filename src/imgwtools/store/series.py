@@ -34,6 +34,7 @@ from imgwtools.exceptions import (
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWValidationError,
+    io_error,
 )
 from imgwtools.models import Flag, Measurement, NormalizedRecord
 from imgwtools.store.types import (
@@ -162,10 +163,12 @@ def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
             ):
                 raise ValueError("brak sumy lub etykiety wersji")
             _downloaded(meta)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+        except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
                 f"Uszkodzona wersja archiwum {version_dir.relative_to(root).as_posix()}: {exc}"
             ) from exc
+        except OSError as exc:
+            raise io_error(exc) from exc
         versions.append(_Version(slot, main, main.relative_to(root).as_posix(), meta))
     return versions
 
