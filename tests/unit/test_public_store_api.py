@@ -114,7 +114,7 @@ SPEC_EXCEPTIONS = (
     "IMGWStoreError",
     "IMGWStoreConflictError",
     "IMGWStoreDependencyError",
-    "IMGWPlanStaleError",
+    "IMGWCancelledError",
     "IMGWProjectError",
 )
 # 2.x public names that must stay importable (D7 changes only the download result).

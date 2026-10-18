@@ -8,12 +8,14 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
+from imgwtools._jsonable import jsonable
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 
 if TYPE_CHECKING:
     from imgwtools.datasets import ArchiveFile, License
+    from imgwtools.exceptions import ErrorCode
     from imgwtools.models import PMaXTPResult
 
 PathArg = str | PathLike[str]
@@ -421,10 +423,10 @@ class OperationResult:
 
     Attributes
     ----------
-    slot : str
+    slot : str or None
         Identifier of the processed slot, e.g.
         ``archives/versions/<directory>/<stem>``; in project reports
-        ``<task>:<path relative to the store>``.
+        ``<task>:<path relative to the store>``; None when the item has no slot.
     status : {"created", "relabeled", "unchanged", "reused", "failed", "stale_plan", "cancelled"}
         Outcome of the operation; ``"stale_plan"`` means the remote signal
         changed since the plan was made and the item was not downloaded.
@@ -432,9 +434,13 @@ class OperationResult:
         Absolute path of the resulting version's main file, or None.
     error : str or None
         Error description of a failed, stale or skipped item, or None.
+    task : str or None, optional
+        Name of the project task the item belongs to, or None outside projects.
+    error_code : ErrorCode or None, optional
+        Error code from ``ERROR_CODES`` of a failed item, or None.
     """
 
-    slot: str
+    slot: str | None
     status: Literal[
         "created",
         "relabeled",
@@ -446,6 +452,8 @@ class OperationResult:
     ]
     version: Path | None
     error: str | None
+    task: str | None = None
+    error_code: ErrorCode | None = None
 
 
 @dataclass(frozen=True)
@@ -493,6 +501,56 @@ class SyncReport:
 
     items: tuple[OperationResult, ...]
     series: tuple[SeriesReport, ...]
+    cancelled: bool
+
+
+@dataclass(frozen=True)
+class DownloadItem:
+    """
+    Outcome of downloading one archive file outside the store.
+
+    Attributes
+    ----------
+    slot : str
+        Slot of the archive file (§13.7 grammar), e.g.
+        ``archive:pl.imgw.hydro_daily:2023/codz_2023.zip``.
+    url : str
+        Source URL on the IMGW server.
+    status : {"downloaded", "failed", "cancelled"}
+        Outcome of the download.
+    path : Path or None
+        Absolute path of the written file, or None when nothing was written.
+    error : str or None
+        Error description (in Polish) of a failed item, or None.
+    error_code : ErrorCode or None
+        Error code from ``ERROR_CODES`` of a failed item, or None.
+    """
+
+    slot: str
+    url: str
+    status: Literal["downloaded", "failed", "cancelled"]
+    path: Path | None
+    error: str | None
+    error_code: ErrorCode | None
+
+
+@dataclass(frozen=True)
+class DownloadReport:
+    """
+    Report of downloading archive files to a plain directory.
+
+    Attributes
+    ----------
+    output : Path
+        Absolute target directory.
+    items : tuple of DownloadItem
+        Per-file outcomes in download order.
+    cancelled : bool
+        Whether the download was cancelled.
+    """
+
+    output: Path
+    items: tuple[DownloadItem, ...]
     cancelled: bool
 
 
@@ -571,10 +629,11 @@ class StoreEntry:
     ----------
     kind : {"archive", "series", "catalog", "pmaxtp", "problem"}
         Kind of the entry.
-    slot : str
+    slot : str or None
         Slot identifier, e.g. ``archive:<server_path>``, ``series:<slug>``,
         ``catalog:stations`` or ``pmaxtp:<method>:<indX>_<indY>``; for a
-        problem, the version slot or a path relative to the root.
+        problem, the version slot, a path relative to the root, or None when
+        the problem has no slot.
     version : Path or None
         Path of the version's main file; for a problem, the path of the
         faulty element.
@@ -587,7 +646,7 @@ class StoreEntry:
     """
 
     kind: Literal["archive", "series", "catalog", "pmaxtp", "problem"]
-    slot: str
+    slot: str | None
     version: Path | None
     meta: Meta | None
     problem_code: str | None
@@ -739,25 +798,47 @@ class CommandOption:
     Attributes
     ----------
     name : str
-        Python option name in ``snake_case``.
-    type : {"str", "int", "path", "bool", "list", "choice"}
+        Python option name in ``snake_case``, equal to the function parameter.
+    type : {"str", "int", "float", "bool", "date", "path", "list", "choice", "object"}
         Value type of the option.
     required : bool
         Whether the option is required.
     flag : str
         CLI flag in ``--kebab-case``.
     choices : tuple of str
-        Allowed values for ``"choice"`` options, empty otherwise.
+        Allowed values for ``"choice"`` options (or list items), empty otherwise.
     help : str
         Help text (in Polish).
+    default : object, optional
+        Default value published in the schema, or None.
+    aliases : tuple of str, optional
+        Short CLI aliases, e.g. ``("-y",)``.
+    items : {"str", "int", "year", "choice"} or None, optional
+        Item type of a ``"list"`` option, or None.
+    minimum, maximum : float or None, optional
+        Inclusive bounds published in the schema, or None.
+    pattern : str or None, optional
+        Regular expression published in the schema, or None.
+    rest : {"param", "server", "local"}, optional
+        REST role: request parameter, server configuration value, or absent
+        from REST (local only).
     """
 
     name: str
-    type: Literal["str", "int", "path", "bool", "list", "choice"]
+    type: Literal[
+        "str", "int", "float", "bool", "date", "path", "list", "choice", "object"
+    ]
     required: bool
     flag: str
     choices: tuple[str, ...]
     help: str
+    default: object = None
+    aliases: tuple[str, ...] = ()
+    items: Literal["str", "int", "year", "choice"] | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    pattern: str | None = None
+    rest: Literal["param", "server", "local"] = "param"
 
 
 @dataclass(frozen=True)
@@ -773,11 +854,112 @@ class DataCommand:
         Command description (in Polish), matching ``--help``.
     options : tuple of CommandOption
         Options accepted by the command.
+    function : str, optional
+        Name of the function from ``imgwtools.__all__`` the command calls.
+    check : str or None, optional
+        Twin function for ``--check``, ``"check_command"``, or None.
+    result : {"object", "list", "stream"}, optional
+        Result shape: one object, a ``Page`` of items, or a stream of lines.
+    method : {"GET", "POST"} or None, optional
+        HTTP method of the REST endpoint, or None for a local-only command.
+    requires : Mapping of str to tuple of str, optional
+        Options required when the key option is given (``dependentRequired``).
+    one_of : tuple of tuple of str, optional
+        Alternative groups of required options (``oneOf``).
+    rules : tuple of str, optional
+        Other validation rules (in Polish), published as ``x-imgw.rules``.
     """
 
     name: str
     description: str
     options: tuple[CommandOption, ...]
+    function: str = ""
+    check: str | None = None
+    result: Literal["object", "list", "stream"] = "object"
+    method: Literal["GET", "POST"] | None = None
+    requires: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    one_of: tuple[tuple[str, ...], ...] = ()
+    rules: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Page[T]:
+    """
+    One page of a list command result.
+
+    Attributes
+    ----------
+    items : tuple
+        Items of the slice ``[offset, offset + limit)`` in function order.
+    total : int
+        Number of items after the function's filters, before paging.
+    limit : int or None
+        Maximum page size, or None for all items from ``offset``.
+    offset : int
+        Index of the first returned item.
+    """
+
+    items: tuple[T, ...]
+    total: int
+    limit: int | None
+    offset: int
+
+
+@dataclass(frozen=True)
+class CommandResult[T]:
+    """
+    Envelope of a catalog command run (``run_command``, ``check_command``).
+
+    Attributes
+    ----------
+    command : str
+        Command name, e.g. ``"store sync"``.
+    check : bool
+        Whether ``result`` is a check plan (``imgw-plan/1``).
+    status : {"ok", "partial", "failed", "cancelled"}
+        Overall status computed from the result.
+    result : object or None
+        Function result, or None for a cancellation without a report.
+    notices : tuple of Notice
+        Distinct notices in order of first occurrence.
+    """
+
+    command: str
+    check: bool
+    status: Literal["ok", "partial", "failed", "cancelled"]
+    result: T | None
+    notices: tuple[Notice, ...]
+
+    def to_json(
+        self, *, root: PathArg | None = None, server: bool = False
+    ) -> dict[str, object]:
+        """
+        Convert the envelope to an ``imgw-result/1`` document.
+
+        Parameters
+        ----------
+        root : str or os.PathLike or None, optional
+            Store root; paths below it become POSIX paths relative to it,
+            other paths stay absolute.
+        server : bool, optional
+            REST mode: the root is written as ``"."`` and its prefix is
+            removed from every text.
+
+        Returns
+        -------
+        dict of str to object
+            JSON-compatible document with ``schema``, ``command``, ``check``,
+            ``status``, ``result`` and ``notices``.
+        """
+        document = {
+            "schema": "imgw-result/1",
+            "command": self.command,
+            "check": self.check,
+            "status": self.status,
+            "result": self.result,
+            "notices": self.notices,
+        }
+        return cast(dict[str, object], jsonable(document, root=root, server=server))
 
 
 @dataclass(frozen=True)

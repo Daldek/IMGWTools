@@ -493,7 +493,9 @@ def sync_store(
                 for item, result in zip(plan.items, results, strict=True)
                 if item.archive.dataset == dataset
             ]
-            blocking = [result.slot for result in outcome if result.status not in _DONE]
+            blocking = [
+                str(result.slot) for result in outcome if result.status not in _DONE
+            ]
             if stop or any(result.status == "cancelled" for result in outcome):
                 reports.append(SeriesReport("cancelled", None, 0, (), (CANCELLED,)))
             elif blocking:

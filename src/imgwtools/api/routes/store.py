@@ -58,7 +58,6 @@ from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
     IMGWError,
-    IMGWPlanStaleError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWStoreError,
@@ -178,8 +177,6 @@ def _status(exc: IMGWError) -> tuple[int, str]:
         return 503, "missing_dependency"
     if isinstance(exc, IMGWStoreConflictError):
         return 409, "conflict"
-    if isinstance(exc, IMGWPlanStaleError):
-        return 409, "stale_plan"
     if isinstance(exc, IMGWStoreError):
         return 404, "not_found"
     if isinstance(exc, IMGWValidationError):
@@ -461,6 +458,8 @@ def _sync_report(root: Path, report: SyncReport) -> SyncReportResponse:
                 status=item.status,
                 version=_relative(root, item.version),
                 error=None if item.error is None else _hide_paths(item.error),
+                task=item.task,
+                error_code=item.error_code,
             )
             for item in report.items
         ],

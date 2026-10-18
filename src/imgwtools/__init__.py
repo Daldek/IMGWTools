@@ -67,10 +67,13 @@ from imgwtools.datasets import (
 
 # Exceptions
 from imgwtools.exceptions import (
+    ERROR_CODES,
+    ErrorCode,
+    ErrorSpec,
+    IMGWCancelledError,
     IMGWConnectionError,
     IMGWDataError,
     IMGWError,
-    IMGWPlanStaleError,
     IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
@@ -237,7 +240,10 @@ __all__ = [
     "IMGWStoreError",
     "IMGWStoreConflictError",
     "IMGWStoreDependencyError",
-    "IMGWPlanStaleError",
+    "IMGWCancelledError",
+    "ErrorCode",
+    "ErrorSpec",
+    "ERROR_CODES",
     "IMGWProjectError",
     # Models
     "PMaXTPData",
