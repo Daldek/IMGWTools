@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +36,16 @@ class Settings(BaseSettings):
     # Database settings (SQLite cache for hydro data)
     db_enabled: bool = False
     db_path: Path = Path("./data/imgw_hydro.db")
+
+    # Versioned store REST routes (/api/v1/store, /series, /pmaxtp/store).
+    # Unset root: store routes answer 503. Writes need both flags below and
+    # the X-API-Key header; the token is compared in constant time.
+    store_root: Path | None = None
+    store_writes_enabled: bool = False
+    store_write_token: SecretStr | None = None
+    # Server directory with user station-location CSVs offered to the catalog
+    # endpoint by basename only; unset disables the option.
+    user_locations_dir: Path | None = None
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
