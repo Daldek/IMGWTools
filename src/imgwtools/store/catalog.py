@@ -555,7 +555,11 @@ def _series_codes(
     codes: dict[str, set[str]] = {"hydro": set(), "meteo": set()}
     sources: list[dict[str, Any]] = []
     for descriptor in datasets():
-        if descriptor.time_unit not in ("day", "month", "half_year"):
+        if not descriptor.in_store or descriptor.time_unit not in (
+            "day",
+            "month",
+            "half_year",
+        ):
             continue
         current = _current_series(_series_versions(root, descriptor))
         if current is None:

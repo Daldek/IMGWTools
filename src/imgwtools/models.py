@@ -234,10 +234,12 @@ class HydroCurrentData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/hydro
     """
 
-    station_id: str = Field(description="Station identifier")
+    station_code: str = Field(description="Station code")
     station_name: str = Field(description="Station name")
     river: str | None = Field(default=None, description="River name")
     province: str | None = Field(default=None, description="Province (wojewodztwo)")
+    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
+    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
     water_level_cm: float | None = Field(default=None, description="Water level [cm]")
     water_level_date: str | None = Field(
         default=None, description="Water level measurement date"
@@ -255,12 +257,27 @@ class HydroCurrentData(BaseModel):
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> HydroCurrentData:
-        """Parse raw API response from IMGW hydro endpoint."""
+        """
+        Parse one record of the IMGW hydro endpoint.
+
+        Parameters
+        ----------
+        data : dict
+            Record with the API keys (``id_stacji``, ``stacja``, ``lat``,
+            ``lon``, ``stan_wody``, ...).
+
+        Returns
+        -------
+        HydroCurrentData
+            Parsed measurement; unparsable numbers become None.
+        """
         return cls(
-            station_id=data.get("id_stacji", ""),
+            station_code=data.get("id_stacji", ""),
             station_name=data.get("stacja", ""),
             river=data.get("rzeka"),
             province=data.get("wojewodztwo", data.get("województwo")),
+            latitude=_safe_float(data.get("lat")),
+            longitude=_safe_float(data.get("lon")),
             water_level_cm=_safe_float(data.get("stan_wody")),
             water_level_date=data.get("stan_wody_data_pomiaru"),
             flow_m3s=_safe_float(data.get("przeplyw")),
@@ -272,6 +289,60 @@ class HydroCurrentData(BaseModel):
         )
 
 
+class MeteoCurrentData(BaseModel):
+    """
+    Current measurement of an automatic meteorological station from IMGW API.
+
+    Data comes from: https://danepubliczne.imgw.pl/api/data/meteo
+    """
+
+    station_code: str = Field(description="Station code")
+    station_name: str = Field(description="Station name")
+    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
+    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
+    air_temp_c: float | None = Field(default=None, description="Air temperature [C]")
+    air_temp_date: str | None = Field(
+        default=None, description="Air temperature measurement date"
+    )
+    wind_speed_ms: float | None = Field(
+        default=None, description="Mean wind speed [m/s]"
+    )
+    humidity_percent: float | None = Field(
+        default=None, description="Relative humidity [%]"
+    )
+    precipitation_10min_mm: float | None = Field(
+        default=None, description="Precipitation over the last 10 minutes [mm]"
+    )
+
+    @classmethod
+    def from_api_response(cls, data: dict[str, Any]) -> MeteoCurrentData:
+        """
+        Parse one record of the IMGW meteo endpoint.
+
+        Parameters
+        ----------
+        data : dict
+            Record with the API keys (``kod_stacji``, ``nazwa_stacji``,
+            ``lat``, ``lon``, ``temperatura_powietrza``, ...).
+
+        Returns
+        -------
+        MeteoCurrentData
+            Parsed measurement; a missing or unparsable value is None.
+        """
+        return cls(
+            station_code=data.get("kod_stacji", ""),
+            station_name=data.get("nazwa_stacji", ""),
+            latitude=_safe_float(data.get("lat")),
+            longitude=_safe_float(data.get("lon")),
+            air_temp_c=_safe_float(data.get("temperatura_powietrza")),
+            air_temp_date=data.get("temperatura_powietrza_data"),
+            wind_speed_ms=_safe_float(data.get("wiatr_srednia_predkosc")),
+            humidity_percent=_safe_float(data.get("wilgotnosc_wzgledna")),
+            precipitation_10min_mm=_safe_float(data.get("opad_10min")),
+        )
+
+
 class SynopData(BaseModel):
     """
     Current synoptic measurement from IMGW API.
@@ -279,7 +350,7 @@ class SynopData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/synop
     """
 
-    station_id: str = Field(description="Station identifier")
+    station_code: str = Field(description="Station code")
     station_name: str = Field(description="Station name")
     measurement_date: str | None = Field(default=None, description="Measurement date")
     measurement_hour: int | None = Field(default=None, description="Measurement hour")
@@ -302,9 +373,22 @@ class SynopData(BaseModel):
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> SynopData:
-        """Parse raw API response from IMGW synop endpoint."""
+        """
+        Parse one record of the IMGW synop endpoint.
+
+        Parameters
+        ----------
+        data : dict
+            Record with the API keys (``id_stacji``, ``stacja``,
+            ``temperatura``, ...).
+
+        Returns
+        -------
+        SynopData
+            Parsed measurement; unparsable numbers become None.
+        """
         return cls(
-            station_id=data.get("id_stacji", ""),
+            station_code=data.get("id_stacji", ""),
             station_name=data.get("stacja", ""),
             measurement_date=data.get("data_pomiaru"),
             measurement_hour=_safe_int(data.get("godzina_pomiaru")),
@@ -321,33 +405,91 @@ class SynopData(BaseModel):
 
 class WarningData(BaseModel):
     """
-    Weather or hydro warning from IMGW API.
+    Hydrological or meteorological warning from IMGW API.
 
-    Data comes from IMGW warnings endpoints.
+    Data comes from: https://danepubliczne.imgw.pl/api/data/warningshydro
+    and https://danepubliczne.imgw.pl/api/data/warningsmeteo
     """
 
-    id: str = Field(description="Warning identifier")
-    warning_type: str = Field(description="Warning type")
-    level: int | None = Field(default=None, description="Warning level (1-3)")
-    region: str | None = Field(default=None, description="Affected region")
-    description: str | None = Field(default=None, description="Warning description")
+    id: str = Field(description="Warning identifier (meteo id, hydro number)")
+    kind: Literal["hydro", "meteo"] = Field(description="Warning family")
+    event: str | None = Field(default=None, description="Event name")
+    level: int | None = Field(default=None, description="Warning level")
+    region: str | None = Field(default=None, description="Affected area")
+    description: str | None = Field(default=None, description="Warning text")
     valid_from: str | None = Field(default=None, description="Valid from datetime")
     valid_to: str | None = Field(default=None, description="Valid to datetime")
     probability: int | None = Field(default=None, description="Probability [%]")
 
     @classmethod
-    def from_api_response(cls, data: dict[str, Any]) -> WarningData:
-        """Parse raw API response from IMGW warnings endpoint."""
+    def from_api_response(
+        cls, data: dict[str, Any], *, kind: Literal["hydro", "meteo"]
+    ) -> WarningData:
+        """
+        Parse one record of an IMGW warnings endpoint.
+
+        Parameters
+        ----------
+        data : dict
+            Record of ``warningsmeteo`` (``id``, ``nazwa_zdarzenia``,
+            ``stopien``, ``obowiazuje_od``, ``tresc``, ``teryt``, ...) or
+            ``warningshydro`` (``numer``, ``zdarzenie``, ``stopień``,
+            ``data_od``, ``przebieg``, ``obszary``, ...).
+        kind : {"hydro", "meteo"}
+            Family of the endpoint the record comes from.
+
+        Returns
+        -------
+        WarningData
+            Parsed warning; the area is the comma-separated list of
+            provinces (hydro) or TERYT codes (meteo).
+        """
         return cls(
-            id=str(data.get("id", "")),
-            warning_type=data.get("typ", data.get("nazwa", "")),
-            level=_safe_int(data.get("poziom", data.get("stopien"))),
-            region=data.get("region", data.get("obszar")),
-            description=data.get("opis", data.get("tresc")),
-            valid_from=data.get("wazne_od", data.get("od")),
-            valid_to=data.get("wazne_do", data.get("do")),
+            id=str(data.get("id", data.get("numer", ""))),
+            kind=kind,
+            event=data.get("nazwa_zdarzenia", data.get("zdarzenie")),
+            level=_safe_int(data.get("stopien", data.get("stopień"))),
+            region=_warning_region(data),
+            description=data.get("tresc", data.get("przebieg")),
+            valid_from=data.get("obowiazuje_od", data.get("data_od")),
+            valid_to=data.get("obowiazuje_do", data.get("data_do")),
             probability=_safe_int(data.get("prawdopodobienstwo")),
         )
+
+
+class HydroState(BaseModel):
+    """
+    Hydrological station with its location and current water state.
+
+    Data comes from the map API of https://hydro.imgw.pl
+    (``hydro-back.imgw.pl/map/stations/hydrologic``).
+    """
+
+    station_code: str = Field(description="Station code")
+    name: str = Field(description="Station name")
+    river: str | None = Field(default=None, description="River name")
+    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
+    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
+    water_state: str | None = Field(
+        default=None,
+        description="Water state (alarm, warning, high, medium, low, ...)",
+    )
+
+
+def _warning_region(data: Mapping[str, Any]) -> str | None:
+    """Comma-separated provinces of ``obszary`` or TERYT codes of ``teryt``."""
+    areas = data.get("obszary")
+    if isinstance(areas, list):
+        names = [
+            str(area["wojewodztwo"])
+            for area in areas
+            if isinstance(area, dict) and area.get("wojewodztwo")
+        ]
+        return ", ".join(dict.fromkeys(names)) or None
+    codes = data.get("teryt")
+    if isinstance(codes, list):
+        return ", ".join(str(code) for code in codes) or None
+    return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -394,6 +536,11 @@ class StationListEntry:
     short_code : str or None
         Meteo only: third column of the list (IMGW short station number),
         kept as text without surrounding whitespace.
+    latitude : float or None
+        Latitude (WGS84) from the stored station catalog; None for live
+        lists, stations without a location or a store without a catalog.
+    longitude : float or None
+        Longitude (WGS84), as ``latitude``.
     """
 
     kind: Literal["hydro", "meteo"]
@@ -403,6 +550,8 @@ class StationListEntry:
     hydrographic_code: str | None = None
     river_order: int | None = None
     short_code: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class HydroArchiveStation(BaseModel):

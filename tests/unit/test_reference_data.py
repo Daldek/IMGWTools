@@ -7,10 +7,11 @@ import httpx
 import pytest
 
 from imgwtools import reference_data
-from imgwtools.stations import (
-    HYDRO_MAP_API_URL,
-    HYDRO_STATIONS_CSV_URL,
-    METEO_STATIONS_CSV_URL,
+from imgwtools.datasets import station_source_files
+from imgwtools.stations import HYDRO_MAP_API_URL
+
+HYDRO_STATIONS_CSV_URL, METEO_STATIONS_CSV_URL = (
+    file.url for file in station_source_files()
 )
 
 BASE = reference_data.DESC_BASE

@@ -7,12 +7,14 @@ Data is fetched directly from IMGW servers - nothing is stored locally.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 from zipfile import BadZipFile, ZipFile
 
 import httpx
+from pydantic import ValidationError
 
 from imgwtools.core.url_builder import (
     HydroInterval,
@@ -32,14 +34,12 @@ from imgwtools.exceptions import (
 )
 from imgwtools.models import (
     HydroCurrentData,
+    MeteoCurrentData,
     PMaXTPData,
     PMaXTPResult,
     SynopData,
     WarningData,
 )
-
-if TYPE_CHECKING:
-    pass
 
 # Poland coordinate bounds
 POLAND_LAT_MIN = 49.0
@@ -91,25 +91,149 @@ def _json_payload(response: httpx.Response) -> Any:
         raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {response.url}") from exc
 
 
+def _source_error(exc: httpx.HTTPError, url: str) -> IMGWConnectionError:
+    """
+    Map a failed request to an IMGW server to ``source_unavailable``.
+
+    Parameters
+    ----------
+    exc : httpx.HTTPError
+        Timeout, network error or HTTP 4xx/5xx status of the request.
+    url : str
+        Requested URL, reported in ``details["url"]``.
+
+    Returns
+    -------
+    IMGWConnectionError
+        Error with ``details`` ``url``, ``reason`` (``timeout``, ``network``
+        or ``http_status``) and, for an HTTP status, ``status``.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return IMGWConnectionError(
+            f"Przekroczono czas oczekiwania na serwer IMGW: {url}",
+            details={"url": url, "reason": "timeout"},
+        )
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return IMGWConnectionError(
+            f"Serwer IMGW zwrócił HTTP {status}: {url}",
+            details={"url": url, "reason": "http_status", "status": status},
+        )
+    return IMGWConnectionError(
+        f"Błąd połączenia z serwerem IMGW ({exc}): {url}",
+        details={"url": url, "reason": "network"},
+    )
+
+
+def _get(
+    url: str, *, timeout: float, headers: Mapping[str, str] | None = None
+) -> httpx.Response:
+    """GET an IMGW URL; any HTTP failure becomes ``source_unavailable``."""
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise _source_error(exc, url) from exc
+    return response
+
+
+async def _get_async(
+    url: str, *, timeout: float, headers: Mapping[str, str] | None = None
+) -> httpx.Response:
+    """Async twin of `_get`."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise _source_error(exc, url) from exc
+    return response
+
+
+_NO_DATA_KEYS = frozenset({"status", "message"})
+"""Keys of the IMGW API answer meaning "no data" (e.g. no meteo warnings)."""
+
+
+def _records[T](
+    payload: object, url: str, parse: Callable[[dict[str, Any]], T]
+) -> list[T]:
+    """
+    Parse the records of an IMGW API answer.
+
+    A single object is one record; ``null`` and an object with only
+    ``status``/``message`` (e.g. ``{"message": "Brak ostrzeżeń ..."}``) mean
+    no records.
+
+    Parameters
+    ----------
+    payload : object
+        Decoded JSON body.
+    url : str
+        Requested URL, quoted in error messages.
+    parse : callable
+        Parser of one record.
+
+    Returns
+    -------
+    list
+        Parsed records in API order.
+
+    Raises
+    ------
+    IMGWDataError
+        If the body is not a list of objects or a record cannot be parsed.
+    """
+    if payload is None or (
+        isinstance(payload, dict) and payload.keys() <= _NO_DATA_KEYS
+    ):
+        return []
+    items = [payload] if isinstance(payload, dict) else payload
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise IMGWDataError(
+            f"Nieoczekiwana odpowiedź z {url}: oczekiwano listy obiektów"
+        )
+    try:
+        return [parse(cast(dict[str, Any], item)) for item in items]
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise IMGWDataError(f"Niepoprawny rekord w odpowiedzi z {url}: {exc}") from exc
+
+
 def _validate_poland_coords(latitude: float, longitude: float) -> None:
     """Validate that coordinates are numbers within the Poland bounds box."""
-    for name, value, low, high in (
-        ("Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
-        ("Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
+    for option, name, value, low, high in (
+        ("latitude", "Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
+        ("longitude", "Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
     ):
         if (
             isinstance(value, bool)
             or not isinstance(value, int | float)
             or not low <= value <= high
         ):
+            details: dict[str, object] = {"option": option}
+            if isinstance(value, int | float | str):
+                details["value"] = value
             raise IMGWValidationError(
-                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})"
+                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})",
+                details=details,
             )
+
+
+def _pmaxtp_url(latitude: float, longitude: float, method: str) -> str:
+    """Validate the PMAXTP arguments and build the API URL."""
+    if method not in _PMAXTP_METHODS:
+        raise IMGWValidationError(
+            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
+            details={"option": "method", "allowed": list(_PMAXTP_METHODS)},
+        )
+    return build_pmaxtp_url(PMaXTPMethod(method), latitude, longitude)
 
 
 # ============================================================================
 # PMAXTP (Probabilistic Maximum Precipitation)
 # ============================================================================
+
+_PMAXTP_METHODS = ("POT", "AMP")
 
 _PMAXTP_OUTSIDE_GRID = ("poza obszarem", "undefined: lat")
 """Fragments of the PMAXTP API ``error`` texts for a point outside its grid."""
@@ -166,8 +290,8 @@ def _pmaxtp_result(
             longitude=longitude,
             data=PMaXTPData.from_api_response(cast(dict[str, Any], raw_data)),
         )
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse PMAXTP response: {e}") from e
+    except (ValidationError, AttributeError, TypeError, ValueError) as exc:
+        raise IMGWDataError(f"Niepoprawna odpowiedź PMAXTP: {exc}") from exc
     if not result.data.ks:
         raise IMGWDataError("Odpowiedź PMAXTP bez danych (pusta tabela ks)")
     return result
@@ -176,8 +300,8 @@ def _pmaxtp_result(
 def fetch_pmaxtp(
     latitude: float,
     longitude: float,
-    method: Literal["POT", "AMP"] = "POT",
     *,
+    method: Literal["POT", "AMP"] = "POT",
     timeout: float = DEFAULT_TIMEOUT,
     validate_coords: bool = True,
 ) -> PMaXTPResult:
@@ -211,10 +335,12 @@ def fetch_pmaxtp(
     Raises
     ------
     IMGWValidationError
-        If coordinates are outside the Poland bounds or the API reports the
-        point outside its grid (e.g. Kaliningrad, Lviv, the Baltic Sea).
+        If the method is unknown, coordinates are outside the Poland bounds
+        or the API reports the point outside its grid (e.g. Kaliningrad,
+        Lviv, the Baltic Sea).
     IMGWConnectionError
-        If connection to IMGW fails.
+        If the IMGW server cannot be reached or answers with an HTTP error
+        (``details`` ``url``, ``reason`` and, for HTTP errors, ``status``).
     IMGWDataError
         If response parsing fails, the API reports another error or the
         response has no quantile table.
@@ -232,82 +358,51 @@ def fetch_pmaxtp(
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)
-
-    pmaxtp_method = PMaXTPMethod(method)
-    url = build_pmaxtp_url(pmaxtp_method, latitude, longitude)
-
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-    except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-    except httpx.HTTPStatusError as e:
-        raise IMGWConnectionError(
-            f"IMGW API error {e.response.status_code}: {e.response.text}"
-        ) from e
-    except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Connection error: {e}") from e
-
-    return _pmaxtp_result(raw_data, method, latitude, longitude)
+    url = _pmaxtp_url(latitude, longitude, method)
+    payload = _json_payload(_get(url, timeout=timeout))
+    return _pmaxtp_result(payload, method, latitude, longitude)
 
 
 async def fetch_pmaxtp_async(
     latitude: float,
     longitude: float,
-    method: Literal["POT", "AMP"] = "POT",
     *,
+    method: Literal["POT", "AMP"] = "POT",
     timeout: float = DEFAULT_TIMEOUT,
     validate_coords: bool = True,
 ) -> PMaXTPResult:
     """
-    Async version of fetch_pmaxtp.
+    Async version of `fetch_pmaxtp`, with identical arguments and result.
 
-    See fetch_pmaxtp for full documentation.
+    See `fetch_pmaxtp` for full documentation.
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)
-
-    pmaxtp_method = PMaXTPMethod(method)
-    url = build_pmaxtp_url(pmaxtp_method, latitude, longitude)
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-        except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-        except httpx.HTTPStatusError as e:
-            raise IMGWConnectionError(
-                f"IMGW API error {e.response.status_code}: {e.response.text}"
-            ) from e
-        except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Connection error: {e}") from e
-
-    return _pmaxtp_result(raw_data, method, latitude, longitude)
+    url = _pmaxtp_url(latitude, longitude, method)
+    payload = _json_payload(await _get_async(url, timeout=timeout))
+    return _pmaxtp_result(payload, method, latitude, longitude)
 
 
 # ============================================================================
-# Real-time data (Hydro, Synop, Warnings)
+# Real-time data (hydro, meteo, synop, warnings)
 # ============================================================================
 
 
 def fetch_hydro_current(
-    station_id: str | None = None,
     *,
+    station: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[HydroCurrentData]:
     """
     Fetch current hydrological data from IMGW API.
 
-    Data includes water level, flow, and temperature for monitoring stations.
+    Data includes water level, flow, water temperature and the station
+    location for monitoring stations.
 
     Parameters
     ----------
-    station_id : str or None, optional
-        Station ID to filter results. If None, returns data for all stations.
+    station : str or None, optional
+        Station code; None returns data for all stations.
     timeout : float, optional
         Request timeout in seconds.
 
@@ -319,77 +414,109 @@ def fetch_hydro_current(
     Raises
     ------
     IMGWConnectionError
-        If connection fails.
+        If the IMGW server cannot be reached or answers with an HTTP error,
+        including 404 for an unknown station (``details`` ``url``,
+        ``reason`` and, for HTTP errors, ``status``).
     IMGWDataError
-        If response parsing fails.
+        If the response is not a list of valid records.
 
     Examples
     --------
-    >>> # Get all stations
     >>> stations = fetch_hydro_current()
-    >>> print(f"Total stations: {len(stations)}")
-    >>>
-    >>> # Get specific station
-    >>> warsaw = fetch_hydro_current(station_id="150160180")
-    >>> print(f"Water level: {warsaw[0].water_level_cm} cm")
+    >>> klodzko = fetch_hydro_current(station="150160180")
+    >>> print(f"Water level: {klodzko[0].water_level_cm} cm")
     """
-    url = build_api_url("hydro", station_id=station_id)
-
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-    except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-    except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Connection error: {e}") from e
-
-    # API returns single object for specific station, list for all
-    if isinstance(raw_data, dict):
-        raw_data = [raw_data]
-
-    try:
-        return [HydroCurrentData.from_api_response(item) for item in raw_data]
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse hydro response: {e}") from e
+    url = build_api_url("hydro", station_id=station)
+    payload = _json_payload(_get(url, timeout=timeout))
+    return _records(payload, url, HydroCurrentData.from_api_response)
 
 
 async def fetch_hydro_current_async(
-    station_id: str | None = None,
     *,
+    station: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[HydroCurrentData]:
     """
-    Async version of fetch_hydro_current.
+    Async version of `fetch_hydro_current`, with identical arguments and result.
 
-    See fetch_hydro_current for full documentation.
+    See `fetch_hydro_current` for full documentation.
     """
-    url = build_api_url("hydro", station_id=station_id)
+    url = build_api_url("hydro", station_id=station)
+    payload = _json_payload(await _get_async(url, timeout=timeout))
+    return _records(payload, url, HydroCurrentData.from_api_response)
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-        except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-        except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Connection error: {e}") from e
 
-    if isinstance(raw_data, dict):
-        raw_data = [raw_data]
+def fetch_meteo_current(
+    *,
+    station: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[MeteoCurrentData]:
+    """
+    Fetch current data of automatic meteorological stations from IMGW API.
 
-    try:
-        return [HydroCurrentData.from_api_response(item) for item in raw_data]
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse hydro response: {e}") from e
+    Data includes air temperature, mean wind speed, relative humidity,
+    10-minute precipitation and the station location.
+
+    Parameters
+    ----------
+    station : str or None, optional
+        Station code; None returns data for all stations.
+    timeout : float, optional
+        Request timeout in seconds.
+
+    Returns
+    -------
+    list of MeteoCurrentData
+        Current measurements; a value the station does not report is None.
+
+    Raises
+    ------
+    IMGWConnectionError
+        If the IMGW server cannot be reached or answers with an HTTP error,
+        including 404 for an unknown station (``details`` ``url``,
+        ``reason`` and, for HTTP errors, ``status``).
+    IMGWDataError
+        If the response is not a list of valid records.
+
+    Examples
+    --------
+    >>> [pszczyna] = fetch_meteo_current(station="249180010")
+    >>> print(f"Air temperature: {pszczyna.air_temp_c} C")
+    """
+    url = build_api_url("meteo", station_id=station)
+    payload = _json_payload(_get(url, timeout=timeout))
+    return _records(payload, url, MeteoCurrentData.from_api_response)
+
+
+async def fetch_meteo_current_async(
+    *,
+    station: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[MeteoCurrentData]:
+    """
+    Async version of `fetch_meteo_current`, with identical arguments and result.
+
+    See `fetch_meteo_current` for full documentation.
+    """
+    url = build_api_url("meteo", station_id=station)
+    payload = _json_payload(await _get_async(url, timeout=timeout))
+    return _records(payload, url, MeteoCurrentData.from_api_response)
+
+
+def _filter_synop(
+    records: list[SynopData], station_name: str | None
+) -> list[SynopData]:
+    """Records whose station name contains ``station_name`` (case-insensitive)."""
+    if not station_name:
+        return records
+    wanted = station_name.casefold()
+    return [record for record in records if wanted in record.station_name.casefold()]
 
 
 def fetch_synop(
-    station_id: str | None = None,
-    station_name: str | None = None,
     *,
+    station: str | None = None,
+    station_name: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[SynopData]:
     """
@@ -399,10 +526,10 @@ def fetch_synop(
 
     Parameters
     ----------
-    station_id : str or None, optional
-        Station ID to filter results.
+    station : str or None, optional
+        Synoptic station code (e.g. ``"12375"``); requests only that station.
     station_name : str or None, optional
-        Station name to filter results.
+        Case-insensitive fragment of the station name, filtered locally.
     timeout : float, optional
         Request timeout in seconds.
 
@@ -414,167 +541,122 @@ def fetch_synop(
     Raises
     ------
     IMGWConnectionError
-        If connection fails.
+        If the IMGW server cannot be reached or answers with an HTTP error,
+        including 404 for an unknown station (``details`` ``url``,
+        ``reason`` and, for HTTP errors, ``status``).
     IMGWDataError
-        If response parsing fails.
+        If the response is not a list of valid records.
 
     Examples
     --------
-    >>> # Get all synop stations
     >>> stations = fetch_synop()
-    >>>
-    >>> # Get specific station by name
     >>> warszawa = fetch_synop(station_name="Warszawa")
     """
-    # Note: IMGW synop API only supports station_id filter, not station_name
-    # For station_name, we fetch all and filter locally
-    url = build_api_url("synop", station_id=station_id)
-
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-    except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-    except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Connection error: {e}") from e
-
-    if isinstance(raw_data, dict):
-        raw_data = [raw_data]
-
-    try:
-        results = [SynopData.from_api_response(item) for item in raw_data]
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse synop response: {e}") from e
-
-    # Filter by station_name if provided
-    if station_name:
-        results = [s for s in results if station_name.lower() in s.station_name.lower()]
-
-    return results
+    url = build_api_url("synop", station_id=station)
+    payload = _json_payload(_get(url, timeout=timeout))
+    return _filter_synop(
+        _records(payload, url, SynopData.from_api_response), station_name
+    )
 
 
 async def fetch_synop_async(
-    station_id: str | None = None,
-    station_name: str | None = None,
     *,
+    station: str | None = None,
+    station_name: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[SynopData]:
     """
-    Async version of fetch_synop.
+    Async version of `fetch_synop`, with identical arguments and result.
 
-    See fetch_synop for full documentation.
+    See `fetch_synop` for full documentation.
     """
-    url = build_api_url("synop", station_id=station_id)
+    url = build_api_url("synop", station_id=station)
+    payload = _json_payload(await _get_async(url, timeout=timeout))
+    return _filter_synop(
+        _records(payload, url, SynopData.from_api_response), station_name
+    )
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-        except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-        except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Connection error: {e}") from e
 
-    if isinstance(raw_data, dict):
-        raw_data = [raw_data]
+_WARNING_KINDS: tuple[Literal["hydro", "meteo"], ...] = ("hydro", "meteo")
 
-    try:
-        results = [SynopData.from_api_response(item) for item in raw_data]
-    except Exception as e:
-        raise IMGWDataError(f"Failed to parse synop response: {e}") from e
 
-    if station_name:
-        results = [s for s in results if station_name.lower() in s.station_name.lower()]
+def _warning_sources(
+    kind: Literal["hydro", "meteo"] | None,
+) -> list[tuple[Literal["hydro", "meteo"], str]]:
+    """Warning families to fetch with their endpoint URLs, hydro first."""
+    if kind is not None and kind not in _WARNING_KINDS:
+        raise IMGWValidationError(
+            f"Nieznany rodzaj ostrzeżeń: {kind!r}; dozwolone hydro, meteo",
+            details={"option": "kind", "allowed": list(_WARNING_KINDS)},
+        )
+    kinds = _WARNING_KINDS if kind is None else (kind,)
+    return [(family, build_api_url(f"warnings{family}")) for family in kinds]
 
-    return results
+
+def _warning_parser(
+    kind: Literal["hydro", "meteo"],
+) -> Callable[[dict[str, Any]], WarningData]:
+    return lambda record: WarningData.from_api_response(record, kind=kind)
 
 
 def fetch_warnings(
-    warning_type: Literal["hydro", "meteo"] = "hydro",
     *,
+    kind: Literal["hydro", "meteo"] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[WarningData]:
     """
-    Fetch current weather or hydro warnings from IMGW.
+    Fetch current hydrological and/or meteorological warnings from IMGW.
 
     Parameters
     ----------
-    warning_type : {"hydro", "meteo"}, optional
-        Type of warnings to fetch.
+    kind : {"hydro", "meteo"} or None, optional
+        Warning family; None fetches both (hydro warnings first).
     timeout : float, optional
         Request timeout in seconds.
 
     Returns
     -------
     list of WarningData
-        Active warnings. Empty list if there are none.
+        Active warnings, each with its family in ``kind``. Empty list if
+        there are none.
 
     Raises
     ------
+    IMGWValidationError
+        If ``kind`` is not ``"hydro"``, ``"meteo"`` or None.
     IMGWConnectionError
-        If connection fails.
+        If an IMGW server cannot be reached or answers with an HTTP error
+        (``details`` ``url``, ``reason`` and, for HTTP errors, ``status``).
     IMGWDataError
-        If the response is not valid JSON.
+        If a response is not a list of valid records.
 
     Examples
     --------
-    >>> warnings = fetch_warnings(warning_type="hydro")
-    >>> for w in warnings:
-    ...     print(f"Level {w.level}: {w.description}")
+    >>> for warning in fetch_warnings():
+    ...     print(f"{warning.kind} {warning.level}: {warning.event}")
     """
-    url = build_api_url(f"warnings/{warning_type}")
-
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-    except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-    except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Connection error: {e}") from e
-
-    if not raw_data:
-        return []
-
-    if isinstance(raw_data, dict):
-        raw_data = [raw_data]
-
-    return [WarningData.from_api_response(item) for item in raw_data]
+    result: list[WarningData] = []
+    for family, url in _warning_sources(kind):
+        payload = _json_payload(_get(url, timeout=timeout))
+        result.extend(_records(payload, url, _warning_parser(family)))
+    return result
 
 
 async def fetch_warnings_async(
-    warning_type: Literal["hydro", "meteo"] = "hydro",
     *,
+    kind: Literal["hydro", "meteo"] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[WarningData]:
     """
-    Async version of fetch_warnings.
+    Async version of `fetch_warnings`, with identical arguments and result.
 
-    See fetch_warnings for full documentation.
+    See `fetch_warnings` for full documentation.
     """
-    url = build_api_url(f"warnings/{warning_type}")
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            raw_data = _json_payload(response)
-        except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"IMGW API timeout: {e}") from e
-        except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Connection error: {e}") from e
-
-    if not raw_data:
-        return []
-
-    if isinstance(raw_data, dict):
-        raw_data = [raw_data]
-
-    return [WarningData.from_api_response(item) for item in raw_data]
+    result: list[WarningData] = []
+    for family, url in _warning_sources(kind):
+        payload = _json_payload(await _get_async(url, timeout=timeout))
+        result.extend(_records(payload, url, _warning_parser(family)))
+    return result
 
 
 # ============================================================================

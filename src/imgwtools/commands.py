@@ -68,7 +68,9 @@ PROJECT_FILE = "imgw-project.json"
 _STORE_MARKER = "imgw-store.json"
 _DEFAULT_OUTPUT = Path("./data/downloaded")
 _SERIES_DATASETS = tuple(
-    d.key for d in datasets() if d.time_unit in ("day", "month", "half_year")
+    d.key
+    for d in datasets()
+    if d.in_store and d.time_unit in ("day", "month", "half_year")
 )
 _YEAR_TYPES = ("hydrological", "calendar")
 _STATION = re.compile(r"[0-9]{9}")

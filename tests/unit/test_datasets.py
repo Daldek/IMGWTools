@@ -8,20 +8,287 @@ from imgwtools.datasets import (
     archive_files,
     datasets,
     get_dataset,
+    parse_months,
+    parse_years,
     station_source_files,
 )
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
+_BASE = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
 
-def test_registry_namespaces_and_license():
+# (key, kind, in_store, time_unit, year_type, first_year, legacy_alias) — spec §13.4.
+_REGISTRY = [
+    ("pl.imgw.hydro_daily", "hydro", True, "day", "hydrological", 1951, "hydro/dobowe"),
+    (
+        "pl.imgw.hydro_monthly",
+        "hydro",
+        True,
+        "month",
+        "hydrological",
+        1951,
+        "hydro/miesieczne",
+    ),
+    (
+        "pl.imgw.hydro_semiannual",
+        "hydro",
+        True,
+        "half_year",
+        "hydrological",
+        1951,
+        "hydro/polroczne_i_roczne",
+    ),
+    (
+        "pl.imgw.meteo_climate_daily",
+        "meteo",
+        True,
+        "day",
+        "calendar",
+        1951,
+        "meteo/dobowe/klimat",
+    ),
+    (
+        "pl.imgw.meteo_precip_daily",
+        "meteo",
+        True,
+        "day",
+        "calendar",
+        1950,
+        "meteo/dobowe/opad",
+    ),
+    ("pl.imgw.hydro_stations", "hydro", True, "station_list", "none", None, None),
+    ("pl.imgw.meteo_stations", "meteo", True, "station_list", "none", None, None),
+    ("pl.imgw.pmaxtp", None, True, "cell", "none", None, None),
+    ("pl.imgw.hydro_phenomena", "hydro", False, "day", "hydrological", 1951, None),
+    (
+        "pl.imgw.meteo_climate_monthly",
+        "meteo",
+        False,
+        "month",
+        "calendar",
+        1951,
+        "meteo/miesieczne/klimat",
+    ),
+    (
+        "pl.imgw.meteo_precip_monthly",
+        "meteo",
+        False,
+        "month",
+        "calendar",
+        1950,
+        "meteo/miesieczne/opad",
+    ),
+    (
+        "pl.imgw.meteo_synop_monthly",
+        "meteo",
+        False,
+        "month",
+        "calendar",
+        1960,
+        "meteo/miesieczne/synop",
+    ),
+    (
+        "pl.imgw.meteo_climate_terms",
+        "meteo",
+        False,
+        "term",
+        "calendar",
+        1951,
+        "meteo/terminowe/klimat",
+    ),
+]
+
+
+def test_registry_has_thirteen_descriptors_with_spec_fields():
     descriptors = datasets()
-    assert len(descriptors) == 8
-    assert len({entry.key for entry in descriptors}) == 8
+    assert [
+        (
+            d.key,
+            d.kind,
+            d.in_store,
+            d.time_unit,
+            d.year_type,
+            d.first_year,
+            d.legacy_alias,
+        )
+        for d in descriptors
+    ] == _REGISTRY
     assert all(entry.key == f"pl.imgw.{entry.slug}" for entry in descriptors)
-    assert get_dataset("pl.imgw.hydro_daily").license.id == "IMGW-PIB"
-    with pytest.raises(IMGWValidationError):
-        get_dataset("hydro_daily")
+    assert all(entry.title and entry.license.id == "IMGW-PIB" for entry in descriptors)
+    assert all(
+        entry.parser is None and not entry.variables
+        for entry in descriptors
+        if not entry.in_store
+    )
+
+
+def test_datasets_kind_filter():
+    meteo = datasets(kind="meteo")
+    assert [d.key for d in meteo] == [row[0] for row in _REGISTRY if row[1] == "meteo"]
+    assert [d.key for d in datasets(kind="hydro")] == [
+        row[0] for row in _REGISTRY if row[1] == "hydro"
+    ]
+    assert len(meteo) == 7
+    with pytest.raises(IMGWValidationError) as exc:
+        datasets(kind="pmaxtp")
+    assert exc.value.code == "validation_error"
+
+
+@pytest.mark.parametrize("key", [row[0] for row in _REGISTRY if row[-1] is not None])
+def test_get_dataset_resolves_key_slug_and_legacy_alias(key):
+    descriptor = get_dataset(key)
+    assert get_dataset(descriptor.slug) is descriptor
+    assert descriptor.legacy_alias is not None
+    assert get_dataset(descriptor.legacy_alias) is descriptor
+    assert descriptor.key == key
+
+
+def test_get_dataset_unknown_lists_allowed_keys():
+    with pytest.raises(IMGWValidationError) as exc:
+        get_dataset("hydro/tygodniowe")
+    assert exc.value.code == "validation_error"
+    assert exc.value.details["allowed"] == [row[0] for row in _REGISTRY]
+
+
+@pytest.mark.parametrize(
+    ("alias", "reason"),
+    [
+        ("meteo/dobowe/synop", "per_station"),
+        ("meteo/terminowe/synop", "per_station"),
+        ("meteo/terminowe/opad", "not_published"),
+    ],
+)
+def test_aliases_without_descriptor_explain_reason(alias, reason):
+    with pytest.raises(IMGWValidationError) as exc:
+        archive_files(alias, years=2023, months=1)
+    assert exc.value.code == "validation_error"
+    assert exc.value.details["reason"] == reason
+    assert alias in str(exc.value)
+
+
+# Golden URLs generated once from the removed build_hydro_url/build_meteo_url.
+@pytest.mark.parametrize(
+    ("dataset", "years", "months", "urls"),
+    [
+        (
+            "pl.imgw.hydro_phenomena",
+            2023,
+            None,
+            [f"{_BASE}/dane_hydrologiczne/dobowe/2023/zjaw_2023.zip"],
+        ),
+        (
+            "meteo/miesieczne/klimat",
+            [1955, 1995, 1991, 2023],
+            None,
+            [
+                f"{_BASE}/dane_meteorologiczne/miesieczne/klimat/1951_1955/1951_1955_m_k.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/klimat/1991_1995/1991_1995_m_k.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/klimat/2023/2023_m_k.zip",
+            ],
+        ),
+        (
+            "meteo/miesieczne/opad",
+            [1950, 1955, 1995, 2023],
+            [2],
+            [
+                f"{_BASE}/dane_meteorologiczne/miesieczne/opad/1950_1955/1950_1955_m_o.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/opad/1991_1995/1991_1995_m_o.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/opad/2023/2023_m_o.zip",
+            ],
+        ),
+        (
+            "pl.imgw.meteo_synop_monthly",
+            "1960-1966,1995,2023",
+            None,
+            [
+                f"{_BASE}/dane_meteorologiczne/miesieczne/synop/1960_1965/1960_1965_m_s.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/synop/1966_1970/1966_1970_m_s.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/synop/1991_1995/1991_1995_m_s.zip",
+                f"{_BASE}/dane_meteorologiczne/miesieczne/synop/2023/2023_m_s.zip",
+            ],
+        ),
+        (
+            "meteo/terminowe/klimat",
+            [1995, 2001],
+            [1],
+            [
+                f"{_BASE}/dane_meteorologiczne/terminowe/klimat/1991_1995/1995_k.zip",
+                f"{_BASE}/dane_meteorologiczne/terminowe/klimat/2001/2001_01_k.zip",
+            ],
+        ),
+    ],
+)
+def test_download_only_datasets_match_legacy_urls(dataset, years, months, urls):
+    files = archive_files(dataset, years=years, months=months)
+    assert [item.url for item in files] == urls
+    assert {item.dataset for item in files} == {get_dataset(dataset).key}
+
+
+def test_meteo_monthly_folder_archive_covers_whole_folder():
+    (archive,) = archive_files("pl.imgw.meteo_climate_monthly", years="1996-2000")
+    assert (archive.year, archive.month) == (1996, None)
+    assert (archive.period_start, archive.period_end) == (
+        date(1996, 1, 1),
+        date(2000, 12, 31),
+    )
+
+
+def test_synop_monthly_starts_in_1960():
+    with pytest.raises(IMGWValidationError) as exc:
+        archive_files("pl.imgw.meteo_synop_monthly", years=1955)
+    assert exc.value.details["minimum"] == 1960
+
+
+@pytest.mark.parametrize(
+    ("years", "expected"),
+    [
+        (2024, [2024]),
+        ("2020-2023", [2020, 2021, 2022, 2023]),
+        ("2020,2022", [2020, 2022]),
+        ([2020, "2022-2023"], [2020, 2022, 2023]),
+        ((2023, "2023", " 2021-2021 "), [2021, 2023]),
+    ],
+)
+def test_years_forms_give_same_files_as_int_lists(years, expected):
+    assert parse_years(years) == tuple(expected)
+    assert archive_files("pl.imgw.hydro_monthly", years=years) == archive_files(
+        "pl.imgw.hydro_monthly", years=expected
+    )
+
+
+@pytest.mark.parametrize(
+    "years", [[], "", "2023-2020", "0", "10000", "20x", [True], 2023.0, [None], "2020,"]
+)
+def test_invalid_years_raise_validation_error(years):
+    with pytest.raises(IMGWValidationError) as exc:
+        parse_years(years)
+    assert exc.value.details["option"] == "years"
+
+
+def test_months_forms():
+    assert parse_months("3,1,1") == (1, 3)
+    assert parse_months([12, "2"]) == (2, 12)
+    assert parse_months(5) == (5,)
+    for bad in (0, "13", "1-3", [], [True]):
+        with pytest.raises(IMGWValidationError):
+            parse_months(bad)
+
+
+def test_params_narrow_semiannual_and_are_rejected_elsewhere():
+    files = archive_files(
+        "hydro/polroczne_i_roczne", years=2020, params=["T", "Q", "Q"]
+    )
+    assert [item.param for item in files] == ["Q", "T"]
+    assert [
+        item.param
+        for item in archive_files("pl.imgw.hydro_semiannual", years=2020, params="H")
+    ] == ["H"]
+    with pytest.raises(IMGWValidationError) as exc:
+        archive_files("pl.imgw.hydro_monthly", years=2020, params=["H"])
+    assert exc.value.details["option"] == "params"
+    for bad in ([], ["X"]):
+        with pytest.raises(IMGWValidationError):
+            archive_files("pl.imgw.hydro_semiannual", years=2020, params=bad)
 
 
 def test_hydro_monthly_physical_archive_count_and_calendar_boundaries():
@@ -110,7 +377,7 @@ def test_station_lists_are_real_csv_sources():
         ("pl.imgw.meteo_climate_daily", [1950], None),
         ("pl.imgw.hydro_daily", [2022], [13]),
         ("pl.imgw.meteo_precip_daily", [2024], []),
-        ("hydro_daily", [2024], None),
+        ("pl.imgw.hydro_phenomena", [1950], None),
     ],
 )
 def test_invalid_choices_raise_validation_error(dataset, years, months):

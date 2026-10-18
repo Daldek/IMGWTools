@@ -1,11 +1,13 @@
-"""Offline tests for live IMGW fetch functions (respx-mocked HTTP)."""
+"""Offline tests for live IMGW reads and archive downloads (respx-mocked HTTP)."""
 
 import io
+import json
 import zipfile
 
 import httpx
 import pytest
 
+from imgwtools.datasets import station_source_files
 from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
@@ -18,6 +20,8 @@ from imgwtools.fetch import (
     download_meteo_data_async,
     fetch_hydro_current,
     fetch_hydro_current_async,
+    fetch_meteo_current,
+    fetch_meteo_current_async,
     fetch_pmaxtp,
     fetch_pmaxtp_async,
     fetch_synop,
@@ -25,24 +29,76 @@ from imgwtools.fetch import (
     fetch_warnings,
     fetch_warnings_async,
 )
+from imgwtools.models import PMaXTPData, PMaXTPResult
+from imgwtools.stations import (
+    fetch_hydro_states,
+    fetch_hydro_states_async,
+    find_stations,
+    find_stations_async,
+)
 
 API = "https://danepubliczne.imgw.pl/api/data"
 PMAXTP = "https://powietrze.imgw.pl/tpmax-api/point"
+MAP = "https://hydro-back.imgw.pl/map/stations/hydrologic"
+HYDRO_LIST_URL = station_source_files()[0].url
 ARCHIVE = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
 HYDRO_POLR_Q = f"{ARCHIVE}/dane_hydrologiczne/polroczne_i_roczne/2020/polr_Q_2020.zip"
 HYDRO_DAILY = f"{ARCHIVE}/dane_hydrologiczne/dobowe/2020/codz_2020_03.zip"
 METEO_MONTHLY = f"{ARCHIVE}/dane_meteorologiczne/miesieczne/klimat/2023/2023_m_k.zip"
 
-HYDRO_ITEM = {
-    "id_stacji": "149190310",
-    "stacja": "Raba Górna",
-    "rzeka": "Raba",
-    "stan_wody": "212",
-    "przeplyw": "brak",
-}
+HYDRO_ITEMS = [
+    {
+        "id_stacji": "149190310",
+        "stacja": "SAN ESCOBAR",
+        "rzeka": "Raba",
+        "wojewodztwo": "małopolskie",
+        "lon": "20.0500",
+        "lat": "49.6100",
+        "stan_wody": "212",
+        "stan_wody_data_pomiaru": "2026-10-18 06:00:00",
+        "przeplyw": "12.3",
+        "przeplyw_data": "2026-10-18 06:10:00",
+    },
+    {"id_stacji": "149190311", "stacja": "RABA GÓRNA", "stan_wody": "brak"},
+]
+METEO_ITEMS = [
+    {
+        "kod_stacji": "249190310",
+        "nazwa_stacji": "SAN ESCOBAR",
+        "lon": "18.919167",
+        "lat": "49.995556",
+        "temperatura_powietrza": "10.4",
+        "temperatura_powietrza_data": "2026-10-18 16:10:00",
+        "wiatr_srednia_predkosc": "3.2",
+        "wilgotnosc_wzgledna": "81.5",
+        "opad_10min": "0.2",
+    },
+    {"kod_stacji": "249190311", "nazwa_stacji": "RABA GÓRNA", "opad_10min": None},
+]
 SYNOP_ITEMS = [
     {"id_stacji": "12999", "stacja": "SAN ESCOBAR", "temperatura": "7.5"},
     {"id_stacji": "12998", "stacja": "Raba Górna", "temperatura": "-1.0"},
+]
+HYDRO_WARNINGS = [
+    {
+        "numer": "21",
+        "zdarzenie": "Wezbranie",
+        "stopień": "1",
+        "data_od": "2026-10-18 08:00:00",
+        "data_do": "2026-10-20 08:00:00",
+        "przebieg": "Wzrost stanów wody na Rabie",
+        "obszary": [{"wojewodztwo": "małopolskie", "opis": "Raba"}],
+    }
+]
+METEO_WARNINGS = [
+    {
+        "id": "77",
+        "nazwa_zdarzenia": "Silny wiatr",
+        "stopien": "2",
+        "obowiazuje_od": "2026-10-18 06:00:00",
+        "tresc": "Porywy do 90 km/h",
+        "teryt": ["1261"],
+    }
 ]
 
 
@@ -54,8 +110,153 @@ def _zip_bytes() -> bytes:
 
 
 # --------------------------------------------------------------------------
+# Common contract of every live read
+# --------------------------------------------------------------------------
+
+# (sync, async, keyword arguments, requested URL, successful JSON body or CSV bytes)
+LIVE_READS = [
+    (fetch_hydro_current, fetch_hydro_current_async, {}, f"{API}/hydro", HYDRO_ITEMS),
+    (fetch_meteo_current, fetch_meteo_current_async, {}, f"{API}/meteo", METEO_ITEMS),
+    (fetch_synop, fetch_synop_async, {}, f"{API}/synop", SYNOP_ITEMS),
+    (
+        fetch_warnings,
+        fetch_warnings_async,
+        {"kind": "hydro"},
+        f"{API}/warningshydro",
+        HYDRO_WARNINGS,
+    ),
+    (
+        fetch_pmaxtp,
+        fetch_pmaxtp_async,
+        {"latitude": 52.0, "longitude": 20.0},
+        f"{PMAXTP}/P/KS/52.0000/20.0000",
+        {"data": {"ks": {"15": {"50": 4.2}}}},
+    ),
+    (
+        fetch_hydro_states,
+        fetch_hydro_states_async,
+        {},
+        f"{MAP}?onlyMainStations=false",
+        {"stations": [{"id": "149190310", "n": "SAN ESCOBAR", "s": "low"}]},
+    ),
+    (
+        find_stations,
+        find_stations_async,
+        {"kind": "hydro"},
+        HYDRO_LIST_URL,
+        '"149190310","SAN ESCOBAR","Raba (2138)"\n'.encode("cp1250"),
+    ),
+]
+LIVE_IDS = [read[0].__name__ for read in LIVE_READS]
+
+
+def _respond(body: object) -> httpx.Response:
+    if isinstance(body, bytes):
+        return httpx.Response(200, content=body)
+    return httpx.Response(200, json=body)
+
+
+@pytest.mark.parametrize(
+    "mock, reason, status",
+    [
+        ({"side_effect": httpx.ReadTimeout}, "timeout", None),
+        ({"side_effect": httpx.ConnectError}, "network", None),
+        ({"return_value": httpx.Response(503, text="przerwa")}, "http_status", 503),
+    ],
+    ids=["timeout", "network", "http_status"],
+)
+@pytest.mark.parametrize(
+    "sync, asynchronous, kwargs, url, body", LIVE_READS, ids=LIVE_IDS
+)
+async def test_live_read_failure_is_source_unavailable_with_url_and_reason(
+    respx_mock, sync, asynchronous, kwargs, url, body, mock, reason, status
+):
+    respx_mock.get(url).mock(**mock)
+    with pytest.raises(IMGWConnectionError) as sync_error:
+        sync(**kwargs)
+    with pytest.raises(IMGWConnectionError) as async_error:
+        await asynchronous(**kwargs)
+
+    expected = {"url": url, "reason": reason}
+    if status is not None:
+        expected["status"] = status
+    for error in (sync_error.value, async_error.value):
+        assert error.code == "source_unavailable"
+        assert error.details == expected
+        assert url in error.detail
+
+
+@pytest.mark.parametrize(
+    "sync, asynchronous, kwargs, url, body", LIVE_READS, ids=LIVE_IDS
+)
+async def test_live_read_async_twin_returns_identical_result(
+    respx_mock, sync, asynchronous, kwargs, url, body
+):
+    respx_mock.get(url).mock(side_effect=lambda _: _respond(body))
+    result = sync(**kwargs)
+    assert result
+    assert await asynchronous(**kwargs) == result
+
+
+@pytest.mark.parametrize(
+    "sync, asynchronous, kwargs, url, body",
+    [read for read in LIVE_READS if not isinstance(read[4], bytes)],
+    ids=[read[0].__name__ for read in LIVE_READS if not isinstance(read[4], bytes)],
+)
+async def test_live_read_non_json_body_is_data_error(
+    respx_mock, sync, asynchronous, kwargs, url, body
+):
+    respx_mock.get(url).respond(200, text="<html>przerwa</html>")
+    with pytest.raises(IMGWDataError, match="Niepoprawna odpowiedź JSON"):
+        sync(**kwargs)
+    with pytest.raises(IMGWDataError, match="Niepoprawna odpowiedź JSON"):
+        await asynchronous(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "function, url",
+    [
+        (fetch_hydro_current, f"{API}/hydro"),
+        (fetch_meteo_current, f"{API}/meteo"),
+        (fetch_synop, f"{API}/synop"),
+    ],
+)
+@pytest.mark.parametrize("body", [["149190310"], 42])
+def test_current_reads_reject_non_record_bodies(respx_mock, function, url, body):
+    respx_mock.get(url).respond(json=body)
+    with pytest.raises(IMGWDataError, match="oczekiwano listy obiektów"):
+        function()
+
+
+# --------------------------------------------------------------------------
 # PMAXTP
 # --------------------------------------------------------------------------
+
+
+async def test_fetch_pmaxtp_amp_result_is_unchanged(respx_mock, pmaxtp_api_response):
+    respx_mock.get(f"{PMAXTP}/A/KS/52.2300/21.0100").respond(json=pmaxtp_api_response)
+    expected = PMaXTPResult(
+        method="AMP",
+        latitude=52.23,
+        longitude=21.01,
+        data=PMaXTPData.from_api_response(pmaxtp_api_response),
+    )
+
+    assert fetch_pmaxtp(52.23, 21.01, method="AMP") == expected
+    assert await fetch_pmaxtp_async(52.23, 21.01, method="AMP") == expected
+
+
+def test_fetch_pmaxtp_method_is_keyword_only(respx_mock):
+    with pytest.raises(TypeError):
+        fetch_pmaxtp(52.23, 21.01, "AMP")  # type: ignore[misc]
+    assert not respx_mock.calls
+
+
+def test_fetch_pmaxtp_unknown_method_is_validation_error(respx_mock):
+    with pytest.raises(IMGWValidationError) as error:
+        fetch_pmaxtp(52.23, 21.01, method="MAX")  # type: ignore[arg-type]
+    assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}
+    assert not respx_mock.calls
 
 
 @pytest.mark.parametrize("latitude", [49.0, 55.0])
@@ -69,15 +270,34 @@ def test_fetch_pmaxtp_latitude_bounds_are_inclusive(respx_mock, latitude):
 
 
 @pytest.mark.parametrize(
-    "latitude, longitude, word",
-    [(48.99, 20.0, "Szerokość"), (52.0, 24.51, "Długość"), (52.0, 13.99, "Długość")],
+    "latitude, longitude, word, option, value",
+    [
+        (48.99, 20.0, "Szerokość", "latitude", 48.99),
+        (52.0, 24.51, "Długość", "longitude", 24.51),
+        (52.0, 13.99, "Długość", "longitude", 13.99),
+    ],
 )
-def test_fetch_pmaxtp_rejects_coords_outside_poland_before_request(
-    respx_mock, latitude, longitude, word
+async def test_fetch_pmaxtp_rejects_coords_outside_poland_before_request(
+    respx_mock, latitude, longitude, word, option, value
 ):
-    with pytest.raises(IMGWValidationError, match=word):
+    with pytest.raises(IMGWValidationError, match=word) as error:
         fetch_pmaxtp(latitude, longitude)
+    with pytest.raises(IMGWValidationError, match=word):
+        await fetch_pmaxtp_async(latitude, longitude)
+    assert error.value.details == {"option": option, "value": value}
     assert not respx_mock.calls
+
+
+def test_fetch_pmaxtp_outside_box_matches_sync_pmaxtp(tmp_path):
+    from imgwtools.store import init_store, sync_pmaxtp
+
+    with pytest.raises(IMGWValidationError) as live:
+        fetch_pmaxtp(40.0, 21.01)
+    with pytest.raises(IMGWValidationError) as stored:
+        sync_pmaxtp(
+            init_store(tmp_path / "store"), method="POT", latitude=40.0, longitude=21.01
+        )
+    assert str(live.value) == str(stored.value)
 
 
 def test_fetch_pmaxtp_validate_coords_false_sends_request(respx_mock):
@@ -86,195 +306,94 @@ def test_fetch_pmaxtp_validate_coords_false_sends_request(respx_mock):
     )
     result = fetch_pmaxtp(40.0, 10.0, method="AMP", validate_coords=False)
     assert route.called
-    assert result.method == "AMP"
     assert result.data.get_precipitation(15, 50) == 1.5
 
 
 @pytest.mark.parametrize(
-    "response, exception, message",
+    "payload, exception, message",
     [
         (
-            httpx.Response(503, text="przerwa"),
-            IMGWConnectionError,
-            "error 503: przerwa",
+            {"data": {}, "error": "Brak pliku, pradopodobnie poza obszarem PL"},
+            IMGWValidationError,
+            "poza siatką PMAXTP",
         ),
-        (
-            httpx.Response(200, text="<html>"),
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-        (
-            httpx.Response(200, json={"data": {"ks": "zle"}}),
-            IMGWDataError,
-            "Failed to parse PMAXTP",
-        ),
+        ({"data": {}, "error": "Awaria"}, IMGWDataError, "Awaria"),
+        ({"data": {}}, IMGWDataError, "bez danych"),
+        ({"data": {"ks": "zle"}}, IMGWDataError, "Niepoprawna odpowiedź PMAXTP"),
     ],
 )
-def test_fetch_pmaxtp_maps_bad_responses(respx_mock, response, exception, message):
-    respx_mock.get(f"{PMAXTP}/P/KS/52.0000/20.0000").mock(return_value=response)
-    with pytest.raises(exception, match=message):
-        fetch_pmaxtp(52.0, 20.0)
-
-
-def test_fetch_pmaxtp_connect_error_is_connection_error(respx_mock):
-    respx_mock.get(f"{PMAXTP}/P/KS/52.0000/20.0000").mock(
-        side_effect=httpx.ConnectError
-    )
-    with pytest.raises(IMGWConnectionError, match="Connection error"):
-        fetch_pmaxtp(52.0, 20.0)
-
-
-async def test_fetch_pmaxtp_async_returns_parsed_result(
-    respx_mock, pmaxtp_api_response
+async def test_fetch_pmaxtp_error_bodies_are_not_results(
+    respx_mock, payload, exception, message
 ):
-    respx_mock.get(f"{PMAXTP}/A/KS/50.1000/19.9000").respond(json=pmaxtp_api_response)
-    result = await fetch_pmaxtp_async(50.1, 19.9, method="AMP")
-    assert (result.method, result.latitude, result.longitude) == ("AMP", 50.1, 19.9)
-    assert result.data.get_precipitation(60, 1) == 28.4
-
-
-async def test_fetch_pmaxtp_async_rejects_coords_before_request(respx_mock):
-    with pytest.raises(IMGWValidationError):
-        await fetch_pmaxtp_async(56.0, 20.0)
-    assert not respx_mock.calls
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        ({"side_effect": httpx.ConnectError}, IMGWConnectionError, "Connection error"),
-        (
-            {"return_value": httpx.Response(404, text="brak")},
-            IMGWConnectionError,
-            "error 404: brak",
-        ),
-        (
-            {"return_value": httpx.Response(200, text="nie-json")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-        (
-            {"return_value": httpx.Response(200, json={"ks": [1]})},
-            IMGWDataError,
-            "Failed to parse PMAXTP",
-        ),
-    ],
-)
-async def test_fetch_pmaxtp_async_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(f"{PMAXTP}/P/KS/52.0000/20.0000").mock(**mock)
+    respx_mock.get(f"{PMAXTP}/P/KS/54.7104/20.4522").respond(json=payload)
     with pytest.raises(exception, match=message):
-        await fetch_pmaxtp_async(52.0, 20.0)
+        fetch_pmaxtp(54.7104, 20.4522)
+    with pytest.raises(exception, match=message):
+        await fetch_pmaxtp_async(54.7104, 20.4522)
 
 
 # --------------------------------------------------------------------------
-# Hydro current
+# Hydro and meteo current data
 # --------------------------------------------------------------------------
 
 
-def test_fetch_hydro_current_reads_live_api_record_keys(respx_mock):
-    respx_mock.get(f"{API}/hydro").respond(
-        json=[
-            {
-                "id_stacji": "149190310",
-                "stacja": "SAN ESCOBAR",
-                "rzeka": "Raba",
-                "wojewodztwo": "małopolskie",
-                "lon": "20.0500",
-                "lat": "49.6100",
-                "stan_wody": "212",
-                "stan_wody_data_pomiaru": "2026-10-18 06:00:00",
-                "temperatura_wody": "8.1",
-                "temperatura_wody_data_pomiaru": "2026-10-18 05:00:00",
-                "przeplyw": "12.3",
-                "przeplyw_data": "2026-10-18 06:10:00",
-                "zjawisko_lodowe": "0",
-                "zjawisko_lodowe_data_pomiaru": None,
-                "zjawisko_zarastania": "0",
-                "zjawisko_zarastania_data_pomiaru": None,
-            }
-        ]
+def test_fetch_hydro_current_reads_station_code_and_coordinates(respx_mock):
+    respx_mock.get(f"{API}/hydro").respond(json=HYDRO_ITEMS)
+    first, second = fetch_hydro_current()
+    assert (first.station_code, first.latitude, first.longitude) == (
+        "149190310",
+        49.61,
+        20.05,
     )
-    [station] = fetch_hydro_current()
-    assert (station.province, station.flow_m3s, station.flow_date) == (
+    assert (first.province, first.flow_m3s, first.flow_date) == (
         "małopolskie",
         12.3,
         "2026-10-18 06:10:00",
     )
+    assert (second.station_code, second.latitude, second.water_level_cm) == (
+        "149190311",
+        None,
+        None,
+    )
 
 
-def test_fetch_hydro_current_station_id_targets_station_endpoint(respx_mock):
-    respx_mock.get(f"{API}/hydro/id/149190310").respond(json=HYDRO_ITEM)
-    [station] = fetch_hydro_current("149190310")
-    assert station.station_name == "Raba Górna"
-    assert station.water_level_cm == 212.0
-    assert station.flow_m3s is None
+async def test_fetch_hydro_current_station_targets_station_endpoint(respx_mock):
+    respx_mock.get(f"{API}/hydro/id/149190310").respond(json=HYDRO_ITEMS[:1])
+    assert [s.station_code for s in fetch_hydro_current(station="149190310")] == [
+        "149190310"
+    ]
+    result = await fetch_hydro_current_async(station="149190310")
+    assert [s.station_code for s in result] == ["149190310"]
 
 
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        (
-            {"return_value": httpx.Response(500)},
-            IMGWConnectionError,
-            "Connection error",
-        ),
-        (
-            {"return_value": httpx.Response(200, text="<html>")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-        (
-            {"return_value": httpx.Response(200, json=["149190310"])},
-            IMGWDataError,
-            "Failed to parse hydro",
-        ),
-    ],
-)
-def test_fetch_hydro_current_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(f"{API}/hydro").mock(**mock)
-    with pytest.raises(exception, match=message):
-        fetch_hydro_current()
+def test_fetch_meteo_current_maps_fields_and_missing_values(respx_mock):
+    respx_mock.get(f"{API}/meteo").respond(json=METEO_ITEMS)
+    full, sparse = fetch_meteo_current()
+    assert full.model_dump() == {
+        "station_code": "249190310",
+        "station_name": "SAN ESCOBAR",
+        "latitude": 49.995556,
+        "longitude": 18.919167,
+        "air_temp_c": 10.4,
+        "air_temp_date": "2026-10-18 16:10:00",
+        "wind_speed_ms": 3.2,
+        "humidity_percent": 81.5,
+        "precipitation_10min_mm": 0.2,
+    }
+    assert sparse.station_code == "249190311"
+    assert (
+        sparse.latitude,
+        sparse.air_temp_c,
+        sparse.wind_speed_ms,
+        sparse.humidity_percent,
+        sparse.precipitation_10min_mm,
+    ) == (None, None, None, None, None)
 
 
-async def test_fetch_hydro_current_async_wraps_single_object(respx_mock):
-    respx_mock.get(f"{API}/hydro/id/149190310").respond(json=HYDRO_ITEM)
-    result = await fetch_hydro_current_async("149190310")
-    assert [s.station_id for s in result] == ["149190310"]
-
-
-async def test_fetch_hydro_current_async_returns_all_stations(
-    respx_mock, hydro_current_api_response
-):
-    respx_mock.get(f"{API}/hydro").respond(json=hydro_current_api_response)
-    result = await fetch_hydro_current_async()
-    assert [s.water_level_cm for s in result] == [106.0, 230.0]
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        ({"side_effect": httpx.ConnectError}, IMGWConnectionError, "Connection error"),
-        (
-            {"return_value": httpx.Response(200, text="{")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-        (
-            {"return_value": httpx.Response(200, json=[1, 2])},
-            IMGWDataError,
-            "Failed to parse hydro",
-        ),
-    ],
-)
-async def test_fetch_hydro_current_async_maps_failures(
-    respx_mock, mock, exception, message
-):
-    respx_mock.get(f"{API}/hydro").mock(**mock)
-    with pytest.raises(exception, match=message):
-        await fetch_hydro_current_async()
+async def test_fetch_meteo_current_station_targets_station_endpoint(respx_mock):
+    respx_mock.get(f"{API}/meteo/id/249190311").respond(json=METEO_ITEMS[1:])
+    [station] = await fetch_meteo_current_async(station="249190311")
+    assert station.station_name == "RABA GÓRNA"
 
 
 # --------------------------------------------------------------------------
@@ -282,81 +401,20 @@ async def test_fetch_hydro_current_async_maps_failures(
 # --------------------------------------------------------------------------
 
 
-def test_fetch_synop_station_id_targets_station_endpoint(respx_mock):
+async def test_fetch_synop_station_wraps_single_object(respx_mock):
     respx_mock.get(f"{API}/synop/id/12999").respond(json=SYNOP_ITEMS[0])
-    [station] = fetch_synop(station_id="12999")
-    assert (station.station_name, station.temperature_c) == ("SAN ESCOBAR", 7.5)
+    [station] = fetch_synop(station="12999")
+    assert (station.station_code, station.temperature_c) == ("12999", 7.5)
+    assert await fetch_synop_async(station="12999") == [station]
 
 
-def test_fetch_synop_name_filter_without_match_returns_empty(respx_mock):
+async def test_fetch_synop_filters_by_name_case_insensitive(respx_mock):
     respx_mock.get(f"{API}/synop").respond(json=SYNOP_ITEMS)
+    assert [s.station_code for s in fetch_synop(station_name="raba")] == ["12998"]
+    assert await fetch_synop_async(station_name="RABA") == fetch_synop(
+        station_name="raba"
+    )
     assert fetch_synop(station_name="Atlantyda") == []
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        (
-            {"return_value": httpx.Response(502)},
-            IMGWConnectionError,
-            "Connection error",
-        ),
-        (
-            {"return_value": httpx.Response(200, text="x")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-        (
-            {"return_value": httpx.Response(200, json=["12999"])},
-            IMGWDataError,
-            "Failed to parse synop",
-        ),
-    ],
-)
-def test_fetch_synop_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(f"{API}/synop").mock(**mock)
-    with pytest.raises(exception, match=message):
-        fetch_synop()
-
-
-async def test_fetch_synop_async_filters_by_name_case_insensitive(respx_mock):
-    respx_mock.get(f"{API}/synop").respond(json=SYNOP_ITEMS)
-    result = await fetch_synop_async(station_name="raba")
-    assert [s.station_id for s in result] == ["12998"]
-
-
-async def test_fetch_synop_async_station_id_wraps_single_object(respx_mock):
-    respx_mock.get(f"{API}/synop/id/12998").respond(json=SYNOP_ITEMS[1])
-    result = await fetch_synop_async(station_id="12998")
-    assert [s.temperature_c for s in result] == [-1.0]
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        (
-            {"return_value": httpx.Response(404)},
-            IMGWConnectionError,
-            "Connection error",
-        ),
-        (
-            {"return_value": httpx.Response(200, text="x")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-        (
-            {"return_value": httpx.Response(200, json=[None])},
-            IMGWDataError,
-            "Failed to parse synop",
-        ),
-    ],
-)
-async def test_fetch_synop_async_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(f"{API}/synop").mock(**mock)
-    with pytest.raises(exception, match=message):
-        await fetch_synop_async()
 
 
 # --------------------------------------------------------------------------
@@ -364,104 +422,43 @@ async def test_fetch_synop_async_maps_failures(respx_mock, mock, exception, mess
 # --------------------------------------------------------------------------
 
 
-def test_fetch_warnings_meteo_parses_alternative_keys(respx_mock):
-    respx_mock.get(f"{API}/warnings/meteo").respond(
-        json=[
-            {
-                "id": 77,
-                "nazwa": "Silny wiatr",
-                "stopien": "2",
-                "obszar": "SAN ESCOBAR",
-                "tresc": "Porywy do 90 km/h",
-                "od": "2026-10-18 06:00",
-                "do": "2026-10-19 06:00",
-                "prawdopodobienstwo": "80",
-            }
-        ]
-    )
-    [warning] = fetch_warnings("meteo")
-    assert warning.model_dump() == {
-        "id": "77",
-        "warning_type": "Silny wiatr",
-        "level": 2,
-        "region": "SAN ESCOBAR",
-        "description": "Porywy do 90 km/h",
-        "valid_from": "2026-10-18 06:00",
-        "valid_to": "2026-10-19 06:00",
-        "probability": 80,
-    }
+async def test_fetch_warnings_combines_hydro_and_meteo_with_kind(respx_mock):
+    respx_mock.get(f"{API}/warningshydro").respond(json=HYDRO_WARNINGS)
+    respx_mock.get(f"{API}/warningsmeteo").respond(json=METEO_WARNINGS)
 
+    warnings = fetch_warnings()
 
-def test_fetch_warnings_hydro_wraps_single_object(respx_mock):
-    respx_mock.get(f"{API}/warnings/hydro").respond(
-        json={"id": "h1", "typ": "Wezbranie", "poziom": "3", "opis": "Raba Górna"}
-    )
-    [warning] = fetch_warnings("hydro")
-    assert (warning.id, warning.level, warning.description) == ("h1", 3, "Raba Górna")
-
-
-@pytest.mark.parametrize("body", [b"null", b"{}", b"[]"])
-def test_fetch_warnings_empty_payload_returns_empty_list(respx_mock, body):
-    respx_mock.get(f"{API}/warnings/hydro").respond(content=body)
-    assert fetch_warnings() == []
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        (
-            {"return_value": httpx.Response(500)},
-            IMGWConnectionError,
-            "Connection error",
-        ),
-        (
-            {"return_value": httpx.Response(200, text="<html>")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
-    ],
-)
-def test_fetch_warnings_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(f"{API}/warnings/meteo").mock(**mock)
-    with pytest.raises(exception, match=message):
-        fetch_warnings("meteo")
-
-
-async def test_fetch_warnings_async_parses_list_and_single_object(respx_mock):
-    respx_mock.get(f"{API}/warnings/meteo").respond(
-        json=[{"id": 1, "typ": "Burze", "poziom": "1"}]
-    )
-    respx_mock.get(f"{API}/warnings/hydro").respond(json={"id": 2, "typ": "Susza"})
-    meteo = await fetch_warnings_async("meteo")
-    hydro = await fetch_warnings_async("hydro")
-    assert [(w.id, w.warning_type, w.level) for w in meteo + hydro] == [
-        ("1", "Burze", 1),
-        ("2", "Susza", None),
+    assert [(w.kind, w.id, w.event, w.level, w.region) for w in warnings] == [
+        ("hydro", "21", "Wezbranie", 1, "małopolskie"),
+        ("meteo", "77", "Silny wiatr", 2, "1261"),
     ]
-
-
-async def test_fetch_warnings_async_empty_payload_returns_empty_list(respx_mock):
-    respx_mock.get(f"{API}/warnings/hydro").respond(json=[])
-    assert await fetch_warnings_async() == []
+    assert await fetch_warnings_async() == warnings
 
 
 @pytest.mark.parametrize(
-    "mock, exception, message",
+    "body",
     [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "timeout"),
-        ({"side_effect": httpx.ConnectError}, IMGWConnectionError, "Connection error"),
-        (
-            {"return_value": httpx.Response(200, text="<html>")},
-            IMGWDataError,
-            "Niepoprawna odpowiedź JSON",
-        ),
+        {"message": "Brak ostrzeżeń meteorologicznych"},
+        {"status": False, "message": "Brak danych"},
+        [],
+        None,
     ],
 )
-async def test_fetch_warnings_async_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(f"{API}/warnings/hydro").mock(**mock)
-    with pytest.raises(exception, match=message):
-        await fetch_warnings_async()
+def test_fetch_warnings_without_warnings_is_empty(respx_mock, body):
+    route = respx_mock.get(f"{API}/warningsmeteo").respond(
+        content=json.dumps(body).encode()
+    )
+    assert fetch_warnings(kind="meteo") == []
+    assert route.call_count == 1
+
+
+async def test_fetch_warnings_unknown_kind_is_validation_error(respx_mock):
+    with pytest.raises(IMGWValidationError) as error:
+        fetch_warnings(kind="synop")  # type: ignore[arg-type]
+    with pytest.raises(IMGWValidationError):
+        await fetch_warnings_async(kind="synop")  # type: ignore[arg-type]
+    assert error.value.details == {"option": "kind", "allowed": ["hydro", "meteo"]}
+    assert not respx_mock.calls
 
 
 # --------------------------------------------------------------------------

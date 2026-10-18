@@ -105,7 +105,11 @@ def _root(root: PathArg | StoreHandle) -> Path:
 
 def _series_descriptor(dataset: str) -> DatasetDescriptor:
     descriptor = get_dataset(dataset)
-    if descriptor.time_unit not in ("day", "month", "half_year"):
+    if not descriptor.in_store or descriptor.time_unit not in (
+        "day",
+        "month",
+        "half_year",
+    ):
         raise IMGWValidationError(f"Zbiór {dataset} nie tworzy szeregów pomiarowych")
     return descriptor
 
