@@ -378,6 +378,29 @@ def test_series_validation_and_tampered_parquet(root):
         read_series_index(version)
 
 
+def test_unknown_series_schema_is_a_scan_problem_not_a_version(root, offline):
+    store_archives(root, DAILY, [2024])
+    version = build_series(root, dataset=DAILY).version
+    sidecar = json.loads(Path(f"{version}.meta.json").read_text(encoding="utf-8"))
+    later = version.parent.with_name(f"2099-01-01_{sidecar['sha256'][:8]}")
+    shutil.copytree(version.parent, later)
+    sidecar["extra"]["version"]["label"] = "2099-01-01"
+    sidecar["downloaded_at"] = "2099-01-01T00:00:00+00:00"
+    sidecar["extra"]["series_schema"] = "imgw-series/2"
+    (later / f"{version.name}.meta.json").write_text(
+        json.dumps(sidecar), encoding="utf-8"
+    )
+
+    problems = {
+        (entry.version, entry.problem_code)
+        for entry in iter_store(root, kind="problem")
+    }
+    assert problems == {(later, "unknown_schema")}
+    assert [entry.version for entry in iter_store(root, kind="series")] == [version]
+    with pytest.raises(IMGWDataError, match="nieobsługiwany schemat szeregu"):
+        current_version(root, slot="series:hydro_daily")
+
+
 def test_catalog_is_verified_against_sidecar(complete, tmp_path):
     _, _, catalog, _ = complete
     copy = tmp_path / "copy"

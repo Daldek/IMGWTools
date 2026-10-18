@@ -1,5 +1,6 @@
 """Offline behavioral tests for immutable store publication."""
 
+import errno
 import hashlib
 import json
 import os
@@ -182,3 +183,106 @@ def test_foreign_or_nested_store_and_path_escape(tmp_path):
     unsafe = replace(ARCHIVE, server_path="dane_hydrologiczne/dobowe/../escape.zip")
     with pytest.raises(Exception, match="Niebezpieczna"):
         write_archive(root, archive=unsafe, response=response())
+
+
+def test_identical_signal_after_relabel_is_unchanged(tmp_path):
+    root = init_store(tmp_path / "store")
+    first = write_archive(root, archive=ARCHIVE, response=response(etag='"e1"'))
+    second = write_archive(root, archive=ARCHIVE, response=response(etag='"e2"'))
+    third = write_archive(root, archive=ARCHIVE, response=response(etag='"e1"'))
+    assert [first.status, second.status, third.status] == [
+        "created",
+        "relabeled",
+        "unchanged",
+    ]
+    assert third.path == first.path and third.label == first.label
+    assert len(list(first.path.parent.parent.iterdir())) == 2
+
+
+def test_archive_sidecar_without_http_is_conflict(tmp_path):
+    root = init_store(tmp_path / "store")
+    first = write_archive(root, archive=ARCHIVE, response=response())
+    sidecar = first.path.with_name(first.path.name + ".meta.json")
+    meta = json.loads(sidecar.read_text())
+    del meta["extra"]["http"]
+    sidecar.write_text(json.dumps(meta))
+    with pytest.raises(IMGWStoreConflictError, match="Uszkodzona wersja"):
+        write_archive(root, archive=ARCHIVE, response=response())
+
+
+def _stale_incoming(root):
+    incoming = root.root / ".incoming"
+    incoming.mkdir()
+    old = incoming / "old"
+    new = incoming / "new"
+    (old / "partial").mkdir(parents=True)
+    new.mkdir()
+    elapsed = time.time() - 25 * 3600
+    os.utime(old, (elapsed, elapsed))
+    return old, new
+
+
+def test_stale_staging_removed_with_notice(tmp_path):
+    root = init_store(tmp_path / "store")
+    old, new = _stale_incoming(root)
+    notices = []
+    write_archive(root, archive=ARCHIVE, response=response(), on_notice=notices.append)
+    assert not old.exists() and new.exists()
+    leftovers = [item for item in notices if item.code == "leftover_incoming"]
+    assert len(leftovers) == 1
+    assert leftovers[0].level == "warning" and ".incoming/old" in leftovers[0].text
+
+
+def test_stale_staging_removed_concurrently_does_not_abort(tmp_path, monkeypatch):
+    root = init_store(tmp_path / "store")
+    old, _ = _stale_incoming(root)
+    original = writer.shutil.rmtree
+    notices = []
+
+    def raced(path, *args, **kwargs):
+        if Path(path) == old:
+            original(path)  # another writer removes the stale staging first
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(writer.shutil, "rmtree", raced)
+    result = write_archive(
+        root, archive=ARCHIVE, response=response(), on_notice=notices.append
+    )
+    assert result.status == "created" and not old.exists()
+    assert not [item for item in notices if item.code == "leftover_incoming"]
+
+
+def test_corrupt_sidecar_in_other_slot_does_not_block_writes(tmp_path):
+    root = init_store(tmp_path / "store")
+    other = archive_files("pl.imgw.hydro_daily", years=[2023])[0]
+    data = (FIXTURES / "archives" / other.server_path).read_bytes()
+    written = write_archive(
+        root,
+        archive=other,
+        response=DownloadResult(data, other.url, '"x"', None, len(data)),
+    )
+    written.path.with_name(written.path.name + ".meta.json").write_text("{")
+    assert write_archive(root, archive=ARCHIVE, response=response()).status == (
+        "created"
+    )
+
+
+def test_kartograf_versions_inside_store_still_detected(tmp_path):
+    root = init_store(tmp_path / "store")
+    sidecar = root.root / "foreign" / "versions" / "item" / "x.meta.json"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text('{"schema":"kartograf-meta/1"}')
+    with pytest.raises(IMGWStoreError, match="Kartografa"):
+        write_archive(root, archive=ARCHIVE, response=response())
+
+
+def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):
+    def refuse(source, target):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(writer.os, "link", refuse)
+    path = tmp_path / "store"
+    with pytest.raises(IMGWStoreError, match="dowiązanie twarde"):
+        init_store(path)
+    assert not (path / "imgw-store.json").exists()
+    assert not list(path.glob(".imgw-store.json.*.tmp"))

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import socket
 import tempfile
 import uuid
-from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -43,6 +43,7 @@ from imgwtools.store.types import (
     Progress,
     ProgressHook,
     SeriesReport,
+    StationCoverage,
     StoreHandle,
     StorePlan,
 )
@@ -276,6 +277,15 @@ def _series_versions(root: Path, descriptor: DatasetDescriptor) -> list[_SeriesV
     return result
 
 
+def _current_series(versions: Iterable[_SeriesVersion]) -> _SeriesVersion | None:
+    """Current series version: newest ``downloaded_at`` (build time), then path."""
+    return max(
+        versions,
+        key=lambda item: (_downloaded(item.meta), item.path.as_posix()),
+        default=None,
+    )
+
+
 def _series_state(
     root: Path,
     descriptor: DatasetDescriptor,
@@ -283,12 +293,9 @@ def _series_state(
     *,
     reliable: bool = True,
 ) -> SeriesState:
-    versions = _series_versions(root, descriptor)
-    if not versions:
+    current = _current_series(_series_versions(root, descriptor))
+    if current is None:
         return "missing"
-    current = max(
-        versions, key=lambda item: (_downloaded(item.meta), item.path.as_posix())
-    )
     return (
         "current" if reliable and current.manifest == _manifest(inputs) else "outdated"
     )
@@ -432,6 +439,8 @@ def _period_start(hydro_year: int, period: str) -> date:
 
 
 _Key = tuple[date, str | None]
+# Flag, value and the sign bit: -0.0 == 0.0, but sharing must not change the sign.
+_Shared = dict[tuple[str, float | None, bool], Measurement]
 
 
 @dataclass
@@ -445,7 +454,9 @@ def _collect(
     stations: dict[str, _Station],
     record: NormalizedRecord,
     descriptor: DatasetDescriptor,
+    shared: _Shared,
 ) -> None:
+    """Fold one record into its station; identical measurements share one object."""
     if len(record.station_code) != 9 or not record.station_code.isdigit():
         raise IMGWDataError(f"Nieprawidłowy kod stacji: {record.station_code!r}")
     station = stations.setdefault(record.station_code, _Station({}, {}, set()))
@@ -467,7 +478,11 @@ def _collect(
             raise IMGWDataError(
                 f"Sprzeczne wartości {variable} stacji {record.station_code} z {record.date}"
             )
-        columns[variable] = measurement
+        value = measurement.value
+        sign = value is not None and math.copysign(1.0, value) < 0
+        columns[variable] = shared.setdefault(
+            (measurement.flag, value, sign), measurement
+        )
     for variable, bounds in record.extrema_dates.items():
         previous_bounds = station.extrema.setdefault(key, {}).get(variable)
         if previous_bounds is not None and previous_bounds != bounds:
@@ -555,6 +570,36 @@ def _periods(inputs: Iterable[_Input]) -> list[list[str]]:
     return [[start.isoformat(), end.isoformat()] for start, end in merged]
 
 
+def _coverage_index(coverage: Iterable[StationCoverage]) -> dict[str, dict[str, Any]]:
+    """``series.json`` variables of one station, keyed ``<variable>[@<period>]``."""
+    return {
+        (
+            entry.variable
+            if entry.period is None
+            else f"{entry.variable}@{entry.period}"
+        ): {
+            "unit": entry.unit,
+            "first": entry.first.isoformat() if entry.first else None,
+            "last": entry.last.isoformat() if entry.last else None,
+            "with_value": entry.with_value,
+            "accumulated": entry.accumulated,
+            "gaps": [[start.isoformat(), end.isoformat()] for start, end in entry.gaps],
+        }
+        for entry in coverage
+    }
+
+
+def _candidate_labels(
+    label: str, manifest: tuple[tuple[str, str], ...], *, attempts: int
+) -> Iterator[str]:
+    """Version labels to try in order: ``label``, then stable ``+<8 hex>`` variants."""
+    pairs = [list(pair) for pair in manifest]
+    yield label
+    for attempt in range(1, attempts):
+        salt: object = pairs if attempt == 1 else [pairs, attempt]
+        yield f"{label}+{hashlib.sha256(_canonical(salt)).hexdigest()[:8]}"
+
+
 def _copy_hashed(source: Path, target: Path) -> str:
     digest = hashlib.sha256()
     with source.open("rb") as reader, target.open("xb") as writer:
@@ -591,10 +636,14 @@ def build_series(
 
     Reads exactly the current version of every archive slot of the dataset and
     writes one Parquet file per station plus ``series.json`` (``imgw-series/1``),
-    published atomically as a new version. When an existing version was built
-    from the same input manifest (slot and full SHA-256 of every input) it is
-    returned as ``reused`` without invoking the Parquet writer. An unreadable input
-    fails the whole build; an incomplete snapshot is never published.
+    published atomically as a new version. When the current series version (the
+    newest build) was built from the same input manifest (slot and full SHA-256
+    of every input) it is returned as ``reused`` without invoking the Parquet
+    writer. An older version with that manifest (inputs reverted to earlier
+    content) is never reused: a new version is built and becomes current. Coverage
+    is computed station by station, so parsed records are not retained. An
+    unreadable input fails the whole build; an incomplete snapshot is never
+    published.
 
     Parameters
     ----------
@@ -606,8 +655,10 @@ def build_series(
         Called after each parsed archive and each written station file, or once
         for a reused version.
     on_notice : NoticeHook or None, optional
-        Receives ``archive_failed`` errors for unreadable inputs and the
-        ``license_terms`` notice when a new version is created.
+        Receives ``archive_failed`` errors for unreadable inputs, a
+        ``leftover_incoming`` warning for every removed staging directory older
+        than 24 hours and the ``license_terms`` notice when a new version is
+        created.
     cancel : Cancel or None, optional
         Polled between steps; once it returns ``True`` the build stops with a
         ``cancelled`` report and nothing is published.
@@ -618,7 +669,7 @@ def build_series(
         Status ``created``, ``reused``, ``cancelled`` or ``failed``; ``version`` is
         the path of ``series.json``, ``source_files`` the absolute paths of the input
         archive versions (for ``reused``, the inputs recorded in the reused
-        version's sidecar) and ``problems`` the reasons of a failure.
+        current version's sidecar) and ``problems`` the reasons of a failure.
 
     Raises
     ------
@@ -655,36 +706,38 @@ def build_series(
             "failed", problems=[f"Brak archiwów zbioru {dataset} w magazynie"]
         )
     manifest = _manifest(inputs)
-    for existing in sorted(
-        _series_versions(path, descriptor),
-        key=lambda item: (_downloaded(item.meta), item.path.as_posix()),
-        reverse=True,
-    ):
-        if existing.manifest == manifest:
-            series = json.loads(existing.path.read_text(encoding="utf-8"))
-            recorded = [
-                path / PurePosixPath(source["file"])
-                for source in existing.meta["extra"]["source_files"]
-            ]
-            if on_progress is not None:
-                on_progress(
-                    Progress(
-                        1,
-                        1,
-                        "series",
-                        "reused",
-                        f"Szereg {descriptor.slug} bez zmian wejść",
-                    )
+    current = _current_series(_series_versions(path, descriptor))
+    if current is not None and current.manifest == manifest:
+        series = json.loads(current.path.read_text(encoding="utf-8"))
+        recorded = [
+            path / PurePosixPath(source["file"])
+            for source in current.meta["extra"]["source_files"]
+        ]
+        if on_progress is not None:
+            on_progress(
+                Progress(
+                    1,
+                    1,
+                    "series",
+                    "reused",
+                    f"Szereg {descriptor.slug} bez zmian wejść",
                 )
-            return _report(
-                "reused",
-                version=existing.path,
-                stations=len(series["stations"]),
-                sources=recorded,
             )
+        return _report(
+            "reused",
+            version=current.path,
+            stations=len(series["stations"]),
+            sources=recorded,
+        )
+
+    # Lazy import: imgwtools.coverage imports store.types, which loads this package.
+    from imgwtools.coverage import _KnownUnits, _station_coverage
 
     stations: dict[str, _Station] = {}
-    records: list[NormalizedRecord] = []
+    known = _KnownUnits(descriptor.time_unit)
+    # Gauge readings repeat across days and stations: one object per distinct
+    # measurement keeps the station map a fraction of the parsed size.
+    shared: _Shared = {}
     try:
         for index, item in enumerate(inputs, start=1):
             if cancelled():
@@ -694,9 +747,11 @@ def build_series(
                 raise IMGWDataError(
                     f"Suma kontrolna nie zgadza się z sidecarem: {item.version.relative}"
                 )
+            # Each record is folded into its station and dropped: keeping the parsed
+            # records would hold the whole dataset in memory a second time.
             for record in normalize_archive(item.archive, data=data):
-                _collect(stations, record, descriptor)
-                records.append(record)
+                _collect(stations, record, descriptor, shared)
+                known.add(record)
             if on_progress is not None:
                 on_progress(
                     Progress(
@@ -707,35 +762,14 @@ def build_series(
                         f"Odczytano {item.version.relative}",
                     )
                 )
-        # Lazy import: imgwtools.coverage imports store.types, which loads this package.
-        from imgwtools.coverage import summarize_coverage
-
-        coverage = summarize_coverage(records, dataset=dataset)
     except (IMGWDataError, IMGWValidationError, OSError) as exc:
         if on_notice is not None:
             on_notice(Notice("error", "archive_failed", str(exc)))
         return _report("failed", sources=sources, problems=[str(exc)])
-    del records
-
-    variables: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
-    for entry in coverage:
-        name = (
-            entry.variable
-            if entry.period is None
-            else f"{entry.variable}@{entry.period}"
-        )
-        variables[entry.station][name] = {
-            "unit": entry.unit,
-            "first": entry.first.isoformat() if entry.first else None,
-            "last": entry.last.isoformat() if entry.last else None,
-            "with_value": entry.with_value,
-            "accumulated": entry.accumulated,
-            "gaps": [[start.isoformat(), end.isoformat()] for start, end in entry.gaps],
-        }
 
     incoming = path / ".incoming"
     incoming.mkdir(exist_ok=True)
-    _cleanup(incoming)
+    _cleanup(incoming, on_notice=on_notice)
     staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
     (staging / "stations").mkdir(parents=True)
     try:
@@ -745,7 +779,11 @@ def build_series(
             for number, code in enumerate(sorted(stations), start=1):
                 if cancelled():
                     return _report("cancelled", sources=sources)
-                table = _station_table(pa, stations.pop(code), descriptor)
+                station = stations.pop(code)
+                table = _station_table(pa, station, descriptor)
+                coverage = _station_coverage(
+                    code, station.values, descriptor=descriptor, known=known
+                )
                 built = Path(local) / f"{code}.parquet"
                 pq.write_table(table, built)
                 digest = _copy_hashed(built, staging / "stations" / f"{code}.parquet")
@@ -754,7 +792,7 @@ def build_series(
                     "file": f"stations/{code}.parquet",
                     "sha256": digest,
                     "rows": table.num_rows,
-                    "variables": variables[code],
+                    "variables": _coverage_index(coverage),
                 }
                 if on_progress is not None:
                     on_progress(
@@ -815,16 +853,14 @@ def build_series(
 
         if cancelled():
             return _report("cancelled", sources=sources)
-        parent = path / "series" / "versions" / descriptor.slug
+        parent = _validate_slot(path, f"series/versions/{descriptor.slug}")
+        parent.mkdir(parents=True, exist_ok=True)
         # Identical series.json from a different input manifest (e.g. re-zipped archive)
-        # gets a stable manifest suffix instead of replacing the existing version.
-        suffix = (
-            "+"
-            + hashlib.sha256(_canonical([list(pair) for pair in manifest])).hexdigest()[
-                :8
-            ]
-        )
-        for candidate in (label, label + suffix):
+        # gets a stable manifest suffix instead of replacing the existing version. An
+        # older version of the same manifest (inputs reverted to earlier content) is not
+        # current, so this build takes the next free label and becomes current.
+        attempts = sum(1 for _ in parent.iterdir()) + 2
+        for candidate in _candidate_labels(label, manifest, attempts=attempts):
             target = _validate_slot(
                 path, f"series/versions/{descriptor.slug}/{candidate}_{sha[:8]}"
             )
@@ -832,14 +868,16 @@ def build_series(
             meta_path.unlink(missing_ok=True)
             _write_json(meta_path, sidecar(candidate))
             _fsync_dir(staging)
-            parent.mkdir(parents=True, exist_ok=True)
             try:
                 _atomic_publish(staging, target)
             except FileExistsError:
-                if any(
-                    existing.path.parent == target and existing.manifest == manifest
-                    for existing in _series_versions(path, descriptor)
+                winner = _current_series(_series_versions(path, descriptor))
+                if (
+                    winner is not None
+                    and winner.path.parent == target
+                    and winner.manifest == manifest
                 ):
+                    # A concurrent build of the same inputs published first.
                     return _report(
                         "reused",
                         version=target / "series.json",

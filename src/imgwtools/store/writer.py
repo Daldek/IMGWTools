@@ -12,6 +12,7 @@ import socket
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -39,6 +40,9 @@ from imgwtools.store.types import (
 
 _MARKER = "imgw-store.json"
 _ATTRIBUTION_CODE = "license_terms"
+# Trees directly under a store root written only by IMGWTools; the reader reports
+# anything unexpected there, so the Kartograf probe does not walk into them.
+_MANAGED_TREES = frozenset({"archives", "series", "stations", "pmaxtp", ".incoming"})
 
 
 def _canonical(value: object) -> bytes:
@@ -137,7 +141,9 @@ def _overlaps(left: Path, right: Path) -> bool:
 
 def _check_kartograf(path: Path) -> None:
     # Parent markers need not be at the requested root; an unrelated project manifest
-    # beside the store is harmless unless its output points at the store.
+    # beside the store is harmless unless its output points at the store. Below an
+    # existing store root only foreign trees are probed: the store's own managed
+    # trees (_MANAGED_TREES) are skipped so their sidecars are never parsed here.
     for ancestor in (path, *path.parents):
         if ancestor != path and (ancestor / _MARKER).exists():
             raise IMGWStoreError(
@@ -150,6 +156,7 @@ def _check_kartograf(path: Path) -> None:
         if versions.is_dir() and _has_kartograf_meta(versions):
             raise IMGWStoreError(f"Ścieżka koliduje z wersjami Kartografa: {versions}")
     if path.is_dir():
+        store_root = (path / _MARKER).exists()
         for base, dirs, files in os.walk(path, followlinks=False):
             folder = Path(base)
             if folder != path and _MARKER in files:
@@ -165,7 +172,12 @@ def _check_kartograf(path: Path) -> None:
                 raise IMGWStoreError(
                     f"Ścieżka koliduje z wersjami Kartografa: {folder}"
                 )
-            dirs[:] = [name for name in dirs if not (folder / name).is_symlink()]
+            dirs[:] = [
+                name
+                for name in dirs
+                if not (folder / name).is_symlink()
+                and not (store_root and folder == path and name in _MANAGED_TREES)
+            ]
 
 
 def _has_kartograf_meta(versions: Path) -> bool:
@@ -223,8 +235,9 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     IMGWStoreError
         If the root path contains a symbolic link, the directory is not empty
         and has no marker, it overlaps another IMGW store or a Kartograf
-        store, a relevant marker is unreadable, or the existing marker is not
-        a supported store.
+        store, a relevant marker is unreadable, the existing marker is not
+        a supported store, or the file system cannot create the hard link
+        used to publish the marker atomically (e.g. SMB, FAT).
     """
     path = _safe_root(root)
     _check_kartograf(path)
@@ -249,6 +262,11 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
             )  # exclusive publication; never replace a competing marker
         except FileExistsError:
             return open_store(path)
+        except OSError as exc:
+            raise IMGWStoreError(
+                "System plików nie obsługuje atomowego zapisu znacznika magazynu "
+                f"(dowiązanie twarde): {path} ({exc.strerror})"
+            ) from exc
         _fsync_dir(path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -289,13 +307,72 @@ def _utc(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _cleanup(incoming: Path) -> None:
+def _remove_stale(directory: Path) -> bool:
+    """
+    Remove an abandoned staging directory, tolerating a concurrent removal.
+
+    Parameters
+    ----------
+    directory : pathlib.Path
+        Staging directory inside ``.incoming``.
+
+    Returns
+    -------
+    bool
+        ``True`` if this call removed the directory, ``False`` if another
+        writer removed it first.
+    """
+    vanished = False
+
+    def ignore_missing(
+        function: Callable[..., object], name: str, exc: BaseException
+    ) -> None:
+        nonlocal vanished
+        if not isinstance(exc, FileNotFoundError):
+            raise exc
+        if Path(name) == directory:
+            vanished = True
+
+    shutil.rmtree(directory, onexc=ignore_missing)
+    return not vanished
+
+
+def _cleanup(incoming: Path, *, on_notice: NoticeHook | None = None) -> None:
+    """
+    Remove staging directories abandoned in ``.incoming`` for over 24 hours.
+
+    Directories removed concurrently by another writer are skipped silently.
+
+    Parameters
+    ----------
+    incoming : pathlib.Path
+        The store's ``.incoming`` directory.
+    on_notice : NoticeHook or None, optional
+        Called with a ``leftover_incoming`` warning for every directory this
+        call removed.
+    """
     if not incoming.exists():
         return
     cutoff = time.time() - 24 * 60 * 60
     for child in incoming.iterdir():
-        if child.is_dir() and not child.is_symlink() and child.stat().st_mtime < cutoff:
-            shutil.rmtree(child)
+        try:
+            if (
+                child.is_symlink()
+                or not child.is_dir()
+                or child.stat().st_mtime >= cutoff
+            ):
+                continue
+        except FileNotFoundError:
+            continue  # removed concurrently by another writer
+        if _remove_stale(child) and on_notice is not None:
+            on_notice(
+                Notice(
+                    "warning",
+                    "leftover_incoming",
+                    "Usunięto porzucony staging starszy niż 24 h: "
+                    f".incoming/{child.name}",
+                )
+            )
 
 
 def _existing(slot: Path, name: str) -> list[tuple[Path, dict[str, Any]]]:
@@ -315,14 +392,45 @@ def _existing(slot: Path, name: str) -> list[tuple[Path, dict[str, Any]]]:
             with source.open("rb") as stream:
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(chunk)
-            if meta["schema"] != "imgw-meta/1" or digest.hexdigest() != meta["sha256"]:
-                raise ValueError("niespójna suma lub schemat")
+            if (
+                meta["schema"] != "imgw-meta/1"
+                or digest.hexdigest() != meta["sha256"]
+                or not isinstance(meta["extra"]["version"]["label"], str)
+            ):
+                raise ValueError("niespójna suma, schemat lub etykieta")
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise IMGWStoreConflictError(
                 f"Uszkodzona wersja archiwum: {directory}"
             ) from exc
         entries.append((directory / name, meta))
     return entries
+
+
+def _archive_signal(version: Path, meta: dict[str, Any]) -> tuple[Any, Any]:
+    """
+    Return the HTTP signal recorded in an archive version's sidecar.
+
+    Parameters
+    ----------
+    version : pathlib.Path
+        Archive version directory (used in the error message).
+    meta : dict
+        Sidecar already validated by ``_existing``.
+
+    Returns
+    -------
+    tuple
+        ``(etag, last_modified)`` from ``extra.http``.
+
+    Raises
+    ------
+    IMGWStoreConflictError
+        If the sidecar has no ``extra.http`` object.
+    """
+    http = meta["extra"].get("http")
+    if not isinstance(http, dict):
+        raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {version}")
+    return http.get("etag"), http.get("last_modified")
 
 
 def write_archive(
@@ -357,7 +465,9 @@ def write_archive(
     on_progress : ProgressHook or None, optional
         Called once with a ``created`` progress event after publication.
     on_notice : NoticeHook or None, optional
-        Called with the ``license_terms`` notice after publication.
+        Called with a ``leftover_incoming`` warning for every abandoned
+        staging directory removed from ``.incoming`` and with the
+        ``license_terms`` notice after publication.
     cancel : Cancel or None, optional
         Polled before and after staging; returning ``True`` aborts the write.
 
@@ -379,9 +489,10 @@ def write_archive(
         link, the store overlaps a Kartograf store, or the write is
         cancelled.
     IMGWStoreConflictError
-        If an existing version in the slot is corrupted, the version
-        directory collides with different content, or the file system cannot
-        publish atomically without replacement.
+        If an existing version in the slot is corrupted (including a sidecar
+        without ``extra.http``), the version directory collides with
+        different content, or the file system cannot publish atomically
+        without replacement.
     """
     handle = open_store(root.root if isinstance(root, StoreHandle) else root)
     path = handle.root
@@ -402,7 +513,7 @@ def write_archive(
         raise IMGWStoreError("Anulowano zapis archiwum")
     incoming = path / ".incoming"
     incoming.mkdir(exist_ok=True)
-    _cleanup(incoming)
+    _cleanup(incoming, on_notice=on_notice)
     staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
     staging.mkdir()
     filename = relative.name
@@ -435,22 +546,24 @@ def write_archive(
             label = now.date().isoformat()
             label_source = "downloaded"
         signal = (response.etag, response.last_modified)
-        matching = False
-        for old_file, old_meta in _existing(slot, filename):
-            if old_meta["sha256"] != sha:
-                continue
-            old_http = old_meta["extra"]["http"]
-            if (not any(signal)) or signal == (
-                old_http.get("etag"),
-                old_http.get("last_modified"),
-            ):
+        # Scan every stored copy of these bytes for an identical signal before
+        # deciding on a relabel, so an older signal reappearing stays unchanged.
+        same = [
+            (old_file, old_meta, _archive_signal(old_file.parent, old_meta))
+            for old_file, old_meta in _existing(slot, filename)
+        ]
+        same = [entry for entry in same if entry[1]["sha256"] == sha]
+        for old_file, old_meta, old_signal in same:
+            if not any(signal) or signal == old_signal:
                 old_version = old_meta["extra"]["version"]["label"]
                 return VersionResult("unchanged", old_file, sha, old_version)
-            matching = True
-            if old_version := old_meta["extra"]["version"]["label"]:
-                if old_version == label or old_version.startswith(label + "+"):
-                    label += "+" + hashlib.sha256(_canonical(signal)).hexdigest()[:8]
-                    break
+        matching = bool(same)
+        if any(
+            old_meta["extra"]["version"]["label"] == label
+            or old_meta["extra"]["version"]["label"].startswith(label + "+")
+            for _, old_meta, _ in same
+        ):
+            label += "+" + hashlib.sha256(_canonical(signal)).hexdigest()[:8]
         if cancel is not None and cancel():
             raise IMGWStoreError("Anulowano zapis archiwum")
         meta = {
@@ -504,8 +617,7 @@ def write_archive(
         except FileExistsError as exc:
             for old_file, old_meta in _existing(slot, filename):
                 if old_file.parent == target and old_meta["sha256"] == sha:
-                    old_http = old_meta["extra"]["http"]
-                    if signal == (old_http.get("etag"), old_http.get("last_modified")):
+                    if signal == _archive_signal(old_file.parent, old_meta):
                         return VersionResult("unchanged", old_file, sha, label)
             raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
         if on_progress is not None:

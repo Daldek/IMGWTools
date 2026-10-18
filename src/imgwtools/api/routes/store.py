@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -167,7 +168,7 @@ async def store_error_handler(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, StoreAPIError)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"code": exc.code, "detail": exc.detail, **exc.extra},
+        content={"code": exc.code, "detail": _hide_paths(exc.detail), **exc.extra},
     )
 
 
@@ -374,6 +375,35 @@ def _relative(root: Path, path: Path | None) -> str | None:
         return path.name
 
 
+def _hide_paths(text: str) -> str:
+    """
+    Rewrite server directories in free text as paths relative to them.
+
+    Library messages name files by absolute path; REST responses expose only
+    paths relative to ``IMGW_STORE_ROOT`` (and ``IMGW_USER_LOCATIONS_DIR``).
+
+    Parameters
+    ----------
+    text : str
+        Error or problem text.
+
+    Returns
+    -------
+    str
+        ``text`` with ``<dir>/x`` replaced by ``x`` and a bare ``<dir>`` by ``.``.
+    """
+    for directory in (settings.store_root, settings.user_locations_dir):
+        if directory is None or not directory.is_absolute() or directory == Path("/"):
+            continue
+        for prefix in dict.fromkeys((str(directory), str(directory.resolve()))):
+            text = re.sub(
+                re.escape(prefix) + r"(?:/|(?![^\s'\"),:;]))",
+                lambda match: "" if match.group().endswith("/") else ".",
+                text,
+            )
+    return text
+
+
 def _entry(root: Path, entry: StoreEntry) -> StoreEntryResponse:
     meta = entry.meta
     return StoreEntryResponse(
@@ -397,7 +427,7 @@ def _entry(root: Path, entry: StoreEntry) -> StoreEntryResponse:
             extra=dict(meta.extra),
         ),
         problem_code=entry.problem_code,
-        problem=entry.problem,
+        problem=None if entry.problem is None else _hide_paths(entry.problem),
     )
 
 
@@ -407,7 +437,7 @@ def _series_report(root: Path, report: SeriesReport) -> SeriesReportResponse:
         version=_relative(root, report.version),
         stations=report.stations,
         source_files=[_relative(root, path) or "" for path in report.source_files],
-        problems=list(report.problems),
+        problems=[_hide_paths(problem) for problem in report.problems],
     )
 
 
@@ -418,7 +448,7 @@ def _sync_report(root: Path, report: SyncReport) -> SyncReportResponse:
                 slot=item.slot,
                 status=item.status,
                 version=_relative(root, item.version),
-                error=item.error,
+                error=None if item.error is None else _hide_paths(item.error),
             )
             for item in report.items
         ],
@@ -500,7 +530,7 @@ def get_store_info(info: StoreInfo = Depends(_inspect_root)) -> StoreInfoRespons
         schema=info.schema,
         supported=info.supported,
         contracts=dict(info.contracts),
-        problems=list(info.problems),
+        problems=[_hide_paths(problem) for problem in info.problems],
     )
 
 
@@ -678,7 +708,7 @@ def build_catalog_route(
         version=_relative(root, report.version),
         station_count=report.station_count,
         without_location=report.without_location,
-        problems=list(report.problems),
+        problems=[_hide_paths(problem) for problem in report.problems],
     )
 
 

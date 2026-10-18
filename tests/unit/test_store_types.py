@@ -2,12 +2,12 @@
 
 import json
 from dataclasses import FrozenInstanceError
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from imgwtools.datasets import ArchiveFile
+from imgwtools.datasets import archive_files
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWError,
@@ -80,18 +80,8 @@ def test_frozen_contracts():
             value.some_new_field = True
 
 
-def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
-    archive = ArchiveFile(
-        "pl.imgw.hydro_daily",
-        "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
-        "https://imgw.example/codz_2024.zip",
-        2024,
-        None,
-        None,
-        "hydrological",
-        date(2023, 11, 1),
-        date(2024, 10, 31),
-    )
+def _plan(tmp_path):
+    (archive,) = archive_files("pl.imgw.hydro_daily", years=[2024])
     item = PlanItem(
         archive,
         "newer",
@@ -102,7 +92,7 @@ def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
         44,
         None,
     )
-    plan = StorePlan(
+    return StorePlan(
         "imgw-plan/1",
         tmp_path,
         datetime(2026, 10, 17, tzinfo=UTC),
@@ -110,6 +100,11 @@ def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
         {"hydro_daily": "outdated"},
         cancelled=True,
     )
+
+
+def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
+    plan = _plan(tmp_path)
+    archive = plan.items[0].archive
     path = plan.to_json(tmp_path / "plan.json")
     payload = json.loads(path.read_text())
     payload["future_field"] = "accepted"
@@ -125,4 +120,15 @@ def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
     assert loaded.checked_at == plan.checked_at
     with pytest.raises(IMGWDataError, match="plan"):
         path.write_text('{"schema":"imgw-plan/2"}')
+        StorePlan.from_json(path)
+
+
+def test_plan_url_must_match_dataset_registry(tmp_path):
+    plan = _plan(tmp_path)
+    path = plan.to_json(tmp_path / "plan.json")
+    assert StorePlan.from_json(path) == plan
+    payload = json.loads(path.read_text())
+    payload["items"][0]["url"] = "http://127.0.0.1:22/x"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(IMGWDataError, match="nie odpowiada rejestrowi"):
         StorePlan.from_json(path)

@@ -154,3 +154,54 @@ def test_half_year_gap_spans_missing_same_period_in_successive_years():
     ]
     q = by_variable(records, dataset)["123456789", "Q_max", "winter"]
     assert q.gaps == ((date(2023, 11, 1), date(2023, 11, 1)),)
+
+
+def test_monthly_station_absent_from_published_months_has_gaps():
+    dataset = "pl.imgw.hydro_monthly"
+    hydrological_2022 = [date(2021, 11, 1), date(2021, 12, 1)] + [
+        date(2022, month, 1) for month in range(1, 11)
+    ]
+    records = [
+        row(dataset, date(2020, 11, 1), {"Q_mean": value(1)}),
+        *(
+            row(dataset, month, {"Q_mean": value(2)}, station="987654321")
+            for month in hydrological_2022
+        ),
+        row(dataset, date(2022, 11, 1), {"Q_mean": value(3)}),
+    ]
+    q = by_variable(records, dataset)["123456789", "Q_mean", None]
+    # Another station shows the HY2022 archive was published, so this station's
+    # absence from it is a gap; XII 2020 – X 2021 has no record at all: unknown.
+    assert q.gaps == ((date(2021, 11, 1), date(2022, 10, 1)),)
+    assert q.with_value == 2
+
+
+def test_half_year_gap_requires_the_parameter_published_that_year():
+    dataset = "pl.imgw.hydro_semiannual"
+    records = [
+        row(
+            dataset,
+            date(2021, 11, 1),
+            {"Q_max": value(1), "H_max": value(10)},
+            period="winter",
+        ),
+        row(
+            dataset,
+            date(2023, 11, 1),
+            {"Q_max": value(2), "H_max": value(12)},
+            period="winter",
+        ),
+        # Only the Q archive of the winter in between is known (another station).
+        row(
+            dataset,
+            date(2022, 11, 1),
+            {"Q_max": value(5)},
+            station="987654321",
+            period="winter",
+        ),
+    ]
+    coverage = by_variable(records, dataset)
+    assert coverage["123456789", "Q_max", "winter"].gaps == (
+        (date(2022, 11, 1), date(2022, 11, 1)),
+    )
+    assert coverage["123456789", "H_max", "winter"].gaps == ()

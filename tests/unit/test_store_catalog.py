@@ -156,6 +156,77 @@ def test_lists_are_archived_first_and_all_codes_are_kept(store):
     assert report.without_location == sum(f["geometry"] is None for f in found.values())
 
 
+def stored_lists(store, archive):
+    stem = archive.server_path.rsplit(".", 1)[0]
+    return sorted((store.root / "archives/versions").glob(f"{stem}/*/*.csv"))
+
+
+def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
+    notices = []
+    with respx.mock(assert_all_called=False) as router:
+        routes = mock_sources(router)
+        first = build_catalog(store)
+        newer_csv = HYDRO_CSV + cp1250('"150000030","NOWA STACJA","Rzeka (1)","00020"')
+        newer = {"ETag": '"list-v2"', "Last-Modified": "Mon, 19 Oct 2026 12:00:00 GMT"}
+        routes["hydro_head"].mock(return_value=httpx.Response(200, headers=newer))
+        routes["hydro_get"].mock(
+            return_value=httpx.Response(200, content=newer_csv, headers=newer)
+        )
+        # The meteo list exposes no comparable signal: downloaded, deduplicated by SHA.
+        routes["meteo_head"].mock(return_value=httpx.Response(200))
+        assert [item.status for item in check_catalog(store).items] == [
+            "newer",
+            "unverifiable",
+        ]
+        second = build_catalog(store, on_notice=notices.append)
+        routes["meteo_head"].mock(
+            return_value=httpx.Response(200, headers=LIST_HEADERS)
+        )
+        plan = check_catalog(store)
+    assert second.status == "created"
+    assert "150000030" in features(second) and "150000030" not in features(first)
+    assert [item.status for item in plan.items] == ["current", "current"]
+    hydro_versions = stored_lists(store, HYDRO_LIST)
+    assert len(hydro_versions) == 2 and hydro_versions[-1].read_bytes() == newer_csv
+    assert len(stored_lists(store, METEO_LIST)) == 1
+    sources = json.loads(
+        second.version.with_name("stations.geojson.meta.json").read_text()
+    )["extra"]["catalog"]
+    hydro_source = next(s for s in sources if s["source"] == "hydro_stations")
+    assert hydro_source["sha256"] == hashlib.sha256(newer_csv).hexdigest()
+    assert hydro_source["file"].startswith(
+        "archives/versions/dane_hydrologiczne/lista_stacji_hydro/2026-10-19_"
+    )
+    assert any(
+        n.code == "source_unverifiable" and "wykaz_stacji" in n.text for n in notices
+    )
+
+
+def test_code_only_in_static_file_is_kept_as_hydro_station(
+    store, tmp_path, isolated_data_dir
+):
+    static = isolated_data_dir / "hydro_stations_locations.csv"
+    static.write_text("id,X,Y\n150000099,19.9512,50.0512\n", encoding="utf-8")
+    user = tmp_path / "u.csv"
+    user.write_text(
+        "station_code,lon,lat,source\n150000098,19.9512,50.0512,a\n",
+        encoding="utf-8",
+    )
+    with respx.mock(assert_all_called=False) as router:
+        mock_sources(router)
+        report = build_catalog(store, user_locations=user)
+    found = features(report)
+    historical = found["150000099"]
+    assert historical["geometry"]["coordinates"] == [19.9512, 50.0512]
+    assert historical["properties"]["kind"] == "hydro"
+    assert historical["properties"]["location_source"] == "static"
+    assert historical["properties"]["active"] is False
+    assert report.station_count == len(found)
+    # The user file only fills locations: its unknown codes are reported, not added.
+    assert "150000098" not in found
+    assert any("150000098" in problem for problem in report.problems)
+
+
 def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_data_dir):
     hydro_csv = HYDRO_CSV + cp1250(
         '"150000020","STACJA API","Rzeka (1)","00010"',

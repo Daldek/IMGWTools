@@ -1,10 +1,15 @@
 """Offline scenarios for imgw-series/1 snapshots (check_series/build_series)."""
 
+import gc
 import hashlib
+import io
 import json
+import math
 import subprocess
 import sys
-from datetime import date, datetime, timedelta
+import zipfile
+from datetime import UTC, date, datetime, timedelta
+from email.utils import format_datetime
 from pathlib import Path
 
 import httpx
@@ -15,7 +20,8 @@ import pytest
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWStoreDependencyError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
-from imgwtools.store import init_store, write_archive
+from imgwtools.models import NormalizedRecord
+from imgwtools.store import current_version, init_store, write_archive
 from imgwtools.store.series import build_series, check_series
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -342,6 +348,98 @@ def test_cancel_and_broken_input_publish_no_version(root):
     assert failed.version is None
     assert [notice.code for notice in notices] == ["archive_failed"]
     assert series_versions(root) == []
+
+
+def put_2024(root, content, etag, day):
+    """Store ``codz_2024.zip`` bytes under a Last-Modified of 2026-10-``day``."""
+    archive = archive_files(HYDRO, years=[2024])[0]
+    modified = format_datetime(datetime(2026, 10, day, 12, tzinfo=UTC), usegmt=True)
+    response = DownloadResult(content, archive.url, etag, modified, len(content))
+    return write_archive(root, archive=archive, response=response)
+
+
+ORIGINAL_2024 = (
+    FIXTURES / "archives" / archive_files(HYDRO, years=[2024])[0].server_path
+).read_bytes()
+CHANGED_2024 = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
+
+
+def test_reverted_input_builds_new_current_series_instead_of_reusing_old(root):
+    put_2024(root, ORIGINAL_2024, '"v1"', 17)
+    first = build_series(root, dataset=HYDRO)
+    put_2024(root, CHANGED_2024, '"v2"', 19)
+    second = build_series(root, dataset=HYDRO)
+    # IMGW republishes the earlier bytes under a new Last-Modified: a relabeled copy
+    # whose input manifest equals the one of the first, now superseded, series.
+    assert put_2024(root, ORIGINAL_2024, '"v3"', 30).status == "relabeled"
+    third = build_series(root, dataset=HYDRO)
+    assert (first.status, second.status, third.status) == ("created",) * 3
+    assert third.version not in (first.version, second.version)
+    assert third.version.read_bytes() == first.version.read_bytes()
+    assert third.version.parent.name.startswith("2026-10-30_")
+    assert current_version(root, slot="series:hydro_daily").version == third.version
+    assert check_series(root, dataset=HYDRO).series_state == {"hydro_daily": "current"}
+    again = build_series(root, dataset=HYDRO)
+    assert (again.status, again.version) == ("reused", third.version)
+
+
+def test_alternating_input_under_dominating_label_keeps_series_current(root):
+    # The 2023 archive's later Last-Modified labels every build, so reverted inputs
+    # produce identical series.json under an already taken directory name.
+    store_archives(root, HYDRO, [2023], signal=('"x"', "Tue, 01 Dec 2026 12:00:00 GMT"))
+    put_2024(root, ORIGINAL_2024, '"e0"', 17)
+    built = [build_series(root, dataset=HYDRO).version]
+    for step in range(1, 5):
+        put_2024(root, (ORIGINAL_2024, CHANGED_2024)[step % 2], f'"e{step}"', 17 + step)
+        report = build_series(root, dataset=HYDRO)
+        assert report.status == "created" and report.version not in built
+        built.append(report.version)
+        assert (
+            current_version(root, slot="series:hydro_daily").version == report.version
+        )
+        assert check_series(root, dataset=HYDRO).series_state == {
+            "hydro_daily": "current"
+        }
+    assert {version.parent.name[:10] for version in built} == {"2026-12-01"}
+    assert built[4].read_bytes() == built[2].read_bytes() == built[0].read_bytes()
+
+
+def test_parsed_records_are_released_while_building(root):
+    store_archives(root, HYDRO, [2023, 2024])
+    alive = []
+
+    def progress(event):
+        if event.unit == "archive" and event.status == "parsed":
+            gc.collect()
+            alive.append(
+                sum(isinstance(item, NormalizedRecord) for item in gc.get_objects())
+            )
+
+    assert build_series(root, dataset=HYDRO, on_progress=progress).status == "created"
+    # Records are folded into per-station values as they are parsed; at most the
+    # last one is still referenced, so memory never holds the dataset twice.
+    assert len(alive) == 2 and max(alive) <= 1
+
+
+def test_shared_measurements_keep_the_sign_of_zero(root):
+    rows = "".join(
+        f'"{code}","Raba","Raba",2024,2,1,152,1.5,{temperature},12\n'
+        for code, temperature in (
+            ("149190310", "-0.0"),
+            ("149190311", "0.0"),
+            ("149190312", "-0.0"),
+        )
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr("codz_2024.csv", rows.encode("cp1250"))
+    put_2024(root, buffer.getvalue(), '"z"', 17)
+    report = build_series(root, dataset=HYDRO)
+    signs = {
+        code: math.copysign(1.0, station_table(report, code)["T_value"][0].as_py())
+        for code in ("149190310", "149190311", "149190312")
+    }
+    assert signs == {"149190310": -1.0, "149190311": 1.0, "149190312": -1.0}
 
 
 def test_validation_and_missing_pyarrow(root, monkeypatch):

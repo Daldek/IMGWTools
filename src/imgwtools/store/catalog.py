@@ -126,18 +126,20 @@ def _publish_version(
     data: bytes,
     meta: dict[str, Any],
     label: str,
+    on_notice: NoticeHook | None = None,
 ) -> tuple[Path, bool]:
     """Stage ``name`` + sidecar and publish ``<slot>/<label>_<sha8>`` without replacement.
 
     Returns the main file path and ``True`` when a new version was created; an identical
-    concurrently published version yields ``False``.
+    concurrently published version yields ``False``. ``on_notice`` receives a
+    ``leftover_incoming`` warning for every removed staging directory older than 24 h.
     """
     sha = meta["sha256"]
     slot_dir = _validate_slot(root, slot)
     target = _validate_slot(root, f"{slot}/{label}_{sha[:8]}")
     incoming = root / ".incoming"
     incoming.mkdir(exist_ok=True)
-    _cleanup(incoming)
+    _cleanup(incoming, on_notice=on_notice)
     staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
     staging.mkdir()
     try:
@@ -333,7 +335,8 @@ def _content_length(response: httpx.Response) -> int | None:
 
 
 def _signal_time(meta: Mapping[str, Any]) -> datetime:
-    modified = meta["extra"].get("http", {}).get("last_modified")
+    http = meta["extra"].get("http")
+    modified = http.get("last_modified") if isinstance(http, Mapping) else None
     if modified:
         try:
             return parsedate_to_datetime(modified).astimezone(UTC)
@@ -364,6 +367,28 @@ def _current_archive(
     )
 
 
+def _archive_http(path: Path, meta: Mapping[str, Any]) -> Mapping[str, Any]:
+    """``extra.http`` of a stored list version; a version without it is corrupted."""
+    http = meta["extra"].get("http")
+    if not isinstance(http, Mapping):
+        raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {path.parent}")
+    return http
+
+
+def _list_status(
+    stored: Mapping[str, Any], etag: str | None, modified: str | None
+) -> Literal["current", "newer", "unverifiable"]:
+    """Compare the ``HEAD`` signals present in a response with the stored version's."""
+    pairs = [
+        (new, stored.get(key))
+        for key, new in (("etag", etag), ("last_modified", modified))
+        if new
+    ]
+    if not pairs:
+        return "unverifiable"
+    return "current" if all(new == old for new, old in pairs) else "newer"
+
+
 def _station_list(
     handle: StoreHandle,
     archive: ArchiveFile,
@@ -371,9 +396,33 @@ def _station_list(
     on_progress: ProgressHook | None,
     on_notice: NoticeHook | None,
 ) -> tuple[bytes, dict[str, Any]]:
-    """Use the stored list, or download it and store it as an archive first."""
+    """Current stored list, first downloaded and archived when missing or changed.
+
+    A stored list is re-validated with ``HEAD`` exactly as :func:`check_catalog`
+    compares it: matching ETag/Last-Modified reuse it; a different signal, or none
+    to compare, downloads the list and commits it with ``write_archive`` (identical
+    bytes stay ``unchanged``) before the catalog reads it.
+    """
     current = _current_archive(handle.root, archive)
-    if current is None:
+    stale = current is None
+    if current is not None:
+        head = _http("HEAD", archive.url)
+        status = _list_status(
+            _archive_http(*current),
+            head.headers.get("ETag"),
+            head.headers.get("Last-Modified"),
+        )
+        stale = status != "current"
+        if status == "unverifiable" and on_notice is not None:
+            on_notice(
+                Notice(
+                    "warning",
+                    "source_unverifiable",
+                    f"{archive.server_path}: brak porównywalnego sygnału ETag/Last-Modified; "
+                    "pobieranie i porównanie sumy SHA-256",
+                )
+            )
+    if stale:
         response = _http("GET", archive.url)
         result = DownloadResult(
             data=response.content,
@@ -390,15 +439,15 @@ def _station_list(
             on_notice=on_notice,
         )
         current = _current_archive(handle.root, archive)
-        if current is None:  # pragma: no cover - write_archive always leaves a version
-            raise IMGWStoreConflictError(
-                f"Brak zapisanej wersji listy {archive.server_path}"
-            )
+    if current is None:  # pragma: no cover - write_archive always leaves a version
+        raise IMGWStoreConflictError(
+            f"Brak zapisanej wersji listy {archive.server_path}"
+        )
     path, meta = current
     data = path.read_bytes()
     return data, {
         "source": get_dataset(archive.dataset).slug,
-        "url": meta["extra"]["http"]["url"],
+        "url": _archive_http(path, meta).get("url"),
         "file": path.relative_to(handle.root).as_posix(),
         "fetched_at": meta["downloaded_at"],
         "sha256": meta["sha256"],
@@ -599,13 +648,17 @@ def _catalog_bytes(
         raise IMGWDataError(
             f"Kody stacji występują jednocześnie w rodzinie hydro i meteo: {', '.join(shared[:10])}"
         )
+    # The static file holds IMGW-PIB hydrological gauge coordinates, so a code known
+    # only from it is still a (historical) hydro station: no code may disappear. The
+    # user file only fills locations and names no station family.
+    codes["hydro"] |= set(static) - codes["meteo"]
     known = codes["hydro"] | codes["meteo"]
-    for label, source in (("statycznym", static), ("użytkownika", user)):
-        unknown = sorted(set(source) - known)
-        if unknown:
-            problems.append(
-                f"Plik położeń {label}: {len(unknown)} kodów spoza list i API (np. {unknown[0]})"
-            )
+    unknown = sorted(set(user) - known)
+    if unknown:
+        problems.append(
+            f"Plik położeń użytkownika: {len(unknown)} kodów spoza list, API i pliku "
+            f"statycznego (np. {unknown[0]}); plik użytkownika uzupełnia tylko położenia"
+        )
     features = []
     used: dict[str, int] = {}
     without = 0
@@ -771,7 +824,7 @@ def check_catalog(
             continue
         current = _current_archive(handle.root, archive)
         local_path, local_sha, old_http = (
-            (current[0], current[1]["sha256"], current[1]["extra"].get("http", {}))
+            (current[0], current[1]["sha256"], _archive_http(*current))
             if current
             else (None, None, {})
         )
@@ -794,21 +847,9 @@ def check_catalog(
             etag = response.headers.get("ETag")
             modified = response.headers.get("Last-Modified")
             length = _content_length(response)
-            pairs = [
-                (new, old_http.get(key))
-                for key, new in (("etag", etag), ("last_modified", modified))
-                if new
-            ]
-            if current is None:
-                status: Literal["current", "newer", "missing", "unverifiable"] = (
-                    "missing"
-                )
-            elif not pairs:
-                status = "unverifiable"
-            elif all(new == old for new, old in pairs):
-                status = "current"
-            else:
-                status = "newer"
+            status: Literal["current", "newer", "missing", "unverifiable"] = (
+                "missing" if current is None else _list_status(old_http, etag, modified)
+            )
             reason = (
                 "brak porównywalnego sygnału ETag/Last-Modified"
                 if status == "unverifiable"
@@ -916,9 +957,14 @@ def build_catalog(
     """
     Build ``stations.geojson`` from station lists, public APIs and location files.
 
-    Missing station lists are downloaded and stored with ``write_archive`` first;
-    the public hydro and meteo APIs are always downloaded. Location precedence:
-    API, then the local static file (``settings.data_dir``), then the user CSV
+    Station lists are re-validated with ``HEAD`` (as :func:`check_catalog`
+    compares them): a list that is missing, has a different ETag/Last-Modified or
+    no comparable signal is downloaded and stored with ``write_archive`` first,
+    so the catalog always reflects the current lists; the public hydro and meteo
+    APIs are always downloaded. Every code of the lists, the APIs and the static
+    file is kept (a code only in the static file is a hydro station); codes only
+    in the user file are reported in ``problems``. Location precedence: API, then
+    the local static file (``settings.data_dir``), then the user CSV
     ``station_code,lon,lat,source``. A missing static file is not an error: it is
     reported in ``problems`` and recorded in the sidecar as ``available: false``.
     Identical content (same SHA-256) yields ``unchanged`` without a new version.
@@ -933,8 +979,11 @@ def build_catalog(
         Called after each build step (station lists, APIs, assembly, publication).
     on_notice : NoticeHook or None, optional
         Receives catalog problems, rejected locations, location source summaries,
-        stations without location, writer notices of downloaded lists and the
-        ``license_terms`` notice when a new version is created.
+        stations without location, ``source_unverifiable`` for a list without a
+        comparable signal, writer notices of downloaded lists, a
+        ``leftover_incoming`` warning for every removed staging directory older
+        than 24 hours and the ``license_terms`` notice when a new version is
+        created.
     cancel : Cancel or None, optional
         Polled between steps; once it returns ``True`` the build stops with a
         ``cancelled`` report and no catalog version is published.
@@ -952,7 +1001,8 @@ def build_catalog(
         If ``root`` is not a supported IMGW store or collides with a Kartograf
         store or project.
     IMGWConnectionError
-        If a station list or public API cannot be downloaded.
+        If a station list cannot be checked or downloaded, or a public API cannot
+        be downloaded.
     IMGWDataError
         If an API response is not a JSON list of objects, or a station code
         appears in both the hydro and meteo families.
@@ -1120,6 +1170,7 @@ def build_catalog(
         data=data,
         meta=meta,
         label=label,
+        on_notice=on_notice,
     )
     status: Literal["created", "unchanged"] = "created" if created else "unchanged"
     progress(total, status, f"Katalog stacji: {path.parent.name}")

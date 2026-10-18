@@ -329,8 +329,9 @@ class StorePlan:
         ------
         IMGWDataError
             If the file cannot be read or parsed, has an unsupported schema,
-            lacks required fields or refers to an archive unknown to the
-            dataset registry.
+            lacks required fields, refers to an archive unknown to the
+            dataset registry or gives an archive URL different from the
+            registry URL.
         """
         from imgwtools.datasets import ArchiveFile, archive_files, station_source_files
 
@@ -358,10 +359,14 @@ class StorePlan:
                 or source.param != row["param"]
             ):
                 raise ValueError(f"Nieznana ścieżka źródłowa: {row['server_path']}")
+            if row["url"] != source.url:
+                raise ValueError(
+                    f"Adres {row['url']} nie odpowiada rejestrowi zbiorów: {source.url}"
+                )
             return ArchiveFile(
                 dataset=source.dataset,
                 server_path=source.server_path,
-                url=row["url"],
+                url=source.url,
                 year=source.year,
                 month=source.month,
                 param=source.param,
