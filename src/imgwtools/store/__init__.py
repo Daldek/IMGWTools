@@ -1,6 +1,10 @@
-"""Public versioned IMGW store writer API."""
+"""Public versioned IMGW store API: writer, reader, sync, series, catalog, PMAXTP.
 
-from imgwtools.store.catalog import build_catalog, check_catalog
+Importing this package never imports ``pyarrow``; Parquet paths load it lazily
+and raise ``IMGWStoreDependencyError`` when the ``[store]`` extra is missing.
+"""
+
+from imgwtools.store.catalog import RootArg, build_catalog, check_catalog
 from imgwtools.store.export import export_series
 from imgwtools.store.pmaxtp import check_pmaxtp, read_pmaxtp, sync_pmaxtp
 from imgwtools.store.reader import (
@@ -14,9 +18,60 @@ from imgwtools.store.reader import (
 )
 from imgwtools.store.series import build_series, check_series
 from imgwtools.store.sync import check_store, sync_store
+from imgwtools.store.types import (
+    Cancel,
+    CatalogReport,
+    Meta,
+    Notice,
+    NoticeHook,
+    OperationResult,
+    PathArg,
+    PlanAction,
+    PlanItem,
+    PMaXTPStoreResult,
+    Progress,
+    ProgressHook,
+    SeriesIndex,
+    SeriesReport,
+    StationCoverage,
+    StationFeature,
+    StationSeriesIndex,
+    StoreEntry,
+    StoreHandle,
+    StoreInfo,
+    StorePlan,
+    SyncReport,
+    VersionResult,
+)
 from imgwtools.store.writer import init_store, open_store, write_archive
 
 __all__ = [
+    # Types
+    "Cancel",
+    "CatalogReport",
+    "Meta",
+    "Notice",
+    "NoticeHook",
+    "OperationResult",
+    "PMaXTPStoreResult",
+    "PathArg",
+    "PlanAction",
+    "PlanItem",
+    "Progress",
+    "ProgressHook",
+    "RootArg",
+    "SeriesIndex",
+    "SeriesReport",
+    "StationCoverage",
+    "StationFeature",
+    "StationSeriesIndex",
+    "StoreEntry",
+    "StoreHandle",
+    "StoreInfo",
+    "StorePlan",
+    "SyncReport",
+    "VersionResult",
+    # Functions
     "build_catalog",
     "build_series",
     "check_catalog",
