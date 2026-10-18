@@ -53,6 +53,7 @@ from imgwtools.store import (
     check_store,
     current_version,
     init_store,
+    iter_store,
     open_store,
     read_catalog,
     read_meta,
@@ -768,12 +769,30 @@ def open_project(project_dir: PathArg, /) -> Project:
     return _load(_directory(project_dir)).project
 
 
-def set_project_store(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
+def _empty_store(root: Path) -> bool:
+    """Nowy magazyn: brak katalogu, pusty katalog albo magazyn bez wersji i problemów."""
+    if not root.exists() or not any(root.iterdir()):
+        return True
+    return next(iter_store(root), None) is None
+
+
+def set_project_store(
+    project_dir: PathArg,
+    /,
+    *,
+    store_dir: PathArg,
+    on_notice: NoticeHook | None = None,
+) -> Project:
     """
     Point the project at a different store, keeping every pin unchanged.
 
     The full SHA-256 of every pinned file (including the ``catalog`` pins of
     unpinned tasks) is verified in the new store before the manifest is updated.
+    A new, empty store (missing or empty directory, or an initialised store
+    without any version) is accepted without pinned files, so that
+    `download_project` restores them: archives only with identical SHA-256,
+    series only from exactly the pinned inputs, otherwise an explicit task
+    error. A ``pins_not_in_store`` warning then lists what must be restored.
 
     Parameters
     ----------
@@ -782,6 +801,9 @@ def set_project_store(project_dir: PathArg, /, *, store_dir: PathArg) -> Project
     store_dir : str or os.PathLike
         New store directory; relative paths are resolved against the project
         directory and stored relative.
+    on_notice : NoticeHook or None, optional
+        Called with the ``pins_not_in_store`` warning when the new store is
+        empty and the project has pinned files.
 
     Returns
     -------
@@ -793,22 +815,23 @@ def set_project_store(project_dir: PathArg, /, *, store_dir: PathArg) -> Project
     IMGWValidationError
         If ``project_dir`` or ``store_dir`` is not a non-empty path.
     IMGWProjectError
-        If the manifest is missing or invalid, the new store is invalid, it does
-        not contain identical pinned files, the manifest changed during
-        verification, or the manifest cannot be locked or written.
+        If the manifest is missing or invalid, the new store is invalid, it is
+        not empty and does not contain identical pinned files, the manifest
+        changed during verification, or the manifest cannot be locked or
+        written.
     """
     directory = _directory(project_dir)
     before = _load(directory)
     text, root = _store_argument(directory, store_dir)
     _check_store(root, directory)
+    pins = [(task, pin) for task in before.project.tasks for pin in task.files]
     problems = [
         f"{task.name}: {pin.path.as_posix()}: {error}"
-        for task in before.project.tasks
-        for pin in task.files
+        for task, pin in pins
         for state, error in (_inspect(root, pin, full=True),)
         if state != "current"
     ]
-    if problems:
+    if problems and not _empty_store(root):
         shown = "; ".join(problems[:5]) + (" …" if len(problems) > 5 else "")
         raise IMGWProjectError(
             f"Magazyn {root} nie zawiera identycznych przypiętych plików ({len(problems)}): "
@@ -822,7 +845,30 @@ def set_project_store(project_dir: PathArg, /, *, store_dir: PathArg) -> Project
             )
         return _Manifest(replace(current.project, store_dir=root), text)
 
-    return _update(directory, change)
+    project = _update(directory, change)
+    if problems:
+        lost = sorted(
+            {
+                task.name
+                for task, pin in pins
+                if pin.role == "catalog" or pin.path.parts[0] == "pmaxtp"
+            }
+        )
+        _notice(
+            on_notice,
+            "warning",
+            "pins_not_in_store",
+            f"Nowy magazyn {root} jest pusty: brak {len(problems)} przypiętych plików. "
+            "project download odtworzy je z IMGW wyłącznie z identyczną sumą SHA-256 "
+            "(szeregi z dokładnie przypiętych wejść), inaczej zgłosi błąd zadania"
+            + (
+                f"; katalogu stacji i komórek PMAXTP nie odtwarza (zadania: {', '.join(lost)}), "
+                f"{_UPGRADE}"
+                if lost
+                else ""
+            ),
+        )
+    return project
 
 
 def _area(data: bytes, name: str) -> _Border:

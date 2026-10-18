@@ -1,5 +1,7 @@
 """CLI downloads never confuse paths or publish partial archives."""
 
+import json
+
 from typer.testing import CliRunner
 
 from imgwtools import commands
@@ -75,8 +77,8 @@ def test_failed_write_does_not_leave_complete_file_or_block_retry(
     failed = RUNNER.invoke(
         fetch.app, ["hydro", "-i", "dobowe", "-y", "2024", "-o", str(tmp_path)]
     )
-    assert failed.exit_code == 0
-    assert "Niepowodzenia: 1" in failed.output
+    assert failed.exit_code == 1
+    assert "Niepowodzenia: 1" in failed.stderr
     assert not (tmp_path / item.server_path).exists()
     assert not list(tmp_path.rglob("*.part"))
     monkeypatch.setattr(commands.os, "replace", original)
@@ -134,6 +136,25 @@ def test_meteo_daily_public_enumerator_and_legacy_monthly(tmp_path, monkeypatch)
     monthly = RUNNER.invoke(fetch.app, ["meteo", "-y", "2024", "-o", str(tmp_path)])
     assert monthly.exit_code == 0, monthly.output
     assert (tmp_path / legacy_path).read_bytes() == b"two"
+
+
+def test_check_prints_only_the_plan_json_on_stdout(tmp_path, monkeypatch):
+    item = archive("dane_hydrologiczne/miesieczne/2023/mies_2023.zip")
+    monkeypatch.setattr(commands, "archive_files", lambda *args, **kwargs: (item,))
+
+    def refuse(*args):
+        raise AssertionError("--check nie pobiera danych")
+
+    monkeypatch.setattr(public_fetch, "download_hydro_data", refuse)
+    result = RUNNER.invoke(
+        fetch.app,
+        ["hydro", "-i", "miesieczne", "-y", "2023", "-o", str(tmp_path), "--check"],
+    )
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.stdout)
+    assert plan["schema"] == "imgw-plan/1"
+    assert [action["status"] for action in plan["actions"]] == ["missing"]
+    assert "Pobrano" not in result.output
 
 
 def test_other_fetch_commands_remain_available():

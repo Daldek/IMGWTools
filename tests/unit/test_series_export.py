@@ -260,12 +260,14 @@ def test_half_year_has_period_and_extrema_columns_and_rejects_calendar(root, tmp
         "H_max_flag",
         "H_max_start",
         "H_max_end",
+        "H_max_occurrences",
         "attribution_source",
         "attribution_processed",
     ]
     assert {row["period"] for row in data} == {"winter", "summer", "annual"}
     assert {row["year"] for row in data} == {"2024"}
     assert any(row["H_max_start"] for row in data if row["H_max_flag"] == "value")
+    assert {row["H_max_occurrences"] for row in data} == {"1"}
 
 
 def test_monthly_has_no_period_column(root, tmp_path):

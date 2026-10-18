@@ -60,7 +60,11 @@ class NormalizedRecord:
         Qualitative attributes kept as text, e.g. ``"precip_type"``.
     extrema_dates : Mapping of str to tuple of (datetime or None, datetime or None), optional
         Start and end time of an extremum, keyed by variable column, e.g.
-        ``"Q_max"``.
+        ``"Q_max"``. When IMGW publishes several occurrences of the same
+        extremum value, the earliest start and the latest end.
+    extrema_occurrences : Mapping of str to int, optional
+        Number of IMGW rows (occurrences of the extremum) merged into the
+        value of a semi-annual column, keyed like ``extrema_dates``.
     """
 
     station_code: str
@@ -73,6 +77,7 @@ class NormalizedRecord:
     extrema_dates: Mapping[str, tuple[datetime | None, datetime | None]] = field(
         default_factory=dict
     )
+    extrema_occurrences: Mapping[str, int] = field(default_factory=dict)
 
 
 class PMaXTPData(BaseModel):
@@ -516,8 +521,9 @@ class HydroSemiAnnualRecord(BaseModel):
     value : float or None
         Value of the statistic; None when missing.
     extremum_start_date : str or None
-        Start of the extremum as ``YYYY-MM-DD`` with optional ``HH:MM``;
-        None for means or when unknown.
+        Start of the extremum as ``YYYY-MM-DD`` with ``HH:MM`` when IMGW
+        publishes the hour; a month or day missing in the source is the first
+        of the published unit. None for means or when unknown.
     extremum_end_date : str or None
         End of the extremum in the same format; None for means or when
         unknown.

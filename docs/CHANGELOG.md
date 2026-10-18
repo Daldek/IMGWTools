@@ -190,11 +190,65 @@ się nie zmienia.
   `province` i `flow_date` były zawsze `None`).
 - Niepoprawny JSON z API IMGW: `fetch_*` i `get_hydro_stations_with_coords` zgłaszają
   `IMGWDataError` (zamiast surowego `JSONDecodeError`), trasy REST odpowiadają 502;
-  odpowiedź PMAXTP z polem `error` daje 502.
+  odpowiedź PMAXTP z innym polem `error` niż „poza obszarem” daje 502.
 - `imgw fetch pmaxtp` odrzuca współrzędne spoza Polski przed wysłaniem żądania;
   `imgw list stations --search` traktuje wzorzec dosłownie (znaki wyrażeń regularnych
   nie powodują już błędu).
 - `read_meta` odrzuca sidecar z polem `dataset` spoza kluczy `pl.imgw.*` (spec §11.2).
+- `fetch_pmaxtp`/`fetch_pmaxtp_async` nie zwracają już pustych tabel `ks/sg/rb` jako
+  sukcesu: odpowiedź z polem `error` lub bez tabeli `ks` daje wyjątek. Punkt w ramce
+  współrzędnych, ale poza siatką PMAXTP (np. Kaliningrad, Lwów, Bałtyk; API: „Brak
+  pliku, pradopodobnie poza obszarem PL”) daje `IMGWValidationError` także w `sync_pmaxtp`,
+  REST 400 (`/api/v1/pmaxtp/data`, `/api/v1/pmaxtp/store/sync`; wcześniej 500)
+  i komunikat `Błąd: …` z kodem 1 w `imgw fetch pmaxtp`/`imgw pmaxtp sync`; inne błędy
+  API pozostają `IMGWDataError`, błędy sieci `IMGWConnectionError`.
+- `imgw fetch hydro|meteo --check` wypisuje na stdout wyłącznie plan `imgw-plan/1`
+  (bez mylącego „Pobrano: 0 plików”); podsumowanie pobierania trafia na stderr.
+- CLI kończy się kodem 1, gdy wypisany wynik zawiera nieudaną pozycję (`failed` lub
+  `stale_plan`: pozycje i szeregi `store sync`, `series build`, `store catalog`, zadania
+  i pliki projektu, pliki `fetch hydro|meteo`); JSON wyniku nadal trafia na stdout,
+  anulowanie zachowuje kod 130.
+- CLI wypisuje każdy jednakowy komunikat (kod i tekst) raz na uruchomienie komendy
+  (np. `license_terms` przy synchronizacji setek archiwów); hooki `on_notice` Pythona
+  i REST nadal dostają każdy komunikat.
+- REST ukrywa w tekstach (`problems`, `detail`, `error`) także katalog `IMGW_DATA_DIR`
+  (np. brakujący plik położeń w `POST /api/v1/store/catalog`), nie tylko
+  `IMGW_STORE_ROOT` i `IMGW_USER_LOCATIONS_DIR`.
+- `set_project_store` (`imgw project set-store`) przyjmuje nowy pusty magazyn (brak
+  katalogu, pusty katalog, magazyn bez wersji) z ostrzeżeniem `pins_not_in_store`;
+  `download_project` odtwarza wtedy przypięte pliki z identycznym SHA-256 albo zgłasza
+  jawny błąd zadania. Niepusty magazyn bez identycznych pinów nadal jest odrzucany.
+- Katalog stacji zgłasza w `problems` kod powtórzony na liście stacji (IMGW podaje
+  w `wykaz_stacji.csv` trzy stacje meteo dwukrotnie z różnymi kodami krótkimi) i używa
+  pierwszego wiersza; wcześniej ostatni wiersz wygrywał bez śladu.
+- `pl.imgw.meteo_climate_daily`: `normalize_archive`, `read_archive` i `build_series`
+  czytają tylko pliki `k_d_<okres>.csv` (`o_d_<okres>.csv` dla opadu). Wcześniej
+  dopasowywały też `k_d_t_*.csv`, obecny w każdej paczce klimatycznej 1951–2025, i 330
+  z 350 archiwów kończyło się błędem „Za mało kolumn”.
+- `pl.imgw.hydro_semiannual`: układ kolumn dat `polr_*` jest rozpoznawany per plik —
+  16 kolumn (1951–2022: rok, miesiąc, dzień, godzina bez minut), 17 z powtórzonym rokiem
+  hydrologicznym (1997), 2023 z nieopisanym polem po dacie i obciętymi pustymi kolumnami
+  (17/19/20), 18 od 2024; niejednolity lub nieznany układ to `IMGWDataError`. Wcześniej
+  145 z 225 archiwów kończyło się błędem, a w pozostałych data końca ekstremum była zawsze
+  pusta. Teraz wszystkie 225 archiwów 1951–2025 dają datę końca wszędzie, gdzie IMGW ją
+  podaje; data ma dokładność publikacji (brak dnia lub miesiąca → początek jednostki,
+  godzina 24 → północ następnego dnia, dzień 31 w krótszym miesiącu → jego ostatni dzień).
+- `pl.imgw.hydro_semiannual`: wiersze min/max powtórzone przez IMGW dla kolejnych
+  wystąpień ekstremum (ta sama wartość, inne daty) nie przerywają już budowy szeregu
+  („Sprzeczne daty ekstremum”). `normalize_archive` scala je w jeden rekord z
+  najwcześniejszym początkiem i najpóźniejszym końcem oraz liczbą wierszy w nowym polu
+  `NormalizedRecord.extrema_occurrences`; Parquet dostaje addytywną kolumnę
+  `<V>_occurrences` (`int32`, `imgw-series/1`), a `read_series`, eksport CSV,
+  `store read` i REST `GET /api/v1/series/{station}` — `<V>_occurrences`
+  / `extrema_occurrences`. Różne wartości tego samego klucza nadal są błędem danych.
+- Parsery meteo pomijają pierwszy wiersz złożony z kodów kolumn (np. `kansp,kapost,…`
+  w `o_d_08_2025.csv`, wcześniej „Niepoprawny kod stacji”); każdy inny błędny wiersz
+  nadal daje `IMGWDataError` z numerem linii.
+- `build_series` nie trzyma wartości wszystkich stacji w pamięci: zweryfikowane rekordy
+  trafiają do skompresowanych plików tymczasowych per stacja poza magazynem (`TMPDIR`),
+  a stacje są składane i zapisywane po kolei. Szczyt RSS dla pełnych roczników 1950–2025:
+  `meteo_precip_daily` (26,6 mln rekordów) 0,85 GB zamiast 9,0 GB, `hydro_daily` 0,41 GB
+  zamiast 6,8 GB; `series.json` i pliki Parquet bajtowo bez zmian.
 
 ### Testy
 

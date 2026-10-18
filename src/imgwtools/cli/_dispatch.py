@@ -29,10 +29,13 @@ from imgwtools.commands import check_command, data_commands, run_command
 from imgwtools.exceptions import IMGWError
 from imgwtools.store.types import CommandOption, DataCommand, Notice, Progress
 
-__all__ = ["EXIT_CANCELLED", "register_command", "register_group"]
+__all__ = ["EXIT_CANCELLED", "EXIT_FAILED", "register_command", "register_group"]
 
 EXIT_CANCELLED = 130
 """Exit code of a command cancelled with Ctrl+C (as for SIGINT in shells)."""
+EXIT_FAILED = 1
+"""Exit code of an error and of a printed result with any failed item."""
+_FAILED = frozenset({"failed", "stale_plan"})
 
 _ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 _LEVELS = {
@@ -87,6 +90,23 @@ def _print_notice(notice: Notice) -> None:
     _ERR.print(f"{label}: {notice.text}", style=style, markup=False)
 
 
+def _failed(value: object) -> bool:
+    """Whether a command result reports a failed or stale item, at any depth."""
+    if not is_dataclass(value):
+        return False
+    if getattr(value, "status", None) in _FAILED:
+        return True
+    tasks = getattr(value, "tasks", None)
+    if isinstance(tasks, Mapping) and any(state in _FAILED for state in tasks.values()):
+        return True
+    return any(
+        _failed(item)
+        for name in ("items", "series", "files")
+        if isinstance(items := getattr(value, name, None), tuple)
+        for item in items
+    )
+
+
 @contextmanager
 def _interrupt() -> Iterator[threading.Event]:
     """Turn the first Ctrl+C into a cancellation request, the second into abort."""
@@ -123,10 +143,18 @@ def _execute(
     command: str, options: dict[str, object], *, check: bool, summary: Summary | None
 ) -> None:
     events: list[Progress] = []
+    shown: set[tuple[str, str]] = set()
 
     def on_progress(progress: Progress) -> None:
         events.append(progress)
         _print_progress(progress)
+
+    def on_notice(notice: Notice) -> None:
+        # One line per distinct notice and run: a sync repeats the license terms
+        # for every archive (the Python/REST hooks still receive every notice).
+        if (notice.code, notice.text) not in shown:
+            shown.add((notice.code, notice.text))
+            _print_notice(notice)
 
     with _interrupt() as requested:
         try:
@@ -135,7 +163,7 @@ def _execute(
                 command,
                 options=options,
                 on_progress=on_progress,
-                on_notice=_print_notice,
+                on_notice=on_notice,
                 cancel=requested.is_set,
             )
             if isinstance(result, Iterator):
@@ -156,12 +184,12 @@ def _execute(
             raise typer.Exit(EXIT_CANCELLED) from None
         except (IMGWError, OSError) as exc:
             _ERR.print(f"Błąd: {exc}", style="red", markup=False)
-            raise typer.Exit(1) from None
+            raise typer.Exit(EXIT_FAILED) from None
     if isinstance(result, Path):
         typer.echo(str(result))
     elif not isinstance(result, Iterator):
         typer.echo(json.dumps(_plain(result), ensure_ascii=False, indent=2))
-    if summary is not None:
+    if summary is not None and not check:
         summary(events)
     if requested.is_set() or _cancelled(result):
         _ERR.print(
@@ -170,6 +198,13 @@ def _execute(
             markup=False,
         )
         raise typer.Exit(EXIT_CANCELLED)
+    if _failed(result) or any(event.status in _FAILED for event in events):
+        _ERR.print(
+            "Błąd: część pozycji zakończyła się niepowodzeniem; szczegóły w wyniku",
+            style="red",
+            markup=False,
+        )
+        raise typer.Exit(EXIT_FAILED)
 
 
 def _metavar(option: CommandOption) -> str:

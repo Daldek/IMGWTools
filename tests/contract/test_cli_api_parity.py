@@ -87,10 +87,10 @@ def plain(value: object, root: Path | None = None) -> object:
     return value
 
 
-def cli(*args: object) -> object:
-    """Run ``imgw …`` in-process; return the printed JSON or path."""
+def cli(*args: object, code: int = 0) -> object:
+    """Run ``imgw …`` in-process; return the printed JSON or path (§10 exit codes)."""
     result = RUNNER.invoke(cli_app, [str(arg) for arg in args])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == code, result.output
     text = result.stdout.strip()
     return json.loads(text) if text[:1] in "{[" else text
 
@@ -109,7 +109,9 @@ def scenario_cli(work: Path, imgw) -> list[object]:
     imgw.publish(H2024, V1, OLD)
     steps.append(cli("store", "check", *selection, "--plan", work / "plan.json"))
     imgw.publish(H2024, V2, OLD)  # republished after the check: stale plan
-    steps.append(cli("store", "sync", "--root", store, "--plan", work / "plan.json"))
+    steps.append(
+        cli("store", "sync", "--root", store, "--plan", work / "plan.json", code=1)
+    )
     steps.append(cli("store", "check", *selection, "--plan", work / "fresh.json"))
     steps.append(cli("store", "sync", "--root", store, "--plan", work / "fresh.json"))
     imgw.publish(H2024, V3, NEW)

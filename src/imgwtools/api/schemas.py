@@ -451,6 +451,10 @@ class SeriesRecordResponse(BaseModel):
     measurements: dict[str, MeasurementResponse]
     attributes: dict[str, str | None]
     extrema_dates: dict[str, tuple[dt.datetime | None, dt.datetime | None]]
+    extrema_occurrences: dict[str, int] = Field(
+        default_factory=dict,
+        description="Liczba wierszy IMGW (wystąpień ekstremum) scalonych w wartość",
+    )
 
 
 class PMaXTPStoreSyncRequest(BaseModel):

@@ -584,17 +584,67 @@ def test_set_store_moves_to_a_verified_copy_and_refuses_other_stores(pinned, tmp
     tampered = tmp_path / "tampered"
     shutil.copytree(moved, tampered)
     flip_last_byte(tampered / pins[0].files[1].path)
+    partial = tmp_path / "partial"
+    shutil.copytree(moved, partial)
+    (partial / pins[0].files[1].path).unlink()
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     (foreign / "x.txt").write_text("x")
     for store, message in [
-        (init_store(tmp_path / "empty").root, "brak przypiętego pliku"),
+        (partial, "brak przypiętego pliku"),
         (tampered, "SHA-256"),
         (foreign, "magazynem IMGW"),
     ]:
         with pytest.raises(IMGWProjectError, match=message):
             set_project_store(pinned, store_dir=store)
     assert (pinned / PROJECT_FILE).read_bytes() == before
+
+
+@pytest.mark.parametrize("prepare", ["missing", "empty_dir", "initialised"])
+def test_set_store_to_new_empty_store_then_download_restores_identical_pins(
+    pinned, tmp_path, imgw, prepare
+):
+    old_store = tmp_path / "store"
+    pins = open_project(pinned).tasks[0].files
+    new_store = tmp_path / "nowy"
+    if prepare == "empty_dir":
+        new_store.mkdir()
+    elif prepare == "initialised":
+        init_store(new_store)
+    notices = []
+
+    project = set_project_store(pinned, store_dir="../nowy", on_notice=notices.append)
+
+    assert project.store_dir == new_store and project.tasks[0].files == pins
+    assert manifest(pinned)["store_dir"] == "../nowy"
+    ((notice),) = notices
+    assert (notice.level, notice.code) == ("warning", "pins_not_in_store")
+    assert f"brak {len(pins)} przypiętych plików" in notice.text
+    assert get_project_status(pinned).tasks == {"raba": "missing"}
+
+    report = download_project(pinned)
+
+    assert report.tasks == {"raba": "current"}
+    assert {result.status for result in report.files} == {"created"}
+    assert open_project(pinned).tasks[0].files == pins
+    for pin in pins:
+        restored = (new_store / pin.path).read_bytes()
+        assert sha(restored) == pin.sha256
+        assert restored == (old_store / pin.path).read_bytes()
+    assert verify_project(pinned).tasks == {"raba": "current"}
+
+
+def test_restore_into_empty_store_fails_explicitly_when_imgw_changed_bytes(
+    pinned, tmp_path, imgw
+):
+    set_project_store(pinned, store_dir=tmp_path / "nowy")
+    imgw.publish(V3, NEW)
+
+    report = download_project(pinned)
+
+    assert report.tasks == {"raba": "failed"}
+    assert any("inną treść" in (result.error or "") for result in report.files)
+    assert get_project_status(pinned).tasks == {"raba": "missing"}
 
 
 def test_two_tasks_downloaded_concurrently_both_keep_their_pins(tmp_path, imgw):

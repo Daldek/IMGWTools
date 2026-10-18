@@ -618,11 +618,27 @@ def test_api_pmaxtp_data_returns_quantile_tables(client, imgw, pmaxtp_api_respon
                 200,
                 json={
                     "data": {},
+                    "error": "Brak pliku, pradopodobnie poza obszarem PL",
+                },
+            ),
+            400,
+            "Punkt 54.9, 23.9 leży poza siatką PMAXTP",
+        ),
+        (
+            httpx.Response(
+                200,
+                json={
+                    "data": {},
                     "error": "undefined: lat 54.9000, lon: 23.9000, type: KS",
                 },
             ),
+            400,
+            "Punkt 54.9, 23.9 leży poza siatką PMAXTP",
+        ),
+        (
+            httpx.Response(200, json={"data": {}, "error": "Awaria serwera"}),
             502,
-            "API PMAXTP zwróciło błąd: undefined: lat 54.9000",
+            "API PMAXTP zwróciło błąd: Awaria serwera",
         ),
         (httpx.Response(503, text="serwis niedostępny"), 503, "IMGW API error: serwis"),
         (httpx.Response(404, text="brak punktu"), 404, "IMGW API error: brak punktu"),

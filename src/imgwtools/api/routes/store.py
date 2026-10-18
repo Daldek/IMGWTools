@@ -377,10 +377,13 @@ def _relative(root: Path, path: Path | None) -> str | None:
 
 def _hide_paths(text: str) -> str:
     """
-    Rewrite server directories in free text as paths relative to them.
+    Rewrite configured server directories in free text as paths relative to them.
 
     Library messages name files by absolute path; REST responses expose only
-    paths relative to ``IMGW_STORE_ROOT`` (and ``IMGW_USER_LOCATIONS_DIR``).
+    paths relative to ``IMGW_STORE_ROOT``, ``IMGW_USER_LOCATIONS_DIR`` and
+    ``IMGW_DATA_DIR`` (a relative directory is matched in its resolved,
+    absolute form). The longest directory is replaced first, so a directory
+    nested in another one is not left half-rewritten.
 
     Parameters
     ----------
@@ -392,15 +395,24 @@ def _hide_paths(text: str) -> str:
     str
         ``text`` with ``<dir>/x`` replaced by ``x`` and a bare ``<dir>`` by ``.``.
     """
-    for directory in (settings.store_root, settings.user_locations_dir):
-        if directory is None or not directory.is_absolute() or directory == Path("/"):
+    prefixes: set[str] = set()
+    for directory in (
+        settings.store_root,
+        settings.user_locations_dir,
+        settings.data_dir,
+    ):
+        if directory is None:
             continue
-        for prefix in dict.fromkeys((str(directory), str(directory.resolve()))):
-            text = re.sub(
-                re.escape(prefix) + r"(?:/|(?![^\s'\"),:;]))",
-                lambda match: "" if match.group().endswith("/") else ".",
-                text,
-            )
+        if directory.is_absolute():
+            prefixes.add(str(directory))
+        prefixes.add(str(directory.resolve()))
+    prefixes.discard("/")
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        text = re.sub(
+            re.escape(prefix) + r"(?:/|(?![^\s'\"),:;]))",
+            lambda match: "" if match.group().endswith("/") else ".",
+            text,
+        )
     return text
 
 
@@ -494,6 +506,7 @@ def _record(record: NormalizedRecord) -> SeriesRecordResponse:
         },
         attributes=dict(record.attributes),
         extrema_dates=dict(record.extrema_dates),
+        extrema_occurrences=dict(record.extrema_occurrences),
     )
 
 
