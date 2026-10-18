@@ -57,6 +57,7 @@ from imgwtools.store.writer import (
     _check_kartograf,
     _cleanup,
     _fsync_dir,
+    _is_register,
     _utc,
     _validate_slot,
     _write_json,
@@ -139,12 +140,18 @@ def _downloaded(meta: Mapping[str, Any]) -> datetime:
 
 
 def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
-    """Read every sidecar of an archive slot; a broken version is an explicit error."""
+    """
+    Read every sidecar of an archive slot; a broken version is an explicit error.
+
+    The slot's observation register ``observations/`` is not a version.
+    """
     directory = _validate_slot(root, slot)
     if not directory.exists():
         return []
     versions = []
     for version_dir in sorted(directory.iterdir()):
+        if _is_register(version_dir):
+            continue
         meta_path = version_dir / f"{name}.meta.json"
         main = version_dir / name
         try:

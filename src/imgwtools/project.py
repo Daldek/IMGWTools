@@ -34,6 +34,7 @@ from typing import Any, Literal
 from imgwtools import commands
 from imgwtools._version import __version__
 from imgwtools.datasets import (
+    STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
     archive_files,
@@ -137,9 +138,12 @@ _TASK_KEYS = (
     ("name", "command", "options", "pinned_at", "imgwtools_version", "files"),
     ("geometry_sha256",),
 )
-_FILE_KEYS = (("role", "path", "sha256"), ("station_code",))
+_FILE_KEYS = (
+    ("role", "path", "sha256"),
+    ("station_code", "content_sha256", "content_form"),
+)
 _SHA = re.compile(r"[0-9a-f]{64}")
-_STATION = re.compile(r"[0-9]{9}")
+_STATION = re.compile(STATION_CODE_PATTERN)
 _DRIVE = re.compile(r"[A-Za-z]:")
 _YEAR = re.compile(r"(?<![0-9])[0-9]{4}(?![0-9])")
 _DONE = ("created", "relabeled", "unchanged", "reused")
@@ -185,6 +189,11 @@ def _file_json(pin: ProjectFile) -> dict[str, Any]:
     }
     if pin.station_code is not None:
         data["station_code"] = pin.station_code
+    # Pola treści mają wyłącznie piny zbiorów z formą kanoniczną; nigdy null.
+    if pin.content_sha256 is not None:
+        data["content_sha256"] = pin.content_sha256
+    if pin.content_form is not None:
+        data["content_form"] = pin.content_form
     return data
 
 
@@ -418,7 +427,8 @@ def _parse_file(raw: object, where: str, root: Path) -> ProjectFile:
     ):
         raise _invalid(
             f"{where}.station_code",
-            f"kod stacji musi mieć dokładnie 9 cyfr: {station!r}",
+            "kod stacji musi mieć 9 cyfr (IMGW-PIB) albo postać identyfikatora "
+            f"WIGOS: {station!r}",
         )
     if role == "station_series" and station is None:
         raise _invalid(where, "plik station_series wymaga kodu station_code")
@@ -428,7 +438,23 @@ def _parse_file(raw: object, where: str, root: Path) -> ProjectFile:
             "oczekiwano pliku opublikowanej wersji magazynu (<rodzaj>/versions/…) "
             f"o slocie §13.7 (plik stacji szeregu: stations/<station_code>.parquet): {path}",
         )
-    return ProjectFile(role, Path(path), sha, station)
+    content, form = data.get("content_sha256"), data.get("content_form")
+    if ("content_sha256" in data) != ("content_form" in data):
+        raise _invalid(
+            where, "pola content_sha256 i content_form występują razem albo wcale"
+        )
+    if "content_sha256" in data and (
+        not isinstance(content, str) or not _SHA.fullmatch(content)
+    ):
+        raise _invalid(
+            f"{where}.content_sha256",
+            "oczekiwano pełnej sumy SHA-256 (64 małe cyfry hex)",
+        )
+    if "content_form" in data and (not isinstance(form, str) or not form):
+        raise _invalid(
+            f"{where}.content_form", "oczekiwano niepustego identyfikatora formy"
+        )
+    return ProjectFile(role, Path(path), sha, station, content, form)
 
 
 def _parse_task(raw: object, where: str, directory: Path, root: Path) -> ProjectTask:

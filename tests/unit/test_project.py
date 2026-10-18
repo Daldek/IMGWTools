@@ -32,6 +32,7 @@ from imgwtools.store import current_version, init_store
 from imgwtools.store.types import Project, ProjectFile, StorePlan
 from imgwtools.testing import build_fixture_store
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
+from tests.contract.support import schema_errors
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 DAILY = "pl.imgw.hydro_daily"
@@ -244,6 +245,34 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
             "slocie",
         ),
         (lambda d: d["tasks"][0]["files"].append(dict(PIN)), "powtórzona ścieżka"),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(content_sha256="1" * 64),
+            "razem albo wcale",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(content_form="chmi-json/1"),
+            "razem albo wcale",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(
+                content_sha256="1" * 63, content_form="chmi-json/1"
+            ),
+            r"files\[0\]\.content_sha256",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(
+                content_sha256="1" * 64, content_form=""
+            ),
+            r"files\[0\]\.content_form",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(station_code="0-203-1-cb900003"),
+            "WIGOS",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(station_code="12345678"),
+            "WIGOS",
+        ),
         (lambda d: d["tasks"].append(dict(d["tasks"][0])), "powtórzona nazwa"),
     ],
 )
@@ -285,6 +314,60 @@ def test_open_project_rejects_duplicate_json_keys_and_non_finite_numbers(tmp_pat
     )
     with pytest.raises(IMGWProjectError, match="NaN"):
         open_project(project)
+
+
+def test_wigos_station_pins_and_content_fields_survive_a_manifest_rewrite(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    content_pin = {**PIN, "content_sha256": "1" * 64, "content_form": "chmi-json/1"}
+    station_pin = {
+        "role": "station_series",
+        "path": "series/versions/hydro_daily/2026-10-17_00000000/stations/"
+        "0-203-1-CB900003.parquet",
+        "sha256": "0" * 64,
+        "station_code": "0-203-1-CB900003",
+    }
+    task = {
+        "name": "raba",
+        "command": "series select",
+        "options": dict(SELECT),
+        "pinned_at": "2026-10-17T12:00:00Z",
+        "imgwtools_version": "3.0.0",
+        "files": [content_pin, station_pin],
+    }
+    write(
+        project, {"schema": "imgw-project/1", "store_dir": "../store", "tasks": [task]}
+    )
+    assert schema_errors(manifest(project), "imgw-project/1") == []
+
+    (opened,) = open_project(project).tasks
+    assert [
+        (pin.station_code, pin.content_sha256, pin.content_form) for pin in opened.files
+    ] == [(None, "1" * 64, "chmi-json/1"), ("0-203-1-CB900003", None, None)]
+    add_project_task(project, name="druga", command="series select", options=SELECT)
+    assert manifest(project)["tasks"][0]["files"] == [content_pin, station_pin]
+    assert open_project(project).tasks[0] == opened
+
+    for pin in ({**PIN, "content_sha256": "1" * 64}, {**PIN, "content_form": "x"}):
+        assert schema_errors(
+            {
+                "schema": "imgw-project/1",
+                "store_dir": "s",
+                "tasks": [{**task, "files": [pin]}],
+            },
+            "imgw-project/1",
+        )
+        write(
+            project,
+            {
+                "schema": "imgw-project/1",
+                "store_dir": "../store",
+                "tasks": [{**task, "files": [pin]}],
+            },
+        )
+        with pytest.raises(IMGWProjectError) as error:
+            open_project(project)
+        assert error.value.code == "validation_error"
 
 
 def test_symlinks_in_pinned_and_project_paths_are_rejected(tmp_path, fixture_root):

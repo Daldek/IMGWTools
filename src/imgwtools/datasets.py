@@ -17,6 +17,9 @@ YearsArg = int | str | Iterable[int | str]
 MonthsArg = int | str | Iterable[int | str]
 """Months 1-12: ``3``, ``"3"``, ``"1,2"`` or ``[1, "2"]``."""
 
+STATION_CODE_PATTERN = r"^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$"
+"""Station code of any provider: nine IMGW-PIB digits or a WIGOS identifier (ČHMÚ)."""
+
 _YEAR = re.compile(r"([0-9]{1,4})(?:-([0-9]{1,4}))?")
 _MONTH = re.compile(r"[0-9]{1,2}")
 _PARAMS = ("H", "Q", "T")
@@ -25,19 +28,19 @@ _PARAMS = ("H", "Q", "T")
 @dataclass(frozen=True)
 class License:
     """
-    License and attribution terms of IMGW-PIB data.
+    License and attribution terms of a dataset.
 
     Attributes
     ----------
-    id : {"IMGW-PIB"}
-        License identifier.
+    id : str
+        License identifier, e.g. ``"IMGW-PIB"`` (IMGW-PIB terms of use).
     attribution : str
         Required attribution formula (in Polish).
     url : str
-        URL of the IMGW-PIB terms of use.
+        URL of the license or terms of use.
     """
 
-    id: Literal["IMGW-PIB"]
+    id: str
     attribution: str
     url: str
 

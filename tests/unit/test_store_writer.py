@@ -12,18 +12,39 @@ from pathlib import Path
 
 import pytest
 
+from imgwtools._version import __version__
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import (
     IMGWCancelledError,
     IMGWStoreConflictError,
     IMGWStoreError,
+    IMGWValidationError,
 )
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import init_store, open_store, write_archive, writer
+from imgwtools.store.types import Observation
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 ARCHIVE = archive_files("pl.imgw.hydro_daily", years=[2024])[0]
 DATA = (FIXTURES / "archives" / ARCHIVE.server_path).read_bytes()
+CHANGED = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
+# Observation example of spec 2026-10-18 §3.2 (arbitrary sums).
+OBSERVATION = {
+    "schema": "imgw-observation/1",
+    "producer": "imgwtools",
+    "producer_version": "3.1.0",
+    "dataset": "cz.chmi.hydro_daily",
+    "seen_at": "2026-10-19T06:00:00Z",
+    "url": "https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json",
+    "last_modified": "Mon, 19 Oct 2026 03:12:44 GMT",
+    "etag": '"6ad58aac-54c6"',
+    "size_bytes": 21702,
+    "sha256": "2" * 64,
+    "content_sha256": "1" * 64,
+    "content_form": "chmi-json/1",
+    "same_content_as": "2026-05-21_00000000",
+}
+CHMI_SLOT = "archives/versions/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025"
 
 
 def response(*, etag='"hydro-v1"', modified="Sat, 17 Oct 2026 12:00:00 GMT", data=DATA):
@@ -311,3 +332,86 @@ def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):
     assert error.value.code == "conflict"
     assert not (path / "imgw-store.json").exists()
     assert not list(path.glob(".imgw-store.json.*.tmp"))
+
+
+def test_publish_observation_writes_the_spec_example_once_without_traces(tmp_path):
+    root = init_store(tmp_path / "store").root
+    (root / CHMI_SLOT).mkdir(parents=True)
+    observation = Observation(
+        **{
+            key: value
+            for key, value in OBSERVATION.items()
+            if key not in ("schema", "producer", "producer_version")
+        }
+    )
+
+    path = writer._publish_observation(root, slot=CHMI_SLOT, observation=observation)
+    assert path == root / CHMI_SLOT / "observations" / "2026-10-19_19106605.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        **OBSERVATION,
+        "producer_version": __version__,
+    }
+    assert list((root / ".incoming").iterdir()) == []
+
+    # The same signal on the same day: the existing file stays byte for byte.
+    written = path.read_bytes()
+    later = replace(observation, seen_at="2026-10-19T18:30:00Z", sha256="3" * 64)
+    assert writer._publish_observation(root, slot=CHMI_SLOT, observation=later) == path
+    assert path.read_bytes() == written
+
+    # Cancelled before the rename: no file, no new register, no staging left.
+    fresh = CHMI_SLOT.replace("001000", "900002")
+    (root / fresh).mkdir()
+    for slot, item in (
+        (CHMI_SLOT, replace(observation, etag='"inny"')),
+        (fresh, observation),
+    ):
+        with pytest.raises(IMGWCancelledError):
+            writer._publish_observation(
+                root, slot=slot, observation=item, cancel=lambda: True
+            )
+    assert list(path.parent.iterdir()) == [path]
+    assert list((root / fresh).iterdir()) == []
+    assert list((root / ".incoming").iterdir()) == []
+    with pytest.raises(IMGWValidationError, match="RRRR-MM-DDTGG:MM:SSZ"):
+        writer._publish_observation(
+            root,
+            slot=fresh,
+            observation=replace(observation, seen_at="2026-10-19T06:00:00.5Z"),
+        )
+    assert list((root / fresh).iterdir()) == []
+
+
+def test_write_archive_results_ignore_the_observation_register_of_the_slot(tmp_path):
+    steps = (
+        response(),
+        response(etag='"hydro-v2"', modified="Sun, 18 Oct 2026 12:00:00 GMT"),
+        response(
+            etag='"hydro-v3"', modified="Mon, 19 Oct 2026 12:00:00 GMT", data=CHANGED
+        ),
+        response(etag='"hydro-v2"', modified="Sun, 18 Oct 2026 12:00:00 GMT"),
+    )
+    results = {}
+    for name in ("plain", "observed"):
+        root = init_store(tmp_path / name).root
+        first = write_archive(root, archive=ARCHIVE, response=response())
+        if name == "observed":
+            register = first.path.parent.parent / "observations"
+            register.mkdir()
+            (register / "2026-10-19_00000000.json").write_text("{}", encoding="utf-8")
+        outcomes = [
+            first,
+            *(write_archive(root, archive=ARCHIVE, response=step) for step in steps),
+        ]
+        results[name] = [
+            (item.status, item.path.relative_to(root), item.sha256, item.label)
+            for item in outcomes
+        ]
+    assert results["observed"] == results["plain"]
+    assert [status for status, *_ in results["plain"]] == [
+        "created",
+        "unchanged",
+        "relabeled",
+        "created",
+        "unchanged",
+    ]

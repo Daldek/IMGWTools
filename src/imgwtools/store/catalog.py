@@ -366,7 +366,7 @@ def _current_archive(
 ) -> tuple[Path, dict[str, Any]] | None:
     """Current archive version: newest Last-Modified, then downloaded_at, then path."""
     slot = _validate_slot(root, _archive_slot(archive))
-    entries = _existing(slot, PurePosixPath(archive.server_path).name)
+    entries = _existing(slot, PurePosixPath(archive.server_path).name, archive=True)
     return max(
         entries,
         key=lambda entry: (

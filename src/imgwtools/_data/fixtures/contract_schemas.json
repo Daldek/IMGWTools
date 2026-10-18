@@ -1,5 +1,5 @@
 {
-  "description": "JSON Schema Draft 2020-12 kontraktów IMGW (spec 2026-10-17-versioned-store-design.md §11 magazyn, §13.5 błędy problem+json i CLI, §13.6 koperta imgw-result/1) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
+  "description": "JSON Schema Draft 2020-12 kontraktów IMGW (spec 2026-10-17-versioned-store-design.md §11 magazyn z dziedzinami /1 i rejestrem obserwacji imgw-observation/1 według ADR-003, spec 2026-10-18-chmi-provider-design.md §3.2 i §11; §13.5 błędy problem+json i CLI, §13.6 koperta imgw-result/1) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
   "schemas": {
     "imgw-store/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -48,13 +48,15 @@
         },
         "dataset": {
           "type": "string",
-          "pattern": "^pl\\.imgw\\.[a-z_]+$"
+          "pattern": "^[a-z]{2}\\.[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$"
         },
         "country": {
-          "const": "PL"
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
         },
         "provider": {
-          "const": "IMGW-PIB"
+          "type": "string",
+          "minLength": 1
         },
         "request": {
           "type": "object"
@@ -68,7 +70,8 @@
           ],
           "properties": {
             "id": {
-              "const": "IMGW-PIB"
+              "type": "string",
+              "minLength": 1
             },
             "attribution": {
               "type": "string",
@@ -92,6 +95,14 @@
         "size_bytes": {
           "type": "integer",
           "minimum": 0
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "content_form": {
+          "type": "string",
+          "minLength": 1
         },
         "extra": {
           "type": "object",
@@ -180,6 +191,14 @@
           "additionalProperties": true
         }
       },
+      "dependentRequired": {
+        "content_sha256": [
+          "content_form"
+        ],
+        "content_form": [
+          "content_sha256"
+        ]
+      },
       "additionalProperties": true
     },
     "imgw-series/1": {
@@ -198,7 +217,7 @@
         },
         "dataset": {
           "type": "string",
-          "pattern": "^pl\\.imgw\\."
+          "pattern": "^[a-z]{2}\\.[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$"
         },
         "year_type": {
           "enum": [
@@ -227,7 +246,7 @@
         "stations": {
           "type": "object",
           "patternProperties": {
-            "^[0-9]{9}$": {
+            "^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$": {
               "type": "object",
               "required": [
                 "file",
@@ -238,7 +257,7 @@
               "properties": {
                 "file": {
                   "type": "string",
-                  "pattern": "^stations/[0-9]{9}\\.parquet$"
+                  "pattern": "^stations/([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})\\.parquet$"
                 },
                 "sha256": {
                   "type": "string",
@@ -344,7 +363,7 @@
               },
               "id": {
                 "type": "string",
-                "pattern": "^[0-9]{9}$"
+                "pattern": "^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$"
               },
               "geometry": {
                 "oneOf": [
@@ -400,7 +419,7 @@
                 "properties": {
                   "station_code": {
                     "type": "string",
-                    "pattern": "^[0-9]{9}$"
+                    "pattern": "^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$"
                   },
                   "kind": {
                     "enum": [
@@ -442,6 +461,11 @@
                       "api_meteo",
                       "static",
                       "user",
+                      "chmi_hydro_now",
+                      "chmi_hydro_meta3",
+                      "chmi_hydro_stations",
+                      "chmi_meteo_now",
+                      "chmi_meteo_stations",
                       null
                     ]
                   },
@@ -760,8 +784,24 @@
                     },
                     "station_code": {
                       "type": "string",
-                      "pattern": "^[0-9]{9}$"
+                      "pattern": "^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$"
+                    },
+                    "content_sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "content_form": {
+                      "type": "string",
+                      "minLength": 1
                     }
+                  },
+                  "dependentRequired": {
+                    "content_sha256": [
+                      "content_form"
+                    ],
+                    "content_form": [
+                      "content_sha256"
+                    ]
                   },
                   "additionalProperties": false
                 }
@@ -850,6 +890,86 @@
               "type": "number"
             }
           }
+        }
+      },
+      "additionalProperties": true
+    },
+    "imgw-observation/1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "imgw-observation/1",
+      "type": "object",
+      "required": [
+        "schema",
+        "producer",
+        "producer_version",
+        "dataset",
+        "seen_at",
+        "url",
+        "last_modified",
+        "etag",
+        "size_bytes",
+        "sha256",
+        "content_sha256",
+        "content_form",
+        "same_content_as"
+      ],
+      "properties": {
+        "schema": {
+          "const": "imgw-observation/1"
+        },
+        "producer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "producer_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset": {
+          "type": "string",
+          "pattern": "^[a-z]{2}\\.[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$"
+        },
+        "seen_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "last_modified": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "etag": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "content_form": {
+          "type": "string",
+          "minLength": 1
+        },
+        "same_content_as": {
+          "type": "string",
+          "pattern": "^[^/]+_[0-9a-f]{8}$"
         }
       },
       "additionalProperties": true
@@ -1237,6 +1357,21 @@
           }
         }
       }
+    },
+    "imgw-observation/1": {
+      "schema": "imgw-observation/1",
+      "producer": "imgwtools",
+      "producer_version": "3.1.0",
+      "dataset": "cz.chmi.hydro_daily",
+      "seen_at": "2026-10-19T06:00:00Z",
+      "url": "https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json",
+      "last_modified": "Mon, 19 Oct 2026 03:12:44 GMT",
+      "etag": "\"6ad58aac-54c6\"",
+      "size_bytes": 21702,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "content_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "content_form": "chmi-json/1",
+      "same_content_as": "2026-05-21_00000000"
     },
     "imgw-result/1": {
       "schema": "imgw-result/1",

@@ -111,7 +111,8 @@ class StoreInfo:
         unreadable marker or a marker without ``created_by``.
     contracts : Mapping of str to str
         Contract versions supported by the library, keyed by ``store``,
-        ``meta``, ``series``, ``plan``, ``project`` and ``pmaxtp``.
+        ``meta``, ``series``, ``plan``, ``project``, ``pmaxtp`` and
+        ``observation``.
     problems : tuple of str
         Human-readable descriptions of detected problems.
     """
@@ -629,6 +630,12 @@ class Meta:
     extra : Mapping of str to object
         The sidecar ``extra`` object (version label, HTTP signal, period,
         sources), including unknown fields.
+    content_sha256 : str or None, optional
+        SHA-256 hex digest of the canonical form of the main file; None when
+        the sidecar has no content fields (every IMGW-PIB dataset).
+    content_form : str or None, optional
+        Identifier of the canonical form behind ``content_sha256``, e.g.
+        ``"chmi-json/1"``; present exactly when ``content_sha256`` is.
     """
 
     schema: str
@@ -639,6 +646,53 @@ class Meta:
     license: License
     request: Mapping[str, object]
     extra: Mapping[str, object]
+    content_sha256: str | None = None
+    content_form: str | None = None
+
+
+@dataclass(frozen=True)
+class Observation:
+    """
+    Source signal recorded without a new version (``imgw-observation/1``).
+
+    An observation lies in ``observations/`` of an archive slot: the source
+    published other bytes with the same canonical content as the version
+    named by ``same_content_as``, under a new signal. It is never a version.
+
+    Attributes
+    ----------
+    dataset : str
+        Full dataset key of the slot, e.g. ``"cz.chmi.hydro_daily"``.
+    seen_at : str
+        UTC time of the observation, ``YYYY-MM-DDTHH:MM:SSZ``.
+    url : str
+        Download URL of the observed bytes.
+    last_modified : str or None
+        ``Last-Modified`` header of the download, None when absent.
+    etag : str or None
+        ``ETag`` header of the download, None when absent.
+    size_bytes : int
+        Size of the observed bytes (not stored in the store).
+    sha256 : str
+        SHA-256 hex digest of the observed bytes.
+    content_sha256 : str
+        SHA-256 hex digest of their canonical form, equal to the version's.
+    content_form : str
+        Identifier of the canonical form, equal to the version's.
+    same_content_as : str
+        Directory name ``<label>_<sha8>`` of the version with that content.
+    """
+
+    dataset: str
+    seen_at: str
+    url: str
+    last_modified: str | None
+    etag: str | None
+    size_bytes: int
+    sha256: str
+    content_sha256: str
+    content_form: str
+    same_content_as: str
 
 
 @dataclass(frozen=True)
@@ -648,32 +702,37 @@ class StoreEntry:
 
     Attributes
     ----------
-    kind : {"archive", "series", "catalog", "pmaxtp", "problem"}
+    kind : {"archive", "series", "catalog", "pmaxtp", "observation", "problem"}
         Kind of the entry.
     slot : str or None
         Slot (spec §13.7), e.g.
         ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``,
         ``series:pl.imgw.hydro_daily``, ``catalog:pl.imgw.stations`` or
-        ``pmaxtp:pl.imgw.pmaxtp:POT/751_317``; for a problem, the slot of the
-        version it concerns, or None when it concerns no version (e.g. an
-        unknown directory, a symbolic link or a stale staging directory).
+        ``pmaxtp:pl.imgw.pmaxtp:POT/751_317``; for an observation, the
+        archive slot it belongs to; for a problem, the slot of the version
+        or observation it concerns, or None when it concerns neither (e.g.
+        an unknown directory, a symbolic link or a stale staging directory).
     version : Path or None
-        Path of the version's main file; for a problem, the path of the
-        faulty element.
+        Path of the version's main file or of the observation file; for a
+        problem, the path of the faulty element.
     meta : Meta or None
-        Parsed sidecar of a valid version, None for problems.
+        Parsed sidecar of a valid version, None for observations and
+        problems.
     problem_code : str or None
         Machine-readable problem code, e.g. ``"missing_sidecar"``, or None.
     problem : str or None
         Human-readable problem description (in Polish), or None.
+    observation : Observation or None, optional
+        Parsed observation of an ``"observation"`` entry, None otherwise.
     """
 
-    kind: Literal["archive", "series", "catalog", "pmaxtp", "problem"]
+    kind: Literal["archive", "series", "catalog", "pmaxtp", "observation", "problem"]
     slot: str | None
     version: Path | None
     meta: Meta | None
     problem_code: str | None
     problem: str | None
+    observation: Observation | None = None
 
 
 @dataclass(frozen=True)
@@ -1028,13 +1087,22 @@ class ProjectFile:
     sha256 : str
         Full SHA-256 hex digest of the file.
     station_code : str or None, optional
-        Station code (9 digits); required for ``"station_series"`` files.
+        Station code (``STATION_CODE_PATTERN``: nine IMGW-PIB digits or a
+        WIGOS identifier); required for ``"station_series"`` files.
+    content_sha256 : str or None, optional
+        ``content_sha256`` of the pinned archive version (canonical form);
+        None for pins of datasets without a canonical form.
+    content_form : str or None, optional
+        ``content_form`` of the pinned archive version; present exactly when
+        ``content_sha256`` is.
     """
 
     role: Literal["series", "station_series", "catalog", "input"]
     path: Path
     sha256: str
     station_code: str | None = None
+    content_sha256: str | None = None
+    content_form: str | None = None
 
 
 @dataclass(frozen=True)

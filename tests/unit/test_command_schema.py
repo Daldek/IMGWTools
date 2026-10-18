@@ -3,14 +3,21 @@
 import json
 
 import pytest
+from fastapi.testclient import TestClient
+from typer.testing import CliRunner
 
 from imgwtools import __version__
 from imgwtools._jsonable import jsonable
-from imgwtools.commands import command_schema, validate_command
+from imgwtools.api.main import app as rest_app
+from imgwtools.cli.main import app as cli_app
+from imgwtools.commands import command_schema, run_command, validate_command
+from imgwtools.config import settings
 from imgwtools.datasets import datasets
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
-from tests.contract.support import violations
-from tests.unit.test_commands import REJECTED, SAMPLES, SPEC_COMMANDS
+from imgwtools.store import init_store
+from tests.contract.support import canonical, cli_words, rest_request, violations
+from tests.unit.test_commands import DAILY, REJECTED, ROOT, SAMPLES, SPEC_COMMANDS
+from tests.unit.test_store_reader import observe, store_archives, with_content
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 ARCHIVE_KEYS = [d.key for d in datasets() if d.first_year is not None]
@@ -180,3 +187,77 @@ def test_invalid_options_fail_both_the_schema_and_validate_command(
     with pytest.raises(IMGWValidationError) as error:
         validate_command(command, options=options)
     assert error.value.details["option"] == option
+
+
+def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
+    for command, options in (
+        (
+            "series select",
+            {
+                "root": ROOT,
+                "dataset": DAILY,
+                "stations": ["149190310", "0-203-1-CB900003"],
+            },
+        ),
+        ("series read", {"root": ROOT, "dataset": DAILY, "station": "0-20000-0-11406"}),
+    ):
+        assert violations(options, command_schema(command)) == []
+        validate_command(command, options=options)
+    for command, options, option in (
+        (
+            "series select",
+            {"root": ROOT, "dataset": DAILY, "stations": ["0-203-1-cb900003"]},
+            "stations",
+        ),
+        (
+            "series select",
+            {"root": ROOT, "dataset": DAILY, "stations": ["12345678"]},
+            "stations",
+        ),
+        (
+            "series read",
+            {"root": ROOT, "dataset": DAILY, "station": "0-203-1-cb900003"},
+            "station",
+        ),
+        ("current hydro", {"station": "0-203-1-001000"}, "station"),
+        ("current meteo", {"station": "0-203-0-11573"}, "station"),
+    ):
+        assert violations(options, command_schema(command)) != []
+        with pytest.raises(IMGWValidationError) as error:
+            validate_command(command, options=options)
+        assert error.value.details["option"] == option
+
+
+def test_store_scan_of_observations_answers_alike_in_python_cli_and_rest(
+    tmp_path, monkeypatch
+):
+    root = init_store(tmp_path / "store").root
+    (written,) = store_archives(root, DAILY, [2024])
+    with_content(written.path)
+    observed = observe(written.path)
+    options = {"kind": "observation", "limit": 10}
+    assert "observation" in command_schema("store scan")["properties"]["kind"]["enum"]
+    normalized = validate_command("store scan", options={"root": root, **options})
+    assert normalized["kind"] == "observation"
+
+    python = run_command("store scan", options={"root": root, **options})
+    local = python.to_json(root=root)
+    (item,) = local["result"]["items"]
+    assert (item["kind"], item["slot"], item["meta"]) == (
+        "observation",
+        "archive:pl.imgw.hydro_daily:2024/codz_2024.zip",
+        None,
+    )
+    assert item["version"].endswith(observed.name)
+    assert item["observation"]["same_content_as"] == written.path.parent.name
+    printed = CliRunner().invoke(
+        cli_app, cli_words("store scan", {"root": root, **options})
+    )
+    assert printed.exit_code == 0, printed.output
+    assert canonical(json.loads(printed.stdout)) == canonical(local)
+    monkeypatch.setattr(settings, "store_root", root)
+    answered = TestClient(rest_app).request(**rest_request("store scan", options))
+    assert answered.status_code == 200, answered.text
+    assert canonical(answered.json()) == canonical(
+        python.to_json(root=root, server=True)
+    )
