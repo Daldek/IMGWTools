@@ -102,11 +102,14 @@
     </div>
 </div>
 
+<section id="map-error"></section>
+
 <article>
     <div id="map"></div>
     <footer>
         <small>
-            Dane pobierane z API IMGW w czasie rzeczywistym.
+            Stany wody z <a href="/api/v1/current/hydro-states" target="_blank">GET /api/v1/current/hydro-states</a>
+            (mapa hydro.imgw.pl) w czasie rzeczywistym.
             Kliknij w marker, aby zobaczyć szczegóły stacji.
         </small>
     </footer>
@@ -203,69 +206,101 @@
         return 'state-unknown';
     }
 
-    // Load stations from API
-    async function loadStations() {
-        try {
-            const response = await fetch('/map/stations');
-            const data = await response.json();
+    const STATES_URL = '/api/v1/current/hydro-states';
 
-            if (data.error) {
-                console.error('Error loading stations:', data.error);
-                return;
+    function escapeHtml(text) {
+        const element = document.createElement('span');
+        element.textContent = text;
+        return element.innerHTML;
+    }
+
+    // Every page of the catalog command `current hydro-states`
+    async function fetchHydroStates() {
+        const states = [];
+        let offset = 0;
+        for (;;) {
+            const response = await fetch(`${STATES_URL}?offset=${offset}`);
+            const body = await response.json();
+            if (!response.ok) {
+                throw body;  // application/problem+json
             }
-
-            // Update stats bar
-            if (data.summary) {
-                document.getElementById('stat-total').textContent = data.summary.total;
-                document.getElementById('stat-alarm').textContent = data.summary.alarm;
-                document.getElementById('stat-warning').textContent = data.summary.warning;
-                document.getElementById('stat-below').textContent = data.summary.below;
+            const page = body.result;
+            states.push(...page.items);
+            offset = page.offset + page.items.length;
+            if (page.items.length === 0 || offset >= page.total) {
+                return states;
             }
-
-            data.stations.forEach(station => {
-                const color = stateColors[station.state] || '#2196f3';
-                const stateLabel = stateLabels[station.state] || station.state;
-                const badgeClass = getStateBadgeClass(station.state);
-
-                const marker = L.circleMarker([station.lat, station.lon], {
-                    radius: 8,
-                    fillColor: color,
-                    color: '#fff',
-                    weight: 2,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                }).addTo(map);
-
-                const popupContent = `
-                    <div class="station-popup">
-                        <h4>${station.name}</h4>
-                        <dl>
-                            <dt>ID stacji</dt>
-                            <dd><code>${station.id}</code></dd>
-                            <dt>Stan wody</dt>
-                            <dd><span class="state-badge ${badgeClass}">${stateLabel}</span></dd>
-                            <dt>Współrzędne</dt>
-                            <dd>${station.lat.toFixed(4)}, ${station.lon.toFixed(4)}</dd>
-                        </dl>
-                        <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
-                            <button onclick="navigator.clipboard.writeText('${station.id}')">
-                                Kopiuj ID
-                            </button>
-                            <a href="https://hydro.imgw.pl/#/station/hydro/${station.id}" target="_blank" role="button" class="secondary">
-                                IMGW
-                            </a>
-                        </div>
-                    </div>
-                `;
-
-                marker.bindPopup(popupContent);
-            });
-
-            console.log(`Loaded ${data.stations.length} stations`);
-
-        } catch (error) {
-            console.error('Failed to load stations:', error);
         }
+    }
+
+    function countStates(states, ...names) {
+        return states.filter(state => names.includes(state.water_state)).length;
+    }
+
+    // Load stations from the REST API
+    async function loadStations() {
+        let states;
+        try {
+            states = await fetchHydroStates();
+        } catch (problem) {
+            console.error('Failed to load stations:', problem);
+            renderProblem(document.getElementById('map-error'), problem.code ? problem : {
+                title: 'Błąd połączenia',
+                detail: 'Nie udało się pobrać stanów wody. Spróbuj ponownie później.',
+            });
+            return;
+        }
+        const located = states.filter(state => state.latitude !== null && state.longitude !== null);
+
+        document.getElementById('stat-total').textContent = located.length;
+        document.getElementById('stat-alarm').textContent = countStates(states, 'alarm');
+        document.getElementById('stat-warning').textContent = countStates(states, 'warning');
+        document.getElementById('stat-below').textContent = countStates(states, 'low', 'below');
+
+        located.forEach(station => {
+            const waterState = station.water_state || 'unknown';
+            const color = stateColors[waterState] || '#2196f3';
+            const stateLabel = stateLabels[waterState] || waterState;
+            const badgeClass = getStateBadgeClass(waterState);
+            const code = escapeHtml(station.station_code);
+
+            const marker = L.circleMarker([station.latitude, station.longitude], {
+                radius: 8,
+                fillColor: color,
+                color: '#fff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+
+            const popupContent = `
+                <div class="station-popup">
+                    <h4>${escapeHtml(station.name)}</h4>
+                    <dl>
+                        <dt>Kod stacji</dt>
+                        <dd><code>${code}</code></dd>
+                        <dt>Rzeka</dt>
+                        <dd>${escapeHtml(station.river || '-')}</dd>
+                        <dt>Stan wody</dt>
+                        <dd><span class="state-badge ${badgeClass}">${escapeHtml(stateLabel)}</span></dd>
+                        <dt>Współrzędne</dt>
+                        <dd>${station.latitude.toFixed(4)}, ${station.longitude.toFixed(4)}</dd>
+                    </dl>
+                    <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
+                        <button onclick="navigator.clipboard.writeText('${code}')">
+                            Kopiuj kod
+                        </button>
+                        <a href="https://hydro.imgw.pl/#/station/hydro/${code}" target="_blank" role="button" class="secondary">
+                            IMGW
+                        </a>
+                    </div>
+                </div>
+            `;
+
+            marker.bindPopup(popupContent);
+        });
+
+        console.log(`Loaded ${located.length} stations`);
     }
 
     // Check URL parameters for specific location

@@ -5,27 +5,26 @@
 
     <dl>
         <dt>Metoda</dt>
-        <dd>{{ method }} ({{ "Peak Over Threshold" if method == "POT" else "Annual Max Precipitation" }})</dd>
+        <dd>{{ result.method }} ({{ methods[result.method] }})</dd>
 
-        <dt>Lokalizacja zapytania</dt>
-        <dd>{{ latitude }}°N, {{ longitude }}°E</dd>
-
-        {% if data.point %}
-        <dt>Lokalizacja danych (siatka)</dt>
-        <dd>{{ "%.4f"|format(data.point.dataLat) }}°N, {{ "%.4f"|format(data.point.dataLon) }}°E</dd>
-        {% endif %}
+        <dt>Lokalizacja</dt>
+        <dd>{{ result.latitude }}°N, {{ result.longitude }}°E</dd>
     </dl>
 
     {% set durations = [5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440] %}
     {% set probabilities = [0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99] %}
+    {% set tables = [
+        ("ks", "Kwantyle opadu maksymalnego [mm]", result.data.ks),
+        ("sg", "Górne granice przedziału ufności [mm]", result.data.sg),
+        ("rb", "Błędy estymacji kwantyli [mm]", result.data.rb),
+    ] %}
 
-    {% if data.data and data.data.ks %}
-    <!-- Kwantyle opadu maksymalnego -->
-    <h4>Kwantyle opadu maksymalnego [mm]</h4>
+    {% for key, heading, table in tables if table %}
+    <h4>{{ heading }}</h4>
     <p><small>Wiersze: czas trwania [min], Kolumny: prawdopodobieństwo przewyższenia [%]</small></p>
 
     <div style="overflow-x: auto;">
-        <table class="pmaxtp-table" id="table-ks">
+        <table class="pmaxtp-table" id="table-{{ key }}">
             <thead>
                 <tr>
                     <th>t [min]</th>
@@ -35,85 +34,20 @@
                 </tr>
             </thead>
             <tbody>
-                {% for dur in durations %}
-                {% if data.data.ks[dur|string] is defined %}
+                {% for dur in durations if table[dur|string] is defined %}
+                {% set row = table[dur|string] %}
                 <tr>
                     <td><strong>{{ dur }}</strong></td>
                     {% for p in probabilities %}
-                    {% set val = data.data.ks[dur|string][p|string] %}
+                    {% set val = row[p|string] %}
                     <td>{{ "%.2f"|format(val) if val is defined and val is not none else '-' }}</td>
                     {% endfor %}
                 </tr>
-                {% endif %}
                 {% endfor %}
             </tbody>
         </table>
     </div>
-    {% endif %}
-
-    {% if data.data and data.data.sg %}
-    <!-- Górne granice przedziału ufności -->
-    <h4>Górne granice przedziału ufności [mm]</h4>
-    <p><small>Wiersze: czas trwania [min], Kolumny: prawdopodobieństwo przewyższenia [%]</small></p>
-
-    <div style="overflow-x: auto;">
-        <table class="pmaxtp-table" id="table-sg">
-            <thead>
-                <tr>
-                    <th>t [min]</th>
-                    {% for p in probabilities %}
-                    <th>p={{ p }}%</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for dur in durations %}
-                {% if data.data.sg[dur|string] is defined %}
-                <tr>
-                    <td><strong>{{ dur }}</strong></td>
-                    {% for p in probabilities %}
-                    {% set val = data.data.sg[dur|string][p|string] %}
-                    <td>{{ "%.2f"|format(val) if val is defined and val is not none else '-' }}</td>
-                    {% endfor %}
-                </tr>
-                {% endif %}
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endif %}
-
-    {% if data.data and data.data.rb %}
-    <!-- Błędy estymacji kwantyli -->
-    <h4>Błędy estymacji kwantyli [mm]</h4>
-    <p><small>Wiersze: czas trwania [min], Kolumny: prawdopodobieństwo przewyższenia [%]</small></p>
-
-    <div style="overflow-x: auto;">
-        <table class="pmaxtp-table" id="table-rb">
-            <thead>
-                <tr>
-                    <th>t [min]</th>
-                    {% for p in probabilities %}
-                    <th>p={{ p }}%</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for dur in durations %}
-                {% if data.data.rb[dur|string] is defined %}
-                <tr>
-                    <td><strong>{{ dur }}</strong></td>
-                    {% for p in probabilities %}
-                    {% set val = data.data.rb[dur|string][p|string] %}
-                    <td>{{ "%.2f"|format(val) if val is defined and val is not none else '-' }}</td>
-                    {% endfor %}
-                </tr>
-                {% endif %}
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endif %}
+    {% endfor %}
 
     <footer>
         <div class="download-actions">
@@ -137,10 +71,10 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
 <script>
-    const pmaxtpData = {{ data | tojson }};
-    const pmaxtpMethod = "{{ method }}";
-    const pmaxtpLat = {{ latitude }};
-    const pmaxtpLon = {{ longitude }};
+    const pmaxtpData = {{ result.model_dump(mode="json") | tojson }};
+    const pmaxtpMethod = pmaxtpData.method;
+    const pmaxtpLat = pmaxtpData.latitude;
+    const pmaxtpLon = pmaxtpData.longitude;
 
     // Configuration matching IMGW format
     const durations = [5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440];
@@ -182,13 +116,11 @@
     }
 
     function getMetadataRows() {
-        const point = pmaxtpData.point || {};
         return [
             ['IMGW PMAXTP - Opady maksymalne prawdopodobne'],
             [''],
             ['Metoda:', pmaxtpMethod === 'POT' ? 'Peak Over Threshold (POT)' : 'Annual Max Precipitation (AMP)'],
-            ['Lokalizacja zapytania:', `${pmaxtpLat}°N, ${pmaxtpLon}°E`],
-            ['Lokalizacja danych (siatka):', point.dataLat ? `${point.dataLat.toFixed(4)}°N, ${point.dataLon.toFixed(4)}°E` : '-'],
+            ['Lokalizacja:', `${pmaxtpLat}°N, ${pmaxtpLon}°E`],
             [''],
         ];
     }
