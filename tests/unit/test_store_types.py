@@ -89,6 +89,7 @@ def test_frozen_contracts():
         Meta(
             "imgw-meta/1",
             "pl.imgw.hydro_daily",
+            "pl.imgw.hydro_daily",
             "a" * 64,
             1,
             datetime.now(UTC),

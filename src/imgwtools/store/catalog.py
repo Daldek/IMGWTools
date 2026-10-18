@@ -26,6 +26,7 @@ import httpx
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools._version import __version__
 from imgwtools.datasets import (
+    CATALOG_DATASET,
     ArchiveFile,
     datasets,
     get_dataset,
@@ -71,7 +72,6 @@ from imgwtools.urls import IMGW_API_URL
 
 RootArg = PathArg | StoreHandle
 
-CATALOG_DATASET = "pl.imgw.stations"
 CATALOG_SLOT = "stations/versions"
 CATALOG_FILE = "stations.geojson"
 HYDRO_API_URL = f"{IMGW_API_URL}/hydro"

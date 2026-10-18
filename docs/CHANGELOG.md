@@ -255,6 +255,14 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `Meta.content_form`) i w pinach `imgw-project/1` (`ProjectFile`; `open_project`
   zachowuje je przy ponownym zapisie manifestu); jedno pole bez drugiego → `invalid_meta`
   (sidecar) albo `validation_error` (manifest). Zbiory IMGW ich nie zapisują.
+- **Konwencja kluczy zbiorów (IMGW-20, ADR-001 errata 2026-10-18)**: wzorzec
+  `imgwtools.datasets.DATASET_KEY_PATTERN` (test na całym rejestrze i na
+  `pl.imgw.stations`), niezmienność opublikowanych kluczy i tabela zmienionych nazw
+  `DATASET_KEY_ALIASES` (stary → bieżący klucz; pusta w 3.0.0, każdy wpis w tej historii
+  zmian) z `resolve_dataset_key`; `get_dataset` i odczyty magazynu przyjmują klucze
+  z tabeli. `read_meta` zwraca obok surowego `dataset` pole `Meta.dataset_key` (także
+  w kopertach CLI/REST): bieżący klucz albo `null` dla poprawnego, lecz nieznanego
+  klucza — bez wyjątku i bez `invalid_meta` w skanie.
 - **Rejestr obserwacji `imgw-observation/1`** (ADR-003 D18): katalog `observations/`
   w slocie archiwum (pliki `<YYYY-MM-DD>_<sha8>.json`) nie jest wersją — `current_version`,
   `read_meta`, czytniki szeregów i projektów oraz wybór wersji slotu w `write_archive`,

@@ -34,6 +34,7 @@ from typing import Any, Literal
 from imgwtools import commands
 from imgwtools._version import __version__
 from imgwtools.datasets import (
+    CATALOG_DATASET,
     STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
@@ -68,7 +69,6 @@ from imgwtools.store import (
 from imgwtools.store.catalog import CATALOG_FILE, _Border
 from imgwtools.store.pmaxtp import CELL_FILE
 from imgwtools.store.reader import (
-    _CATALOG_KEY,
     _CELL,
     _PMAXTP_KEY,
     SERIES_FILE,
@@ -242,7 +242,7 @@ def _pin_slot(path: Path, station_code: str | None) -> str | None:
         and len(parts) == 4
         and parts[1:4:2] == ["versions", CATALOG_FILE]
     ):
-        return f"catalog:{_CATALOG_KEY}"
+        return f"catalog:{CATALOG_DATASET}"
     if (
         kind == "pmaxtp"
         and len(parts) == 6

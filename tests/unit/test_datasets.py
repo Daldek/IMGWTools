@@ -1,20 +1,28 @@
 """Offline checks for source registry and physical archive enumeration."""
 
+import importlib
+import re
 from datetime import date
 
 import pytest
 
 from imgwtools.datasets import (
+    CATALOG_DATASET,
+    DATASET_KEY_ALIASES,
+    DATASET_KEY_PATTERN,
     archive_files,
     datasets,
     get_dataset,
     parse_months,
     parse_years,
+    resolve_dataset_key,
     station_source_files,
 )
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
+# ``imgwtools.datasets`` as a module: the package attribute is the ``datasets`` function.
+DATASETS_MODULE = importlib.import_module("imgwtools.datasets")
 _BASE = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
 
 # (key, kind, in_store, time_unit, year_type, first_year, legacy_alias) — spec §13.4.
@@ -148,6 +156,33 @@ def test_get_dataset_unknown_lists_allowed_keys():
         get_dataset("hydro/tygodniowe")
     assert exc.value.code == "validation_error"
     assert exc.value.details["allowed"] == [row[0] for row in _REGISTRY]
+
+
+def test_every_dataset_key_follows_the_key_convention():
+    # IMGW-20 criterion 1: the consumer's pattern, checked on the whole registry.
+    assert DATASET_KEY_PATTERN == r"^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$"
+    keys = [d.key for d in datasets()] + [CATALOG_DATASET]
+    for key in keys:
+        assert re.fullmatch(DATASET_KEY_PATTERN, key), key
+        assert resolve_dataset_key(key) == key
+    for old, current in DATASET_KEY_ALIASES.items():
+        assert re.fullmatch(DATASET_KEY_PATTERN, old), old
+        assert old not in keys and current in keys, (old, current)
+
+
+def test_renamed_key_resolves_to_the_current_key(monkeypatch):
+    monkeypatch.setattr(
+        DATASETS_MODULE,
+        "DATASET_KEY_ALIASES",
+        {"pl.imgw.hydro_day": "pl.imgw.hydro_daily"},
+    )
+
+    assert resolve_dataset_key("pl.imgw.hydro_day") == "pl.imgw.hydro_daily"
+    assert get_dataset("pl.imgw.hydro_day") is get_dataset("pl.imgw.hydro_daily")
+    assert resolve_dataset_key("pl.imgw.hydro_daily") == "pl.imgw.hydro_daily"
+    # Unknown keys, slugs and legacy input words are not keys IMGWTools knows.
+    for value in ("cz.chmi.hydro_daily", "hydro_daily", "hydro/dobowe"):
+        assert resolve_dataset_key(value) is None
 
 
 @pytest.mark.parametrize(

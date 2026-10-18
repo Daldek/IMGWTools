@@ -368,7 +368,8 @@ class StoreEntry:
     problem_code: str | None; problem: str | None
 @dataclass(frozen=True)
 class Meta:
-    schema: str; dataset: str; sha256: str; size_bytes: int
+    schema: str; dataset: str; dataset_key: str | None  # [IMGW-20] §13.4
+    sha256: str; size_bytes: int
     downloaded_at: datetime; license: License; request: Mapping[str, object]
     extra: Mapping[str, object]                 # nieznane dodatkowe pola zachowane
 @dataclass(frozen=True)
@@ -929,6 +930,8 @@ Zbiory tylko do pobrania (`in_store=false`; bez parsera, magazynu i szeregów):
 - `download_hydro_data(interval, year, month, param)` i `download_meteo_data(interval, subtype, year, month)` mapują słowa przez aliasy (`hydro/<interval>`, `meteo/<interval>/<subtype>`; `dobowe` z `month=13` → `pl.imgw.hydro_phenomena`) i pobierają plik wskazany przez `archive_files`; podpisy i `DownloadResult` bez zmian.
 - `archive_files` zbiorów tylko do pobrania daje te same URL-e co usunięte `build_hydro_url`/`build_meteo_url` (złote URL-e w teście U03).
 - **Rozstrzygnięcia implementacji (U03):** jeden parser wejścia `imgwtools.datasets.parse_years(value, /, *, option="years")` i `parse_months(value, /, *, option="months")` (spoza `__all__`; korzystają z nich katalog i magazyn) zwraca posortowaną krotkę bez powtórzeń, a błąd ma `details.option`; `months` nie przyjmują zakresów. `ArchiveFile` miesięcznego archiwum meteo opisuje cały folder: `year` = pierwszy rok folderu, `period_end` = 31 XII ostatniego roku folderu, `month=None`. Rocznik poniżej `first_year` → `details.minimum`. `params` (także tekst `"H,Q"`) dla innego zbioru niż półroczny → `validation_error` z `details.option="params"`. Konsumenci szeregów wybierają zbiory przez `in_store` i `time_unit ∈ {day, month, half_year}` (zbiory tylko do pobrania mają `time_unit` `day`/`month`).
+
+> [IMGW-20, 2026-10-18] Klucz zbioru spełnia `DATASET_KEY_PATTERN` (`^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`; test na całym rejestrze i na kluczu `pl.imgw.stations`) i po opublikowaniu się nie zmienia. Zmiana nazwy zbioru = wpis stary → bieżący klucz w `imgwtools.datasets.DATASET_KEY_ALIASES` (pusta w 3.0.0; każdy wpis w CHANGELOG), odrębny od `legacy_alias`; `get_dataset` rozpoznaje taki klucz po kluczu, slugu i aliasie legacy. `resolve_dataset_key(key)` daje bieżący klucz albo `None` dla klucza nieznanego; `read_meta` zwraca surowy `dataset` i `Meta.dataset_key` (w kopertach JSON pole `dataset_key`), dla poprawnego, lecz nieznanego klucza `dataset_key=null` bez wyjątku i bez `invalid_meta` w skanie. Decyzja: `docs/DECISIONS.md` ADR-001, errata 2026-10-18.
 
 ### 13.5 Błędy
 

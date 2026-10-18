@@ -1,6 +1,7 @@
 """Offline, read-only store access: scan, sidecars, current versions, catalog, series, PMAXTP."""
 
 import hashlib
+import importlib
 import json
 import os
 import shutil
@@ -30,6 +31,7 @@ from imgwtools.store import (
     current_version,
     init_store,
     iter_store,
+    read_archive,
     read_catalog,
     read_meta,
     read_pmaxtp,
@@ -46,6 +48,8 @@ from imgwtools.store.reader import _reference_signal
 from imgwtools.store.types import Observation, SeriesSelection
 from tests.contract.support import schema_errors
 
+# ``imgwtools.datasets`` as a module: the package attribute is the ``datasets`` function.
+DATASETS_MODULE = importlib.import_module("imgwtools.datasets")
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
     item["case"]: item
@@ -903,6 +907,49 @@ def test_valid_sidecar_of_an_unknown_dataset_is_an_unknown_entry(root, offline):
     assert [(e.kind, e.slot, e.problem_code, e.version) for e in iter_store(root)] == [
         ("problem", None, "unknown_entry", version)
     ]
+
+
+def _rewrite_dataset(version, dataset):
+    """Give the sidecar of ``version`` another dataset key; return its bytes and mtime."""
+    sidecar = Path(f"{version}.meta.json")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    sidecar.write_text(json.dumps({**document, "dataset": dataset}), encoding="utf-8")
+    return sidecar, (sidecar.read_bytes(), sidecar.stat().st_mtime_ns)
+
+
+def test_read_meta_resolves_a_renamed_key_and_leaves_the_sidecar_untouched(
+    root, offline, monkeypatch
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar, before = _rewrite_dataset(written.path, "pl.imgw.hydro_day")
+    monkeypatch.setattr(
+        DATASETS_MODULE, "DATASET_KEY_ALIASES", {"pl.imgw.hydro_day": DAILY}
+    )
+
+    meta = read_meta(written.path)
+
+    assert (meta.dataset, meta.dataset_key) == ("pl.imgw.hydro_day", DAILY)
+    assert [(e.kind, e.slot, e.problem_code) for e in iter_store(root)] == [
+        ("archive", DAILY_2024, None)
+    ]
+    assert next(read_archive(written.path)).dataset == DAILY
+    assert (sidecar.read_bytes(), sidecar.stat().st_mtime_ns) == before
+
+
+def test_read_meta_gives_no_dataset_key_for_an_unknown_well_formed_key(root, offline):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar, before = _rewrite_dataset(written.path, "pl.imgw.hydro_day")
+
+    meta = read_meta(written.path)
+
+    assert (meta.dataset, meta.dataset_key) == ("pl.imgw.hydro_day", None)
+    assert [(e.kind, e.slot, e.problem_code) for e in iter_store(root)] == [
+        ("archive", DAILY_2024, None)
+    ]
+    assert (sidecar.read_bytes(), sidecar.stat().st_mtime_ns) == before
+    _rewrite_dataset(written.path, "pl.imgw.Hydro_day")
+    with pytest.raises(IMGWDataError, match="kluczem zbioru"):
+        read_meta(written.path)
 
 
 def test_series_index_reads_wigos_station_codes_without_pyarrow(
