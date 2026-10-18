@@ -4,12 +4,14 @@
 **Status:** propozycja do ADR-003 (wymaga zatwierdzenia właściciela); kontrakt implementacji dostawcy ČHMÚ w 3.1.0 (C02–C10) oraz poprawki kontraktów `/1` przed tagiem v3.0.0 (C01)  
 **Decyzje:** `docs/DECISIONS.md` ADR-003  
 **Baza:** `2026-10-17-versioned-store-design.md` §1–§13 (ADR-001, ADR-002). Ten dokument opisuje wyłącznie zmiany i dodatki; czego nie zmienia, obowiązuje bez zmian.  
-**Wymagania:** `Archiwista/docs/wymagania-imgwtools.md` IMGW-15..IMGW-19 (sekcje 4.15–4.19), stan z commita Archiwisty `a59c6bc` (2026-10-18)  
+**Wymagania:** `Archiwista/docs/wymagania-imgwtools.md` IMGW-15..IMGW-19 (sekcje 4.15–4.19), stan z commita Archiwisty `4435cf7` (2026-10-18; IMGW-15 i IMGW-16 po uwagach IMGWTools, wcześniej `a59c6bc`)  
 **Plan:** §16 (C01–C10)
 
 ## 0. Źródła faktów i oznaczenia
 
 Fakty o źródle pochodzą z rozpoznania opendata.chmi.cz na żywo 2026-10-18 między 17:08 a 17:28 UTC, wykonanego przez trzech agentów: **CzHydro** (hydrologia), **CzMeteo** (klimatologia) i **CzLegal** (licencja, nagłówki HTTP, listingi). Wszystkie żądania były sekwencyjne (kilkaset, bez odpowiedzi 429 ani 503). Raporty są artefaktami sesji, a surowe próbki i listingi leżały w nietrwałym `/tmp/cz-explore/`, dlatego przy każdym fakcie podajemy adres i zaobserwowaną wartość.
+
+Pomiar rozmiarów drzew meteo dobowych (§1.1, ADR-003 D6) wykonał 2026-10-18 ok. 18:45 UTC agent **CzSha** wyłącznie z listingów katalogów: 13 sekwencyjnych GET (11 katalogów elementów `historical_csv`, katalog `historical/data/daily/` i katalog główny `historical_csv/data/daily/`), bez pobierania plików danych.
 
 - **[V]** — zweryfikowane na żywo 2026-10-18; w nawiasie raport i jego sekcja, np. [V CzHydro §7].
 - **[I]** — wniosek z faktów zweryfikowanych.
@@ -31,7 +33,7 @@ Skróty adresów: `O` = `https://opendata.chmi.cz/`, `H` = `O` + `hydrology/`, `
 | PMAXTP | Brak odpowiednika u ČHMÚ [V CzMeteo §12]; ADR-003 D15. |
 | Zmiana nazwy pakietu (Obserwator) | Osobna, przyszła decyzja (ADR-003 D16). |
 
-**Bez zmian:** znacznik `imgw-store/1`, układ i bajty wszystkich plików IMGW (sidecary, szeregi, katalog), reguły wersji ADR-001, koperta, kody błędów i gramatyka slotów ADR-002.
+**Bez zmian:** znacznik `imgw-store/1`, układ i bajty wszystkich plików IMGW (sidecary, szeregi, katalog), koperta, kody błędów i gramatyka slotów ADR-002. Reguły wersji ADR-001 obowiązują; dla zbiorów z formą kanoniczną dochodzi jeden wiersz: inne bajty o tej samej treści kanonicznej → `unchanged` bez zapisu (§3.1, ADR-003 D6 i D17).
 
 ### 1.1 Fakty przesądzające
 
@@ -47,6 +49,7 @@ Skróty adresów: `O` = `https://opendata.chmi.cz/`, `H` = `O` + `hydrology/`, `
 | Listing | nginx autoindex (HTML): `<a href>`, `DD-Mon-YYYY HH:MM` (UTC), rozmiar w bajtach; bez `ETag`, `Last-Modified` i `Content-Length`; `H historical/data/daily/` = 5,27 MB | [V CzLegal §3–4] |
 | Retencja | serwer przechowuje wyłącznie bieżącą wersję pliku | [V CzMeteo §14; CzHydro §7] |
 | Licencja | CC BY 4.0, warunek „uvedení původu (zdroje ČHMÚ)”, bez stałej formuły atrybucji | [V CzLegal §1] |
+| Rozmiar drzew meteo dobowych | `C historical_csv/data/daily/`: 11 katalogów elementów, 14 833 pliki, 19 826 176 829 B (19,83 GB; 14 790 plików z mtime 2026-09-04); wybrane SRA, T, TMA, TMI: 3 351 plików, 4 362 990 268 B (SRA 1 531 / 1,72 GB, T 709 / 1,88 GB, TMA 556 / 0,38 GB, TMI 555 / 0,38 GB). `C historical/data/daily/` (JSON): 1 537 plików, 25 359 042 104 B. Na stację (1 535 wspólnych): mediana JSON 10,03 MB, mediana czterech CSV 1,59 MB (mediana stosunku 0,18); Praha-Klementinum 148,97 MB wobec 32,25 MB. Listingi CSV razem 1,99 MB (11 GET), listing JSON 203 KB | [V pomiar CzSha 2026-10-18, wyłącznie listingi katalogów, bez pobierania plików] |
 
 ## 2. Rejestr dostawców i zbiorów
 
@@ -80,6 +83,8 @@ class ProviderDescriptor:
 #   update_signal: Literal["http", "listing", "none"]            # nowa wartość "listing"
 #   variable_notes: Mapping[str, str] = {}                       # konwencja zmiennej, po polsku
 #   measurement_fields: tuple[Literal["quality", "source_flag"], ...] = ()
+#   content_form: str | None = None                              # klucz CONTENT_FORMS (§3.1); None = tożsamość wyłącznie bajtów
+#   volatile_fields: tuple[str, ...] = ()                        # = CONTENT_FORMS[content_form].volatile_fields; () bez formy
 # ArchiveFile — pole addytywne:
 #   station_code: str | None = None
 
@@ -125,6 +130,7 @@ Kod ČHMÚ to identyfikator WIGOS dokładnie jak w źródle (ADR-003 D3). Obserw
 | `archive_scope` | `station_year` | `station_element` | `country` | `country` |
 | `update_signal` | `listing` | `listing` | `http` | `http` |
 | `measurement_fields` | — | `quality`, `source_flag` | — | — |
+| `content_form` / `volatile_fields` | `chmi-json/1` / `zaznamID`, `datumVytvoreni` | — / — | `chmi-json/1` / `zaznamID`, `datumVytvoreni` | `chmi-json/1` / `zaznamID`, `datumVytvoreni` |
 | `in_store` / `legacy_alias` | tak / — | tak / — | tak / — | tak / — |
 
 `first_year` 1887 to najwcześniejszy rok w pełnym listingu `H historical/data/daily/` z 2026-10-18 [V CzHydro §5.1]. Generator offline odrzuca wcześniejsze lata (`details.minimum`), a górnej granicy nie ma (jak §2.1 spec 2026-10-17). Rejestr liczy 17 deskryptorów (13 z §13.4 + 4).
@@ -194,7 +200,7 @@ Reguły (walidacja przed czymkolwiek; błąd `validation_error` z `details.optio
 | plik stacji szeregu (tylko przypięcia) | `series:cz.chmi.meteo_daily:0-203-0-11573` | `series/versions/chmi_meteo_daily/<label>_<sha8>/stations/0-203-0-11573.parquet` |
 | katalog stacji | `catalog:cz.chmi.stations` | `stations/versions/chmi_stations/` |
 
-- Gramatyka slotów, etykiety, `relabeled`, `unchanged`, atomowa publikacja, `.incoming/` i reguła bieżącej wersji — bez zmian (§3 i §13.7 spec 2026-10-17). Selektor nie zawiera `:` (kod WIGOS ma tylko cyfry, wielkie litery i `-`).
+- Gramatyka slotów, etykiety, `relabeled`, `unchanged`, atomowa publikacja, `.incoming/` i reguła bieżącej wersji — bez zmian (§3 i §13.7 spec 2026-10-17), z jednym dodatkowym wierszem `unchanged` dla zbiorów z formą kanoniczną (§3.1). Selektor nie zawiera `:` (kod WIGOS ma tylko cyfry, wielkie litery i `-`).
 - Zbiór slotu archiwum = zbiór z najdłuższym pasującym `server_dir` (reguła U05) — rozłączność `server_dir` pilnuje rejestr.
 - Pod `stations/versions/` katalog o nazwie `<label>_<sha8>` to wersja katalogu IMGW, a katalog o nazwie slugu zarejestrowanego katalogu dostawcy (`^[a-z][a-z0-9_]*$`; etykiety zaczynają się cyfrą) zawiera wersje tego dostawcy; inne nazwy → `unknown_entry`.
 - Czytnik 3.0.0 widzi wpisy ČHMÚ jako `unknown_entry` ze slotem `null`: nie zna `server_dir` ani slugu `chmi_hydro_daily`, a `chmi_stations` nie pasuje do `<label>_<sha8>` [I z reguły U05, §13.7 spec 2026-10-17]. Nie czyta ich błędnie.
@@ -203,13 +209,71 @@ Reguły (walidacja przed czymkolwiek; błąd `validation_error` z `details.optio
 **Sidecar archiwum ČHMÚ** (nagłówki HTTP z [V CzHydro §7]; pozostałe wartości umowne):
 
 ```json
-{"schema":"imgw-meta/1","producer":"imgwtools","producer_version":"3.1.0","dataset":"cz.chmi.hydro_daily","country":"CZ","provider":"CHMI","request":{"server_path":"hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","year":2025,"month":null,"station_code":"0-203-1-001000","param":null},"license":{"id":"CC-BY-4.0","attribution":"Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, licencja CC BY 4.0","url":"https://creativecommons.org/licenses/by/4.0/","terms_url":"https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti"},"downloaded_at":"2026-10-18T18:00:00Z","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size_bytes":21647,"extra":{"version":{"label":"2026-05-21","label_source":"last_modified"},"period":{"year":2025,"month":null,"param":null,"year_type":"calendar","start":"2025-01-01","end":"2025-12-31","station_code":"0-203-1-001000"},"http":{"url":"https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","etag":"\"6a0eea27-548f\"","last_modified":"Thu, 21 May 2026 11:19:03 GMT","content_length":21647}}}
+{"schema":"imgw-meta/1","producer":"imgwtools","producer_version":"3.1.0","dataset":"cz.chmi.hydro_daily","country":"CZ","provider":"CHMI","request":{"server_path":"hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","year":2025,"month":null,"station_code":"0-203-1-001000","param":null},"license":{"id":"CC-BY-4.0","attribution":"Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, licencja CC BY 4.0","url":"https://creativecommons.org/licenses/by/4.0/","terms_url":"https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti"},"downloaded_at":"2026-10-18T18:00:00Z","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size_bytes":21647,"content_sha256":"1111111111111111111111111111111111111111111111111111111111111111","content_form":"chmi-json/1","extra":{"version":{"label":"2026-05-21","label_source":"last_modified"},"period":{"year":2025,"month":null,"param":null,"year_type":"calendar","start":"2025-01-01","end":"2025-12-31","station_code":"0-203-1-001000"},"http":{"url":"https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","etag":"\"6a0eea27-548f\"","last_modified":"Thu, 21 May 2026 11:19:03 GMT","content_length":21647}}}
 ```
 
 - `request` = `server_path`, `year`, `month` oraz addytywnie `station_code` i `param`; `extra.period` jak w 3.0.0 plus `station_code`. Dla meteo `year`, `start` i `end` = `null`, `year_type` = `none`, `param` = element.
 - `extra.http` pochodzi z odpowiedzi GET (pełny `ETag`, `Last-Modified` z sekundami, `Content-Length`); `extra.version.label` = data `Last-Modified` w UTC (`label_source` `last_modified`), jak dla IMGW.
 - `license` = `ProviderDescriptor.license`; `terms_url` jest zapisywane tylko, gdy ustawione, więc sidecary IMGW nie zmieniają bajtów.
 - Pola `country` i `provider` pochodzą z rejestru (dziś w `store/writer.py`, `store/series.py` i `store/catalog.py` są stałymi `"PL"` i `"IMGW-PIB"`).
+- `content_sha256` i `content_form` (§3.1) — tylko dla zbiorów z `content_form`; sidecar CSV meteo ČHMÚ i sidecary IMGW ich nie mają.
+
+### 3.1 Treść kanoniczna i `content_sha256` (ADR-003 D17)
+
+Bajty archiwum zostają zapisane 1:1, a `sha256` (suma bajtów) pozostaje tożsamością wersji: daje `<sha8>` w `<label>_<sha8>`, klucz par (slot, SHA-256) w manifestach szeregów i wartość pinów. `content_sha256` to suma postaci kanonicznej. Służy wyłącznie do dwóch rozstrzygnięć: czy nowe bajty niosą nową treść (tabela niżej) i czy przypięcie da się odtworzyć treścią (§12). Żaden czytnik, slot ani nazwa katalogu nie używa jej zamiast `sha256`.
+
+**Rejestr form** (`src/imgwtools/store/content.py`, poza `__all__`; zamknięty i tylko dopisywany — inny zestaw pól ulotnych albo inna metoda wymaga nowego identyfikatora, a forma raz wydana się nie zmienia):
+
+```python
+@dataclass(frozen=True)
+class ContentForm:
+    id: str                              # "chmi-json/1"
+    method: Literal["json-jcs"]
+    volatile_fields: tuple[str, ...]     # klucze najwyższego poziomu usuwane przed sumą
+
+CONTENT_FORMS: Mapping[str, ContentForm] = {
+    "chmi-json/1": ContentForm("chmi-json/1", "json-jcs", ("zaznamID", "datumVytvoreni")),
+}
+def content_sha256(data: bytes, /, *, form: str) -> str: ...   # IMGWDataError, gdy bajty nie spełniają formy
+```
+
+Niezmienniki rejestru (test C02): `content_form` deskryptora jest kluczem `CONTENT_FORMS` albo `None`; `volatile_fields` deskryptora = pola jego formy (puste bez formy); żaden zbiór `pl.imgw.*` ani PMAXTP nie ma formy.
+
+**Metoda `json-jcs`** (dokładnie w tej kolejności):
+
+1. Bajty → tekst: UTF-8 ścisłe; jeden BOM U+FEFF na początku jest usuwany. Błąd dekodowania → błąd formy.
+2. Parsowanie JSON (RFC 8259): powtórzony klucz w dowolnym obiekcie, `NaN`, `Infinity`, `-Infinity`, liczba poza zakresem IEEE 754 double i dowolny tekst po wartości głównej → błąd formy. Liczby przyjmują wartość double (jak `JSON.parse`), więc różne zapisy tej samej liczby są równe; publikowane współrzędne (do 8 miejsc) i wartości mieszczą się w double bez straty.
+3. Wartość główna musi być obiektem. Z obiektu głównego usuwa się klucze `volatile_fields` formy; brak klucza nie jest błędem (pliki hydro `historical` nie mają koperty). Pozostałe pola koperty (`datovyZdrojID`, `datovyTokID`, `verzeDat`) i całe `data` zostają: zmiana `verzeDat` jest zmianą treści. Pola zagnieżdżone nigdy nie są usuwane.
+4. Serializacja według RFC 8785 (JCS): bez białych znaków; klucze każdego obiektu posortowane po jednostkach kodowych UTF-16; kolejność elementów tablic bez zmian (kolejność wierszy jest treścią); napisy z minimalnym escapingiem JCS (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, pozostałe U+0000–U+001F jako `\u00xx` małymi literami, reszta dosłownie, bez `\u` dla znaków spoza ASCII); liczby w zapisie ECMAScript `Number.prototype.toString` (`90.0` → `90`, `1E2` → `100`, `-0` → `0`, `1e21` → `1e+21`, `0.419` → `0.419`).
+5. `content_sha256` = SHA-256 bajtów UTF-8 wyniku, 64 małe cyfry hex.
+
+Skutek: kolejność kluczy, odstępy, zapis liczb, escaping napisów i nowe `zaznamID`/`datumVytvoreni` nie zmieniają `content_sha256`; każda zmiana wartości, wiersza, kolejności wierszy albo innego pola — zmienia. Implementacja wyłącznie na bibliotece standardowej (`json.loads` z `object_pairs_hook` wykrywającym powtórzenia i `parse_constant` odrzucającym stałe; własny zapis liczb JCS); rdzeń nadal wymaga tylko `httpx` i `pydantic` (ADR-001 D8).
+
+**Zbiory i źródła z formą:**
+
+| Zbiór albo źródło | `content_form` | Pola ulotne | Uzasadnienie |
+|---|---|---|---|
+| `cz.chmi.hydro_daily` | `chmi-json/1` | `zaznamID`, `datumVytvoreni` (w plikach nieobecne) | brak koperty [V CzHydro §3.1]; forma chroni przed ponowną serializacją bez zmiany danych (kolejność kluczy, odstępy, `12` / `12.0`) |
+| `cz.chmi.hydro_stations`, `cz.chmi.meteo_stations` (`historical/metadata/meta1.json`) | `chmi-json/1` | `zaznamID`, `datumVytvoreni` | każda generacja ma nowe `zaznamID` i `datumVytvoreni`; w parze `meta1-20261016`/`-20261017` różniły się wyłącznie te dwa klucze [V CzHydro §7; CzMeteo §13 p. 2] |
+| źródła katalogu bez archiwum: `H now/metadata/meta1.json` (co godzinę), `meta3.json` (codziennie), `C now/metadata/meta1-<RRRRMMDD>.json` | `chmi-json/1` (wpisy `extra.catalog[]`, §7.5) | jw. | ta sama koperta [V CzHydro §7]; tożsamością katalogu nadal jest kanoniczny GeoJSON (§7.2) |
+| `cz.chmi.meteo_daily` (CSV) | `None` | — | CSV bez koperty [V CzMeteo §2.2]; brak dowodu, że regeneracja zmienia bajty (pytanie do ČHMÚ, §15); inne bajty = nowa wersja jak w ADR-001 |
+| wszystkie `pl.imgw.*`, PMAXTP | `None` | — | ZIP i CSV bez koperty; sidecary IMGW zachowują bajty 3.0.0 |
+
+**Pola sidecara** (`imgw-meta/1`, addytywnie; schemat §11): `content_sha256` (`^[0-9a-f]{64}$`) i `content_form` (niepusty tekst) występują razem albo wcale (`dependentRequired`). `write_archive` zapisuje je wyłącznie dla zbioru z formą — liczone z tych samych bajtów co `sha256`, w tym samym przebiegu — i nigdy nie zapisuje `null`, więc sidecary IMGW nie zmieniają bajtów (jak `terms_url`). Kopia przy `relabeled` przenosi oba pola bez zmian. Brak pól czyta się jako `None` (`Meta.content_sha256`, `Meta.content_form`). Czytnik sprawdza wzorzec i parę pól; nieznany identyfikator formy jest tolerowany (IMGW-13), ale taka wersja porównuje się wyłącznie bajtami.
+
+**Decyzja `write_archive`** — porównanie z **bieżącą** wersją slotu (reguła bieżącej wersji ADR-001; starsza wersja o tej samej treści nie jest brana pod uwagę, jak dla bajtów):
+
+| Bieżąca wersja | `sha256` nowych bajtów | `content_sha256` | Sygnał (`Last-Modified`, `ETag`) | Wynik | Zapis |
+|---|---|---|---|---|---|
+| brak | — | liczony, gdy zbiór ma formę | — | `created` | nowa wersja |
+| jest | = bieżącej | = (wynika z bajtów) | = | `unchanged` | brak |
+| jest | = bieżącej | = | ≠ | `relabeled` | kopia bajtów pod nową etykietą (ADR-001 D1) |
+| jest | ≠ | = `content_sha256` bieżącej, liczone formą zapisaną w bieżącej wersji | dowolny | `unchanged` + komunikat `content_unchanged` (`info`) | brak; `VersionResult.observed_sha256` = suma nowych bajtów |
+| jest | ≠ | ≠, albo zbiór bez formy, albo bieżąca wersja bez pól treści lub z nieznaną formą | dowolny | `created` | nowa wersja (z formą bieżącą rejestru) |
+
+- Treść zbioru z formą niezgodna z formą (krok 1–3) → `IMGWDataError` (`data_error`) z nazwą pliku i miejscem, bez zapisu wersji; pozycja synchronizacji `failed`. To jedyne odstępstwo od zapisu archiwów bez parsowania i dotyczy wyłącznie zbiorów z formą.
+- Komunikat `content_unchanged` podaje slot, ścieżkę bieżącej wersji, jej `sha256`, `observed_sha256` i wspólne `content_sha256`; `VersionResult` ma `status="unchanged"`, `path` i `sha256` bieżącej wersji.
+- `unchanged` przy innych bajtach nie zapisuje nowego sygnału, bo nie powstaje wersja (magazyn tylko przyrostowy). Dopóki treść się nie zmieni, `check_store` widzi w listingu inny mtime niż w `extra.http` bieżącej wersji i daje `newer`, a każda `sync_store` powtarza HEAD+GET i znów kończy się `unchanged` z komunikatem; dla list stacji to samo robi HEAD w `check_catalog`. Koszt: 2–33 KB na plik hydro i jeden plik listy na rodzinę. Trwały zapis zaobserwowanego sygnału bez wersji danych jest pytaniem do właściciela (§15).
 
 ## 4. Inwentarz z listingu, aktualność i synchronizacja
 
@@ -260,8 +324,8 @@ def sync_store(root: RootArg, /, *, datasets: Iterable[str] | None = None,
 
 - Bez planu wywołuje `check_store` z tymi samymi selektorami (także `stations`). Plan wyklucza `datasets`, `years`, `months` i `stations`.
 - Dla pozycji `newer` i `missing`: najpierw HEAD. `Last-Modified` obcięte do minuty ≠ `remote_listed_at`, `Content-Length` ≠ `content_length` albo HEAD 404/410 → `stale_plan`, bez GET. Błąd sieci przy HEAD → `failed` (`source_unavailable`).
-- GET → `write_archive` (jedno przejście po bajtach, SHA-256, `fsync`, atomowa publikacja) → `created`, `relabeled` (ta sama suma co bieżąca wersja, inne nagłówki) albo `unchanged` (identyczny sygnał i treść).
-- **Masowa ponowna publikacja:** listing pokazuje nowy mtime wszystkich plików → `newer` → HEAD+GET → identyczne bajty → `relabeled` (nowa etykieta, kopia treści); szeregi `reused`, bo zbiór par (slot, SHA-256) się nie zmienił.
+- GET → `write_archive` (jedno przejście po bajtach, SHA-256 i — dla zbioru z formą — `content_sha256`, `fsync`, atomowa publikacja) → wynik według tabeli §3.1: `created`, `relabeled` (ta sama suma co bieżąca wersja, inne nagłówki) albo `unchanged` (identyczny sygnał i bajty albo inne bajty o tej samej treści kanonicznej, z komunikatem `content_unchanged`).
+- **Masowa ponowna publikacja:** listing pokazuje nowy mtime wszystkich plików → `newer` → HEAD+GET → identyczne bajty → `relabeled` (nowa etykieta, kopia treści), a bajty hydro inne przy tej samej treści kanonicznej → `unchanged` bez wersji; w obu przypadkach szeregi `reused`, bo zbiór par (slot, SHA-256) się nie zmienił. Inne bajty CSV meteo → `created` i nowa budowa szeregu; identyczny `series.json` z nowego manifestu wejść dostaje etykietę `<label>+<8 hex>` (T13 spec 2026-10-17).
 - **Poprawka ČHMÚ:** inna treść → `created`, poprzednia wersja nietknięta, szereg budowany od nowa.
 - `series=True` buduje szeregi tylko z kompletnego, skutecznie zsynchronizowanego zestawu; pozycje `nieopublikowany` go nie blokują. Anulowanie między plikami — jak w 3.0.0.
 
@@ -326,7 +390,7 @@ Liczby czyta się z `parse_float=Decimal`, żeby zachować publikowany zapis dzi
 
 ### 6.1 Budowa
 
-- `build_series(root, *, dataset="cz.chmi.…")` ma kontrakt 3.0.0: czyta bieżące wersje wszystkich slotów archiwów zbioru (wszystkie stacje obecne w magazynie), składa stacje w plikach tymczasowych, używa ponownie wersji przy tym samym zbiorze par (slot, SHA-256) i tej samej wersji schematu, publikuje atomowo.
+- `build_series(root, *, dataset="cz.chmi.…")` ma kontrakt 3.0.0: czyta bieżące wersje wszystkich slotów archiwów zbioru (wszystkie stacje obecne w magazynie), składa stacje w plikach tymczasowych, używa ponownie wersji przy tym samym zbiorze par (slot, SHA-256) i tej samej wersji schematu, publikuje atomowo. Wpis `extra.source_files[]` sidecara szeregu dla wejścia z formą kanoniczną ma addytywne `content_sha256` i `content_form` z sidecara wejścia (piny `input`, §12); szeregi IMGW i CSV meteo ich nie mają, więc bajty sidecarów IMGW się nie zmieniają.
 - **Okresy znane per stacja** (ADR-003 D10):
   - `station_year` — suma lat kalendarzowych [1 I, 31 XII] posiadanych archiwów stacji (z `extra.period`), sąsiednie scalone;
   - `station_element` — dla każdego posiadanego pliku stacji przedział od pierwszej do ostatniej daty jego wierszy (także jawnych braków), suma po elementach, sąsiednie scalone.
@@ -387,7 +451,7 @@ def read_station_list(root: RootArg, /, *, kind: Literal["hydro", "meteo"],
 
 | Kolejność | Hydro (`source`) | Meteo (`source`) | Archiwizowane | Sygnał w `check_catalog` |
 |---|---|---|---|---|
-| 1 | `H now/metadata/meta1.json` (`chmi_hydro_now`) | najnowsze `C now/metadata/meta1-<RRRRMMDD>.json` (`chmi_meteo_now`) | nie; SHA-256 odpowiedzi w `extra.catalog[]` | `unverifiable` (koperta zmienia się co godzinę albo co dzień; bez ukrytego GET) |
+| 1 | `H now/metadata/meta1.json` (`chmi_hydro_now`) | najnowsze `C now/metadata/meta1-<RRRRMMDD>.json` (`chmi_meteo_now`) | nie; `sha256` i `content_sha256` (`chmi-json/1`, §3.1) odpowiedzi w `extra.catalog[]` | `unverifiable` (koperta zmienia się co godzinę albo co dzień; bez ukrytego GET) |
 | 2 | `H now/metadata/meta3.json` (`chmi_hydro_meta3`) | — | nie | `unverifiable` |
 | 3 | archiwum `cz.chmi.hydro_stations` (`chmi_hydro_stations`) | archiwum `cz.chmi.meteo_stations` (`chmi_meteo_stations`) | tak — `write_archive` przed budową, jak listy IMGW | HEAD (`ETag`, `Last-Modified`) → `current`/`newer`/`missing` |
 | 4 | plik użytkownika (`user`) | jak hydro | nie (SHA-256 w sidecarze) | SHA-256 pliku |
@@ -402,6 +466,7 @@ def read_station_list(root: RootArg, /, *, kind: Literal["hydro", "meteo"],
 - `active` = kod obecny w źródle 1 w dniu budowy (dla meta3-only i stacji tylko historycznych `false`).
 - Błąd źródła (HTTP, JSON, ten sam kod w dwóch rodzinach) → wyjątek (`source_unavailable` albo `data_error`), bez częściowego katalogu — jak w 3.0.0.
 - Identyczny kanoniczny GeoJSON → `unchanged` bez nowej wersji, niezależnie od kopert źródeł (IMGW-17 kryt. 3).
+- Archiwum listy stacji (źródło 3) ma formę `chmi-json/1`: nowa generacja `meta1.json` z tymi samymi danymi daje w `write_archive` `unchanged` z komunikatem `content_unchanged`, bez nowej wersji listy. Nowy sygnał nie jest zapisywany, więc `check_catalog` pokazuje listę jako `newer`, a `build_catalog` pobiera ją ponownie, dopóki dane się nie zmienią (§3.1).
 
 ### 7.3 Pola wpisu
 
@@ -440,7 +505,7 @@ Przykład dla Špindlerův Mlýn `0-203-1-001000` z now meta1 [V CzHydro §3.3]:
 
 ### 7.5 Sidecar katalogu ČHMÚ
 
-`dataset="cz.chmi.stations"`, `country="CZ"`, `provider="CHMI"`, `license` ČHMÚ z `attribution` = formuła źródła + „. ” + `processed_attribution` (katalog jest postacią przetworzoną; CC BY wymaga oznaczenia zmian), `extra.derived="catalog"`, `extra.catalog[]` = `{source, url, file, fetched_at, count, sha256}` dla `chmi_hydro_now`, `chmi_hydro_meta3`, `chmi_hydro_stations` (ścieżka wersji archiwum), `chmi_meteo_now`, `chmi_meteo_stations`, `user` (z `available`) i po jednym wpisie `series` na zbiór ČHMÚ z wersją szeregu. Kody komunikatów: `license_terms` (§8), `location_rejected`, `location_source`, `location_conflict` (nowy), `series_station`, `station_without_location`, `catalog_problem`, `source_unverifiable`, `leftover_incoming`.
+`dataset="cz.chmi.stations"`, `country="CZ"`, `provider="CHMI"`, `license` ČHMÚ z `attribution` = formuła źródła + „. ” + `processed_attribution` (katalog jest postacią przetworzoną; CC BY wymaga oznaczenia zmian), `extra.derived="catalog"`, `extra.catalog[]` = `{source, url, file, fetched_at, count, sha256}` dla `chmi_hydro_now`, `chmi_hydro_meta3`, `chmi_hydro_stations` (ścieżka wersji archiwum), `chmi_meteo_now`, `chmi_meteo_stations`, `user` (z `available`) i po jednym wpisie `series` na zbiór ČHMÚ z wersją szeregu. Wpisy pięciu źródeł `chmi_*` mają addytywne `content_sha256` i `content_form` (`chmi-json/1`; dla archiwum — z jego sidecara). Kody komunikatów: `license_terms` (§8), `location_rejected`, `location_source`, `location_conflict` (nowy), `series_station`, `station_without_location`, `catalog_problem`, `source_unverifiable`, `leftover_incoming`.
 
 ## 8. Licencja, atrybucja i komunikaty
 
@@ -526,6 +591,11 @@ Reguły uzupełniające (`validate_command`, publikowane w `command_schema` jako
 # StoreInfo           + providers: tuple[ProviderDescriptor, ...] = ()
 # StoreEntry          + provider: str | None = None
 # Meta                + provider: str = "IMGW-PIB"; country: str = "PL"   (z sidecara)
+#                     + content_sha256: str | None = None; content_form: str | None = None   (C01; brak w sidecarze = None)
+# VersionResult       + observed_sha256: str | None = None   # suma pobranych bajtów, tylko w wierszu `content_unchanged` (§3.1)
+# ProjectFile         + content_sha256: str | None = None; content_form: str | None = None   (C01; pin zbioru z formą)
+# ProjectReport       tasks: + "content_match"; files[].status: + "restored_by_content" (sukces pozycji w §13.6)
+#                     stan pinu w project check|status|verify: + "content_match"
 # StationFeature      + provider: str = "IMGW-PIB"
 # StationListEntry    + provider: str = "IMGW-PIB"
 # Measurement         + quality: int | None = None; source_flag: str | None = None
@@ -536,7 +606,7 @@ Reguły uzupełniające (`validate_command`, publikowane w `command_schema` jako
 # CatalogReport       + provider: str = "IMGW-PIB"
 # DownloadItem        status + "not_published"
 # ArchiveFile         + station_code: str | None = None
-# DatasetDescriptor   + provider, archive_scope, variable_notes, measurement_fields; update_signal + "listing"
+# DatasetDescriptor   + provider, archive_scope, variable_notes, measurement_fields, content_form, volatile_fields; update_signal + "listing"
 # License             id: str (C01); + terms_url: str | None = None
 ```
 
@@ -548,11 +618,11 @@ Rejestr kodów §13.5 pozostaje zamknięty; nie dochodzi żaden kod.
 |---|---|---|
 | Brak lub zbędne `stations`; niedozwolone `years`, `months`, `params`; kod spoza gramatyki dostawcy; nieznany dostawca; mieszanie `pl.imgw.*` i `cz.chmi.*` w jednym wywołaniu z `stations` | `validation_error` (2/400) | `validate_command`, funkcje |
 | Błąd sieci, przekroczony czas, HTTP spoza 2xx (poza 404 kandydata w `download_archives`) | `source_unavailable` (5/502); tytuł zmieniony na „Źródło danych niedostępne”, `detail` podaje dostawcę i URL | listing, HEAD, GET, metadane katalogu |
-| Nieczytelny listing; JSON lub CSV niezgodny z §5; zła jednostka; `objID`, `STATION` albo `ELEMENT` niezgodne z nazwą pliku; duplikat z inną wartością; data spoza roku pliku | `data_error` (7/500), z nazwą pliku i miejscem | parsery, listing |
+| Nieczytelny listing; JSON lub CSV niezgodny z §5; zła jednostka; `objID`, `STATION` albo `ELEMENT` niezgodne z nazwą pliku; duplikat z inną wartością; data spoza roku pliku; bajty zbioru z formą niezgodne z formą (§3.1: zły UTF-8, powtórzony klucz, `NaN`, wartość główna nie jest obiektem) — wtedy bez zapisu wersji | `data_error` (7/500), z nazwą pliku i miejscem | parsery, listing, `write_archive` |
 | Brak katalogu lub listy ČHMÚ przy jawnym `provider` | `not_found` (3/404) | `read_catalog`, `read_station_list` |
 | Pozostałe | bez zmian (§13.5) | — |
 
-Statusy pozycji (nie wyjątki): `unverifiable` z `error="nieopublikowany"`; `check_failed` (`source_unavailable` albo `data_error` przy synchronizacji z planu); `stale_plan`; `not_published` (pobieranie płaskie). Nowy kod komunikatu: `location_conflict` (`info`); `license_terms` niesie tekst dostawcy.
+Statusy pozycji (nie wyjątki): `unverifiable` z `error="nieopublikowany"`; `check_failed` (`source_unavailable` albo `data_error` przy synchronizacji z planu); `stale_plan`; `not_published` (pobieranie płaskie); `restored_by_content` (pozycja `ProjectReport`, sukces) i stan pinu `content_match` (§12). Nowe kody komunikatów: `location_conflict` (`info`), `content_unchanged` (`info`, §3.1), `pin_restored_by_content` (`warning`, §12); `license_terms` niesie tekst dostawcy.
 
 ## 11. Zmiany kontraktów `/1` przed 3.0.0 (C01)
 
@@ -570,9 +640,12 @@ Statusy pozycji (nie wyjątki): `unverifiable` z `error="nieopublikowany"`; `che
 | `imgw-project/1` | `files[].station_code` | `^[0-9]{9}$` | `STATION_CODE_PATTERN` |
 | | `options.stations` (przez `validate_command`) | `^[0-9]{9}$` | `STATION_CODE_PATTERN` |
 | `imgw-commands/1` | `pattern` opcji `station`, `stations` | `^[0-9]{9}$` | `STATION_CODE_PATTERN` |
+| `imgw-meta/1` | `content_sha256`, `content_form` (nowe, opcjonalne) | — | `content_sha256`: `^[0-9a-f]{64}$`; `content_form`: `string`, `minLength: 1`; `dependentRequired` w obie strony |
+| `imgw-project/1` | `files[].content_sha256`, `files[].content_form` (nowe, opcjonalne) | `additionalProperties: false` bez tych kluczy | jak w `imgw-meta/1`, z `dependentRequired` w obie strony |
 
 - Czytnik po C01: sidecar zbioru znanego rejestrowi musi mieć `country` i `provider` równe wartościom rejestru (inaczej `invalid_meta`); `license.id` jest dowolnym niepustym tekstem; poprawny klucz nieznanego zbioru daje katalog wersji bez slotu → `unknown_entry` (reguła 3.0.0).
-- Zapis IMGW bez zmian: te same bajty sidecarów, szeregów i katalogu. Python: `License.id: str`; jedna stała `STATION_CODE_PATTERN` zastępuje lokalne wyrażenia w `store/reader.py`, `commands.py` i `project.py`.
+- Zapis IMGW bez zmian: te same bajty sidecarów, szeregów, katalogu i manifestów (pola treści są wyłącznie opcjonalne i nigdy nie zapisuje się ich jako `null`). Python: `License.id: str`; jedna stała `STATION_CODE_PATTERN` zastępuje lokalne wyrażenia w `store/reader.py`, `commands.py` i `project.py`; `Meta` i `ProjectFile` mają pola `content_sha256` i `content_form`, a `open_project` zachowuje je przy ponownym zapisie manifestu.
+- Czytnik po C01: tylko jedno z pól treści albo `content_sha256` niezgodne ze wzorcem → `invalid_meta` (sidecar) albo `validation_error` (manifest); identyfikator formy nieznany rejestrowi jest tolerowany (§3.1).
 - **Wariant awaryjny** (v3.0.0 otagowane przed C01): pliki ČHMÚ zapisuje się jako `imgw-meta/2` i `imgw-series/2`, a manifest z zadaniem ČHMÚ jako `imgw-project/2`, z dokładnie tymi zmianami dziedzin; pliki IMGW zostają przy `/1`; czytniki 3.1 przyjmują `/1` i `/2`, a Archiwista deklaruje obsługę `/2`. C01 staje się wtedy taskiem 3.1 z dodatkowym testem czytnika obu wersji.
 
 ## 12. Projekty i odtwarzalność
@@ -580,8 +653,14 @@ Statusy pozycji (nie wyjątki): `unverifiable` z `error="nieopublikowany"`; `che
 - Zadanie `imgw-project/1` dotyczy jednego zbioru (`options.dataset`), a więc jednego dostawcy; projekt może łączyć zadania IMGW i ČHMÚ bez nowych kluczy. Kryterium IMGW-19 nr 2 („zadanie ze stacjami IMGW i ČHMÚ”) realizuje projekt z zadaniami obu dostawców.
 - `add_project_task` waliduje opcje przez `validate_command` (gramatyka kodów dostawcy zbioru). Wybór obszarem czyta bieżący katalog dostawcy zbioru i przypina jego plik (`catalog`).
 - `download_project` synchronizuje potrzebne archiwa: dla ČHMÚ stacje zadania × `years` (brak = lata opublikowane), buduje albo używa ponownie (`reused`) szeregów i przypina pliki.
-- Odtworzenie na pustym magazynie działa, gdy źródło podaje identyczne bajty (nagrania w testach). W przeciwnym razie pozycja ma `failed` z tekstem zależnym od dostawcy: „<short_name> udostępnia inną treść <server_path> (SHA-256 …) niż przypięta (…); przypięcia bez zmian, świadome przepięcie: update="upgrade"” (dziś tekst ma stałe „IMGW”).
-- Fakty: serwer ČHMÚ przechowuje wyłącznie najnowszą wersję pliku; archiwa są przepisywane masowo (2025-07-01) i punktowo (2026-02-06, 6 plików stacji `0-203-1-456505`) [V CzHydro §7; CzMeteo §14]. Czy przepisania zmieniają bajty — [U]. Przypięcie ČHMÚ jest więc odtwarzalne ze źródła tylko do najbliższej zmiany treści; trwałe odtworzenie wymaga kopii magazynu (np. wspólny udział SMB) albo przypiętych katalogów wersji. `check_project` pokazuje zmianę źródła (`newer`) przed pobraniem. Paczka przypięć nie jest częścią tego wydania.
+- Odtworzenie na pustym magazynie działa bez zastrzeżeń, gdy źródło podaje identyczne bajty (`created`; nagrania w testach). Inna treść → pozycja `failed` z tekstem zależnym od dostawcy: „<short_name> udostępnia inną treść <server_path> (SHA-256 …) niż przypięta (…); przypięcia bez zmian, świadome przepięcie: update="upgrade"” (dziś tekst ma stałe „IMGW”).
+- **Odtworzenie treścią** (ADR-003 D14, D17) — wyłącznie zbiory z `content_form` (`cz.chmi.hydro_daily`, listy stacji ČHMÚ):
+  - Pin archiwum takiego zbioru ma `content_sha256` i `content_form` z sidecara wersji (pin `input` — z `extra.source_files[]` sidecara szeregu, §6.1). Piny IMGW i CSV meteo ich nie mają, więc ich manifesty zachowują bajty.
+  - `download_project` (`update="pinned"`), pin archiwum nieobecny w magazynie: GET → `write_archive` (§3.1). Bieżąca wersja slotu pod przypiętą ścieżką z przypiętym `sha256` → `created`. W przeciwnym razie, gdy bieżąca wersja slotu (nowo zapisana albo już istniejąca) ma treść równą pinowi — `content_sha256(bajty, form=pin.content_form)` = `pin.content_sha256` — pozycja ma status `restored_by_content` z `version` = ścieżka wersji równoważnej. Obejmuje to też te same bajty pod inną etykietą (dziś błąd „Identyczne bajty zapisano jako …”, który dla zbiorów bez formy zostaje). Inna treść → `failed` jak wyżej.
+  - Szereg odtwarza się, gdy zbiór slotów bieżących wejść = zbiór slotów przypiętych wejść, a każde wejście pasuje bajtami albo treścią. `series.json` nie zawiera sum wejść (T13 spec 2026-10-17), więc te same rekordy dają te same bajty. Po `build_series` plik szeregu i pliki stacji z przypiętym `sha256` pod przypiętą ścieżką → `created`, pod inną ścieżką (inna etykieta z nowych `Last-Modified` wejść) → `restored_by_content`; inny `sha256` → `failed` (`data_error`).
+  - Manifest w trybie `pinned` się nie zmienia; `update="upgrade"` przepina na wersje równoważne (`upgraded`). Komunikat `pin_restored_by_content` (poziom `warning`), raz na zadanie, wymienia każdą parę: ścieżkę i `sha256` pinu, ścieżkę i `sha256` wersji równoważnej oraz wspólne `content_sha256`.
+  - `check_project`, `project status` i `verify_project`: pin nieobecny pod przypiętą ścieżką, gdy bieżąca wersja jego slotu pasuje treścią (archiwum) albo ma ten sam `sha256` (szereg i plik stacji zbioru z formą) → stan `content_match` zamiast `missing`; `verify_project` liczy przy tym od nowa `sha256` i `content_sha256` wersji równoważnej z jej bajtów. Zadanie, którego piny są `current` albo `content_match` (co najmniej jeden), ma status `content_match`; koperta `ok` z komunikatem `warning`, nigdy cicho jako `current`. Ponowne `download_project` niczego nie pobiera: takie piny są `content_match` offline.
+- Fakty: serwer ČHMÚ przechowuje wyłącznie najnowszą wersję pliku; archiwa są przepisywane masowo (2025-07-01) i punktowo (2026-02-06, 6 plików stacji `0-203-1-456505`) [V CzHydro §7; CzMeteo §14]. Czy przepisania zmieniają bajty — [U]. Przypięcie ČHMÚ jest więc odtwarzalne ze źródła tylko do najbliższej zmiany treści (kanonicznej dla zbiorów z formą, bajtów dla CSV meteo); trwałe odtworzenie wymaga kopii magazynu (np. wspólny udział SMB) albo przypiętych katalogów wersji. `check_project` pokazuje zmianę źródła (`newer`) przed pobraniem. Paczka przypięć nie jest częścią tego wydania.
 
 ## 13. Fixtury i testy
 
@@ -604,9 +683,9 @@ Statusy pozycji (nie wyjątki): `unverifiable` z `error="nieopublikowany"`; `che
 | `0-203-0-90000000002` | meteo tylko opad | SRA | brak T, TMA, TMI → pozycje `nieopublikowany` |
 | `0-20000-0-99903` | stacja zagraniczna | tylko metadane meteo (now i historical) | `outside_country`; okresy historyczne z różnymi położeniami; pusty `GEOGR2` w starym okresie |
 
-Metadane: hydro now meta1 (dwie wersje z inną kopertą i tymi samymi danymi → katalog `unchanged`), meta3, historical meta1; meteo historical meta1 (wiele okresów na WSI) i now meta1 z dwóch dat. Listingi: `daily/` (z `../`, nazwą zbiorczą `H_0-203-1-900001_DQ_2023_2024.json` do zignorowania i plikami fixtur), `precipitation/` i `temperature/` (z plikami API30 i TMInoc do zignorowania), `C now/metadata/` (dwie daty).
+Metadane: hydro now meta1 (dwie wersje z inną kopertą i tymi samymi danymi → katalog `unchanged`), meta3, historical meta1 (druga generacja z nową kopertą i tymi samymi danymi → archiwum listy `unchanged` z `content_unchanged`); meteo historical meta1 (wiele okresów na WSI) i now meta1 z dwóch dat. Druga serializacja `H_0-203-1-900001_DQ_2023.json` (inna kolejność kluczy, odstępy, `12.0` zamiast `12`, te same wartości) do scenariuszy (8) i (9). Listingi: `daily/` (z `../`, nazwą zbiorczą `H_0-203-1-900001_DQ_2023_2024.json` do zignorowania i plikami fixtur), `precipitation/` i `temperature/` (z plikami API30 i TMInoc do zignorowania), `C now/metadata/` (dwie daty).
 
-Scenariusze nagrań: (1) pierwsza publikacja — `missing` → `created`; (2) masowa ponowna publikacja — te same bajty, nowy mtime → `newer` → `relabeled`, szereg `reused`; (3) poprawka — nowe bajty `900001` 2024 → `created`, nowa wersja szeregu; (4) zmiana po planie — HEAD ≠ listing → `stale_plan`; (5) listing HTTP 500 → `check_failed` (`source_unavailable`), listing bez wierszy → `check_failed` (`data_error`); (6) 404 kandydata w `download_archives` → `not_published`; (7) nowa koperta metadanych bez zmiany danych → katalog `unchanged`.
+Scenariusze nagrań: (1) pierwsza publikacja — `missing` → `created`; (2) masowa ponowna publikacja — te same bajty, nowy mtime → `newer` → `relabeled`, szereg `reused`; (3) poprawka — nowe bajty `900001` 2024 → `created`, nowa wersja szeregu; (4) zmiana po planie — HEAD ≠ listing → `stale_plan`; (5) listing HTTP 500 → `check_failed` (`source_unavailable`), listing bez wierszy → `check_failed` (`data_error`); (6) 404 kandydata w `download_archives` → `not_published`; (7) nowa koperta metadanych bez zmiany danych → katalog `unchanged`; (8) ponowna serializacja bez zmiany danych — druga serializacja `900001` 2023 z nowym mtime → `newer` → HEAD+GET → `unchanged` z `content_unchanged` i `observed_sha256`, bez nowego katalogu, szereg `reused`, a kolejne `check_store` nadal `newer`; (9) odtworzenie treścią — pusty magazyn, nagranie podaje drugą serializację → pin archiwum `restored_by_content`, szereg zbudowany ponownie z tym samym `sha256` pod inną ścieżką → `restored_by_content`, zadanie `content_match`, komunikat `pin_restored_by_content`.
 
 ### 13.3 Test na żywo i magazyn testowy
 
@@ -622,24 +701,25 @@ Scenariusze nagrań: (1) pierwsza publikacja — `missing` → `created`; (2) ma
 | IMGW-15 k2 | magazyn sprzed ČHMÚ czyta się bez zmian | C06: `complete` (3.0.0) → identyczny skan, `provider="IMGW-PIB"` | §3 |
 | IMGW-15 k3 | `store_info` wymienia dostawców; filtr `provider` | C06: `store_info().providers`; `iter_store(provider="CHMI")` bez wpisów IMGW | §9 |
 | IMGW-16 k1 | `check_store` daje `current`, `newer`, `missing` bez pobierania treści | C04: 1 GET listingu, 0 HEAD i 0 GET archiwów; statusy z listingu; `nieopublikowany` | §4.2 |
-| IMGW-16 k2 | nowa wersja tylko przy innej treści; anulowanie bez częściowych wersji | C04: `relabeled` przy tych samych bajtach, `created` przy nowych; anulowanie w trakcie → brak wersji w `versions/` | §4.3 |
+| IMGW-16 k2 | nowa wersja tylko przy innej treści; anulowanie bez częściowych wersji | C02 i C04: tabela §3.1 — `relabeled` przy tych samych bajtach i nowym sygnale, `unchanged` z `content_unchanged` przy innych bajtach o tej samej treści kanonicznej, `created` przy innej treści; anulowanie w trakcie → brak wersji w `versions/` | §3.1, §4.3 |
 | IMGW-16 k3 | plan podaje stacje, pliki, rozmiary i liczbę zapytań | C04: `station_code`, `server_path`, `content_length`, `requests` | §4.2 |
 | IMGW-17 k1 | każda stacja z metadanych ČHMÚ w katalogu, także bez położenia | C06 | §7.2 |
 | IMGW-17 k2 | współrzędne i kody bez zaokrągleń i konwersji na liczby | C06: kod WIGOS i `HLGP4` jako tekst; współrzędne równe publikowanemu zapisowi | §7.3 |
-| IMGW-17 k3 | ta sama treść metadanych nie tworzy wersji | C06: nowa koperta → `unchanged` | §7.2 |
+| IMGW-17 k3 | ta sama treść metadanych nie tworzy wersji | C06: nowa koperta → katalog `unchanged` i archiwum listy stacji `unchanged` (`content_unchanged`) | §3.1, §7.2 |
 | IMGW-18 k1 | szeregi i listy przerw zgodne z ręcznym wyliczeniem dla przypadków granicznych, w obu rodzajach lat | C05: przypadki §6.4; `export_series` z `year_type` `hydrological` i `calendar` | §6 |
 | IMGW-18 k2 | wszystkie stacje zbioru w szeregach, także z lukami | C05 | §6.1 |
 | IMGW-18 k3 | te same wejścia → `reused` | C05, scenariusz (2) z §13.2 | §6.1 |
 | IMGW-19 k1 | polecenie z `format_command` daje w CLI te same wersje i `sha256` co API | C09: parytet Python/CLI/REST dla `store check\|sync`, `series build\|summary\|export`, `store catalog --provider CHMI`, `datasets providers` przy zamrożonym zegarze | §9 |
-| IMGW-19 k2 | `download_project` odtwarza projekt z zadaniami IMGW i ČHMÚ na pustym magazynie z identycznymi `sha256` | C08 | §12 |
+| IMGW-19 k2 | `download_project` odtwarza projekt z zadaniami IMGW i ČHMÚ na pustym magazynie z identycznymi `sha256` | C08: identyczne bajty → `created` z identycznymi `sha256`; inne bajty o tej samej treści (scenariusz 9) → `restored_by_content` i `content_match` z komunikatem `warning`, przypięcia bez zmian | §12 |
 | IMGW-19 k3 | każdy sidecar i eksport ČHMÚ ma CC BY 4.0 i atrybucję ČHMÚ | C04, C05, C06; C09: przegląd wszystkich sidecarów i eksportów ČHMÚ w `complete_pl_cz` | §8 |
 
 ## 15. Ryzyka i pytania otwarte
 
 | Ryzyko | Skutek | Ograniczenie |
 |---|---|---|
-| Regeneracja zmienia bajty bez zmiany danych [U] | każda masowa publikacja = nowe wersje i przebudowa szeregów (identyczny `series.json` dostaje etykietę z sumą manifestu, §7 T13 spec 2026-10-17) | koszt ograniczony do wybranych stacji; pomiar przy najbliższej regeneracji (test `live`) |
-| `historical_csv` nie jest zbiorem o wysokiej wartości [V CzLegal §1.1] | brak gwarancji prawnej ciągłości publikacji | dane CSV = dane JSON [V]; ewentualny parser JSON z obcięciem koperty tylko jako nowa decyzja (zmienia zasadę archiwum 1:1) |
+| Regeneracja zmienia bajty bez zmiany danych [U] | JSON z formą: `unchanged` bez wersji, ale stały `newer` w `check_store` i powtarzane HEAD+GET do następnej zmiany treści (§3.1); CSV meteo: każda masowa publikacja = nowe wersje i przebudowa szeregów (identyczny `series.json` dostaje etykietę z sumą manifestu, §7 T13 spec 2026-10-17) | koszt ograniczony do wybranych stacji; pomiar przy najbliższej regeneracji (test `live`); trwały zapis sygnału — pytanie do właściciela |
+| Nowe pole ulotne w kopercie ČHMÚ (poza `zaznamID`, `datumVytvoreni`) | każda generacja listy stacji to nowa treść i nowa wersja (stan bezpieczny: nic nie ginie) | nowa forma `chmi-json/2` w rejestrze i w deskryptorach; wersje z `chmi-json/1` porównuje się formą zapisaną w nich (§3.1) |
+| `historical_csv` nie jest zbiorem o wysokiej wartości [V CzLegal §1.1] | brak gwarancji prawnej ciągłości publikacji | dane CSV = dane JSON [V]; JSON meteo jako slot jest po D17 możliwy bez łamania zasady 1:1 (forma `chmi-json/1` pomija kopertę), ale cztery potrzebne elementy w CSV to 4,36 GB wobec 25,36 GB JSON, mediana na stację 1,59 MB wobec 10,03 MB (§1.1); zmiana tylko jako nowa decyzja |
 | Zmiana układu katalogów (był już `recent/data/10min/`, którego nie ma [V CzHydro §1]; PDF klimatu opisuje inne nazwy niż serwer [V CzMeteo §1]) | listing bez pasujących nazw | `check_failed` z `data_error` zamiast cichego zera |
 | Listing nie wykrywa przepisania w tej samej minucie z tym samym rozmiarem | przegapiona zmiana do następnej publikacji | akceptowane; tożsamość i tak potwierdza SHA-256 przy pobraniu |
 | Opóźniona publikacja roczna (hydro 2025: 2026-05-21 zamiast „do końca kwietnia” [V CzLegal §5]) | rok nieopublikowany w planie | status `nieopublikowany`, bez błędu |
@@ -647,7 +727,7 @@ Scenariusze nagrań: (1) pierwsza publikacja — `missing` → `created`; (2) ma
 
 Pytania otwarte:
 
-- **Właściciel:** zatwierdzenie C01 przed tagiem v3.0.0 (inaczej wariant awaryjny `/2`, §11); zgoda na identyfikator `CHMI` i na statusy z §4.2, co wymaga zmiany tekstu IMGW-15 i IMGW-16 u Archiwisty; akceptacja braku danych `recent` w magazynie.
+- **Właściciel:** zatwierdzenie C01 (dziedziny i pola treści) przed tagiem v3.0.0 (inaczej wariant awaryjny `/2`, §11); identyfikator `CHMI` i statusy z §4.2 — Archiwista zmieniła już tekst IMGW-15 i IMGW-16 (commit `4435cf7`); akceptacja braku danych `recent` w magazynie; czy po `unchanged` przy innych bajtach zostawić stały `newer` w `check_store` (§3.1), czy dodać trwały zapis zaobserwowanego sygnału bez wersji danych (nowy element układu slotu, wyłącznie dla zbiorów z formą).
 - **ČHMÚ** (chmi@chmi.cz):
   - czy znaczniki czasu `historical` są w UTC czy w stałym SEČ i jak zdefiniowana jest doba HD i QD (PDF hydro: „datum a čas [SEČ a SELČ]”; dane `now`/`recent` są w UTC [V CzHydro §9]; dane historyczne nie mają artefaktów zmiany czasu [V], ale UTC vs SEČ — [U]);
   - oficjalny rok hydrologiczny (pierwsze pliki stacji zaczynają się 1 listopada [V], XI–X — [I]);
@@ -656,7 +736,7 @@ Pytania otwarte:
   - znaczenie `WGS_ELE`, `RICKM`, `HA`, `QA`, `CEVT`, `PRF_ID` i czy publikowana jest rzędna zera wodowskazu;
   - pełny słownik `FLAG` i przesunięcie 20 minut sum opadu stacji automatycznych (05:40Z);
   - czy w plikach `historical` hydro mogą wystąpić `null` albo kody braku (sprawdzono 64 z ok. 167 tys. plików).
-- **Archiwista:** użycie `stations[<kod>].periods` w etykietach pokrycia ČHMÚ (rok nieopublikowany = „nieznane”, nie luka).
+- **Archiwista:** użycie `stations[<kod>].periods` w etykietach pokrycia ČHMÚ (rok nieopublikowany = „nieznane”, nie luka); IMGW-16 („Ta sama treść pod nowym sygnałem = `relabeled`”, kryterium 2) — te same bajty → `relabeled`, ta sama treść kanoniczna przy innych bajtach → `unchanged`; IMGW-19 kryterium 2 — status `restored_by_content` i stan pinu `content_match` obok „identycznych `sha256`”; brak pól `content_sha256`/`content_form` czytany jako `null`.
 
 ## 16. Plan wdrożenia (C01–C10)
 
@@ -674,16 +754,16 @@ Pytania otwarte:
 ### Fala C0 — przed tagiem v3.0.0
 
 **C01 — Otwarte dziedziny kontraktów `/1`.**  
-**Pliki (wyłączna własność):** `src/imgwtools/_data/fixtures/contract_schemas.json` i `tests/fixtures/store/contract_schemas.json` (schematy z §11); `src/imgwtools/store/reader.py` (wyłącznie walidacja: `_DATASET`, `_CODE`, `_PARQUET`, pola `country`/`provider`/`license.id`, zgodność z rejestrem dla znanych zbiorów); `src/imgwtools/datasets.py` (wyłącznie `License.id: str` i stała `STATION_CODE_PATTERN`); `src/imgwtools/commands.py` (wyłącznie `_STATION` z tej stałej); `src/imgwtools/project.py` (wyłącznie `_STATION`); testy `tests/unit/test_store_reader.py`, `tests/unit/test_project.py`, `tests/unit/test_command_schema.py` (wyłącznie nowe przypadki); noty `[ADR-003]` w §2 i §11 spec 2026-10-17 po zakończeniu bieżących edycji §13.  
+**Pliki (wyłączna własność):** `src/imgwtools/_data/fixtures/contract_schemas.json` i `tests/fixtures/store/contract_schemas.json` (schematy z §11, w tym pola treści `imgw-meta/1` i `files[]` `imgw-project/1`); `src/imgwtools/store/reader.py` (wyłącznie walidacja: `_DATASET`, `_CODE`, `_PARQUET`, pola `country`/`provider`/`license.id`, zgodność z rejestrem dla znanych zbiorów, para `content_sha256`/`content_form`); `src/imgwtools/store/types.py` (wyłącznie `Meta.content_sha256`, `Meta.content_form`); `src/imgwtools/datasets.py` (wyłącznie `License.id: str` i stała `STATION_CODE_PATTERN`); `src/imgwtools/commands.py` (wyłącznie `_STATION` z tej stałej); `src/imgwtools/project.py` (wyłącznie `_STATION` oraz opcjonalne klucze pinu `content_sha256`/`content_form` w `ProjectFile`, walidacji i zapisie manifestu); testy `tests/unit/test_store_reader.py`, `tests/unit/test_project.py`, `tests/unit/test_command_schema.py` (wyłącznie nowe przypadki); noty `[ADR-003]` w §2, §4, §10.1 i §11 spec 2026-10-17 po zakończeniu bieżących edycji §13.  
 **Zależy od:** U14; wykonywany przed U16 i tagiem (jeśli tag był wcześniej — wariant awaryjny z §11 w fali C1).  
-**Test akceptacji:** sidecar z `dataset` `cz.chmi.hydro_daily`, `country` `CZ`, `provider` `CHMI` i `license.id` `CC-BY-4.0` spełnia schemat `imgw-meta/1`, a `read_meta` go czyta; `series.json` z kluczem `0-203-1-CB900003` i plikiem `stations/0-203-1-CB900003.parquet` przechodzi `read_series_index` (bez pyarrow); manifest z `files[].station_code` w postaci WIGOS przechodzi `open_project`; kody `0-203-1-cb900003` (małe litery) i `12345678` są odrzucane; sidecar zbioru `pl.imgw.*` z `provider` `CHMI` → `invalid_meta`; poprawny sidecar nieznanego zbioru w nieznanym katalogu → `unknown_entry` ze slotem `null`; dotychczasowy zestaw testów bez zmian wyników, a fixtura `complete` daje identyczne bajty.
+**Test akceptacji:** sidecar z `dataset` `cz.chmi.hydro_daily`, `country` `CZ`, `provider` `CHMI` i `license.id` `CC-BY-4.0` spełnia schemat `imgw-meta/1`, a `read_meta` go czyta; ten sam sidecar z `content_sha256` i `content_form` `chmi-json/1` spełnia schemat i daje `Meta.content_sha256`, a z tylko jednym z pól albo z `content_sha256` o złym wzorcu → schemat odrzuca i skan daje `invalid_meta`; `series.json` z kluczem `0-203-1-CB900003` i plikiem `stations/0-203-1-CB900003.parquet` przechodzi `read_series_index` (bez pyarrow); manifest z `files[].station_code` w postaci WIGOS przechodzi `open_project`; pin z `content_sha256` i `content_form` przechodzi `open_project` i wraca bez zmian po ponownym zapisie manifestu, a pin z jednym z tych pól → `validation_error`; kody `0-203-1-cb900003` (małe litery) i `12345678` są odrzucane; sidecar zbioru `pl.imgw.*` z `provider` `CHMI` → `invalid_meta`; poprawny sidecar nieznanego zbioru w nieznanym katalogu → `unknown_entry` ze slotem `null`; dotychczasowy zestaw testów bez zmian wyników, a fixtura `complete` (sidecary i manifesty bez pól treści) daje identyczne bajty.
 
 ### Fala C1
 
 **C02 — Rejestr dostawców, deskryptory ČHMÚ i typy.**  
-**Pliki:** `src/imgwtools/datasets.py`, `src/imgwtools/store/types.py`, `src/imgwtools/store/writer.py` (pola `country`, `provider` i `license` z rejestru, `station_code` i `param` w `request`, `station_code` w `extra.period`, `terms_url` tylko gdy ustawione); utwórz `tests/unit/test_datasets_chmi.py`, `tests/unit/test_store_writer_chmi.py`; zmodyfikuj `tests/unit/test_store_types.py`.  
+**Pliki:** `src/imgwtools/datasets.py` (także `content_form` i `volatile_fields` deskryptorów), `src/imgwtools/store/types.py` (także `VersionResult.observed_sha256`), `src/imgwtools/store/writer.py` (pola `country`, `provider` i `license` z rejestru, `station_code` i `param` w `request`, `station_code` w `extra.period`, `terms_url` tylko gdy ustawione, pola treści i tabela decyzji §3.1, komunikat `content_unchanged`); utwórz `src/imgwtools/store/content.py` (`ContentForm`, `CONTENT_FORMS`, `content_sha256`), `tests/unit/test_datasets_chmi.py`, `tests/unit/test_store_writer_chmi.py`, `tests/unit/test_store_content.py`; zmodyfikuj `tests/unit/test_store_types.py`.  
 **Zależy od:** C01, U16.  
-**Test akceptacji:** `providers()` zwraca `IMGW-PIB` i `CHMI` z polami §2.1, a `get_provider("cz.chmi")` = `get_provider("CHMI")`; rejestr ma 17 deskryptorów i spełnia niezmienniki §2.1; `archive_files("cz.chmi.hydro_daily", stations=[A, B], years="2023-2024")` daje 4 pliki w kolejności (kod, rok) z URL `https://opendata.chmi.cz/hydrology/historical/data/daily/H_<A>_DQ_2023.json`; brak `stations`, `months`, `params` albo rok < 1887 → `validation_error` z `details.option`; meteo: cztery pliki na stację, a `years` → `validation_error`; `stations` dla `pl.imgw.*` → `validation_error`, a wyniki IMGW są równe złotym URL-om U03; odwrotne mapowanie odtwarza każdy `ArchiveFile` z `archive_files`; nowe pola typów mają wartości domyślne, więc obecne konstruktory działają bez zmian; `datasets(provider="CHMI")` zwraca 4 deskryptory; `write_archive` dla pliku ČHMÚ i nagranej odpowiedzi zapisuje sidecar zgodny z przykładem §3, a sidecary IMGW na fixturze `complete` są bajtowo równe 3.0.0.
+**Test akceptacji:** `providers()` zwraca `IMGW-PIB` i `CHMI` z polami §2.1, a `get_provider("cz.chmi")` = `get_provider("CHMI")`; rejestr ma 17 deskryptorów i spełnia niezmienniki §2.1 i §3.1 (forma tylko dla trzech zbiorów ČHMÚ z §3.1, `volatile_fields` = pola formy); `archive_files("cz.chmi.hydro_daily", stations=[A, B], years="2023-2024")` daje 4 pliki w kolejności (kod, rok) z URL `https://opendata.chmi.cz/hydrology/historical/data/daily/H_<A>_DQ_2023.json`; brak `stations`, `months`, `params` albo rok < 1887 → `validation_error` z `details.option`; meteo: cztery pliki na stację, a `years` → `validation_error`; `stations` dla `pl.imgw.*` → `validation_error`, a wyniki IMGW są równe złotym URL-om U03; odwrotne mapowanie odtwarza każdy `ArchiveFile` z `archive_files`; nowe pola typów mają wartości domyślne, więc obecne konstruktory działają bez zmian; `datasets(provider="CHMI")` zwraca 4 deskryptory; `content_sha256`: inna kolejność kluczy, odstępy, `12`/`12.0`/`1.2E1`, escaping `\u0161`/`š`, BOM i nowe `zaznamID`/`datumVytvoreni` dają tę samą sumę, a inna wartość, inna kolejność wierszy, inne `verzeDat` i zmiana pola zagnieżdżonego o nazwie `zaznamID` — inną; liczby według wektorów RFC 8785 (dodatek B); powtórzony klucz, `NaN`, zły UTF-8 i tablica jako wartość główna → `IMGWDataError`; `write_archive` realizuje każdy z pięciu wierszy tabeli §3.1 (w tym `unchanged` z `observed_sha256` i komunikatem `content_unchanged` bez nowego katalogu, `relabeled` przenoszące pola treści, bieżąca wersja bez pól treści → `created`), a bajty niezgodne z formą → `data_error` bez katalogu w `versions/` i w `.incoming/`; `write_archive` dla pliku ČHMÚ i nagranej odpowiedzi zapisuje sidecar zgodny z przykładem §3, sidecar CSV meteo nie ma pól treści, a sidecary IMGW na fixturze `complete` są bajtowo równe 3.0.0.
 
 **C03 — Parsery ČHMÚ i pliki syntetyczne.**  
 **Pliki:** utwórz `src/imgwtools/_parsing/chmi.py` (parsery §5 i `parse_listing` z §4.1); zmodyfikuj `src/imgwtools/parsers.py` (eksport trzech parserów, dyspozycja `normalize_archive`), `src/imgwtools/models.py` (`Measurement.quality`, `Measurement.source_flag`, `StationListEntry.provider`); utwórz `tests/unit/test_parsing_chmi.py`; utwórz pliki §13.2 w `tests/fixtures/store/archives/hydrology/**` i `…/meteorology/**` oraz ich kopie.  
@@ -695,19 +775,19 @@ Pytania otwarte:
 **C04 — Listing, aktualność i synchronizacja.**  
 **Pliki:** `src/imgwtools/store/sync.py`; `src/imgwtools/fetch.py` (wyłącznie `download_archives`); utwórz `tests/unit/test_store_sync_chmi.py`, `tests/unit/test_download_archives_chmi.py`, `tests/fixtures/store/chmi_recordings.json` (+ kopia).  
 **Zależy od:** C02, C03.  
-**Test akceptacji (nagrania `respx`):** `check_store` dla `cz.chmi.hydro_daily` i dwóch stacji wykonuje jedno GET listingu i zero HEAD i GET archiwów, niczego nie zapisuje; statusy według §4.2 (`current`, `newer`, `missing`, `unverifiable` z `nieopublikowany`, akcja dla stacji bez plików), `years=None` = lata z listingu; HTTP 500 listingu → `check_failed` wszystkich pozycji zbioru, listing bez wierszy → `check_failed` z `data_error`; plan ma `station_code`, `signal`, `remote_listed_at`, `content_length` z listingu i `requests`, a JSON robi round-trip (także plan 3.0.0 bez nowych pól); `sync_store`: HEAD przed GET, różnica wobec planu albo HEAD 404 → `stale_plan` bez GET; scenariusze (1)–(4) z §13.2; sidecar ČHMÚ zgodny z przykładem §3; meteo: cztery pliki na stację, brakujący element → `nieopublikowany`; `download_archives`: 404 → `not_published` i koperta `ok`; zachowanie IMGW i liczba jego żądań bez zmian (istniejące testy).
+**Test akceptacji (nagrania `respx`):** `check_store` dla `cz.chmi.hydro_daily` i dwóch stacji wykonuje jedno GET listingu i zero HEAD i GET archiwów, niczego nie zapisuje; statusy według §4.2 (`current`, `newer`, `missing`, `unverifiable` z `nieopublikowany`, akcja dla stacji bez plików), `years=None` = lata z listingu; HTTP 500 listingu → `check_failed` wszystkich pozycji zbioru, listing bez wierszy → `check_failed` z `data_error`; plan ma `station_code`, `signal`, `remote_listed_at`, `content_length` z listingu i `requests`, a JSON robi round-trip (także plan 3.0.0 bez nowych pól); `sync_store`: HEAD przed GET, różnica wobec planu albo HEAD 404 → `stale_plan` bez GET; scenariusze (1)–(4) i (8) z §13.2 (w (8): pozycja `unchanged`, komunikat `content_unchanged` w kopercie, brak nowego katalogu, szereg `reused`, kolejne `check_store` → `newer`); inne bajty CSV meteo → `created`; sidecar ČHMÚ zgodny z przykładem §3; meteo: cztery pliki na stację, brakujący element → `nieopublikowany`; `download_archives`: 404 → `not_published` i koperta `ok`; zachowanie IMGW i liczba jego żądań bez zmian (istniejące testy).
 
 **C06 — Katalog stacji ČHMÚ, listy stacji i odczyt.**  
 **Pliki:** `src/imgwtools/store/catalog.py`; `src/imgwtools/store/reader.py` (`store_info().providers`, `iter_store(provider=)`, `StoreEntry.provider`, katalogi dostawców pod `stations/versions/<slug>/`, `read_catalog(root=, provider=)`, `read_station_list(provider=)`, `read_archive` dla ČHMÚ); utwórz `src/imgwtools/_data/czechia_border_wgs84.geojson`, `tests/unit/test_store_catalog_chmi.py`, `tests/unit/test_store_reader_chmi.py`, `tests/fixtures/store/chmi_catalog_recordings.json` (+ kopia).  
 **Zależy od:** C02, C03.  
-**Test akceptacji:** każda stacja ze źródeł §7.2 jest w katalogu, także bez położenia; pierwszeństwo położenia, nazwy i progów według §7.2; `0,0` → `zero` bez blokowania niższego źródła, stacja zagraniczna → `outside_country`, brak współrzędnych → `none`; niepewność 7 miejsc → 150 m, 2 miejsca → ok. 556 m; `location_conflict` dla `900001`; `HLGP4` jako tekst, a prefiks `1-05` wybiera wyłącznie kody `1-05-…`; `thresholds` z now z `source`, `q50` z `SPA4*`; `active` według źródła 1; nowa koperta przy tych samych danych → `unchanged`; sidecar `cz.chmi.stations` z `extra.catalog[]` każdego źródła i licencją ČHMÚ; katalog IMGW na magazynie z danymi ČHMÚ bajtowo równy katalogowi bez nich; `read_catalog(root=R)` zwraca stacje obu dostawców z `provider`, a `provider="CHMI"` — tylko ČHMÚ; `iter_store(provider="CHMI")` bez wpisów IMGW (problemy bez slotu obecne); magazyn `complete` (3.0.0) skanuje się bez problemów z `provider="IMGW-PIB"`; `read_station_list(kind="hydro", provider="CHMI")` czyta archiwum `meta1.json`.
+**Test akceptacji:** każda stacja ze źródeł §7.2 jest w katalogu, także bez położenia; pierwszeństwo położenia, nazwy i progów według §7.2; `0,0` → `zero` bez blokowania niższego źródła, stacja zagraniczna → `outside_country`, brak współrzędnych → `none`; niepewność 7 miejsc → 150 m, 2 miejsca → ok. 556 m; `location_conflict` dla `900001`; `HLGP4` jako tekst, a prefiks `1-05` wybiera wyłącznie kody `1-05-…`; `thresholds` z now z `source`, `q50` z `SPA4*`; `active` według źródła 1; nowa koperta przy tych samych danych → katalog `unchanged`, a archiwum historical meta1 z nową kopertą → `unchanged` z `content_unchanged` (bez nowej wersji listy); sidecar `cz.chmi.stations` z `extra.catalog[]` każdego źródła (wpisy `chmi_*` z `content_sha256` równym dla obu kopert now meta1) i licencją ČHMÚ; katalog IMGW na magazynie z danymi ČHMÚ bajtowo równy katalogowi bez nich; `read_catalog(root=R)` zwraca stacje obu dostawców z `provider`, a `provider="CHMI"` — tylko ČHMÚ; `iter_store(provider="CHMI")` bez wpisów IMGW (problemy bez slotu obecne); magazyn `complete` (3.0.0) skanuje się bez problemów z `provider="IMGW-PIB"`; `read_station_list(kind="hydro", provider="CHMI")` czyta archiwum `meta1.json`.
 
 ### Fala C3
 
 **C05 — Szeregi, pokrycie per stacja i eksport.**  
 **Pliki:** `src/imgwtools/store/series.py`, `src/imgwtools/coverage.py`, `src/imgwtools/store/export.py`, `src/imgwtools/store/reader.py` (wyłącznie `read_series_index`, `read_series`, `export_archive` w zakresie nowych pól); utwórz `tests/unit/test_store_series_chmi.py`, `tests/unit/test_coverage_chmi.py`, `tests/unit/test_store_export_chmi.py`.  
 **Zależy od:** C04, C06.  
-**Test akceptacji:** na magazynie z fixtur ČHMÚ `build_series` tworzy wersję w `series/versions/chmi_hydro_daily/` i `chmi_meteo_daily/` z Parquet każdej stacji i `stations[<kod>].periods`; kalendarz ciągły i przypadki graniczne §6.4 zgodne z ręcznym wyliczeniem (przykład §6.3 dosłownie dla `900002`); kolumny `<V>_quality` i `<V>_source_flag` tylko dla meteo; `hydro_year` poprawny na granicy XI; drugie wywołanie → `reused` bez zapisu; `summarize_coverage` z `station_periods` i bez nich daje to samo pokrycie co spis; `export_series` ma kolumny jakości i atrybucję ČHMÚ (źródło i przetworzenie) w pierwszym wierszu, a rok poprawny w `hydrological` i `calendar`; `read_series` zwraca `quality` i `source_flag`; szeregi i eksport IMGW na fixturze `complete` bajtowo równe 3.0.0.
+**Test akceptacji:** na magazynie z fixtur ČHMÚ `build_series` tworzy wersję w `series/versions/chmi_hydro_daily/` i `chmi_meteo_daily/` z Parquet każdej stacji i `stations[<kod>].periods`; kalendarz ciągły i przypadki graniczne §6.4 zgodne z ręcznym wyliczeniem (przykład §6.3 dosłownie dla `900002`); kolumny `<V>_quality` i `<V>_source_flag` tylko dla meteo; `hydro_year` poprawny na granicy XI; drugie wywołanie → `reused` bez zapisu; `extra.source_files[]` sidecara `chmi_hydro_daily` ma `content_sha256` i `content_form` każdego wejścia, a `chmi_meteo_daily` — nie; `summarize_coverage` z `station_periods` i bez nich daje to samo pokrycie co spis; `export_series` ma kolumny jakości i atrybucję ČHMÚ (źródło i przetworzenie) w pierwszym wierszu, a rok poprawny w `hydrological` i `calendar`; `read_series` zwraca `quality` i `source_flag`; szeregi i eksport IMGW na fixturze `complete` bajtowo równe 3.0.0.
 
 **C07 — Katalog komend, wyszukiwanie stacji i web.**  
 **Pliki:** `src/imgwtools/commands.py`, `src/imgwtools/stations.py`, `src/imgwtools/exceptions.py` (tytuł `source_unavailable`), `src/imgwtools/web/app.py` (filtr zbiorów IMGW-PIB), `src/imgwtools/__init__.py` (eksporty §9.1); utwórz `tests/unit/test_commands_chmi.py`, `tests/unit/test_stations_chmi.py`; zmodyfikuj `tests/unit/test_web_app.py` (wyłącznie lista zbiorów w formularzu).  
@@ -717,9 +797,9 @@ Pytania otwarte:
 ### Fala C4
 
 **C08 — Projekty i magazyn testowy PL + CZ.**  
-**Pliki:** `src/imgwtools/project.py` (teksty z nazwą dostawcy, synchronizacja stacji zadań ČHMÚ), `src/imgwtools/testing.py` (wariant `complete_pl_cz`); utwórz `tests/fixtures/store/chmi_builder_recordings.json` (+ kopia), `tests/unit/test_project_chmi.py`, `tests/unit/test_fixture_builder_chmi.py`.  
+**Pliki:** `src/imgwtools/project.py` (teksty z nazwą dostawcy, synchronizacja stacji zadań ČHMÚ, piny z polami treści, odtworzenie treścią §12: `restored_by_content`, `content_match`, `pin_restored_by_content`), `src/imgwtools/testing.py` (wariant `complete_pl_cz`); utwórz `tests/fixtures/store/chmi_builder_recordings.json` (+ kopia), `tests/unit/test_project_chmi.py`, `tests/unit/test_fixture_builder_chmi.py`.  
 **Zależy od:** C04–C07.  
-**Test akceptacji:** projekt z zadaniem IMGW i zadaniem ČHMÚ przechodzi init → add → check → download → status → verify; `download_project` na pustym magazynie odtwarza oba zadania z identycznymi `sha256`; nagranie z inną treścią pliku ČHMÚ → pozycja `failed` z tekstem „ČHMÚ udostępnia inną treść …”, przypięcia bez zmian; `build_fixture_store(variant="complete_pl_cz")` buduje offline magazyn z §13.3, a `variant="complete"` daje bajty identyczne z 3.0.0.
+**Test akceptacji:** projekt z zadaniem IMGW i zadaniem ČHMÚ przechodzi init → add → check → download → status → verify; piny wejść `cz.chmi.hydro_daily` mają `content_sha256` i `content_form`, a piny IMGW i CSV meteo — nie (manifest zadania IMGW bajtowo jak w 3.0.0); `download_project` na pustym magazynie odtwarza oba zadania z identycznymi `sha256`; scenariusz (9) z §13.2: pin archiwum i piny szeregu `restored_by_content`, zadanie `content_match`, komunikat `pin_restored_by_content` z obiema ścieżkami i sumami, manifest bez zmian, `verify_project` → `content_match` po przeliczeniu sum, drugie `download_project` bez żadnego żądania, `update="upgrade"` → `upgraded` i piny wersji równoważnych; te same bajty pod inną etykietą w zbiorze z formą → `restored_by_content`, w zbiorze IMGW → `failed` jak w 3.0.0; nagranie z inną treścią pliku ČHMÚ → pozycja `failed` z tekstem „ČHMÚ udostępnia inną treść …”, przypięcia bez zmian; `build_fixture_store(variant="complete_pl_cz")` buduje offline magazyn z §13.3, a `variant="complete"` daje bajty identyczne z 3.0.0.
 
 ### Fala C5
 
