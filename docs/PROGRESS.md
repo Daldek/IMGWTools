@@ -6,7 +6,7 @@
 |------|---------|
 | **Wersja** | 3.0.0 |
 | **Data** | 2026-10-18 |
-| **Gałąź robocza** | `feature/versioned-store` (magazyn wersjonowany, ADR-001) |
+| **Gałąź robocza** | `feature/versioned-store` (magazyn wersjonowany ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
 | **Python** | >=3.12 |
 
 ---
@@ -15,7 +15,7 @@
 
 | Wersja | Data | Zakres |
 |--------|------|--------|
-| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, rejestr zbiorów, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, katalog komend, projekty `imgw-project/1`, CLI `imgw store`/`series`/`pmaxtp`/`project`, REST `/api/v1/store`; **breaking:** `download_*` → `DownloadResult`, usunięcie cache SQLite. Szczegóły: `docs/CHANGELOG.md` |
+| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, rejestr 13 zbiorów, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, projekty `imgw-project/1`; **jeden katalog 35 komend** (ADR-002): koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, CLI i REST generowane z katalogu, problem+json; dziedziny `/1` otwarte dla kolejnych dostawców (ADR-003 C01); **breaking:** `imgw fetch`/`imgw list` → grupy katalogu, nowe trasy REST, `station_id` → `station`/`station_code`, `download_*` → `DownloadResult`, usunięcie cache SQLite i `core/url_builder`. Szczegóły: `docs/CHANGELOG.md` |
 | v2.2.0 | 2026-08 | Licencja (rok, PEP 639), ręczny proces CLA, moduł danych referencyjnych IMGW-PIB (`reference_data.py`), usunięcie danych IMGW z repo, **usunięcie legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` usunięty) |
 | v2.1.1 | 2026-07 | Parsery: auto-detekcja separatora/kodowania (UTF-8 BOM)/cudzysłowów; URL-e meteo zgodne z serwerem IMGW; zgodność z pyright; audyt dokumentacji |
 | v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
@@ -39,7 +39,16 @@ Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/sup
 
 **Decyzja właściciela (2026-10-17):** magazyn wersjonowany wchodzi teraz, jako 3.0.0; dawna wizja „Obserwator 3.0” (`docs/OBSERWATOR_SPEC.md`) pozostaje przyszłym rozszerzeniem (zmiana nazwy, providery) i nie obejmuje już cache SQLite v2.
 
-**Stan końcowy v3.0.0 (2026-10-18):** 998 passed (w tym kontrakt T25 w `tests/contract/`), pokrycie 93% (`pytest --cov=imgwtools`), `ruff check` czysto, `pyright` 0 błędów.
+**Stan po ADR-001 (T25, 2026-10-18):** 998 passed (w tym kontrakt T25 w `tests/contract/`), pokrycie 93% (`pytest --cov=imgwtools`), `ruff check` czysto, `pyright` 0 błędów.
+
+**ADR-002 — jeden katalog komend i spójne interfejsy** (plan `docs/superpowers/plans/2026-10-17-versioned-store.md`, zadania U01–U16; spec §13):
+
+- **Fale 10–11 (U01–U04):** rejestr kodów błędów `ERROR_CODES` (`code`, `details`, `IMGWCancelledError`), typy koperty `CommandResult`/`Page` i jeden konwerter JSON; rejestr 13 zbiorów z aliasami i `YearsArg`/`MonthsArg`; funkcje na żywo ze `station`/`station_code`, `find_stations`, `fetch_meteo_current`, `fetch_hydro_states`.
+- **Fale 12–13 (U05–U08):** jedna gramatyka slotów, `select_series`, `summarize_series`, `download_archives`, PMAXTP z `method="POT"`, `export_archive`/`export_series` (plik albo strumień linii), katalog 35 komend z `command_schema` i stronicowaniem.
+- **Fale 14–15 (U09–U12):** CLI i REST generowane z katalogu (koperta na stdout, JSON błędu na stderr, kody wyjścia, problem+json, `?check=true`), projekt w konwencjach ADR-002, web wyłącznie na publicznym API.
+- **Fala 16 (U13–U14):** usunięcie starych builderów URL, `core/` i tras legacy; `imgwtools.__all__` zgodne z §13.12; kontrakt międzyinterfejsowy Python = CLI = REST (`tests/contract/test_interface_contract.py`).
+- **C01 (ADR-003, przed tagiem):** otwarte dziedziny kontraktów `/1` (klucz zbioru, kraj, dostawca, licencja, kod WIGOS, `location_source`), `content_sha256`/`content_form`, rejestr obserwacji `imgw-observation/1`.
+- **Fala 17 (U15):** dokumentacja wydania (CHANGELOG z tabelami migracji §13.11, README, CLAUDE.md, ARCHITECTURE, standardy); przykłady README uruchomione raz (Python i CLI na żywo na świeżym magazynie, odczyt na `build_fixture_store`, REST przez `imgw server`); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy). Stan testów: 1377 zebranych (`pytest --collect-only`, 2026-10-18).
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
@@ -205,9 +214,9 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 - [ ] API key enforcement — middleware walidujące nagłówek `X-API-Key`. CLAUDE.md odnotowuje, że klucze są zarządzane przez CLI (`imgw admin`), ale nieegzekwowane w żądaniach API — to brakująca warstwa bezpieczeństwa, nie nowa funkcja. Priorytet: wysoki.
 - [ ] Per-key rate limiting — śledzenie i limitowanie żądań per klucz API. Zależne od API key enforcement. Priorytet: średni.
-- [ ] GeoJSON w REST/GUI — wersjonowany katalog `stations.geojson` istnieje od 3.0.0 (`build_catalog`, `read_catalog`); brakuje udostępnienia go w trasach REST i mapie Web GUI. Priorytet: średni.
+- [ ] GeoJSON w REST/GUI — wersjonowany katalog `stations.geojson` istnieje od 3.0.0 (`build_catalog`, `read_catalog`); brakuje komendy katalogu odczytującej go (a więc trasy REST) i warstwy na mapie Web GUI. Priorytet: średni.
 - [ ] Data charts — wizualizacja szeregów czasowych. Możliwy wzorzec: podejście repo hydro-dane — agregaty min/avg/max z walidacją pełnego roku hydrologicznego i eksport do kompaktowych statycznych JSON-ów. Priorytet: niski.
-- [ ] Eksport CSV w REST/GUI dla danych bez magazynu — od 3.0.0 `export_series`/`imgw series export`/`POST /api/v1/series/export` eksportują szeregi z magazynu; brak eksportu „na żądanie” bez magazynu. Priorytet: niski.
+- [ ] Eksport CSV w REST/GUI dla danych bez magazynu — od 3.0.0 `export_series`/`imgw series export`/`GET /api/v1/series/export` eksportują szeregi z magazynu; brak eksportu „na żądanie” bez magazynu. Priorytet: niski.
 - [ ] Request logging — śledzenie użycia API do analityki. Priorytet: niski.
 - [ ] Redis caching layer — cache dla często pobieranych danych. Priorytet: niski.
 
@@ -220,13 +229,13 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [ ] Lokalny, odbudowywalny indeks magazynu (ADR-001 D2: poza wydaniem 3.0.0; nigdy jako źródło prawdy). Priorytet: niski.
 - [ ] Wniosek do IMGW-PIB o oficjalny wykaz współrzędnych stacji (ADR-001 Q6) oraz potwierdzenie znaczenia kodu hydrograficznego i kolejności `river_order` (Q4, Q5) — do tego czasu bez interpretacji. Priorytet: średni.
 - [ ] Rozszerzenie magazynu o kolejne zbiory (meteo miesięczne/terminowe, synop) — D6 ogranicza 3.0.0 do pięciu zbiorów Archiwisty i PMAXTP. Priorytet: niski.
-- [ ] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`), opcjonalne pola treści kanonicznej `content_sha256` i `content_form` w `imgw-meta/1` i w `files[]` `imgw-project/1` oraz rejestr obserwacji: nowy kontrakt `imgw-observation/1`, katalog `observations/` w slocie archiwum, wpisy `kind="observation"` w skanie i atomowy zapis obserwacji — bez zmiany zachowania i bajtów IMGW; bez tego dostawca ČHMÚ wymaga `imgw-meta/2`, `imgw-series/2` i `imgw-project/2` (spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` §3.1, §3.2 i §11, ADR-003 D2, D17 i D18 — przyjęte 2026-10-18). Zależność: po U14, przed U16. Priorytet: wysoki (termin: tag v3.0.0).
+- [x] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`), opcjonalne pola treści kanonicznej `content_sha256` i `content_form` w `imgw-meta/1` i w `files[]` `imgw-project/1` oraz rejestr obserwacji `imgw-observation/1` (katalog `observations/` w slocie archiwum, wpisy `kind="observation"` w skanie, wewnętrzna publikacja obserwacji) — bez zmiany zachowania i bajtów IMGW (zrobione 2026-10-18, commit `889d705`; wywołanie zapisu obserwacji w `write_archive` należy do C02).
 - [ ] Dostawca ČHMÚ (Czechy, opendata.chmi.cz) — ADR-003 (przyjęta 2026-10-18) i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10 w §16). Zakres: `cz.chmi.hydro_daily` (H, Q, T; plik na stację i rok), `cz.chmi.meteo_daily` (opad, Tmean, Tmax, Tmin z `historical_csv` — CSV potwierdzone pomiarem 2026-10-18: 4,36 GB wobec 25,36 GB JSON), listy stacji i katalog `cz.chmi.stations` z progami SPA, inwentarz i aktualność z listingu katalogów, licencja CC BY 4.0; treść kanoniczna (`content_sha256`, forma `chmi-json/1` bez koperty `zaznamID`/`datumVytvoreni`): inne bajty o tej samej treści nie tworzą wersji, nowy sygnał trafia do rejestru obserwacji (kolejne sprawdzenie `current` bez pobierania), a przypięcia odtwarza się treścią ze statusem `restored_by_content`; poza zakresem dane bieżące (`now`, `recent`), CAP i PMAXTP. Spełnia wymagania Archiwisty IMGW-15..19 (P3, v0.6 „PL + CZ”). Zależność: zakończony ADR-002 (U01–U16) i wydanie 3.0.0; wydanie 3.1.0. Otwarte: pytania do ČHMÚ i Archiwisty (spec §15). Priorytet: wysoki (blokuje MVP Archiwisty).
 - [ ] Obserwator — przyszła zmiana nazwy (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem); dostawcę ČHMÚ opisuje ADR-003 (pozycja wyżej). Priorytet: niski.
 
 ### Infrastruktura i jakość kodu
 
-- [ ] Fallbackowe listy stacji zaszyte w kodzie zamiast ładowane z CSV: `src/imgwtools/api/routes/hydro.py` oraz `src/imgwtools/api/routes/meteo.py` (oba `# TODO: Load from CSV file`).
+- [x] ~~Fallbackowe listy stacji zaszyte w kodzie (`api/routes/hydro.py`, `api/routes/meteo.py`)~~ — trasy usunięte w 3.0.0 (ADR-002); listy stacji daje `find_stations` z CSV IMGW.
 
 ### Zrobione (archiwum)
 
@@ -239,6 +248,7 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [x] Warnings
 - [x] ~~SQLite cache (optional)~~ — usunięty w 3.0.0 (ADR-001 D5), zastąpiony magazynem wersjonowanym
 - [x] Wersjonowany magazyn danych: archiwa 1:1 z sidecarami, plan aktualności, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, eksport CSV, projekty, CLI i REST (v3.0.0)
+- [x] Jeden katalog komend dla Pythona, CLI i REST: koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, `command_schema`, CLI i REST generowane z katalogu, kontrakt międzyinterfejsowy (ADR-002, v3.0.0)
 - [x] Parsery meteo dobowych `k_d`/`o_d` z flagami braków (v3.0.0)
 - [x] Publiczny budowniczy magazynu testowego `imgwtools.testing` dla Archiwisty i Retmana (v3.0.0)
 - [x] Podniesienie Pythona do `>=3.12` dla spójności z innymi projektami (rekomendacja cross-project, v2.1.0)

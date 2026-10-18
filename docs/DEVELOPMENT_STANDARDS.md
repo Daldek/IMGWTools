@@ -2,8 +2,8 @@
 
 ## IMGWTools - Biblioteka danych IMGW
 
-**Wersja:** 1.1
-**Data:** 2026-08-22
+**Wersja:** 1.2
+**Data:** 2026-10-18
 
 ---
 
@@ -13,10 +13,10 @@
 
 ```python
 # Zmienne i funkcje: snake_case
-station_id = "149180020"
+station_code = "149180020"
 water_level_cm = 150
 
-def fetch_hydro_current(station_id: str | None = None) -> list[HydroCurrentData]:
+def fetch_hydro_current(*, station: str | None = None) -> list[HydroCurrentData]:
     pass
 
 # Klasy: PascalCase
@@ -35,14 +35,36 @@ DEFAULT_TIMEOUT = 30
 
 | Wzorzec | Znaczenie | Przykład |
 |---------|-----------|----------|
-| `fetch_*` | Pobieranie danych z API | `fetch_hydro_current()` |
-| `download_*` | Pobieranie archiwów (ZIP) | `download_hydro_data()` |
-| `list_*` | Listowanie zasobów | `list_hydro_stations()` |
-| `build_*_url` | Generowanie URL | `build_hydro_url()` |
+| `fetch_*` | Odczyt na żywo z API IMGW | `fetch_hydro_current()`, `fetch_hydro_states()` |
+| `find_*` | Wyszukiwanie z frazą i filtrami | `find_stations()` |
+| `download_*` | Pobieranie archiwów (bajty albo pliki) | `download_archives()`, `download_hydro_data()` |
+| `archive_files`, `datasets`, `get_dataset` | Rejestr zbiorów (offline) | `archive_files("hydro/dobowe", years=2023)` |
+| `build_*_url` | URL endpointu API (nie archiwum) | `build_pmaxtp_url()`, `build_api_url()` |
+| `check_*` | Bliźniak operacji zapisu: plan bez zapisu i bez GET treści | `check_store()` |
+| `sync_*`, `build_*`, `init_*` | Zapis do magazynu | `sync_store()`, `build_series()` |
+| `read_*`, `select_*`, `summarize_*`, `export_*` | Odczyt magazynu (offline) | `read_series()`, `summarize_series()` |
 | `parse_*` | Parsowanie danych | `parse_daily_csv()` |
 | `*Data` | Model danych | `HydroCurrentData` |
-| `*Result` | Wynik z metadanymi | `PMaXTPResult` |
+| `*Result`, `*Report` | Wynik z metadanymi, raport operacji | `PMaXTPResult`, `SyncReport` |
 | `*Error` | Wyjątek | `IMGWConnectionError` |
+
+### 1.3 Nazwy opcji (ADR-002, spec §13.1–§13.2)
+
+- Nazwa opcji = nazwa parametru funkcji = pole JSON (query/ciało REST, wyniki); flaga CLI =
+  `--` + nazwa z `_` zamienionym na `-`. Jedna nazwa ma w całym katalogu jedno znaczenie i jeden typ.
+- `station` — jeden kod stacji (argument), `stations` — lista kodów, `station_code` — pole
+  wyniku; kod stacji to zawsze `str` (9 cyfr IMGW albo WIGOS według `STATION_CODE_PATTERN`).
+- `dataset` (jeden zbiór) / `datasets` (lista) przyjmują klucz, slug albo alias legacy;
+  wyniki i sloty podają zawsze pełny klucz (`pl.imgw.hydro_daily`).
+- `years`/`months` przyjmują `YearsArg`/`MonthsArg` (`2024`, `"2020-2023"`, `"2020,2022"`,
+  listy); jedyny parser to `parse_years`/`parse_months` z `imgwtools.datasets`.
+- `latitude`/`longitude` (nie `lat`/`lon`; CLI ma aliasy `--lat`/`--lon`), `kind`, `query`,
+  `root`, `path` (plik wynikowy), `output` (katalog), `method` (PMAXTP, domyślnie `"POT"`).
+- Pierwszy obiekt (`root`, `version`, `dataset`, `command`) może być pozycyjny; wszystkie dalsze
+  argumenty są keyword-only.
+- Nowa operacja to nowa komenda katalogu (`commands._CATALOG`) wywołująca dokładnie jedną
+  funkcję z `imgwtools.__all__`; CLI i REST powstają z katalogu, bez ręcznych komend i tras.
+- Teksty dla człowieka (komunikaty, `detail`, pomoc) po polsku; kody, nazwy i docstringi po angielsku.
 
 ---
 
@@ -56,16 +78,17 @@ DEFAULT_TIMEOUT = 30
 # Formatter: ruff format
 
 # DOBRZE
-def build_hydro_url(
-    interval: str,
-    year: int,
-    month: int | None = None,
-    param: str | None = None,
-) -> str:
+def archive_files(
+    dataset: str,
+    /,
+    *,
+    years: YearsArg,
+    months: MonthsArg | None = None,
+) -> tuple[ArchiveFile, ...]:
     pass
 
 # ŹLE (za długa linia)
-def build_hydro_url(interval: str, year: int, month: int | None = None, param: str | None = None) -> str:
+def archive_files(dataset: str, /, *, years: YearsArg, months: MonthsArg | None = None) -> tuple[ArchiveFile, ...]:
     pass
 ```
 
@@ -93,8 +116,8 @@ from imgwtools.exceptions import IMGWError
 
 ```python
 def fetch_hydro_current(
-    station_id: str | None = None,
     *,
+    station: str | None = None,
     timeout: float = 30.0,
 ) -> list[HydroCurrentData]:
     """Fetch current hydro data."""
@@ -129,8 +152,8 @@ def get_station(id: str | int | None = None) -> Station | None:
 def fetch_pmaxtp(
     latitude: float,
     longitude: float,
-    method: Literal["POT", "AMP"] = "POT",
     *,
+    method: Literal["POT", "AMP"] = "POT",
     timeout: float = DEFAULT_TIMEOUT,
     validate_coords: bool = True,
 ) -> PMaXTPResult:
@@ -179,8 +202,8 @@ class HydroCurrentData:
 
     Parameters
     ----------
-    station_id : str
-        IMGW station identifier.
+    station_code : str
+        IMGW station code (nine digits).
     station_name : str
         Station name.
     water_level_cm : float or None
@@ -195,7 +218,7 @@ class HydroCurrentData:
 
     Examples
     --------
-    >>> data = fetch_hydro_current(station_id="149180020")[0]
+    >>> data = fetch_hydro_current(station="149180020")[0]
     >>> print(f"{data.station_name}: {data.water_level_cm} cm")
     """
     pass
@@ -210,15 +233,18 @@ class HydroCurrentData:
 ```
 tests/
 ├── unit/
-│   ├── test_models.py      # Modele danych
-│   ├── test_fetch.py       # Funkcje fetch_*
-│   ├── test_parsers.py     # Parsery CSV (separator/kodowanie/cudzysłowy)
-│   ├── test_stations.py    # Funkcje list_*
-│   └── test_urls.py        # Funkcje build_*_url
-└── conftest.py             # Shared fixtures
-
-# Planowane (jeszcze nieutworzone):
-# tests/integration/test_api.py  - testy endpointów API
+│   ├── test_models.py, test_fetch.py, test_fetch_live.py   # Modele, fetch_* (respx)
+│   ├── test_parsers.py      # Parsery CSV (separator/kodowanie/cudzysłowy)
+│   ├── test_stations.py     # find_stations
+│   ├── test_urls.py         # build_pmaxtp_url, build_api_url
+│   ├── test_datasets.py     # Rejestr zbiorów, archive_files
+│   ├── test_store_*.py      # Magazyn wersjonowany
+│   ├── test_commands.py, test_command_schema.py   # Katalog komend
+│   ├── test_cli_*.py, test_api_*.py, test_web_app.py  # Adaptery CLI, REST i web
+│   └── test_public_store_api.py                   # __all__ = spec §13.12
+├── contract/                # Kontrakt magazynu i Python = CLI = REST
+├── fixtures/                # Syntetyczne archiwa, nagrania, złote eksporty
+└── conftest.py              # Shared fixtures
 ```
 
 ### 5.2 Nazewnictwo testów
@@ -234,8 +260,8 @@ def test_fetch_pmaxtp_outside_poland_raises():
     """Test that coordinates outside Poland raise validation error."""
     pass
 
-def test_build_hydro_url_daily_with_month():
-    """Test daily hydro URL generation with month parameter."""
+def test_archive_files_daily_with_month():
+    """Test daily hydro archive files for a selected month."""
     pass
 ```
 
@@ -259,9 +285,9 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **23%** (zmierzone 2026-08-22, 109 testów).
-Cel docelowy: **80%** - bramka `--cov-fail-under` nie jest jeszcze włączona
-w konfiguracji projektu.
+Stan faktyczny: **1377 testów** (2026-10-18, `pytest --collect-only`); ostatni pomiar
+pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
+— bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
 
 ```bash
 pytest tests/ --cov=imgwtools --cov-report=html
@@ -355,78 +381,87 @@ __all__ = [
 from imgwtools import fetch_pmaxtp, PMaXTPData
 
 # Unikaj - import z wewnętrznego modułu
-from imgwtools.core.url_builder import build_pmaxtp_url
+from imgwtools._jsonable import jsonable
 ```
 
 ---
 
 ## 8. Error Handling
 
-### 8.1 Hierarchia wyjątków
+### 8.1 Hierarchia wyjątków i kody
 
-```python
-# imgwtools/exceptions.py
+Każdy `IMGWError` ma `code` z zamkniętego rejestru `ERROR_CODES` (`imgwtools.exceptions`,
+spec §13.5), polski komunikat (`detail` = `str(e)`) i `details` zgodne z JSON. Klasa ma kod
+domyślny; miejsce zgłoszenia może podać inny zarejestrowany kod przez `code=`. Rejestr
+mapuje kod na tytuł, kod wyjścia CLI i status HTTP — adaptery nie mają własnych map.
 
-class IMGWError(Exception):
-    """Base exception for IMGWTools."""
-    pass
+| Klasa | Kod domyślny | Typowe inne kody |
+|---|---|---|
+| `IMGWError` | `internal_error` | — |
+| `IMGWValidationError` | `validation_error` | — |
+| `IMGWConnectionError` | `source_unavailable` | — |
+| `IMGWDataError` | `data_error` | `io_error` (nieczytelny plik) |
+| `IMGWStoreError` | `store_unavailable` | `not_found` (brak wersji, sidecara, szeregu), `validation_error` (dowiązanie w ścieżce) |
+| `IMGWStoreConflictError` | `conflict` | `details.reason`: `path_conflict`, `not_atomic`, `locked`, … |
+| `IMGWStoreDependencyError` | `missing_dependency` | — |
+| `IMGWProjectError` | `validation_error` | `not_found`, `conflict`, `io_error` |
+| `IMGWCancelledError` | `cancelled` | — |
 
-class IMGWConnectionError(IMGWError):
-    """Connection or timeout error."""
-    pass
+Zasady:
 
-class IMGWDataError(IMGWError):
-    """Data parsing or format error."""
-    pass
-
-class IMGWValidationError(IMGWError):
-    """Input validation error."""
-    pass
-```
+- Rejestr jest zamknięty: nie dodawaj kodów; wybierz istniejący i doprecyzuj go w `details`
+  (`reason`).
+- Błąd opcji zawsze ma `details.option` (nazwa opcji, §1.3), a gdy to pomaga — `value`
+  i `allowed`.
+- Błędy sieci przechodzą przez wspólne `_source_error` (`details`: `url`, `reason`
+  `timeout|network|http_status`, `status`); nie zgłaszaj surowych wyjątków `httpx`.
+- Anulowanie (`cancel()`) zgłasza `IMGWCancelledError`, nigdy `IMGWStoreError`.
+- Porażka jednej pozycji długiej operacji (`sync_store`, `download_archives`, projekt) to wpis
+  raportu ze `status="failed"` i `error_code`, nie wyjątek; koperta dostaje `partial`/`failed`.
+- `OSError` przy zapisie/odczycie plików kończy się kodem `io_error` (polski powód,
+  `details.path`).
 
 ### 8.2 Walidacja na wejściu
 
 ```python
-def fetch_pmaxtp(
-    latitude: float,
-    longitude: float,
-    method: Literal["POT", "AMP"] = "POT",
-) -> PMaXTPResult:
-    """Fetch PMAXTP data."""
-    # Walidacja współrzędnych (Polska: lat 49-55, lon 14-24.5)
-    if not (49.0 <= latitude <= 55.0 and 14.0 <= longitude <= 24.5):
-        raise IMGWValidationError(
-            f"Coordinates ({latitude}, {longitude}) are outside Poland"
-        )
-
-    if method not in ("POT", "AMP"):
-        raise IMGWValidationError(f"Invalid method: {method}")
-
-    # ...
+def _validate_poland_coords(latitude: float, longitude: float) -> None:
+    """Validate that coordinates are numbers within the Poland bounds box."""
+    for option, name, value, low, high in (
+        ("latitude", "Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
+        ("longitude", "Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
+    ):
+        if not low <= value <= high:
+            raise IMGWValidationError(
+                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})",
+                details={"option": option, "value": value},
+            )
 ```
+
+Opcje komend waliduje jedno miejsce — `validate_command` (typy, wzorce, wyliczenia, reguły
+`x-imgw.rules`); funkcje publiczne sprawdzają swoje argumenty tymi samymi komunikatami.
 
 ---
 
 ## 9. Komendy
 
 ```bash
-# Testy
-pytest tests/ -v
+# Testy (zawsze przez venv projektu)
+.venv/bin/python -m pytest
 
 # Testy z pokryciem
-pytest tests/ --cov=imgwtools --cov-report=html
+.venv/bin/python -m pytest --cov=imgwtools --cov-report=html
 
 # Formatowanie
-ruff format src/imgwtools/
+.venv/bin/ruff format src/ tests/
 
 # Sprawdzenie formatowania
-ruff format src/imgwtools/ --check
+.venv/bin/ruff format --check src/ tests/
 
 # Linting
-ruff check src/imgwtools/
+.venv/bin/ruff check src/ tests/
 
 # Type checking (config: [tool.pyright] w pyproject.toml)
-npx pyright src/imgwtools/
+npx -y pyright src/imgwtools/
 ```
 
 ---
@@ -434,7 +469,7 @@ npx pyright src/imgwtools/
 ## 10. Checklist przed commitem
 
 - [ ] Testy przechodzą (`pytest`)
-- [ ] Pokrycie nie spada (`pytest --cov`; stan 23%, cel docelowy 80%)
+- [ ] Pokrycie nie spada (`pytest --cov`; ostatni pomiar 93%, cel docelowy 80%)
 - [ ] Formatowanie OK (`ruff format --check`)
 - [ ] Linting OK (`ruff check`)
 - [ ] Type hints OK (`pyright`)
@@ -443,5 +478,5 @@ npx pyright src/imgwtools/
 
 ---
 
-**Wersja dokumentu:** 1.1
-**Data ostatniej aktualizacji:** 2026-08-22
+**Wersja dokumentu:** 1.2
+**Data ostatniej aktualizacji:** 2026-10-18

@@ -6,33 +6,33 @@ System consists of five main components:
 
 1. **Python Library** (v3.0.0)
    - `pip install imgwtools` for integration with external projects
-   - Sync and async functions for live data and archive downloads (`DownloadResult`)
-   - Dataset registry (`pl.imgw.*`), hydro/meteo parsers with value flags
+   - Sync and async functions for live data and archive downloads (`DownloadResult`, `download_archives`)
+   - Dataset registry (13 `pl.imgw.*` descriptors with slugs and legacy aliases), hydro/meteo parsers with value flags
+   - Command catalog (`imgwtools.commands`): 35 commands, one envelope `imgw-result/1`, one error registry `ERROR_CODES` (ADR-002)
    - Minimal dependencies (httpx, pydantic)
 
 2. **Versioned Store** [Parquet: `imgwtools[store]`]
    - Append-only, immutable versions of IMGW archives with provenance sidecars
    - Derived products: Parquet station series, `stations.geojson`, PMAXTP cells
    - Explicit root only (no default location); readable offline, also from network shares
-   - Decision record: `docs/DECISIONS.md` (ADR-001); contract: `docs/superpowers/specs/2026-10-17-versioned-store-design.md`
+   - Decision records: `docs/DECISIONS.md` (ADR-001 store, ADR-002 interfaces, ADR-003 open `/1` domains); contract: `docs/superpowers/specs/2026-10-17-versioned-store-design.md`
 
 3. **Backend (FastAPI)** [optional: `imgwtools[api]`]
-   - URL generation for IMGW data downloads
-   - Proxy for real-time IMGW API data
-   - Store routes only with an explicit server-side `IMGW_STORE_ROOT`
-   - Rate limiting via Nginx
+   - Routes `/api/v1/<group>/<command>` generated from the command catalog (25 commands; local-only commands have no route)
+   - URL generation for IMGW data downloads and live IMGW data
+   - Store commands only with an explicit server-side `IMGW_STORE_ROOT`
+   - Errors as `application/problem+json`; rate limiting via Nginx
 
 4. **Frontend Web (GUI)**
-   - HTMX + Jinja2 templates
-   - Interactive forms for data downloads
-   - Station listings and search
+   - HTMX + Jinja2 templates, handlers calling public functions only
+   - Archive link and PMAXTP forms
+   - Station search with paging
    - Interactive map with Leaflet.js
 
 5. **CLI** [optional: `imgwtools[cli]`]
    - Local client using the library directly (never through the REST API)
-   - Archive downloads mirroring IMGW server paths
-   - Store, series, PMAXTP and project commands generated from the command catalog
-   - API key management
+   - Groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `project`, `commands` generated from the command catalog
+   - API key management (`imgw admin`)
 
 ---
 
@@ -49,12 +49,15 @@ System consists of five main components:
 ┌─────────────────────────────────────────────────────────────────┐
 │                       imgwtools (library)                        │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────┐  │
-│  │ URL Builder│ │ fetch /    │ │ datasets     │ │ parsers    │  │
-│  │ (core)     │ │ stations   │ │ (registry)   │ │ (_parsing) │  │
+│  │ urls       │ │ fetch /    │ │ datasets     │ │ parsers    │  │
+│  │            │ │ stations   │ │ (registry)   │ │ (_parsing) │  │
 │  └────────────┘ └────────────┘ └──────────────┘ └────────────┘  │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │ store/: writer · sync · series · catalog · pmaxtp ·       │   │
-│  │         reader · export        commands.py · project.py   │   │
+│  │         reader · export        project.py                 │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ commands.py: catalog · validate · run/check · schema      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
         ▲               ▲                ▲                ▲
@@ -90,26 +93,23 @@ System consists of five main components:
 2. Proxies real-time API requests to IMGW
 3. Returns results directly to the client
 
-Data is written only after explicit configuration: an absolute `IMGW_STORE_ROOT` enables store routes (otherwise 503), and writes additionally need `IMGW_STORE_WRITES_ENABLED=true`, a non-empty `IMGW_STORE_WRITE_TOKEN` and a matching `X-API-Key` header (otherwise 403). Locally, the CLI writes only to an explicit `--output` directory or `--root` store.
+Data is written only after explicit configuration: an absolute `IMGW_STORE_ROOT` enables store commands (otherwise 503 `store_unavailable`), and writes additionally need `IMGW_STORE_WRITES_ENABLED=true`, a non-empty `IMGW_STORE_WRITE_TOKEN` and a matching `X-API-Key` header (otherwise 403 `forbidden`). Locally, the CLI writes only to an explicit `--output` directory or `--root` store.
 
 ---
 
 ## 4. REST API
 
 ### Implemented Features
-- Hydro/Meteo station listings
-- Real-time data from IMGW API
-- Download URL generation (single and batch); for the five store datasets derived from the registry (`archive_files`)
-- PMAXTP data access (live)
-- Versioned store routes (`/api/v1/store/*`, `/api/v1/series/*`, `/api/v1/pmaxtp/store/sync`) through the same public functions as the CLI (`run_command`, `read_series_index`, `read_series`)
-- OpenAPI/Swagger documentation (`/docs`)
-- Health check endpoint
+- Routes generated from `command_schema()` (`x-imgw.rest`) by `api/routes/commands.py`: `GET` for reads (options in the query; lists comma-separated or repeated), `POST` for `store sync`, `store catalog`, `series build`, `pmaxtp sync` (options in a JSON body; `?check=true` returns the plan without writing)
+- Response body = `CommandResult.to_json(root, server=True)`, identical to the CLI envelope except hidden server paths; list commands page with `limit` (default/maximum `IMGW_API_MAX_LIMIT`) and `offset`; `store export`/`series export` stream CSV/JSONL with `X-IMGW-Notices`/`X-IMGW-Status` headers
+- Errors: `api/errors.py` turns every `IMGWError`, request validation error, HTTP error, `OSError` and unexpected exception into `application/problem+json` with `code`, `details` and the status of `ERROR_CODES` (validation always 400)
+- `GET /api/v1` (name, version, schema route, catalog routes), `GET /health`, OpenAPI/Swagger documentation (`/docs`)
 
 ### Security (Current State)
 - Rate limiting via Nginx (`limit_req_zone`)
 - CORS middleware configured
 - GZip compression enabled
-- Store routes: server-side root only (clients never pass a root or absolute path; `version` is confined to `versions/` under the root, symlinks rejected), write token compared in constant time, unknown request fields rejected (422)
+- Store routes: server-side root only (clients never pass a root or absolute path; `version` is confined to `*/versions/` under the root, no `..`, symlinks rejected), write token compared in constant time, unknown/server-only/local options rejected (400 `validation_error`); answers hide server directories (root, `IMGW_USER_LOCATIONS_DIR`, `IMGW_DATA_DIR`, TMPDIR, CWD)
 
 ### Security (Planned, Not Implemented)
 - ~~API key validation middleware~~ - keys managed but not enforced (store writes use their own token)
@@ -130,29 +130,27 @@ Data is written only after explicit configuration: an absolute `IMGW_STORE_ROOT`
 |-------|--------|-------------|
 | `/` | GET | Dashboard |
 | `/download` | GET | Download landing page |
-| `/download/hydro` | GET | Hydro download form |
-| `/download/hydro/generate` | POST | Generate hydro download URLs |
-| `/download/meteo` | GET | Meteo download form |
-| `/download/meteo/generate` | POST | Generate meteo download URLs |
+| `/download/archives` | GET | Archive form (10 registry archive datasets, `<optgroup>` per kind) |
+| `/download/files` | POST | Archive links partial (`archive_files`) |
 | `/download/pmaxtp` | GET | PMAXTP form |
-| `/download/pmaxtp/generate` | POST | Fetch PMAXTP data (CSV/XLSX/JSON export) |
-| `/stations` | GET | Station listings page |
-| `/stations/hydro` | GET | Hydro stations partial (HTMX) |
-| `/stations/meteo` | GET | Meteo stations partial (HTMX) |
-| `/map` | GET | Interactive map with station markers |
-| `/map/stations` | GET | JSON endpoint for map markers |
+| `/download/pmaxtp/generate` | POST | PMAXTP tables (CSV/XLSX/JSON export) via `fetch_pmaxtp_async` |
+| `/stations` | GET | Station search page |
+| `/stations/find` | GET | Station search partial (HTMX, `run_command("stations find")` with paging) |
+| `/map` | GET | Interactive map; markers from `GET /api/v1/current/hydro-states` |
+
+Every `IMGWError` renders `partials/error.html` (code, detail, option) with the status of `ERROR_CODES`; `static/js/app.js` lets HTMX swap 4xx/5xx partials and renders problem+json on the map.
 
 ---
 
 ## 6. CLI Layer
 
 ### Technologies
-- **Typer** - CLI framework
-- **Rich** - terminal formatting
+- **Typer** (Click) - CLI framework; catalog groups via a custom Click group
+- **Rich** - terminal formatting (`version`, `server`, `admin`)
 - **HTTPX** - HTTP client
 
 ### Architecture
-The CLI uses the library directly and downloads data straight from IMGW servers; it does NOT communicate through the REST API. `imgw store|series|pmaxtp|project` and `imgw fetch hydro|meteo` are generated from `data_commands()` by `cli/_dispatch.py`: help texts and flags come from the catalog, raw option text is validated by `validate_command`, execution goes through `run_command` (or `check_command` for `--check`). The CLI therefore has no validation or business rules of its own — CLI = Python API = REST.
+The CLI uses the library directly and downloads data straight from IMGW servers; it does NOT communicate through the REST API. All catalog groups (`datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `project`, `commands`) are generated from `command_schema()` by `cli/_dispatch.py` (`ImgwGroup` + `register_catalog`): help texts and flags come from the catalog, raw option text goes to `run_command` (or `check_command` for `--check`), `--schema` prints the command schema. stdout is the one-line JSON envelope `imgw-result/1` (streams for `store export`/`series export` without `--path`), notices go to stderr once, errors are a JSON line `{"code", "detail", "details"}` on stderr with the exit code of `ERROR_CODES` (envelope status: `partial` 10, `failed` 11, `cancelled` 130). The CLI therefore has no validation or business rules of its own — CLI = Python API = REST (`tests/contract/test_interface_contract.py`).
 
 ---
 
@@ -167,15 +165,16 @@ The CLI uses the library directly and downloads data straight from IMGW servers;
 ```text
 <root>/imgw-store.json                                  # imgw-store/1 marker
   archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
+  archives/versions/<server dir>/<stem>/observations/  # imgw-observation/1 signal register (read-only for consumers)
   stations/versions/<label>_<sha8>/stations.geojson + .meta.json
   series/versions/<slug>/<label>_<sha8>/series.json + .meta.json + stations/<code>.parquet
-  pmaxtp/versions/<POT|AMP>/<indX>_<indY>/<label>_<sha8>/cell.json + .meta.json
+  pmaxtp/versions/<POT|AMP>/<indX>_<indY>/<label>_<sha8>/cell.json + response.json + .meta.json
   .incoming/<host>_<pid>_<token>/                       # staging; leftovers >24 h cleaned
 ```
 
 - `<sha8>` = first 8 hex digits of the full SHA-256 of the main file; labels come from `Last-Modified` (UTC) or download time.
 - Every main file has an immutable `imgw-meta/1` sidecar: producer/version, dataset, request, IMGW-PIB license and attribution, `downloaded_at`, `sha256`, `size_bytes`, HTTP signals.
-- Append-only: no overwrite, hardlinks or `latest` path. The current version is computed by `current_version(root, slot=...)`. A new HTTP signal with identical bytes is `relabeled` (a copy), identical signal and bytes are `unchanged`.
+- Append-only: no overwrite, hardlinks or `latest` path. The current version is computed by `current_version(root, slot=...)` with slots `archive:<key>:<file>`, `series:<key>`, `catalog:pl.imgw.stations`, `pmaxtp:pl.imgw.pmaxtp:<METHOD>/<indX>_<indY>` (spec §13.7); `observations/` is never a version candidate. A new HTTP signal with identical bytes is `relabeled` (a copy), identical signal and bytes are `unchanged`.
 - Publication: write into a unique `.incoming/` staging directory, `fsync`, then a single no-replace rename of the whole version directory (`renameat2(RENAME_NOREPLACE)` on Linux); other systems and filesystems without atomic no-replace rename are refused with an explicit `IMGWStoreConflictError`.
 - Kartograf stores are recognized by marker names/schema strings without importing Kartograf; nesting IMGW and Kartograf roots is refused.
 
@@ -191,11 +190,25 @@ read_*       ── offline, read-only; problems reported as StoreEntry(kind="pr
 Every write operation has a `check_*` twin that never writes or GETs data; long operations accept `on_progress`, `on_notice` (Polish messages) and `cancel` (between files; cancellation never publishes a partial version).
 
 ### Schema Versioning (IMGW-13)
-`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1` and the extension `imgw-pmaxtp/1` carry their own `/N` counters, independent of the package version. Within `/1` only optional fields are added; readers tolerate extra fields in store files, while the project manifest is validated strictly (future optional data only under `extensions`). A breaking change requires `/2` with a transition period reading both. Unknown versions are reported (`store_info(...).supported is False`, scan problems) and never parsed or written by old code.
+Contracts with their own `/N` counters, independent of the package version:
+
+| Contract | File / use |
+|---|---|
+| `imgw-store/1` | `<root>/imgw-store.json` store marker |
+| `imgw-meta/1` | `<file>.meta.json` sidecar of every version (optional `content_sha256` + `content_form`, always together) |
+| `imgw-series/1` | `series.json` index of a Parquet series (+ Parquet metadata) |
+| `imgw-plan/1` | `plan.json` freshness plan outside the store |
+| `imgw-project/1` | `imgw-project.json` project manifest (optional `content_sha256`/`content_form` per pin) |
+| `imgw-pmaxtp/1` | `cell.json` PMAXTP cell (IMGWTools extension) |
+| `imgw-observation/1` | `observations/<YYYY-MM-DD>_<sha8>.json` signal register in an archive slot (ADR-003 D18) |
+| `imgw-result/1` | result envelope of `run_command`/`check_command`, CLI stdout and REST body |
+| `imgw-commands/1` | `command_schema()` document |
+
+Within `/1` only optional fields are added; readers tolerate extra fields in store files, while the project manifest is validated strictly (future optional data only under `extensions`). A breaking change requires `/2` with a transition period reading both. Unknown versions are reported (`store_info(...).supported is False`, scan problems) and never parsed or written by old code. Before the 3.0.0 tag the `/1` value domains were opened for further providers (ADR-003 D2, task C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, `provider`/`license.id` any non-empty text, station codes 9-digit IMGW or WIGOS (`STATION_CODE_PATTERN`), ČHMÚ `location_source` values; a sidecar of a known dataset must still match the registry's country and provider. IMGW files keep identical bytes.
 
 ### Integrations
-- **Archiwista** consumes the store only through the public read API (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_series_index`, `read_series`, `read_pmaxtp`). IMGWTools is the only writer; no Archiwista files or indexes live in the store. Offline fixtures: `imgwtools.testing.build_fixture_store`.
-- **Retman** runs data actions as a handler via the public command catalog (`data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`), getting the same options, validation, progress and notices as the CLI.
+- **Archiwista** consumes the store only through the public read API (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_station_list`, `read_archive`, `read_series_index`, `read_series`, `summarize_series`, `read_pmaxtp`). IMGWTools is the only writer; no Archiwista files or indexes live in the store. `iter_store` also returns read-only `kind="observation"` entries. Offline fixtures: `imgwtools.testing.build_fixture_store`, `fixture_files()` (archives, recordings, contract schemas).
+- **Retman** runs data actions as a handler via the public command catalog (`command_schema`, `data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`), getting the same options, validation, envelope, error codes, progress and notices as the CLI and REST.
 - **Projects** (`imgw-project.json`, `imgw-project/1`) pin store versions by SHA-256 next to (not inside) Kartograf project manifests.
 
 ### CSV Parsing Notes
@@ -216,9 +229,9 @@ IMGW archives are inconsistent between years; parsers auto-detect the format per
 - JSON from real-time API and PMAXTP
 
 ### Output (to clients)
-- JSON (all API responses)
+- JSON envelope `imgw-result/1` (CLI stdout, REST body); errors as CLI JSON line or `application/problem+json`
 - Generated URLs (for direct IMGW downloads)
-- Store products: Parquet series, GeoJSON (RFC 7946) station catalog, CSV export with units and IMGW-PIB attribution
+- Store products: Parquet series, GeoJSON (RFC 7946) station catalog, CSV export with units and IMGW-PIB attribution, JSONL archive export
 
 ### GIS Integration
 - `stations.geojson` with WGS84 points (stations without a valid location keep `geometry: null` and a reason)
@@ -260,40 +273,39 @@ CI pipeline) in the repository; tests, linting and formatting are run locally.
 ```
 IMGWTools/
 ├── src/imgwtools/
-│   ├── __init__.py       # PUBLIC API entry point (single __all__)
+│   ├── __init__.py       # PUBLIC API entry point (single __all__, spec §13.12)
 │   ├── _version.py       # Version (3.0.0)
-│   ├── fetch.py          # PUBLIC: fetch_* (live), download_* -> DownloadResult
+│   ├── fetch.py          # PUBLIC: fetch_* (live), download_archives, download_* -> DownloadResult
 │   ├── models.py         # PUBLIC: Data models incl. NormalizedRecord
-│   ├── stations.py       # PUBLIC: Station functions
-│   ├── exceptions.py     # PUBLIC: Custom exceptions
-│   ├── urls.py           # PUBLIC: URL builder re-exports
-│   ├── parsers.py        # PUBLIC: Parser re-exports (hydro + meteo)
-│   ├── datasets.py       # PUBLIC: Dataset registry, archive_files
+│   ├── stations.py       # PUBLIC: find_stations
+│   ├── exceptions.py     # PUBLIC: Custom exceptions + ERROR_CODES
+│   ├── urls.py           # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
+│   ├── parsers.py        # PUBLIC: Parser re-exports (hydro, meteo, station lists)
+│   ├── datasets.py       # PUBLIC: Dataset registry, archive_files, YearsArg/MonthsArg
 │   ├── coverage.py       # PUBLIC: summarize_coverage
-│   ├── commands.py       # PUBLIC: Data command catalog
+│   ├── commands.py       # PUBLIC: Command catalog, command_schema, run_command
 │   ├── project.py        # PUBLIC: imgw-project/1
-│   ├── testing.py        # PUBLIC: build_fixture_store
+│   ├── testing.py        # PUBLIC: build_fixture_store, fixture_files
+│   ├── _jsonable.py      # Single JSON converter (envelope, relative paths)
 │   ├── reference_data.py # Fetch IMGW-PIB reference data into data/
 │   ├── config.py         # Settings
-│   ├── _data/            # Poland border (Natural Earth) + packaged fixtures
-│   ├── _parsing/         # common.py, hydro.py, meteo.py
+│   ├── _data/            # Poland border (Natural Earth) + packaged fixtures, recordings, contract schemas
+│   ├── _parsing/         # common.py, hydro.py, meteo.py, stations.py
 │   ├── store/            # types, writer, sync, series, catalog, pmaxtp, reader, export
 │   ├── api/              # REST API [optional]
-│   │   ├── main.py       # FastAPI app
-│   │   ├── routes/       # hydro, meteo, download, pmaxtp, store
-│   │   └── schemas.py    # Pydantic models
-│   ├── cli/              # CLI commands [optional]
-│   │   ├── main.py       # Entry point
-│   │   ├── _dispatch.py  # Catalog-driven command generation
-│   │   ├── fetch.py, list_cmd.py, admin.py
-│   │   └── store.py, series.py, pmaxtp.py, project.py
-│   ├── core/
-│   │   └── url_builder.py    # URL generation
+│   │   ├── main.py       # FastAPI app (/health, /api/v1, web, static)
+│   │   ├── routes/commands.py  # Routes generated from the command catalog
+│   │   ├── errors.py     # problem+json handlers, hide_server_paths
+│   │   └── schemas.py    # HealthCheck
+│   ├── cli/              # CLI [optional]
+│   │   ├── main.py       # Entry point (version, server, admin, catalog groups)
+│   │   ├── _dispatch.py  # Catalog-driven command generation (only adapter)
+│   │   └── admin.py      # API key management
 │   └── web/              # Web GUI
 │       ├── app.py        # HTMX routes
 │       ├── templates/    # Jinja2 templates
 │       └── static/       # CSS, JS
 ├── docker/               # Docker configuration
-├── tests/                # Tests (unit; fixtures/store with synthetic archives)
+├── tests/                # Tests (unit + contract; fixtures/store with synthetic archives, fixtures/export_golden)
 └── pyproject.toml        # Project configuration
 ```

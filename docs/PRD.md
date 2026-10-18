@@ -30,7 +30,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | Feature | Status | Description |
 |---------|--------|-------------|
 | Real-time data (IMGW API) | Implemented | Current hydro/meteo/synop data |
-| Archive data (ZIP/CSV) | Implemented | URL generation for IMGW archives |
+| Archive data (ZIP/CSV) | Implemented | Dataset registry (13 `pl.imgw.*` descriptors): URL generation and downloads into an IMGW server-path tree |
 | PMAXTP data | Implemented | Probabilistic max precipitation |
 | Warnings | Implemented | Hydro/meteo warnings from API |
 | Versioned store | Implemented (3.0.0) | Immutable archive versions with provenance, freshness plan, Parquet series, `stations.geojson`, PMAXTP cells, projects |
@@ -39,9 +39,10 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 
 | Interface | Status | Description |
 |-----------|--------|-------------|
-| CLI | Implemented | `imgw` command with fetch/list/admin/store/series/pmaxtp/project subcommands |
-| Web GUI | Implemented | HTMX + Jinja2 web interface |
-| REST API | Implemented | FastAPI with OpenAPI documentation |
+| CLI | Implemented | `imgw` command: catalog groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `project`, `commands` plus `version`, `server`, `admin` |
+| Web GUI | Implemented | HTMX + Jinja2 web interface on the public library API |
+| REST API | Implemented | FastAPI with OpenAPI documentation; routes generated from the same command catalog |
+| Python command catalog | Implemented (3.0.0) | 35 commands, `command_schema`, `run_command`/`check_command`, envelope `imgw-result/1`, error registry `ERROR_CODES` |
 
 ### 3.3. Visualization
 
@@ -55,9 +56,9 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 
 | Format | Status | Description |
 |--------|--------|-------------|
-| JSON | Implemented | All API responses |
+| JSON | Implemented | Envelope `imgw-result/1` (CLI stdout, REST body); errors as `application/problem+json` |
 | URLs | Implemented | Direct links to IMGW servers |
-| CSV | Implemented | PMAXTP export in the Web GUI; station series export (`export_series`, `imgw series export`) with units and IMGW-PIB attribution |
+| CSV | Implemented | PMAXTP export in the Web GUI; station series export (`export_series`, `imgw series export`) with units and IMGW-PIB attribution; archive export (`export_archive`, CSV or JSONL) |
 | GeoJSON | Implemented (store) | Versioned `stations.geojson` station catalog (RFC 7946); not yet exposed in REST/GUI |
 | Parquet | Implemented (store) | Station series per dataset (`imgw-series/1`, `imgwtools[store]`) |
 
@@ -71,11 +72,11 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 |-------------|--------|
 | OpenAPI/Swagger documentation | Implemented |
 | API versioning (`/api/v1/`) | Implemented |
-| Hydro data endpoints | Implemented |
-| Meteo data endpoints | Implemented |
-| PMAXTP endpoints | Implemented |
+| Catalog routes `/api/v1/<group>/<command>` (datasets, stations, current, pmaxtp, store, series, commands) | Implemented — 25 routes generated from `command_schema()` |
+| Paging of list commands (`limit`/`offset`, maximum `IMGW_API_MAX_LIMIT`) | Implemented |
+| Errors as `application/problem+json` with registry codes | Implemented |
 | Health check | Implemented |
-| Store endpoints (`/api/v1/store`, `/api/v1/series`, `/api/v1/pmaxtp/store`) | Implemented — only with server-side `IMGW_STORE_ROOT`; writes need `IMGW_STORE_WRITES_ENABLED` + write token |
+| Store commands | Implemented — only with server-side `IMGW_STORE_ROOT`; writes need `IMGW_STORE_WRITES_ENABLED` + write token |
 
 ### Not Implemented
 
@@ -95,8 +96,8 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 |-------------|--------|
 | Fully web-based | Implemented |
 | HTTPS communication | Implemented (via Nginx) |
-| Download forms (hydro/meteo/PMAXTP) | Implemented |
-| Station listings with search | Implemented |
+| Download forms (archives from the dataset registry, PMAXTP) | Implemented |
+| Station search with paging | Implemented |
 | Interactive map | Implemented |
 
 ### Not Implemented
@@ -115,12 +116,12 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | Requirement | Status |
 |-------------|--------|
 | pip installation | Implemented |
-| `imgw fetch` command | Implemented |
-| `imgw list` command | Implemented |
+| `imgw datasets`, `imgw stations`, `imgw current` (replace `imgw fetch`/`imgw list` of 2.x) | Implemented (3.0.0, generated from the command catalog) |
 | `imgw admin` command | Implemented |
 | `imgw server` command | Implemented |
-| `imgw store`, `imgw series`, `imgw pmaxtp`, `imgw project` | Implemented (3.0.0, generated from the command catalog) |
-| `--check` (plan only, no writes) | Implemented |
+| `imgw store`, `imgw series`, `imgw pmaxtp`, `imgw project`, `imgw commands` | Implemented (3.0.0, generated from the command catalog) |
+| `--check` (plan only, no writes), `--schema` (command schema) | Implemented |
+| JSON envelope on stdout, JSON error on stderr, exit codes from the error registry | Implemented |
 | `--output` flag | Implemented |
 | `--station` filtering | Implemented |
 | Progress bars | Implemented |
@@ -132,17 +133,16 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 imgw version
 imgw server [--host] [--port] [--reload]
 
-# Fetch data
-imgw fetch hydro -i <interval> -y <year|range> [-m month] [-p param] [-o output] [--check]
-imgw fetch meteo -i <interval> -s <subtype> -y <year|range> [-m month] [-o output] [--check]
-imgw fetch current <type>  # hydro, meteo, synop
-imgw fetch pmaxtp --lat <lat> --lon <lon> [--method POT|AMP]
-imgw fetch warnings --type <hydro|meteo>
-
-# List resources
-imgw list stations --type <hydro|meteo> [--search] [--limit]
-imgw list datasets [--type]
-imgw list intervals
+# Datasets, stations, live data (lists accept --limit/--offset)
+imgw datasets list [-k hydro|meteo]
+imgw datasets files -d <dataset> -y <years> [-m <months>] [--params H,Q,T]
+imgw datasets download -d <dataset> -y <years> [-m <months>] [--params] [-o <dir>] [--check]
+imgw stations find [-k hydro|meteo] [-q <query>] [--source live|store] [--root <dir>]
+imgw current hydro|meteo [-s <code>]
+imgw current synop [-s <code>] [--station-name <name>]
+imgw current warnings [-k hydro|meteo]
+imgw current hydro-states [--main-only]
+imgw pmaxtp fetch|url --lat <lat> --lon <lon> [--method POT|AMP]
 
 # Admin
 imgw admin keys
@@ -151,17 +151,23 @@ imgw admin revoke <key_id>
 imgw admin delete <key_id> [--force]
 imgw admin stats [key_id]
 
-# Versioned store (explicit --root)
-imgw store init|info|scan --root <dir>
-imgw store check --root <dir> --dataset <keys> --years <range> [--months] [--plan plan.json]
-imgw store sync --root <dir> (--plan plan.json | --dataset <keys> --years <range>) [--no-series]
-imgw store catalog --root <dir> [--user-locations <csv>]
-imgw series build --root <dir> --dataset <key>
-imgw series select --root <dir> --dataset <key> --stations <codes> [--variables] [--years] [--year-type]
-imgw series export --version <series version> --station <code> --path <csv> --variables <list> [--year-type]
-imgw pmaxtp check|sync --root <dir> --method POT|AMP --lat <lat> --lon <lon>
-imgw pmaxtp read --root <dir> --method POT|AMP --ind-x <x> --ind-y <y>
+# Versioned store (--root or IMGW_STORE_ROOT)
+imgw store init|info --root <dir>
+imgw store scan --root <dir> [-k archive|series|catalog|pmaxtp|observation|problem]
+imgw store check --root <dir> -d <keys> -y <years> [-m <months>] [--plan plan.json]
+imgw store sync --root <dir> (--plan plan.json | -d <keys> -y <years>) [--no-series] [--check]
+imgw store catalog --root <dir> [--user-locations <csv>] [--check]
+imgw store export --version <archive version> [--format csv|jsonl] [--path <file>]
+imgw series build --root <dir> -d <key> [--check]
+imgw series select --root <dir> -d <key> -s <codes> [--variables] [-y <years>] [--year-type]
+imgw series read|summary [--version <v> | --root <dir> -d <key>] -s <code(s)> [--variables]
+imgw series export [--version <v> | --root <dir> -d <key>] -s <code> [--variables] [--path <csv>]
+imgw pmaxtp check|sync --root <dir> --lat <lat> --lon <lon> [--method POT|AMP]
+imgw pmaxtp read --root <dir> --ind-x <x> --ind-y <y> [--method POT|AMP]
 imgw project init|add|remove|set-store|download|check|status|verify --project-dir <dir> ...
+
+# Command catalog
+imgw commands schema [--command "<group> <name>"]
 ```
 
 ---
@@ -173,7 +179,7 @@ imgw project init|add|remove|set-store|download|check|status|verify --project-di
 | No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_STORE_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
-| Unit tests | Implemented | 998 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-18) |
+| Unit and contract tests | Implemented | 1377 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-18); Python = CLI = REST contract |
 | Integration tests | Not Implemented | Planned as a separate task |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
@@ -200,7 +206,7 @@ The following are explicitly out of scope for this project:
 |-----|--------|----------------|
 | API response time (proxied) | < 2s | Met |
 | API documentation completeness | 100% | Met (Swagger) |
-| Test coverage | 80% | 93% (measured 2026-10-18) |
+| Test coverage | 80% | 93% (measured 2026-10-18, before ADR-002 changes) |
 | Stability (no critical bugs) | 30 days | In progress |
 
 ---
@@ -209,7 +215,7 @@ The following are explicitly out of scope for this project:
 
 - SemVer for API and CLI/GUI package
 - Current version: 3.0.0 (release notes: `docs/CHANGELOG.md`)
-- Store schemas (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`) carry their own `/N` versions, independent of the package version (IMGW-13)
+- Contracts (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, `imgw-result/1`, `imgw-commands/1`) carry their own `/N` versions, independent of the package version (IMGW-13)
 
 ---
 
