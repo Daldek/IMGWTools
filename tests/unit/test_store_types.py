@@ -33,7 +33,10 @@ from imgwtools.store.types import (
     PlanItem,
     PMaXTPStoreResult,
     Progress,
+    Project,
+    ProjectFile,
     ProjectReport,
+    ProjectTask,
     SeriesReport,
     StoreEntry,
     StoreInfo,
@@ -227,11 +230,34 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     json.dumps(served)
 
 
-def test_to_json_without_root_writes_absolute_paths(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    envelope = CommandResult("archive download", False, "ok", Path("out/a.zip"), ())
+def test_to_json_writes_project_pins_relative_to_the_store_in_any_working_directory(
+    tmp_path, monkeypatch
+):
+    store = tmp_path / "magazyn"
+    pin = Path(
+        "series/versions/hydro_daily/2024-04-24_6aaf54cd/stations/150160180.parquet"
+    )
+    task = ProjectTask(
+        "dobowe",
+        "store sync",
+        {"datasets": ["pl.imgw.hydro_daily"], "years": [2022]},
+        None,
+        datetime(2026, 10, 18, 20, 0, tzinfo=UTC),
+        "3.0.0",
+        (ProjectFile("station_series", pin, "0" * 64, "150160180"),),
+    )
+    project = Project(tmp_path / "projekt", store, (task,))
+    envelope = CommandResult("project set-store", False, "ok", project, ())
+    documents = []
+    for directory in (tmp_path, store):
+        directory.mkdir(exist_ok=True)
+        monkeypatch.chdir(directory)
+        documents.append(envelope.to_json())
 
-    assert envelope.to_json()["result"] == str(tmp_path / "out" / "a.zip")
+    assert documents[0] == documents[1]
+    result = documents[0]["result"]
+    assert result["store_dir"] == str(store)
+    assert result["tasks"][0]["files"][0]["path"] == pin.as_posix()
 
 
 def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):

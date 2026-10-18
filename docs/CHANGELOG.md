@@ -416,6 +416,10 @@ stacji, `location_source`) są otwarte na kolejnych dostawców — patrz „Doda
 - Nieczytelna wersja (np. `PermissionError` na `series.json` lub pliku Parquet) daje
   `io_error` zamiast `data_error`/`conflict`, z jednakową treścią (polski powód,
   `details.path`) w CLI i REST.
+- JSON koperty (`CommandResult.to_json`, stdout CLI, ciało REST) zapisuje względne ścieżki
+  wyniku — przypięcia `files[].path` w wynikach `project *` — jako względne do magazynu
+  projektu, niezależnie od katalogu roboczego; wcześniej były absolutyzowane wobec
+  katalogu roboczego procesu drukującego (nieistniejące ścieżki `<CWD>/series/versions/…`).
 
 ### Testy
 
@@ -426,7 +430,10 @@ stacji, `location_source`) są otwarte na kolejnych dostawców — patrz „Doda
   zapis do świeżych magazynów daje identyczne drzewa, `?check=true` = `--check` =
   `check_command`, macierz 12 kodów błędów (kod wyjścia, status HTTP, tytuł, schematy
   `cli-error` i `problem+json`), okna stronicowania.
-- 1377 testów offline (`pytest --collect-only`, 2026-10-18).
+- Regresja na żywo `tests/live/test_interfaces_live.py` (`IMGW_LIVE=1`, raport JSON przez
+  `IMGW_LIVE_REPORT`): każda z 35 komend przez Python, zainstalowany `imgw` i REST
+  (`imgw server`) na serwerach IMGW w świeżym magazynie oraz 6 błędów na żywo.
+- 1419 testów (`pytest --collect-only`, 2026-10-18): 1377 offline i 42 na żywo.
 
 ## [2.2.0] — 2026-08-22
 

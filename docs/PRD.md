@@ -180,7 +180,7 @@ imgw commands schema [--command "<group> <name>"]
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
 | Unit and contract tests | Implemented | 1377 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-18); Python = CLI = REST contract |
-| Integration tests | Not Implemented | Planned as a separate task |
+| Live integration tests | Implemented | `tests/live/test_interfaces_live.py`: 42 tests (35 commands × Python/`imgw`/REST on real IMGW servers), run only with `IMGW_LIVE=1` |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
 

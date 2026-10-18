@@ -794,6 +794,8 @@ Sekcja normatywna od 2026-10-18 (`docs/DECISIONS.md` ADR-002) dla Pythona, CLI, 
 4. JSON (CLI, REST, `CommandResult.to_json`): daty `YYYY-MM-DD`, chwile ISO 8601 UTC z `Z`, krotki → tablice, dataclass i modele pydantic → obiekty pól, ścieżka wewnątrz magazynu → POSIX względna do root, ścieżka poza magazynem → bezwzględna (CLI i Python; REST takich nie zwraca), sam root → bezwzględny w CLI, `"."` w REST.
 5. Identyfikatory, wartości wyliczeń i kody są angielskie; tekst dla człowieka (help, `title`, `detail`, `Notice.text`) jest polski i pochodzi z jednego źródła: katalogu, rejestru błędów albo wyjątku.
 
+> [ADR-002, U16] Do p. 4: ścieżka, która w wyniku jest już względna (względem bazy nazwanej przez wynik: przypięcie `ProjectFile.path` — względem `store_dir` projektu, plik Parquet — względem wersji szeregu), zostaje względną ścieżką POSIX i nigdy nie jest rozwiązywana względem katalogu roboczego procesu drukującego; reguły root dotyczą wyłącznie ścieżek bezwzględnych.
+
 ### 13.2 Słownik opcji
 
 Każda opcja ma w całym katalogu jedno znaczenie i jeden typ. Kolumna REST: „parametr” = query w GET albo pole ciała w POST; „serwer” = wartość z konfiguracji serwera, której klient nie podaje; „lokalna” = brak w REST. Listy w CLI i w query: wartości po przecinku albo powtórzony parametr; w ciele JSON tablica (tekst z przecinkami też jest przyjmowany). Aliasy krótkie tworzą listę zamkniętą i każdy ma jedno znaczenie w całym CLI; `-m` nigdy nie oznacza metody.
