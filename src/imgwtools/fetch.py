@@ -7,29 +7,30 @@ Data is fetched directly from IMGW servers - nothing is stored locally.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import os
+import uuid
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Literal, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, cast
 from zipfile import BadZipFile, ZipFile
 
 import httpx
 from pydantic import ValidationError
 
-from imgwtools.core.url_builder import (
-    HydroInterval,
-    HydroParam,
-    MeteoInterval,
-    MeteoSubtype,
-    PMaXTPMethod,
-    build_api_url,
-    build_hydro_url,
-    build_meteo_url,
-    build_pmaxtp_url,
+from imgwtools.core.url_builder import build_api_url, build_pmaxtp_url
+from imgwtools.datasets import (
+    ArchiveFile,
+    MonthsArg,
+    YearsArg,
+    archive_files,
+    get_dataset,
 )
 from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
+    IMGWError,
     IMGWValidationError,
 )
 from imgwtools.models import (
@@ -40,6 +41,15 @@ from imgwtools.models import (
     SynopData,
     WarningData,
 )
+
+if TYPE_CHECKING:
+    from imgwtools.store.types import (
+        Cancel,
+        DownloadReport,
+        NoticeHook,
+        PathArg,
+        ProgressHook,
+    )
 
 # Poland coordinate bounds
 POLAND_LAT_MIN = 49.0
@@ -219,21 +229,9 @@ def _validate_poland_coords(latitude: float, longitude: float) -> None:
             )
 
 
-def _pmaxtp_url(latitude: float, longitude: float, method: str) -> str:
-    """Validate the PMAXTP arguments and build the API URL."""
-    if method not in _PMAXTP_METHODS:
-        raise IMGWValidationError(
-            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
-            details={"option": "method", "allowed": list(_PMAXTP_METHODS)},
-        )
-    return build_pmaxtp_url(PMaXTPMethod(method), latitude, longitude)
-
-
 # ============================================================================
 # PMAXTP (Probabilistic Maximum Precipitation)
 # ============================================================================
-
-_PMAXTP_METHODS = ("POT", "AMP")
 
 _PMAXTP_OUTSIDE_GRID = ("poza obszarem", "undefined: lat")
 """Fragments of the PMAXTP API ``error`` texts for a point outside its grid."""
@@ -358,7 +356,7 @@ def fetch_pmaxtp(
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)
-    url = _pmaxtp_url(latitude, longitude, method)
+    url = build_pmaxtp_url(latitude, longitude, method=method)
     payload = _json_payload(_get(url, timeout=timeout))
     return _pmaxtp_result(payload, method, latitude, longitude)
 
@@ -378,7 +376,7 @@ async def fetch_pmaxtp_async(
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)
-    url = _pmaxtp_url(latitude, longitude, method)
+    url = build_pmaxtp_url(latitude, longitude, method=method)
     payload = _json_payload(await _get_async(url, timeout=timeout))
     return _pmaxtp_result(payload, method, latitude, longitude)
 
@@ -426,7 +424,7 @@ def fetch_hydro_current(
     >>> klodzko = fetch_hydro_current(station="150160180")
     >>> print(f"Water level: {klodzko[0].water_level_cm} cm")
     """
-    url = build_api_url("hydro", station_id=station)
+    url = build_api_url("hydro", station=station)
     payload = _json_payload(_get(url, timeout=timeout))
     return _records(payload, url, HydroCurrentData.from_api_response)
 
@@ -441,7 +439,7 @@ async def fetch_hydro_current_async(
 
     See `fetch_hydro_current` for full documentation.
     """
-    url = build_api_url("hydro", station_id=station)
+    url = build_api_url("hydro", station=station)
     payload = _json_payload(await _get_async(url, timeout=timeout))
     return _records(payload, url, HydroCurrentData.from_api_response)
 
@@ -483,7 +481,7 @@ def fetch_meteo_current(
     >>> [pszczyna] = fetch_meteo_current(station="249180010")
     >>> print(f"Air temperature: {pszczyna.air_temp_c} C")
     """
-    url = build_api_url("meteo", station_id=station)
+    url = build_api_url("meteo", station=station)
     payload = _json_payload(_get(url, timeout=timeout))
     return _records(payload, url, MeteoCurrentData.from_api_response)
 
@@ -498,7 +496,7 @@ async def fetch_meteo_current_async(
 
     See `fetch_meteo_current` for full documentation.
     """
-    url = build_api_url("meteo", station_id=station)
+    url = build_api_url("meteo", station=station)
     payload = _json_payload(await _get_async(url, timeout=timeout))
     return _records(payload, url, MeteoCurrentData.from_api_response)
 
@@ -552,7 +550,7 @@ def fetch_synop(
     >>> stations = fetch_synop()
     >>> warszawa = fetch_synop(station_name="Warszawa")
     """
-    url = build_api_url("synop", station_id=station)
+    url = build_api_url("synop", station=station)
     payload = _json_payload(_get(url, timeout=timeout))
     return _filter_synop(
         _records(payload, url, SynopData.from_api_response), station_name
@@ -570,7 +568,7 @@ async def fetch_synop_async(
 
     See `fetch_synop` for full documentation.
     """
-    url = build_api_url("synop", station_id=station)
+    url = build_api_url("synop", station=station)
     payload = _json_payload(await _get_async(url, timeout=timeout))
     return _filter_synop(
         _records(payload, url, SynopData.from_api_response), station_name
@@ -664,6 +662,101 @@ async def fetch_warnings_async(
 # ============================================================================
 
 
+def _archive_slot(archive: ArchiveFile) -> str:
+    """
+    Return the slot of an IMGW archive or station list file (spec §13.7).
+
+    Parameters
+    ----------
+    archive : ArchiveFile
+        File from the dataset registry.
+
+    Returns
+    -------
+    str
+        ``archive:<dataset key>:<server_path without the dataset server_dir>``,
+        e.g. ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``.
+    """
+    server_dir = get_dataset(archive.dataset).server_dir
+    selector = archive.server_path.removeprefix(f"{server_dir}/")
+    return f"archive:{archive.dataset}:{selector}"
+
+
+def _single_archive(
+    files: tuple[ArchiveFile, ...], *, option: Literal["month", "param"]
+) -> ArchiveFile:
+    """Return the only archive selected by 2.1.1 download arguments."""
+    if len(files) == 1:
+        return files[0]
+    if option == "param":
+        message = f"Archiwum {files[0].dataset} wymaga parametru T, Q albo H"
+    else:
+        message = (
+            f"Archiwum {files[0].dataset} {files[0].year} jest publikowane w plikach "
+            "miesięcznych; podaj miesiąc (1–12)"
+        )
+    raise IMGWValidationError(message, details={"option": option})
+
+
+def _legacy_year(year: object) -> int:
+    if isinstance(year, bool) or not isinstance(year, int):
+        raise IMGWValidationError(
+            f"Rok musi być liczbą całkowitą: {year!r}",
+            details={"option": "year", "value": str(year)},
+        )
+    return year
+
+
+def _hydro_archive(
+    interval: str, year: int, month: int | None, param: str | None
+) -> ArchiveFile:
+    """Registry archive of the 2.1.1 `download_hydro_data` arguments."""
+    year = _legacy_year(year)
+    if interval == "dobowe" and month == 13:
+        return archive_files("pl.imgw.hydro_phenomena", years=year)[0]
+    descriptor = get_dataset(f"hydro/{interval}")
+    semiannual = descriptor.key == "pl.imgw.hydro_semiannual"
+    files = archive_files(
+        descriptor.key,
+        years=year,
+        months=month,
+        params=[cast(Literal["H", "Q", "T"], param)] if semiannual and param else None,
+    )
+    return _single_archive(files, option="param" if semiannual else "month")
+
+
+def _meteo_archive(
+    interval: str, subtype: str, year: int, month: int | None
+) -> ArchiveFile:
+    """Registry archive of the 2.1.1 `download_meteo_data` arguments."""
+    year = _legacy_year(year)
+    descriptor = get_dataset(f"meteo/{interval}/{subtype}")
+    files = archive_files(descriptor.key, years=year, months=month)
+    return _single_archive(files, option="month")
+
+
+def _archive_response(client: httpx.Client, url: str) -> DownloadResult:
+    """GET one archive; HTTP failures become ``source_unavailable``."""
+    try:
+        response = client.get(url)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise _source_error(exc, url) from exc
+    return _download_result(response)
+
+
+async def _archive_response_async(
+    client: httpx.AsyncClient, url: str
+) -> DownloadResult:
+    """Async twin of `_archive_response`."""
+    try:
+        response = await client.get(url)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise _source_error(exc, url) from exc
+    return _download_result(response)
+
+
 def download_hydro_data(
     interval: Literal["dobowe", "miesieczne", "polroczne_i_roczne"],
     year: int,
@@ -673,22 +766,25 @@ def download_hydro_data(
     timeout: float = DOWNLOAD_TIMEOUT,
 ) -> DownloadResult:
     """
-    Download hydrological archive data as ZIP bytes.
+    Download one hydrological archive as ZIP bytes.
 
-    Downloads ZIP file directly from IMGW servers containing CSV data.
-    Use parse_zip_file() to extract and parse the data.
+    The file is resolved through the dataset registry (`archive_files`): the
+    interval is the legacy alias ``hydro/<interval>`` and ``dobowe`` with
+    ``month=13`` selects ``pl.imgw.hydro_phenomena`` (``zjaw_<year>.zip``).
+    Use `parse_zip_file` to extract and parse the data.
 
     Parameters
     ----------
     interval : {"dobowe", "miesieczne", "polroczne_i_roczne"}
         Data interval: daily, monthly or semi-annual/annual.
     year : int
-        Hydrological year (1951-current).
+        Hydrological year (from 1951).
     month : int or None, optional
-        Month (1-12). Required for daily data before 2023.
+        Hydrological month 1-12 (1 = November), required for daily data
+        before 2023; 13 selects the daily phenomena archive.
     param : {"T", "Q", "H"} or None, optional
-        Parameter for semi-annual data: "T" (temperature), "Q" (flow) or
-        "H" (water level/depth).
+        Parameter of semi-annual data, required there: "T" (temperature),
+        "Q" (flow) or "H" (water level).
     timeout : float, optional
         Request timeout in seconds.
 
@@ -699,41 +795,25 @@ def download_hydro_data(
 
     Raises
     ------
+    IMGWValidationError
+        If the interval is unknown, the year or month is invalid, or a
+        required month or parameter is missing (``details["option"]``).
     IMGWConnectionError
-        If download fails.
+        If the download fails (``source_unavailable``; ``details`` ``url``,
+        ``reason`` and, for HTTP errors, ``status``).
     IMGWDataError
         If the downloaded data is not a ZIP archive.
-    ValueError
-        If required parameters are missing.
 
     Examples
     --------
-    >>> # Download daily data for 2023
     >>> response = download_hydro_data("dobowe", 2023)
-    >>>
-    >>> # Parse the downloaded data
     >>> from imgwtools import parse_zip_file
     >>> for station, record in parse_zip_file(response.data, "dobowe"):
     ...     print(f"{station.station_name}: {record.water_level_cm} cm")
     """
-    hydro_interval = HydroInterval(interval)
-    hydro_param = HydroParam(param) if param else None
-
-    url_info = build_hydro_url(hydro_interval, year, month, hydro_param)
-
-    try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            response = client.get(url_info.url)
-            response.raise_for_status()
-            return _download_result(response)
-    except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
-    except httpx.HTTPStatusError as e:
-        raise IMGWConnectionError(
-            f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
-        ) from e
-    except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
+    archive = _hydro_archive(interval, year, month, param)
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        return _archive_response(client, archive.url)
 
 
 async def download_hydro_data_async(
@@ -745,28 +825,13 @@ async def download_hydro_data_async(
     timeout: float = DOWNLOAD_TIMEOUT,
 ) -> DownloadResult:
     """
-    Async version of download_hydro_data.
+    Async version of `download_hydro_data`, with identical arguments and result.
 
-    See download_hydro_data for full documentation.
+    See `download_hydro_data` for full documentation.
     """
-    hydro_interval = HydroInterval(interval)
-    hydro_param = HydroParam(param) if param else None
-
-    url_info = build_hydro_url(hydro_interval, year, month, hydro_param)
-
+    archive = _hydro_archive(interval, year, month, param)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.get(url_info.url)
-            response.raise_for_status()
-            return _download_result(response)
-        except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
-        except httpx.HTTPStatusError as e:
-            raise IMGWConnectionError(
-                f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
-            ) from e
-        except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
+        return await _archive_response_async(client, archive.url)
 
 
 def download_meteo_data(
@@ -778,9 +843,11 @@ def download_meteo_data(
     timeout: float = DOWNLOAD_TIMEOUT,
 ) -> DownloadResult:
     """
-    Download meteorological archive data as ZIP bytes.
+    Download one meteorological archive as ZIP bytes.
 
-    Downloads ZIP file directly from IMGW servers containing CSV data.
+    The file is resolved through the dataset registry (`archive_files`) from
+    the legacy alias ``meteo/<interval>/<subtype>``; a monthly archive covers
+    the whole folder (five years until 2000) containing ``year``.
 
     Parameters
     ----------
@@ -789,9 +856,9 @@ def download_meteo_data(
     subtype : {"klimat", "opad", "synop"}
         Data subtype: climate, precipitation or synoptic.
     year : int
-        Year (1951-current).
+        Calendar year.
     month : int or None, optional
-        Month (1-12). Required for daily/hourly data from 2001+.
+        Month 1-12, required for daily and hourly data from 2001.
     timeout : float, optional
         Request timeout in seconds.
 
@@ -802,38 +869,25 @@ def download_meteo_data(
 
     Raises
     ------
+    IMGWValidationError
+        If the combination is not published as a single archive (daily or
+        hourly synop, hourly precipitation; ``details["reason"]``), the year
+        or month is invalid, or a required month is missing.
     IMGWConnectionError
-        If download fails.
+        If the download fails (``source_unavailable``; ``details`` ``url``,
+        ``reason`` and, for HTTP errors, ``status``).
     IMGWDataError
         If the downloaded data is not a ZIP archive.
-    ValueError
-        If required parameters are missing.
 
     Examples
     --------
-    >>> # Download monthly precipitation data
     >>> response = download_meteo_data("miesieczne", "opad", 2023)
     >>> response.data[:2]
     b'PK'
     """
-    meteo_interval = MeteoInterval(interval)
-    meteo_subtype = MeteoSubtype(subtype)
-
-    url_info = build_meteo_url(meteo_interval, meteo_subtype, year, month)
-
-    try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            response = client.get(url_info.url)
-            response.raise_for_status()
-            return _download_result(response)
-    except httpx.TimeoutException as e:
-        raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
-    except httpx.HTTPStatusError as e:
-        raise IMGWConnectionError(
-            f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
-        ) from e
-    except httpx.HTTPError as e:
-        raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
+    archive = _meteo_archive(interval, subtype, year, month)
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        return _archive_response(client, archive.url)
 
 
 async def download_meteo_data_async(
@@ -845,25 +899,156 @@ async def download_meteo_data_async(
     timeout: float = DOWNLOAD_TIMEOUT,
 ) -> DownloadResult:
     """
-    Async version of download_meteo_data.
+    Async version of `download_meteo_data`, with identical arguments and result.
 
-    See download_meteo_data for full documentation.
+    See `download_meteo_data` for full documentation.
     """
-    meteo_interval = MeteoInterval(interval)
-    meteo_subtype = MeteoSubtype(subtype)
-
-    url_info = build_meteo_url(meteo_interval, meteo_subtype, year, month)
-
+    archive = _meteo_archive(interval, subtype, year, month)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.get(url_info.url)
-            response.raise_for_status()
-            return _download_result(response)
-        except httpx.TimeoutException as e:
-            raise IMGWConnectionError(f"Przekroczono czas pobierania: {e}") from e
-        except httpx.HTTPStatusError as e:
-            raise IMGWConnectionError(
-                f"Pobieranie nie powiodło się (HTTP {e.response.status_code}): {url_info.url}"
-            ) from e
-        except httpx.HTTPError as e:
-            raise IMGWConnectionError(f"Błąd pobierania: {e}") from e
+        return await _archive_response_async(client, archive.url)
+
+
+def _save(destination: Path, data: bytes) -> Path:
+    """Write ``data`` atomically through a unique ``.part`` file."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    part = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.part")
+    try:
+        with part.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(part, destination)
+    finally:
+        part.unlink(missing_ok=True)
+    return destination
+
+
+def download_archives(
+    dataset: str,
+    /,
+    *,
+    years: YearsArg,
+    months: MonthsArg | None = None,
+    params: Iterable[Literal["H", "Q", "T"]] | None = None,
+    output: PathArg = "data/downloaded",
+    timeout: float = DOWNLOAD_TIMEOUT,
+    on_progress: ProgressHook | None = None,
+    on_notice: NoticeHook | None = None,
+    cancel: Cancel | None = None,
+) -> DownloadReport:
+    """
+    Download dataset archives into a plain directory, outside any store.
+
+    Every file of `archive_files` is saved as ``<output>/<server_path>``
+    through a unique ``.part`` file replaced atomically, so an interrupted
+    download never leaves an incomplete archive. A failed file becomes a
+    ``failed`` item and the remaining files are still downloaded.
+
+    Parameters
+    ----------
+    dataset : str
+        Key, slug or legacy alias of one of the ten archive datasets.
+    years : YearsArg
+        Archive years: a number, a range ``"a-b"``, a list ``"a,b"`` or an
+        iterable of these.
+    months : MonthsArg or None, optional
+        Months 1-12 of physically monthly files; None selects all months.
+    params : iterable of {"H", "Q", "T"} or None, optional
+        Parameters of ``pl.imgw.hydro_semiannual``; None selects all three.
+    output : str or os.PathLike, optional
+        Target directory, created when missing.
+    timeout : float, optional
+        Request timeout in seconds, per file.
+    on_progress : ProgressHook or None, optional
+        Called after every file with status ``downloaded`` or ``failed``.
+    on_notice : NoticeHook or None, optional
+        Receives the ``license_terms`` notice once, after the first
+        downloaded file.
+    cancel : Cancel or None, optional
+        Polled before every file; returning ``True`` stops the download and
+        reports the remaining files as ``cancelled``.
+
+    Returns
+    -------
+    DownloadReport
+        Absolute ``output`` and one item per file in download order, with the
+        §13.7 slot, URL, status, written path and, for a failed file, the
+        error text and code (``source_unavailable``, ``data_error`` or
+        ``io_error``).
+
+    Raises
+    ------
+    IMGWValidationError
+        If the dataset, years, months or params are invalid.
+    OSError
+        If the output directory cannot be created.
+
+    Examples
+    --------
+    >>> report = download_archives("meteo/miesieczne/synop", years=1998)
+    >>> [item.status for item in report.items]
+    ['downloaded']
+    """
+    # store.types is imported lazily: the imgwtools.store package imports this module.
+    from imgwtools.store.types import DownloadItem, DownloadReport, Notice, Progress
+
+    files = archive_files(dataset, years=years, months=months, params=params)
+    target = Path(os.fspath(output)).expanduser().absolute()
+    target.mkdir(parents=True, exist_ok=True)
+    items: list[DownloadItem] = []
+    licensed = False
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        for index, archive in enumerate(files):
+            if cancel is not None and cancel():
+                items.extend(
+                    DownloadItem(
+                        _archive_slot(rest), rest.url, "cancelled", None, None, None
+                    )
+                    for rest in files[index:]
+                )
+                break
+            slot = _archive_slot(archive)
+            try:
+                data = _archive_response(client, archive.url).data
+                path = _save(target.joinpath(*archive.server_path.split("/")), data)
+            except IMGWError as exc:
+                item = DownloadItem(
+                    slot, archive.url, "failed", None, exc.detail, exc.code
+                )
+            except OSError as exc:
+                item = DownloadItem(
+                    slot,
+                    archive.url,
+                    "failed",
+                    None,
+                    f"Nie można zapisać {archive.server_path}: {exc}",
+                    "io_error",
+                )
+            else:
+                item = DownloadItem(slot, archive.url, "downloaded", path, None, None)
+            items.append(item)
+            if on_progress is not None:
+                on_progress(
+                    Progress(
+                        index + 1,
+                        len(files),
+                        "archive",
+                        item.status,
+                        f"Pobrano {archive.server_path}"
+                        if item.path is not None
+                        else f"Nie pobrano {archive.server_path}: {item.error}",
+                    )
+                )
+            if item.path is not None and not licensed and on_notice is not None:
+                licensed = True
+                on_notice(
+                    Notice(
+                        "info",
+                        "license_terms",
+                        f"{get_dataset(archive.dataset).license.attribution}. Do użytku "
+                        "prywatnego i badawczego; inne zastosowania wymagają sprawdzenia "
+                        "warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                    )
+                )
+    cancelled = any(item.status == "cancelled" for item in items)
+    return DownloadReport(target, tuple(items), cancelled)

@@ -80,7 +80,7 @@ from tests.contract.support import (
     stamps,
 )
 
-ARCHIVE_SLOT = f"archive:{H2024.server_path}"
+ARCHIVE_SLOT = "archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
 SLOT_DIR = Path("archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024")
 # <label>_<sha8>: a date label (series may add "+<8 hex>") and the SHA prefix.
 VERSION_DIR = re.compile(r"\d{4}-\d{2}-\d{2}(\+[0-9a-f]{8})?_[0-9a-f]{8}")
@@ -311,7 +311,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
         "corrupt": {"invalid_json"},
         "unknown": {"unknown_schema"},
     }
-    broken_slots = {"corrupt": ARCHIVE_SLOT, "unknown": "series:hydro_daily"}
+    broken_slots = {"corrupt": ARCHIVE_SLOT, "unknown": "series:pl.imgw.hydro_daily"}
     for root in [*stores.values(), future]:
         set_read_only(root, True)
     try:
@@ -326,6 +326,13 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
             entries = list(iter_store(root))
             problems = [entry for entry in entries if entry.kind == "problem"]
             assert {entry.problem_code for entry in problems} == expected[name]
+            # A problem names the slot of the broken version, or none at all.
+            assert {(entry.problem_code, entry.slot) for entry in problems} <= {
+                ("stale_incoming", None),
+                ("unknown_entry", None),
+                ("invalid_json", broken_slots.get(name)),
+                ("unknown_schema", broken_slots.get(name)),
+            }
             versions = [entry for entry in entries if entry.kind != "problem"]
             assert len(versions) == 11 - (name == "corrupt")
             for entry in versions:
@@ -337,6 +344,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
                     continue
                 current = current_version(root, slot=slot)
                 assert current is not None and current.slot == slot
+                assert current in [entry for entry in versions if entry.slot == slot]
             (catalog,) = [entry for entry in versions if entry.kind == "catalog"]
             assert any(
                 feature.geometry is None for feature in read_catalog(catalog.version)
@@ -370,7 +378,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
         with pytest.raises(IMGWStoreError):
             open_store(future)
         with pytest.raises(IMGWStoreError):
-            current_version(future, slot="series:hydro_daily")
+            current_version(future, slot="series:pl.imgw.hydro_daily")
     finally:
         for root in [*stores.values(), future]:
             set_read_only(root, False)
@@ -438,21 +446,33 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     series = build_series(root, dataset=DAILY)
     assert series.status == "created" and series.source_files == (newer.version,)
     assert check_series(root, dataset=DAILY).series_state == {"hydro_daily": "current"}
-    assert current_version(root, slot="series:hydro_daily").version == series.version
-    assert current_version(root, slot=ARCHIVE_SLOT).version == newer.version
+    assert (
+        current_version(root, slot="series:pl.imgw.hydro_daily").version
+        == series.version
+    )
+    # The sync report, the scan and current_version share one slot per file.
+    assert newer.slot == ARCHIVE_SLOT
+    scanned = current_version(root, slot=newer.slot)
+    assert scanned.version == newer.version
+    assert scanned in [
+        entry for entry in iter_store(root, kind="archive") if entry.slot == newer.slot
+    ]
 
     # Coverage: the series index equals the public coverage of the parsed archive.
     index = read_series_index(series.version)
     assert index.periods == ((H2024.period_start, H2024.period_end),)
     records = list(normalize_archive(H2024, data=NEW))
     coverage = summarize_coverage(records, dataset=DAILY)
-    assert {(c.station, c.variable) for c in coverage} == {
+    assert {(c.station_code, c.variable) for c in coverage} == {
         (code, variable)
         for code, station in index.stations.items()
         for variable in station.variables
     }
     for expected in coverage:
-        assert index.stations[expected.station].variables[expected.variable] == expected
+        assert (
+            index.stations[expected.station_code].variables[expected.variable]
+            == expected
+        )
     parsed = {record.date: record for record in records if record.station_code == RABA}
     rows = list(read_series(series.version, station=RABA, variables=["H", "Q"]))
     assert len(rows) == index.stations[RABA].rows
@@ -482,8 +502,8 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
         if entry.slot != ARCHIVE_SLOT
     }
     assert lists == {
-        "archive:dane_hydrologiczne/lista_stacji_hydro.csv",
-        "archive:dane_meteorologiczne/wykaz_stacji.csv",
+        "archive:pl.imgw.hydro_stations:lista_stacji_hydro.csv",
+        "archive:pl.imgw.meteo_stations:wykaz_stacji.csv",
     }
     untouched, gets = stamps(root), len(imgw.requests("GET"))
     catalog_plan = check_catalog(root)

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
-from imgwtools.core.url_builder import PMaXTPMethod, build_pmaxtp_url
+from imgwtools.core.url_builder import build_pmaxtp_url
 from imgwtools.datasets import get_dataset
 from imgwtools.exceptions import (
     IMGWDataError,
@@ -60,7 +60,8 @@ Method = Literal["POT", "AMP"]
 def _validate_method(method: object) -> Method:
     if method not in _METHODS:
         raise IMGWValidationError(
-            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT lub AMP"
+            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
+            details={"option": "method", "allowed": list(_METHODS)},
         )
     return cast(Method, method)
 
@@ -68,7 +69,8 @@ def _validate_method(method: object) -> Method:
 def _validate_index(name: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise IMGWValidationError(
-            f"Indeks komórki {name} musi być nieujemną liczbą całkowitą: {value!r}"
+            f"Indeks komórki {name} musi być nieujemną liczbą całkowitą: {value!r}",
+            details={"option": name, "value": str(value)},
         )
     return value
 
@@ -77,7 +79,10 @@ def _validate_cell(ind_x: int | None, ind_y: int | None) -> tuple[int, int] | No
     if ind_x is None and ind_y is None:
         return None
     if ind_x is None or ind_y is None:
-        raise IMGWValidationError("Podaj oba indeksy komórki ind_x i ind_y albo żaden")
+        raise IMGWValidationError(
+            "Podaj oba indeksy komórki ind_x i ind_y albo żaden",
+            details={"option": "ind_y" if ind_y is None else "ind_x"},
+        )
     return _validate_index("ind_x", ind_x), _validate_index("ind_y", ind_y)
 
 
@@ -167,9 +172,9 @@ def check_pmaxtp(
     root: RootArg,
     /,
     *,
-    method: Literal["POT", "AMP"],
     latitude: float,
     longitude: float,
+    method: Literal["POT", "AMP"] = "POT",
     ind_x: int | None = None,
     ind_y: int | None = None,
     on_progress: ProgressHook | None = None,
@@ -186,12 +191,12 @@ def check_pmaxtp(
     ----------
     root : str, os.PathLike or StoreHandle
         Store root directory or an open store handle.
-    method : {"POT", "AMP"}
-        PMAXTP estimation method.
     latitude : float
         Latitude of the point within Poland.
     longitude : float
         Longitude of the point within Poland.
+    method : {"POT", "AMP"}, optional
+        PMAXTP estimation method; default ``"POT"``.
     ind_x : int or None, optional
         Expected grid cell X index; must be given together with ``ind_y``.
     ind_y : int or None, optional
@@ -264,9 +269,9 @@ def sync_pmaxtp(
     root: RootArg,
     /,
     *,
-    method: Literal["POT", "AMP"],
     latitude: float,
     longitude: float,
+    method: Literal["POT", "AMP"] = "POT",
     ind_x: int | None = None,
     ind_y: int | None = None,
     on_progress: ProgressHook | None = None,
@@ -286,12 +291,12 @@ def sync_pmaxtp(
     ----------
     root : str, os.PathLike or StoreHandle
         Store root directory or an open store handle.
-    method : {"POT", "AMP"}
-        PMAXTP estimation method.
     latitude : float
         Latitude of the requested point within Poland.
     longitude : float
         Longitude of the requested point within Poland.
+    method : {"POT", "AMP"}, optional
+        PMAXTP estimation method; default ``"POT"``.
     ind_x : int or None, optional
         Expected grid cell X index; must be given together with ``ind_y``.
     ind_y : int or None, optional
@@ -339,7 +344,7 @@ def sync_pmaxtp(
     _check_kartograf(handle.root)
     if _cancelled(cancel):
         return PMaXTPStoreResult("cancelled", None, ind_x, ind_y, None)
-    response = _http("GET", build_pmaxtp_url(PMaXTPMethod(method), latitude, longitude))
+    response = _http("GET", build_pmaxtp_url(latitude, longitude, method=method))
     try:
         payload = response.json()
     except ValueError as exc:
@@ -437,9 +442,9 @@ def read_pmaxtp(
     root: RootArg,
     /,
     *,
-    method: Literal["POT", "AMP"],
     ind_x: int,
     ind_y: int,
+    method: Literal["POT", "AMP"] = "POT",
     version: PathArg | None = None,
 ) -> PMaXTPResult:
     """
@@ -452,12 +457,12 @@ def read_pmaxtp(
     ----------
     root : str, os.PathLike or StoreHandle
         Store root directory or an open store handle.
-    method : {"POT", "AMP"}
-        PMAXTP estimation method.
     ind_x : int
         Grid cell X index.
     ind_y : int
         Grid cell Y index.
+    method : {"POT", "AMP"}, optional
+        PMAXTP estimation method; default ``"POT"``.
     version : str, os.PathLike or None, optional
         Version directory or its ``cell.json``, absolute or relative to the
         root; ``None`` reads the current version of the cell.
@@ -474,7 +479,8 @@ def read_pmaxtp(
         the cell, or the root path contains ``..``.
     IMGWStoreError
         If the root is not a supported store, no version of the cell (or the
-        given version) is stored, or a path contains a symbolic link.
+        given version) is stored (code ``not_found``), or a path contains a
+        symbolic link.
     IMGWStoreConflictError
         If a stored version of the cell is corrupted.
     IMGWDataError
@@ -489,7 +495,8 @@ def read_pmaxtp(
         current = _current_cell(handle.root, method, *cell)
         if current is None:
             raise IMGWStoreError(
-                f"Brak zapisanej komórki PMAXTP {method} {cell[0]}_{cell[1]}"
+                f"Brak zapisanej komórki PMAXTP {method} {cell[0]}_{cell[1]}",
+                code="not_found",
             )
         path = current[0]
     else:
@@ -502,7 +509,9 @@ def read_pmaxtp(
             )
         matches = [entry for entry in _existing(slot, CELL_FILE) if entry[0] == given]
         if not matches:
-            raise IMGWStoreError(f"Brak wersji komórki PMAXTP: {version}")
+            raise IMGWStoreError(
+                f"Brak wersji komórki PMAXTP: {version}", code="not_found"
+            )
         path = matches[0][0]
     try:
         document = json.loads(path.read_text(encoding="utf-8"))

@@ -1087,15 +1087,16 @@ def _period_years(periods: Iterable[tuple[date, date]], year_type: str) -> set[i
 
 
 def _series_entry(options: Options) -> StoreEntry | None:
-    slug = get_dataset(options["dataset"]).slug
-    return _store.current_version(options["root"], slot=f"series:{slug}")
+    key = get_dataset(options["dataset"]).key
+    return _store.current_version(options["root"], slot=f"series:{key}")
 
 
 def _select(options: Options, entry: StoreEntry | None) -> SeriesSelection:
     dataset = options["dataset"]
     if entry is None or entry.version is None:
         raise IMGWStoreError(
-            f"Brak szeregu {dataset} w magazynie; najpierw uruchom series build"
+            f"Brak szeregu {dataset} w magazynie; najpierw uruchom series build",
+            code="not_found",
         )
     index = _store.read_series_index(entry.version)
     missing = [code for code in options["stations"] if code not in index.stations]
@@ -1286,7 +1287,10 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
             )
             found = version if version.exists() else None
         else:
-            entry = _store.current_version(root, slot=f"pmaxtp:{cell}")
+            entry = _store.current_version(
+                root,
+                slot=f"pmaxtp:pl.imgw.pmaxtp:{options['method']}/{options['ind_x']}_{options['ind_y']}",
+            )
             found = entry.version if entry is not None else None
     except IMGWError as exc:
         action = PlanAction("pmaxtp read", "check_failed", str(exc))

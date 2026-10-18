@@ -947,10 +947,11 @@ def _area_stations(
     root: Path, descriptor: DatasetDescriptor, area: _Border
 ) -> tuple[ProjectFile, list[str]]:
     """Stacje rodziny zbioru z położeniem w obszarze, z bieżącej wersji katalogu (przypinanej)."""
-    entry = current_version(root, slot="catalog:stations")
+    entry = current_version(root, slot="catalog:pl.imgw.stations")
     if entry is None or entry.version is None or entry.meta is None:
         raise IMGWStoreError(
-            f"Brak katalogu stacji w magazynie {root}; najpierw imgw store catalog"
+            f"Brak katalogu stacji w magazynie {root}; najpierw imgw store catalog",
+            code="not_found",
         )
     family = (
         "hydro"
@@ -1751,7 +1752,7 @@ def _produce_select(
     if series.status in ("created", "reused") and series.version is not None:
         entry = StoreEntry(
             "series",
-            f"series:{get_dataset(dataset).slug}",
+            f"series:{get_dataset(dataset).key}",
             series.version,
             None,
             None,

@@ -269,7 +269,32 @@ def test_read_pmaxtp_offline_current_and_explicit_version(store):
             52.234416666667,
             21.007098333333,
         )
-        with pytest.raises(IMGWStoreError):
+        with pytest.raises(IMGWStoreError) as missing:
             read_pmaxtp(store, method="AMP", ind_x=751, ind_y=317)
+        assert missing.value.code == "not_found"
         with pytest.raises(IMGWValidationError):
             read_pmaxtp(store, method="POT", ind_x=1, ind_y=2, version=old.version)
+        absent = old.version.parents[1] / "2026-01-01_00000000"
+        with pytest.raises(IMGWStoreError) as missing_version:
+            read_pmaxtp(store, ind_x=751, ind_y=317, version=absent)
+        assert missing_version.value.code == "not_found"
+
+
+def test_method_defaults_to_pot_in_check_sync_and_read(store):
+    with respx.mock as router:
+        route = recorded(router, FIRST)
+        plan = check_pmaxtp(store, latitude=52.23, longitude=21.01)
+        synced = sync_pmaxtp(store, latitude=52.23, longitude=21.01)
+    assert route.call_count == 1
+    assert plan.actions[0].detail.startswith("POT ")
+    assert synced.version.relative_to(store.root).parts[2] == "POT"
+    with respx.mock:  # offline
+        assert read_pmaxtp(store, ind_x=751, ind_y=317) == read_pmaxtp(
+            store, method="POT", ind_x=751, ind_y=317
+        )
+
+
+def test_unknown_method_names_the_option(store):
+    with pytest.raises(IMGWValidationError) as error:
+        check_pmaxtp(store, latitude=52.23, longitude=21.01, method="XYZ")  # type: ignore[arg-type]
+    assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}

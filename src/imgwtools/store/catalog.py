@@ -492,17 +492,33 @@ def _api(
     }
 
 
+_LOCATION_COLUMNS = ("station_code", "latitude", "longitude")
+
+
 def _read_locations(
     data: bytes, *, user: bool
 ) -> tuple[dict[str, tuple[str, str, str | None]], list[str]]:
-    """Read ``code -> (lon, lat, source label)`` from the static or user CSV."""
+    """Read ``code -> (lon, lat, source label)`` from the static or user CSV.
+
+    Both files start with ``station_code,latitude,longitude``; only the user file
+    reads the optional ``source`` column.
+    """
     text = data.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
-    columns = ("station_code", "lon", "lat", "source") if user else ("id", "X", "Y")
-    fields = tuple(name.strip() for name in reader.fieldnames or ())
-    if fields[: len(columns)] != columns:
+    fields = [name.strip() for name in reader.fieldnames or ()]
+    if tuple(fields[: len(_LOCATION_COLUMNS)]) != _LOCATION_COLUMNS:
+        found = ",".join(fields) or "brak"
+        if user:
+            raise IMGWValidationError(
+                "Plik położeń użytkownika musi mieć kolumny "
+                f"station_code,latitude,longitude[,source]; znaleziono {found}",
+                details={"option": "user_locations", "found": fields},
+            )
         raise IMGWValidationError(
-            f"Plik położeń musi mieć kolumny {','.join(columns)}; znaleziono {','.join(fields) or 'brak'}"
+            f"Lokalny plik położeń {STATIC_LOCATIONS} ma nieobsługiwany nagłówek "
+            f"{found}; wymagane kolumny station_code,latitude,longitude — wygeneruj "
+            "plik ponownie poleceniem python -m imgwtools.reference_data",
+            details={"file": STATIC_LOCATIONS, "found": fields},
         )
     result: dict[str, tuple[str, str, str | None]] = {}
     problems: list[str] = []
@@ -512,7 +528,7 @@ def _read_locations(
             for key, value in row.items()
             if key
         }
-        code = row[columns[0]]
+        code = row["station_code"]
         if not (len(code) == 9 and code.isdecimal()):
             problems.append(
                 f"Wiersz {line}: niepoprawny kod stacji '{code}' w pliku położeń"
@@ -524,8 +540,8 @@ def _read_locations(
             )
             continue
         result[code] = (
-            row[columns[1]],
-            row[columns[2]],
+            row["longitude"],
+            row["latitude"],
             (row.get("source") or None) if user else None,
         )
     return result, problems
@@ -798,7 +814,7 @@ def _user_file(user_locations: PathArg | None) -> tuple[Path, bytes] | None:
 
 
 def _static_file() -> tuple[Path, bytes | None]:
-    """Local IMGW-PIB coordinates ``id,X,Y`` from ``settings.data_dir``; ``None`` when absent.
+    """Local IMGW-PIB coordinates ``station_code,latitude,longitude``; ``None`` when absent.
 
     IMGW data is not shipped with the package: ``python -m imgwtools.reference_data`` writes
     the file. Without ``pydantic-settings`` the directory comes from ``IMGW_DATA_DIR``.
@@ -861,8 +877,8 @@ def check_catalog(
     root : str, os.PathLike or StoreHandle
         Root of an existing IMGW store.
     user_locations : str, os.PathLike or None, optional
-        User CSV ``station_code,lon,lat,source`` whose SHA-256 is compared with
-        the one recorded in the catalog.
+        User CSV ``station_code,latitude,longitude[,source]`` whose SHA-256 is
+        compared with the one recorded in the catalog.
     on_progress : ProgressHook or None, optional
         Called after each station list and once at the end with the overall
         catalog status.
@@ -1081,7 +1097,8 @@ def build_catalog(
     the series family with ``geometry`` null unless the user file locates it,
     counted in ``from_series``); codes only in the user file are reported in
     ``problems``. Location precedence: API, then the local static file
-    (``settings.data_dir``), then the user CSV ``station_code,lon,lat,source``.
+    ``station_code,latitude,longitude`` (``settings.data_dir``), then the user
+    CSV ``station_code,latitude,longitude[,source]``.
     A missing static file is not an error: it is reported in ``problems`` and
     recorded in the sidecar as ``available: false``. Every series index read is
     recorded in the sidecar as a ``series`` source. Identical content (same
@@ -1092,7 +1109,8 @@ def build_catalog(
     root : str, os.PathLike or StoreHandle
         Root of an existing IMGW store.
     user_locations : str, os.PathLike or None, optional
-        User CSV ``station_code,lon,lat,source`` with fallback station locations.
+        User CSV ``station_code,latitude,longitude[,source]`` with fallback
+        station locations.
     on_progress : ProgressHook or None, optional
         Called after each build step (station lists, APIs, assembly, publication).
     on_notice : NoticeHook or None, optional
@@ -1128,7 +1146,10 @@ def build_catalog(
         is unreadable, or a station code appears in both the hydro and meteo
         families.
     IMGWValidationError
-        If a location file exists but cannot be read.
+        If a location file exists but cannot be read or does not start with the
+        ``station_code,latitude,longitude`` columns (the static file in the old
+        ``id,X,Y`` format must be regenerated with
+        ``python -m imgwtools.reference_data``); raised before any download.
     IMGWStoreConflictError
         If a stored version is corrupted or the new version cannot be published
         atomically.
@@ -1136,6 +1157,16 @@ def build_catalog(
     handle = _handle(root)
     _check_kartograf(handle.root)
     user = _user_file(user_locations)
+    # Location files are validated before any download, so a bad header writes nothing.
+    static_path, static_bytes = _static_file()
+    static, static_problems = (
+        _read_locations(static_bytes, user=False)
+        if static_bytes is not None
+        else ({}, [])
+    )
+    user_rows, user_problems = (
+        _read_locations(user[1], user=True) if user is not None else ({}, [])
+    )
     total = 6
 
     def progress(step: int, status: str, message: str) -> None:
@@ -1182,8 +1213,6 @@ def build_catalog(
     }
     sources[0]["count"] = len(parsed_lists["hydro"])
     sources[1]["count"] = len(parsed_lists["meteo"])
-    static_path, static_bytes = _static_file()
-    static: dict[str, tuple[str, str, str | None]] = {}
     if static_bytes is None:
         problems.append(
             f"Brak lokalnego pliku położeń {static_path.as_posix()}; źródło static pominięte "
@@ -1201,7 +1230,6 @@ def build_catalog(
             }
         )
     else:
-        static, static_problems = _read_locations(static_bytes, user=False)
         problems.extend(static_problems)
         sources.append(
             _local_source(
@@ -1209,9 +1237,7 @@ def build_catalog(
             )
             | {"available": True}
         )
-    user_rows: dict[str, tuple[str, str, str | None]] = {}
     if user is not None:
-        user_rows, user_problems = _read_locations(user[1], user=True)
         problems.extend(user_problems)
         sources.append(
             _local_source(

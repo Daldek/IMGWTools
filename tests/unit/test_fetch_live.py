@@ -1,8 +1,6 @@
-"""Offline tests for live IMGW reads and archive downloads (respx-mocked HTTP)."""
+"""Offline tests for live IMGW reads (respx-mocked HTTP); downloads: test_fetch.py."""
 
-import io
 import json
-import zipfile
 
 import httpx
 import pytest
@@ -14,10 +12,6 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.fetch import (
-    download_hydro_data,
-    download_hydro_data_async,
-    download_meteo_data,
-    download_meteo_data_async,
     fetch_hydro_current,
     fetch_hydro_current_async,
     fetch_meteo_current,
@@ -41,10 +35,6 @@ API = "https://danepubliczne.imgw.pl/api/data"
 PMAXTP = "https://powietrze.imgw.pl/tpmax-api/point"
 MAP = "https://hydro-back.imgw.pl/map/stations/hydrologic"
 HYDRO_LIST_URL = station_source_files()[0].url
-ARCHIVE = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
-HYDRO_POLR_Q = f"{ARCHIVE}/dane_hydrologiczne/polroczne_i_roczne/2020/polr_Q_2020.zip"
-HYDRO_DAILY = f"{ARCHIVE}/dane_hydrologiczne/dobowe/2020/codz_2020_03.zip"
-METEO_MONTHLY = f"{ARCHIVE}/dane_meteorologiczne/miesieczne/klimat/2023/2023_m_k.zip"
 
 HYDRO_ITEMS = [
     {
@@ -100,13 +90,6 @@ METEO_WARNINGS = [
         "teryt": ["1261"],
     }
 ]
-
-
-def _zip_bytes() -> bytes:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("dane.csv", "149190310,SAN ESCOBAR\n")
-    return buffer.getvalue()
 
 
 # --------------------------------------------------------------------------
@@ -459,165 +442,3 @@ async def test_fetch_warnings_unknown_kind_is_validation_error(respx_mock):
         await fetch_warnings_async(kind="synop")  # type: ignore[arg-type]
     assert error.value.details == {"option": "kind", "allowed": ["hydro", "meteo"]}
     assert not respx_mock.calls
-
-
-# --------------------------------------------------------------------------
-# Archive downloads
-# --------------------------------------------------------------------------
-
-
-def test_download_hydro_data_semi_annual_param_selects_file(respx_mock):
-    payload = _zip_bytes()
-    respx_mock.get(HYDRO_POLR_Q).respond(content=payload, headers={"ETag": '"q"'})
-    result = download_hydro_data("polroczne_i_roczne", 2020, param="Q")
-    assert (result.data, result.url, result.etag) == (payload, HYDRO_POLR_Q, '"q"')
-
-
-def test_download_hydro_data_follows_redirect_and_reports_final_url(respx_mock):
-    final = "https://mirror.example/codz_2020_03.zip"
-    respx_mock.get(HYDRO_DAILY).respond(302, headers={"Location": final})
-    respx_mock.get(final).respond(content=_zip_bytes())
-    assert download_hydro_data("dobowe", 2020, 3).url == final
-
-
-def test_download_hydro_data_daily_before_2023_requires_month(respx_mock):
-    with pytest.raises(ValueError, match="Month is required"):
-        download_hydro_data("dobowe", 2020)
-    assert not respx_mock.calls
-
-
-def test_download_hydro_data_rejects_invalid_content_length(respx_mock):
-    respx_mock.get(HYDRO_DAILY).mock(
-        return_value=httpx.Response(
-            200,
-            stream=httpx.ByteStream(_zip_bytes()),
-            headers={"Content-Length": "duzo"},
-        )
-    )
-    with pytest.raises(IMGWDataError, match="Niepoprawny nagłówek Content-Length"):
-        download_hydro_data("dobowe", 2020, 3)
-
-
-def test_download_hydro_data_connect_error_is_polish_connection_error(respx_mock):
-    respx_mock.get(HYDRO_DAILY).mock(side_effect=httpx.ConnectError)
-    with pytest.raises(IMGWConnectionError, match="Błąd pobierania"):
-        download_hydro_data("dobowe", 2020, 3)
-
-
-def test_download_hydro_data_timeout_is_polish_connection_error(respx_mock):
-    respx_mock.get(HYDRO_DAILY).mock(side_effect=httpx.ReadTimeout)
-    with pytest.raises(IMGWConnectionError, match="Przekroczono czas pobierania"):
-        download_hydro_data("dobowe", 2020, 3)
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "Przekroczono czas"),
-        ({"side_effect": httpx.ConnectError}, IMGWConnectionError, "Błąd pobierania"),
-        (
-            {"return_value": httpx.Response(500)},
-            IMGWConnectionError,
-            r"Pobieranie nie powiodło się \(HTTP 500\): .*2023_m_k\.zip",
-        ),
-        (
-            {"return_value": httpx.Response(200, content=b"<html>")},
-            IMGWDataError,
-            "Niepoprawne archiwum ZIP",
-        ),
-    ],
-)
-def test_download_meteo_data_maps_failures(respx_mock, mock, exception, message):
-    respx_mock.get(METEO_MONTHLY).mock(**mock)
-    with pytest.raises(exception, match=message):
-        download_meteo_data("miesieczne", "klimat", 2023)
-
-
-def test_download_meteo_data_unsupported_dataset_raises_before_request(respx_mock):
-    with pytest.raises(ValueError):
-        download_meteo_data("terminowe", "opad", 2023, 1)
-    assert not respx_mock.calls
-
-
-async def test_download_hydro_data_async_returns_headers(respx_mock):
-    payload = _zip_bytes()
-    respx_mock.get(HYDRO_POLR_Q).respond(
-        content=payload,
-        headers={"Last-Modified": "Sun, 18 Oct 2026 08:00:00 GMT", "ETag": '"x"'},
-    )
-    result = await download_hydro_data_async("polroczne_i_roczne", 2020, param="Q")
-    assert result.data == payload
-    assert result.last_modified == "Sun, 18 Oct 2026 08:00:00 GMT"
-    assert result.etag == '"x"'
-    assert result.content_length == len(payload)
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ReadTimeout}, IMGWConnectionError, "Przekroczono czas"),
-        ({"side_effect": httpx.ConnectError}, IMGWConnectionError, "Błąd pobierania"),
-        (
-            {"return_value": httpx.Response(404)},
-            IMGWConnectionError,
-            r"Pobieranie nie powiodło się \(HTTP 404\): .*codz_2020_03\.zip",
-        ),
-        (
-            {"return_value": httpx.Response(200, content=b"PK-ale-nie-zip")},
-            IMGWDataError,
-            "Niepoprawne archiwum ZIP",
-        ),
-    ],
-)
-async def test_download_hydro_data_async_maps_failures(
-    respx_mock, mock, exception, message
-):
-    respx_mock.get(HYDRO_DAILY).mock(**mock)
-    with pytest.raises(exception, match=message):
-        await download_hydro_data_async("dobowe", 2020, 3)
-
-
-@pytest.mark.parametrize(
-    "mock, exception, message",
-    [
-        ({"side_effect": httpx.ConnectError}, IMGWConnectionError, "Błąd pobierania"),
-        (
-            {"return_value": httpx.Response(503)},
-            IMGWConnectionError,
-            r"Pobieranie nie powiodło się \(HTTP 503\)",
-        ),
-        (
-            {
-                "return_value": httpx.Response(
-                    200,
-                    stream=httpx.ByteStream(_zip_bytes()),
-                    headers={"Content-Length": "-x"},
-                )
-            },
-            IMGWDataError,
-            "Niepoprawny nagłówek Content-Length",
-        ),
-    ],
-)
-async def test_download_meteo_data_async_maps_failures(
-    respx_mock, mock, exception, message
-):
-    respx_mock.get(METEO_MONTHLY).mock(**mock)
-    with pytest.raises(exception, match=message):
-        await download_meteo_data_async("miesieczne", "klimat", 2023)
-
-
-async def test_download_meteo_data_async_without_headers_leaves_provenance_none(
-    respx_mock,
-):
-    payload = _zip_bytes()
-    respx_mock.get(METEO_MONTHLY).mock(
-        return_value=httpx.Response(200, stream=httpx.ByteStream(payload))
-    )
-    result = await download_meteo_data_async("miesieczne", "klimat", 2023)
-    assert result.data == payload
-    assert (result.etag, result.last_modified, result.content_length) == (
-        None,
-        None,
-        None,
-    )

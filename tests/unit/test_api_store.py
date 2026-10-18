@@ -182,8 +182,8 @@ def test_info_and_entries_report_store_offline_with_relative_paths(client, serve
     assert info["schema"] == "imgw-store/1"
     assert info["root"] == "."
     assert {entry["slot"] for entry in entries} == {
-        "series:hydro_daily",
-        "series:meteo_precip_daily",
+        "series:pl.imgw.hydro_daily",
+        "series:pl.imgw.meteo_precip_daily",
     }
     for entry in entries:
         assert entry["version"].startswith("series/versions/")

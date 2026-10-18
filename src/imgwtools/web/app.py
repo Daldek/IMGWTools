@@ -297,7 +297,7 @@ async def generate_pmaxtp_url(
     """Generate PMAXTP URL and fetch data (HTMX partial)."""
     try:
         pmaxtp_method = PMaXTPMethod(method)
-        url = build_pmaxtp_url(pmaxtp_method, latitude, longitude)
+        url = build_pmaxtp_url(latitude, longitude, method=pmaxtp_method.value)
 
         # Fetch data from IMGW
         async with httpx.AsyncClient() as client:

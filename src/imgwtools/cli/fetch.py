@@ -102,7 +102,7 @@ def fetch_current(
         console.print(f"[red]Nieprawidlowy typ danych: {data_type}[/red]")
         raise typer.Exit(1)
 
-    url = build_api_url(endpoints[data_type], station_id=station_id)
+    url = build_api_url(endpoints[data_type], station=station_id)
 
     console.print(f"[bold]Pobieranie aktualnych danych ({data_type})[/bold]")
     console.print(f"URL: {url}")
@@ -176,7 +176,7 @@ def fetch_pmaxtp(
         )
         raise typer.Exit(1)
 
-    url = build_pmaxtp_url(pmaxtp_method, lat, lon)
+    url = build_pmaxtp_url(lat, lon, method=pmaxtp_method.value)
 
     console.print("[bold]Pobieranie danych PMAXTP[/bold]")
     console.print(f"Metoda: {method}")

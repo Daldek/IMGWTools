@@ -79,9 +79,9 @@ def fetch_stations(data_dir: Path) -> None:
     )
     _write_csv(
         data_dir / "hydro_stations_locations.csv",
-        ["id", "X", "Y"],
+        ["station_code", "latitude", "longitude"],
         (
-            [s.station_code, s.longitude, s.latitude]
+            [s.station_code, s.latitude, s.longitude]
             for s in fetch_hydro_states()
             if s.longitude is not None and s.latitude is not None
         ),

@@ -6,6 +6,9 @@ This is the core module for generating direct download links to IMGW servers.
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Literal
+
+from imgwtools.exceptions import IMGWValidationError
 
 
 class DataType(str, Enum):  # noqa: UP042 - public enums retain legacy str() behavior
@@ -70,6 +73,7 @@ class DownloadURL:
 IMGW_PUBLIC_DATA_URL = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
 IMGW_API_URL = "https://danepubliczne.imgw.pl/api/data"
 IMGW_PMAXTP_URL = "https://powietrze.imgw.pl/tpmax-api/point"
+_PMAXTP_METHODS = ("POT", "AMP")
 
 
 def _get_meteo_folder(year: int, subtype: MeteoSubtype) -> str:
@@ -304,36 +308,47 @@ def build_meteo_url(
 
 
 def build_pmaxtp_url(
-    method: PMaXTPMethod,
     latitude: float,
     longitude: float,
+    *,
+    method: Literal["POT", "AMP"] = "POT",
 ) -> str:
     """
     Build URL for PMAXTP (probabilistic max precipitation) API.
 
     Parameters
     ----------
-    method : PMaXTPMethod
-        Calculation method (POT or AMP).
     latitude : float
         Latitude in decimal degrees.
     longitude : float
         Longitude in decimal degrees.
+    method : {"POT", "AMP"}, optional
+        Calculation method: peaks over threshold (default) or annual maxima.
 
     Returns
     -------
     str
         URL for the PMAXTP API endpoint.
-    """
-    lat_str = f"{latitude:.4f}"
-    lon_str = f"{longitude:.4f}"
 
-    return f"{IMGW_PMAXTP_URL}/{method.value[0]}/KS/{lat_str}/{lon_str}"
+    Raises
+    ------
+    IMGWValidationError
+        If ``method`` is not ``"POT"`` or ``"AMP"`` (``details`` ``option`` and
+        ``allowed``).
+    """
+    if method not in _PMAXTP_METHODS:
+        raise IMGWValidationError(
+            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
+            details={"option": "method", "allowed": list(_PMAXTP_METHODS)},
+        )
+    return f"{IMGW_PMAXTP_URL}/{method[0]}/KS/{latitude:.4f}/{longitude:.4f}"
 
 
 def build_api_url(
     endpoint: str,
-    station_id: str | None = None,
+    /,
+    *,
+    station: str | None = None,
     station_name: str | None = None,
 ) -> str:
     """
@@ -342,9 +357,10 @@ def build_api_url(
     Parameters
     ----------
     endpoint : str
-        API endpoint (hydro, synop, meteo, warnings/hydro, warnings/meteo).
-    station_id : str or None, optional
-        Station ID.
+        API endpoint (``hydro``, ``meteo``, ``synop``, ``warningshydro``,
+        ``warningsmeteo``).
+    station : str or None, optional
+        Station code; takes precedence over ``station_name``.
     station_name : str or None, optional
         Station name (for synop).
 
@@ -355,8 +371,8 @@ def build_api_url(
     """
     url = f"{IMGW_API_URL}/{endpoint}"
 
-    if station_id:
-        url += f"/id/{station_id}"
+    if station:
+        url += f"/id/{station}"
     elif station_name:
         url += f"/station/{station_name}"
 

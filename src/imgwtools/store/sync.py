@@ -13,11 +13,26 @@ from urllib.parse import unquote, urlsplit
 import httpx
 
 from imgwtools.core.url_builder import IMGW_PUBLIC_DATA_URL
-from imgwtools.datasets import ArchiveFile, archive_files, get_dataset
-from imgwtools.exceptions import IMGWDataError, IMGWError, IMGWValidationError
+from imgwtools.datasets import (
+    ArchiveFile,
+    MonthsArg,
+    YearsArg,
+    archive_files,
+    get_dataset,
+    parse_months,
+    parse_years,
+)
+from imgwtools.exceptions import (
+    ErrorCode,
+    IMGWCancelledError,
+    IMGWDataError,
+    IMGWError,
+    IMGWValidationError,
+)
 from imgwtools.fetch import (
     DEFAULT_TIMEOUT,
     DownloadResult,
+    _archive_slot,
     download_hydro_data,
     download_meteo_data,
 )
@@ -27,7 +42,6 @@ from imgwtools.store.series import (
     _scan_inputs,
     _series_descriptor,
     _series_state,
-    _slot_of,
     _Version,
     build_series,
 )
@@ -89,12 +103,19 @@ def _head(client: httpx.Client, archive: ArchiveFile) -> _Signal | None:
     )
 
 
+_HTTP_ERRORS = (
+    "Przekroczono czas odpowiedzi serwera IMGW",
+    "Błąd HTTP ",
+    "Błąd połączenia z IMGW",
+)
+
+
 def _http_error(exc: Exception) -> str:
     if isinstance(exc, httpx.TimeoutException):
-        return f"Przekroczono czas odpowiedzi serwera IMGW: {exc}"
+        return f"{_HTTP_ERRORS[0]}: {exc}"
     if isinstance(exc, httpx.HTTPStatusError):
-        return f"Błąd HTTP {exc.response.status_code}: {exc.request.url}"
-    return f"Błąd połączenia z IMGW: {exc}"
+        return f"{_HTTP_ERRORS[1]}{exc.response.status_code}: {exc.request.url}"
+    return f"{_HTTP_ERRORS[2]}: {exc}"
 
 
 def _compare(local: dict[str, object], remote: _Signal) -> Status:
@@ -134,16 +155,23 @@ def _item(
 
 
 def _select(
-    datasets: Iterable[str], years: Iterable[int], months: Iterable[int] | None
+    datasets: Iterable[str], years: YearsArg, months: MonthsArg | None
 ) -> list[ArchiveFile]:
     if isinstance(datasets, str):
-        raise IMGWValidationError("Parametr datasets musi być listą kluczy zbiorów")
-    selected_years = tuple(years)
-    selected_months = tuple(months) if months is not None else None
+        raise IMGWValidationError(
+            "Parametr datasets musi być listą kluczy zbiorów",
+            details={"option": "datasets", "value": datasets},
+        )
+    selected_years = parse_years(years, option="years")
+    selected_months = (
+        parse_months(months, option="months") if months is not None else None
+    )
     result: dict[str, ArchiveFile] = {}
     keys = list(dict.fromkeys(datasets))
     if not keys:
-        raise IMGWValidationError("Wybierz co najmniej jeden zbiór")
+        raise IMGWValidationError(
+            "Wybierz co najmniej jeden zbiór", details={"option": "datasets"}
+        )
     for dataset in keys:
         _series_descriptor(dataset)
         for archive in archive_files(
@@ -153,13 +181,31 @@ def _select(
     return list(result.values())
 
 
+def _plan_target(root: Path, plan: PathArg) -> Path:
+    """Plan file to write: outside the store, in an existing directory."""
+    target = Path(plan).expanduser().absolute()
+    resolved, store = target.resolve(), root.resolve()
+    if resolved == store or store in resolved.parents:
+        raise IMGWValidationError(
+            f"Plan musi być zapisany poza magazynem: {target}",
+            details={"option": "plan", "value": str(target)},
+        )
+    if not target.parent.is_dir():
+        raise IMGWValidationError(
+            f"Katalog pliku planu nie istnieje: {target.parent}",
+            details={"option": "plan", "value": str(target)},
+        )
+    return target
+
+
 def check_store(
     root: PathArg | StoreHandle,
     /,
     *,
     datasets: Iterable[str],
-    years: Iterable[int],
-    months: Iterable[int] | None = None,
+    years: YearsArg,
+    months: MonthsArg | None = None,
+    plan: PathArg | None = None,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
@@ -178,13 +224,17 @@ def check_store(
     root : str, os.PathLike or StoreHandle
         Root of an existing IMGW store.
     datasets : Iterable[str]
-        Full dataset keys (``pl.imgw.*``) of measurement series datasets. A bare
-        string is rejected.
-    years : Iterable[int]
-        Years to check (hydrological or calendar, as defined by each dataset).
-    months : Iterable[int] or None, optional
-        Months (1-12) filtering physically monthly files only; yearly archives are
-        returned once regardless of this filter.
+        Dataset keys, slugs or legacy aliases of measurement series datasets. A
+        bare string is rejected.
+    years : YearsArg
+        Years to check (hydrological or calendar, as defined by each dataset):
+        ``2024``, ``"2020-2023"``, ``"2020,2022"`` or a collection of such items.
+    months : MonthsArg or None, optional
+        Months (1-12, same forms as ``years``) filtering physically monthly files
+        only; yearly archives are returned once regardless of this filter.
+    plan : str, os.PathLike or None, optional
+        File to save the plan to (``imgw-plan/1``, see `StorePlan.to_json`); it
+        must lie outside the store in an existing directory.
     on_progress : ProgressHook or None, optional
         Called after each archive with its plan status.
     on_notice : NoticeHook or None, optional
@@ -212,11 +262,13 @@ def check_store(
         If ``root`` is not a supported IMGW store or a store path contains a
         symbolic link.
     IMGWValidationError
-        If ``datasets`` is a string or empty, a dataset key is unknown or does not
-        produce measurement series, or the years/months are invalid.
+        If ``datasets`` is a string or empty, a dataset is unknown or does not
+        produce measurement series, the years/months are invalid, or ``plan``
+        lies inside the store or in a missing directory.
     """
     path = _root(root)
     archives = _select(datasets, years, months)
+    target = _plan_target(path, plan) if plan is not None else None
     listings: dict[str, set[str] | Exception | None] = {}
     items: list[PlanItem] = []
     cancelled = False
@@ -267,7 +319,7 @@ def check_store(
         series_state[descriptor.slug] = (
             "outdated" if state == "current" and pending else state
         )
-    return StorePlan(
+    result = StorePlan(
         schema="imgw-plan/1",
         root=path,
         checked_at=datetime.now(UTC),
@@ -275,6 +327,9 @@ def check_store(
         series_state=series_state,
         cancelled=cancelled,
     )
+    if target is not None:
+        result.to_json(target)
+    return result
 
 
 def _check_one(
@@ -349,8 +404,20 @@ def _result(
     *,
     version: Path | None = None,
     error: str | None = None,
+    error_code: ErrorCode | None = None,
 ) -> OperationResult:
-    return OperationResult(_slot_of(item.archive), status, version, error)
+    return OperationResult(
+        _archive_slot(item.archive), status, version, error, error_code=error_code
+    )
+
+
+def _check_failed_code(item: PlanItem) -> ErrorCode:
+    """Error code of a ``check_failed`` plan item: IMGW server or local version."""
+    return (
+        "source_unavailable"
+        if item.error is not None and item.error.startswith(_HTTP_ERRORS)
+        else "data_error"
+    )
 
 
 def sync_store(
@@ -358,8 +425,8 @@ def sync_store(
     /,
     *,
     datasets: Iterable[str] | None = None,
-    years: Iterable[int] | None = None,
-    months: Iterable[int] | None = None,
+    years: YearsArg | None = None,
+    months: MonthsArg | None = None,
     plan: StorePlan | PathArg | None = None,
     series: bool = True,
     on_progress: ProgressHook | None = None,
@@ -384,11 +451,12 @@ def sync_store(
     root : str, os.PathLike or StoreHandle
         Root of an existing IMGW store.
     datasets : Iterable[str] or None, optional
-        Full dataset keys; required, together with ``years``, when ``plan`` is not
-        given.
-    years : Iterable[int] or None, optional
-        Years to synchronize; required when ``plan`` is not given.
-    months : Iterable[int] or None, optional
+        Dataset keys, slugs or legacy aliases; required, together with
+        ``years``, when ``plan`` is not given.
+    years : YearsArg or None, optional
+        Years to synchronize (``2024``, ``"2020-2023"``, ``"2020,2022"`` or a
+        collection of such items); required when ``plan`` is not given.
+    months : MonthsArg or None, optional
         Months (1-12) filtering physically monthly files.
     plan : StorePlan, str, os.PathLike or None, optional
         Plan from :func:`check_store`, or the path of its ``imgw-plan/1`` JSON file.
@@ -542,7 +610,9 @@ def _sync_one(
     if item.status == "current":
         return _result(item, "unchanged", version=local)
     if item.status == "check_failed":
-        return _result(item, "failed", error=item.error)
+        return _result(
+            item, "failed", error=item.error, error_code=_check_failed_code(item)
+        )
     if item.status == "unverifiable":
         if item.error == CANCELLED:
             return _result(item, "cancelled", error=CANCELLED)
@@ -569,7 +639,12 @@ def _sync_one(
     try:
         signal = _head(client, item.archive)
     except httpx.HTTPError as exc:
-        return _result(item, "failed", error=_http_error(exc))
+        return _result(
+            item,
+            "failed",
+            error=_http_error(exc),
+            error_code="source_unavailable",
+        )
     if signal is None or (signal.etag, signal.last_modified) != (
         item.remote_etag,
         item.remote_last_modified,
@@ -588,11 +663,16 @@ def _sync_one(
             cancel=cancel,
         )
     except (IMGWError, OSError) as exc:
-        if cancel is not None and cancel():
+        if isinstance(exc, IMGWCancelledError) or (cancel is not None and cancel()):
             return _result(item, "cancelled", error=CANCELLED)
         if on_notice is not None:
             on_notice(
                 Notice("error", "archive_failed", f"{item.archive.server_path}: {exc}")
             )
-        return _result(item, "failed", error=str(exc))
+        return _result(
+            item,
+            "failed",
+            error=str(exc),
+            error_code=exc.code if isinstance(exc, IMGWError) else "io_error",
+        )
     return _result(item, written.status, version=written.path)

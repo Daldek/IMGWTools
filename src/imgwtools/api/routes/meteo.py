@@ -46,7 +46,7 @@ async def get_synop_data(
 
     Pobiera aktualne dane synoptyczne z API IMGW.
     """
-    url = build_api_url("synop", station_id=station_id, station_name=station_name)
+    url = build_api_url("synop", station=station_id, station_name=station_name)
 
     async with httpx.AsyncClient() as client:
         try:
@@ -106,7 +106,7 @@ async def get_current_meteo_data(
 
     Pobiera dane bezposrednio z API IMGW (endpoint meteo).
     """
-    url = build_api_url("meteo", station_id=station_id)
+    url = build_api_url("meteo", station=station_id)
 
     async with httpx.AsyncClient() as client:
         try:

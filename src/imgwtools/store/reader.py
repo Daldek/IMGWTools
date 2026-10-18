@@ -15,9 +15,12 @@ from imgwtools._parsing import normalize_archive
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools.datasets import (
     ArchiveFile,
+    DatasetDescriptor,
     License,
+    YearsArg,
     datasets,
     get_dataset,
+    parse_years,
     station_source_files,
 )
 from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
@@ -31,11 +34,18 @@ from imgwtools.store.catalog import (
     _timestamp,
 )
 from imgwtools.store.pmaxtp import CELL_FILE, CELL_SCHEMA, RESPONSE_FILE
-from imgwtools.store.series import _FLAGS, SERIES_SCHEMA, _pyarrow, _restore_archive
+from imgwtools.store.series import (
+    _FLAGS,
+    SERIES_SCHEMA,
+    _pyarrow,
+    _restore_archive,
+    _series_descriptor,
+)
 from imgwtools.store.types import (
     Meta,
     PathArg,
     SeriesIndex,
+    SeriesSelection,
     StationCoverage,
     StationFeature,
     StationSeriesIndex,
@@ -157,7 +167,9 @@ def store_info(root: PathArg, /) -> StoreInfo:
 def _open(root: RootArg) -> Path:
     info, _ = _inspect(_safe_root(root.root if isinstance(root, StoreHandle) else root))
     if not info.supported:
-        raise IMGWStoreError("; ".join(info.problems))
+        raise IMGWStoreError(
+            "; ".join(info.problems), details={"reason": "unsupported"}
+        )
     return info.root
 
 
@@ -296,7 +308,7 @@ def read_meta(path: PathArg, /) -> Meta:
         return _load_meta(sidecar)
     except _Invalid as exc:
         if exc.code == "missing_sidecar":
-            raise IMGWStoreError(f"Brak sidecara {sidecar}") from exc
+            raise IMGWStoreError(f"Brak sidecara {sidecar}", code="not_found") from exc
         raise IMGWDataError(f"Nieprawidłowy sidecar {sidecar}: {exc}") from exc
 
 
@@ -397,13 +409,13 @@ def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _problem(slot: str, path: Path, code: str, text: str) -> StoreEntry:
+def _problem(slot: str | None, path: Path, code: str, text: str) -> StoreEntry:
     return StoreEntry("problem", slot, path, None, code, text)
 
 
 def _unknown(root: Path, path: Path) -> StoreEntry:
     return _problem(
-        _relative(root, path),
+        None,
         path,
         "unknown_entry",
         f"Nieznany element magazynu: {_relative(root, path)}",
@@ -411,13 +423,19 @@ def _unknown(root: Path, path: Path) -> StoreEntry:
 
 
 def _entry(
-    root: Path, kind: EntryKind, slot: str, directory: Path, name: str, **options: Any
+    root: Path,
+    kind: EntryKind,
+    slot: str,
+    directory: Path,
+    name: str,
+    *,
+    server_path: str | None = None,
+    **options: Any,
 ) -> StoreEntry:
     try:
         main, meta = _check_version(directory, name, **options)
-        server_path = slot.removeprefix("archive:")
         if (
-            kind == "archive"
+            server_path is not None
             and meta.request.get("server_path", server_path) != server_path
         ):
             raise _Invalid(
@@ -445,8 +463,61 @@ def _entry(
     return StoreEntry(kind, slot, main, meta, None, None)
 
 
-def _archive_slot(base: Path, directory: Path) -> str:
-    """``archive:<server_path>`` of a version directory, named after its (possibly orphaned) main file."""
+# --------------------------------------------------------------------------
+# Slots (spec §13.7)
+# --------------------------------------------------------------------------
+
+_SLOT_GRAMMAR = (
+    "archive:<klucz>:<ścieżka>, series:<klucz>, catalog:pl.imgw.stations "
+    "albo pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>"
+)
+_CATALOG_KEY = "pl.imgw.stations"
+_PMAXTP_KEY = "pl.imgw.pmaxtp"
+
+
+def _archive_descriptors() -> list[DatasetDescriptor]:
+    """Stored archive datasets, longest server directory first."""
+    return sorted(
+        (item for item in datasets() if item.in_store and item.server_dir is not None),
+        key=lambda item: -len(item.server_dir or ""),
+    )
+
+
+def _archive_slot(server_path: str) -> str | None:
+    """
+    Slot ``archive:<key>:<selector>`` of a stored server path.
+
+    The owning dataset is the stored one with the longest matching server
+    directory. Station lists accept only their published file name, other
+    datasets a selector with a folder; any other path has no slot.
+    """
+    descriptor = next(
+        (
+            item
+            for item in _archive_descriptors()
+            if server_path.startswith(f"{item.server_dir}/")
+        ),
+        None,
+    )
+    if descriptor is None:
+        return None
+    selector = server_path.removeprefix(f"{descriptor.server_dir}/")
+    if descriptor.time_unit == "station_list":
+        names = {
+            PurePosixPath(item.server_path).name
+            for item in _station_lists().values()
+            if item.dataset == descriptor.key
+        }
+        valid = selector in names
+    else:
+        valid = "/" in selector
+    if not valid or ":" in selector:
+        return None
+    return f"archive:{descriptor.key}:{selector}"
+
+
+def _scanned_archive_slot(base: Path, directory: Path) -> tuple[str, str] | None:
+    """Slot and server path of a version directory, named after its (possibly orphaned) main file."""
     names = sorted(
         item.name.removesuffix(_SIDECAR)
         for item in directory.iterdir()
@@ -457,7 +528,9 @@ def _archive_slot(base: Path, directory: Path) -> str:
         (item for item in names if PurePosixPath(item).stem == slot_dir.name),
         slot_dir.name,
     )
-    return f"archive:{slot_dir.parent.relative_to(base).as_posix()}/{name}"
+    server_path = f"{slot_dir.parent.relative_to(base).as_posix()}/{name}"
+    slot = _archive_slot(server_path)
+    return None if slot is None else (slot, server_path)
 
 
 def _directories(root: Path, path: Path) -> Iterator[Path | StoreEntry]:
@@ -496,18 +569,31 @@ def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEnt
             not item.is_dir() or item.is_symlink() for item in child.iterdir()
         )
         if has_files or _VERSION_DIR.match(child.name):
-            if len(child.relative_to(base).parts) < 3:
+            found = (
+                _scanned_archive_slot(base, child)
+                if len(child.relative_to(base).parts) >= 3
+                else None
+            )
+            if found is None:
                 yield _unknown(root, child)
             else:
-                slot = _archive_slot(base, child)
-                yield _entry(root, "archive", slot, child, PurePosixPath(slot).name)
+                slot, server_path = found
+                yield _entry(
+                    root,
+                    "archive",
+                    slot,
+                    child,
+                    PurePosixPath(server_path).name,
+                    server_path=server_path,
+                )
         else:
             yield from _scan_archives(root, base, child)
 
 
-def _series_slugs() -> set[str]:
+def _series_datasets() -> dict[str, DatasetDescriptor]:
+    """Datasets with derived series, keyed by their store directory slug."""
     return {
-        item.slug
+        item.slug: item
         for item in datasets()
         if item.in_store and item.time_unit in ("day", "month", "half_year")
     }
@@ -525,12 +611,17 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                     version
                     if isinstance(version, StoreEntry)
                     else _entry(
-                        root, "catalog", "catalog:stations", version, CATALOG_FILE
+                        root,
+                        "catalog",
+                        f"catalog:{_CATALOG_KEY}",
+                        version,
+                        CATALOG_FILE,
                     )
                 )
         elif top.name == "series":
+            series = _series_datasets()
             for slug in _directories(root, versions):
-                if isinstance(slug, StoreEntry) or slug.name not in _series_slugs():
+                if isinstance(slug, StoreEntry) or slug.name not in series:
                     yield slug if isinstance(slug, StoreEntry) else _unknown(root, slug)
                     continue
                 for version in _directories(root, slug):
@@ -540,7 +631,7 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                         else _entry(
                             root,
                             "series",
-                            f"series:{slug.name}",
+                            f"series:{series[slug.name].key}",
                             version,
                             SERIES_FILE,
                             subdirs=("stations",),
@@ -570,7 +661,7 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                             else _entry(
                                 root,
                                 "pmaxtp",
-                                f"pmaxtp:{method.name}:{cell.name}",
+                                f"pmaxtp:{_PMAXTP_KEY}:{method.name}/{cell.name}",
                                 version,
                                 CELL_FILE,
                                 attachments=(RESPONSE_FILE,),
@@ -582,7 +673,7 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
     info, code = _inspect(root)
     if code is not None:
         for text in info.problems:
-            yield _problem("store", root / _MARKER, code, text)
+            yield _problem(None, root / _MARKER, code, text)
         return
     cutoff = time.time() - _STALE_SECONDS
     for child in sorted(root.iterdir()):
@@ -590,7 +681,7 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
             continue
         if child.is_symlink():
             yield _problem(
-                child.name,
+                None,
                 child,
                 "symlink",
                 f"Dowiązanie symboliczne w magazynie: {child.name}",
@@ -601,7 +692,7 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
                 if staging.lstat().st_mtime < cutoff:
                     relative = _relative(root, staging)
                     yield _problem(
-                        relative,
+                        None,
                         staging,
                         "stale_incoming",
                         f"Porzucony staging starszy niż 24 h: {relative}",
@@ -653,39 +744,58 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
     return (entry for entry in _scan(path) if kind is None or entry.kind == kind)
 
 
+def _invalid_slot(slot: object, reason: str) -> IMGWValidationError:
+    return IMGWValidationError(
+        f"Nieprawidłowy slot {slot!r}: {reason}; oczekiwano {_SLOT_GRAMMAR}",
+        details={"option": "slot", "value": slot if isinstance(slot, str) else None},
+    )
+
+
 def _slot_location(
     root: Path, slot: str
-) -> tuple[EntryKind, Path, str, dict[str, tuple[str, ...]]]:
+) -> tuple[EntryKind, Path, str, dict[str, Any]]:
+    """Kind, slot directory, main file name and `_entry` options of a §13.7 slot."""
+    if not isinstance(slot, str):
+        raise _invalid_slot(slot, "slot musi być tekstem")
     kind, _, rest = slot.partition(":")
-    if kind == "archive" and rest:
-        relative = PurePosixPath(rest)
+    key, has_selector, selector = rest.partition(":")
+    if kind == "archive":
+        descriptor = next(
+            (item for item in _archive_descriptors() if item.key == key), None
+        )
+        if descriptor is None:
+            raise _invalid_slot(slot, f"{key!r} nie jest kluczem zbioru archiwów")
+        server_path = f"{descriptor.server_dir}/{selector}"
+        if not has_selector or _archive_slot(server_path) != slot:
+            raise _invalid_slot(
+                slot, f"nieprawidłowa ścieżka pliku zbioru {descriptor.key}"
+            )
+        relative = PurePosixPath(server_path)
         directory = _validate_slot(
             root, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
         )
-        if relative.parent == PurePosixPath("."):
-            raise IMGWValidationError(f"Niepełna ścieżka archiwum w slocie: {slot}")
-        return "archive", directory, relative.name, {}
-    if kind == "series" and rest in _series_slugs():
-        return (
-            "series",
-            _validate_slot(root, f"series/versions/{rest}"),
-            SERIES_FILE,
-            {"subdirs": ("stations",)},
-        )
-    if slot == "catalog:stations":
-        return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, {}
-    method, _, cell = rest.partition(":")
-    if kind == "pmaxtp" and method in ("POT", "AMP") and _CELL.match(cell):
+        return "archive", directory, relative.name, {"server_path": server_path}
+    if has_selector:
+        cell = re.fullmatch(r"(POT|AMP)/([0-9]+_[0-9]+)", selector)
+        if kind != "pmaxtp" or key != _PMAXTP_KEY or cell is None:
+            raise _invalid_slot(slot, "nieoczekiwany selektor")
         return (
             "pmaxtp",
-            _validate_slot(root, f"pmaxtp/versions/{method}/{cell}"),
+            _validate_slot(root, f"pmaxtp/versions/{cell[1]}/{cell[2]}"),
             CELL_FILE,
             {"attachments": (RESPONSE_FILE,)},
         )
-    raise IMGWValidationError(
-        f"Nieprawidłowy slot {slot!r}; oczekiwano archive:<server_path>, series:<slug>, "
-        "catalog:stations lub pmaxtp:<POT|AMP>:<indX>_<indY>"
-    )
+    series = {item.key: item for item in _series_datasets().values()}
+    if kind == "series" and key in series:
+        return (
+            "series",
+            _validate_slot(root, f"series/versions/{series[key].slug}"),
+            SERIES_FILE,
+            {"subdirs": ("stations",)},
+        )
+    if kind == "catalog" and key == _CATALOG_KEY:
+        return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, {}
+    raise _invalid_slot(slot, "nieznany rodzaj lub klucz")
 
 
 def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
@@ -701,8 +811,12 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     root : str, os.PathLike or StoreHandle
         Store root directory or an open store handle.
     slot : str
-        Slot identifier: ``archive:<server_path>``, ``series:<slug>``,
-        ``catalog:stations`` or ``pmaxtp:<POT|AMP>:<indX>_<indY>``.
+        Slot in the §13.7 grammar: ``archive:<key>:<server path without the
+        dataset server directory>`` (e.g.
+        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``),
+        ``series:<key>``, ``catalog:pl.imgw.stations`` or
+        ``pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>``. Station selectors
+        of series slots exist only in project pins and are rejected here.
 
     Returns
     -------
@@ -713,10 +827,14 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     Raises
     ------
     IMGWStoreError
-        If the root is not a supported store or a slot path component is a
-        symbolic link.
+        If the root is not a supported store (code ``store_unavailable``) or
+        a root or slot path component is a symbolic link (code
+        ``validation_error``).
     IMGWValidationError
-        If ``slot`` is malformed or the root path contains ``..``.
+        If ``slot`` does not follow the grammar (including the pre-3.0.0
+        forms ``archive:<server_path>``, ``series:<slug>``,
+        ``catalog:stations`` and ``pmaxtp:<M>:<x>_<y>``); the message
+        describes the grammar. Also if the root path contains ``..``.
     IMGWDataError
         If any version in the slot is broken (an older version is never
         silently selected instead).
@@ -767,9 +885,12 @@ def _main_file(version: PathArg, name: str) -> Path:
     path = Path(version).expanduser()
     if path.is_dir():
         path = path / name
+    elif path.name == name + _SIDECAR:
+        path = path.with_name(name)
     if path.name != name:
         raise IMGWValidationError(
-            f"Wersja musi wskazywać katalog wersji albo plik {name}: {version}"
+            f"Wersja musi wskazywać katalog wersji, plik {name} albo jego sidecar: {version}",
+            details={"option": "version"},
         )
     return path
 
@@ -781,7 +902,7 @@ def _verified(path: Path) -> bytes:
     try:
         data = path.read_bytes()
     except FileNotFoundError as exc:
-        raise IMGWStoreError(f"Brak pliku wersji: {path}") from exc
+        raise IMGWStoreError(f"Brak pliku wersji: {path}", code="not_found") from exc
     except OSError as exc:
         raise IMGWDataError(f"Nie można odczytać {path}: {exc}") from exc
     meta = read_meta(path)
@@ -924,8 +1045,8 @@ def read_station_list(
     IMGWValidationError
         If ``kind`` is neither ``"hydro"`` nor ``"meteo"``.
     IMGWStoreError
-        If the root is not a supported store or the store holds no version
-        of the list.
+        If the root is not a supported store (code ``store_unavailable``) or
+        the store holds no version of the list (code ``not_found``).
     IMGWDataError
         If a version of the list is broken, or the current list does not
         match its sidecar.
@@ -933,14 +1054,16 @@ def read_station_list(
     lists = _station_lists()
     if kind not in lists:
         raise IMGWValidationError(
-            f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo"
+            f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo",
+            details={"option": "kind", "value": kind, "allowed": list(lists)},
         )
     source = lists[kind]
-    entry = current_version(root, slot=f"archive:{source.server_path}")
+    entry = current_version(root, slot=str(_archive_slot(source.server_path)))
     if entry is None or entry.version is None or entry.meta is None:
         raise IMGWStoreError(
             f"Magazyn nie zawiera listy stacji {source.dataset}; zapisuje ją "
-            "budowa katalogu stacji (build_catalog, imgw store catalog)"
+            "budowa katalogu stacji (build_catalog, imgw store catalog)",
+            code="not_found",
         )
     if entry.meta.dataset != source.dataset:
         raise IMGWDataError(
@@ -1113,7 +1236,7 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
             raise ValueError(f"nieobsługiwany schemat {document.get('schema')!r}")
         dataset = document["dataset"]
         descriptor = get_dataset(dataset) if isinstance(dataset, str) else None
-        if descriptor is None or descriptor.slug not in _series_slugs():
+        if descriptor is None or descriptor.slug not in _series_datasets():
             raise ValueError(f"zbiór {dataset!r} nie tworzy szeregów")
         year_type = document["year_type"]
         if year_type not in ("hydrological", "calendar"):
@@ -1150,12 +1273,103 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
     return SeriesIndex(SERIES_SCHEMA, dataset, year_type, periods, stations)
 
 
+def _series_path(
+    version: PathArg | None, *, root: RootArg | None, dataset: str | None
+) -> Path:
+    """
+    ``series.json`` of a series version given explicitly or as the current one.
+
+    ``version`` is absolute or relative to ``root`` (to the working
+    directory without ``root``); ``root`` with ``dataset`` selects the
+    current version of the dataset series. Giving ``version`` together with
+    ``dataset``, or neither, is a validation error.
+    """
+    if (version is None) == (dataset is None):
+        raise IMGWValidationError(
+            "Wskaż wersję szeregu (version) albo magazyn i zbiór (root i dataset), "
+            "nie oba naraz ani żadne",
+            details={"option": "version"},
+        )
+    if version is not None:
+        if root is None:
+            return _main_file(version, SERIES_FILE)
+        return _main_file(_open(root) / Path(version).expanduser(), SERIES_FILE)
+    if root is None:
+        raise IMGWValidationError(
+            "Zbiór (dataset) wskazuje bieżącą wersję szeregu wyłącznie razem z "
+            "magazynem (root)",
+            details={"option": "root"},
+        )
+    descriptor = _series_descriptor(str(dataset))
+    entry = current_version(root, slot=f"series:{descriptor.key}")
+    if entry is None or entry.version is None:
+        raise IMGWStoreError(
+            f"Brak szeregu {descriptor.key} w magazynie; najpierw uruchom series build",
+            code="not_found",
+        )
+    return entry.version
+
+
+def _variables(
+    variables: Iterable[str] | None, descriptor: DatasetDescriptor
+) -> tuple[str, ...]:
+    """Validated dataset variables without duplicates; ``None`` means all of them."""
+    if variables is None:
+        return tuple(descriptor.variables)
+    if isinstance(variables, str):
+        raise IMGWValidationError(
+            "variables musi być listą nazw zmiennych, nie pojedynczym tekstem",
+            details={"option": "variables", "value": variables},
+        )
+    names = tuple(dict.fromkeys(variables))
+    unknown = [name for name in names if name not in descriptor.variables]
+    if not names or unknown:
+        raise IMGWValidationError(
+            f"Nieznane zmienne {', '.join(map(str, unknown)) or '(brak)'}; dostępne: {', '.join(descriptor.variables)}",
+            details={
+                "option": "variables",
+                "value": unknown,
+                "allowed": list(descriptor.variables),
+            },
+        )
+    return names
+
+
+def _stations(stations: Iterable[str]) -> tuple[str, ...]:
+    """Non-empty nine-digit station codes without duplicates, in the given order."""
+    if isinstance(stations, str) or not isinstance(stations, Iterable):
+        raise IMGWValidationError(
+            "stations musi być listą kodów stacji, nie pojedynczym tekstem",
+            details={"option": "stations", "value": str(stations)},
+        )
+    codes = tuple(dict.fromkeys(stations))
+    invalid = [str(code) for code in codes if not _CODE.match(str(code))]
+    if not codes or invalid:
+        raise IMGWValidationError(
+            f"Nieprawidłowe kody stacji {', '.join(invalid) or '(brak)'}; "
+            "oczekiwano co najmniej jednego kodu z 9 cyfr",
+            details={"option": "stations", "value": invalid},
+        )
+    return codes
+
+
+def _outside(codes: Iterable[str], index: SeriesIndex) -> None:
+    missing = [code for code in codes if code not in index.stations]
+    if missing:
+        raise IMGWValidationError(
+            f"Stacje spoza szeregu {index.dataset}: {', '.join(missing)}",
+            details={"option": "stations", "value": missing},
+        )
+
+
 def read_series(
-    version: PathArg,
+    version: PathArg | None = None,
     /,
     *,
+    root: RootArg | None = None,
+    dataset: str | None = None,
     station: str,
-    variables: Iterable[str],
+    variables: Iterable[str] | None = None,
     start: date | None = None,
     end: date | None = None,
 ) -> Iterator[NormalizedRecord]:
@@ -1171,13 +1385,22 @@ def read_series(
 
     Parameters
     ----------
-    version : str or os.PathLike
-        Series version directory or its ``series.json`` file.
+    version : str, os.PathLike or None, optional
+        Series version directory, its ``series.json`` or its sidecar;
+        absolute or relative to ``root`` (to the working directory without
+        ``root``). Mutually exclusive with ``dataset``.
+    root : str, os.PathLike, StoreHandle or None, optional
+        Store root: the base of a relative ``version``, or with ``dataset``
+        the store whose current series version is read.
+    dataset : str or None, optional
+        Series dataset (key, slug or legacy alias) whose current version in
+        ``root`` is read.
     station : str
         Nine-digit station code present in the series.
-    variables : Iterable[str]
-        Non-empty collection of dataset variable names; duplicates are
-        merged, a single string is rejected.
+    variables : Iterable[str] or None, optional
+        Dataset variable names; duplicates are merged, a single string or an
+        empty collection is rejected. ``None`` (default) means every variable
+        of the dataset.
     start : datetime.date or None, optional
         First period start date to include; ``None`` means no lower bound.
     end : datetime.date or None, optional
@@ -1191,34 +1414,30 @@ def read_series(
     Raises
     ------
     IMGWValidationError
-        If ``version`` is not a series version, the station is not in the
-        series, ``variables`` is empty, a string or contains unknown names,
-        a bound is not a ``date`` or ``start`` is later than ``end``.
+        If both or neither of ``version`` and ``dataset`` are given,
+        ``dataset`` lacks ``root`` or does not produce series, ``version`` is
+        not a series version, the station is not in the series,
+        ``variables`` is empty, a string or contains unknown names, a bound
+        is not a ``date`` or ``start`` is later than ``end``.
     IMGWStoreError
-        If ``series.json`` or its sidecar does not exist.
+        If ``series.json``, its sidecar or the dataset series does not exist
+        (code ``not_found``) or ``root`` is not a supported store (code
+        ``store_unavailable``).
     IMGWStoreDependencyError
         If ``pyarrow>=15`` is not installed.
     IMGWDataError
         If the index or Parquet file is unreadable, corrupted or does not
         match its checksum or metadata.
     """
-    path = _main_file(version, SERIES_FILE)
+    path = _series_path(version, root=root, dataset=dataset)
     index = read_series_index(path)
     if station not in index.stations:
         raise IMGWValidationError(
-            f"Stacja {station!r} nie występuje w szeregu {index.dataset}"
+            f"Stacja {station!r} nie występuje w szeregu {index.dataset}",
+            details={"option": "station", "value": station},
         )
-    if isinstance(variables, str):
-        raise IMGWValidationError(
-            "variables musi być listą nazw zmiennych, nie pojedynczym tekstem"
-        )
-    names = tuple(dict.fromkeys(variables))
     descriptor = get_dataset(index.dataset)
-    unknown = [name for name in names if name not in descriptor.variables]
-    if not names or unknown:
-        raise IMGWValidationError(
-            f"Nieznane zmienne {', '.join(map(str, unknown)) or '(brak)'}; dostępne: {', '.join(descriptor.variables)}"
-        )
+    names = _variables(variables, descriptor)
     for bound in (start, end):
         if bound is not None and (
             not isinstance(bound, date) or isinstance(bound, datetime)
@@ -1319,3 +1538,188 @@ def _records(
             extrema_dates=extrema,
             extrema_occurrences=occurrences,
         )
+
+
+def summarize_series(
+    version: PathArg | None = None,
+    /,
+    *,
+    root: RootArg | None = None,
+    dataset: str | None = None,
+    stations: Iterable[str] | None = None,
+    variables: Iterable[str] | None = None,
+) -> tuple[StationCoverage, ...]:
+    """
+    Coverage of a series version read only from its ``series.json`` (no pyarrow).
+
+    The index bytes are verified against the sidecar and every station
+    Parquet file must exist, but Parquet contents are not read.
+
+    Parameters
+    ----------
+    version : str, os.PathLike or None, optional
+        Series version directory, its ``series.json`` or its sidecar;
+        absolute or relative to ``root`` (to the working directory without
+        ``root``). Mutually exclusive with ``dataset``.
+    root : str, os.PathLike, StoreHandle or None, optional
+        Store root: the base of a relative ``version``, or with ``dataset``
+        the store whose current series version is summarized.
+    dataset : str or None, optional
+        Series dataset (key, slug or legacy alias) whose current version in
+        ``root`` is summarized.
+    stations : Iterable[str] or None, optional
+        Nine-digit codes of stations in the series; ``None`` (default) means
+        every station.
+    variables : Iterable[str] or None, optional
+        Dataset variable names; ``None`` (default) means every variable.
+
+    Returns
+    -------
+    tuple of StationCoverage
+        One row per station × variable (× half-year period) ordered by
+        station code, then variable in dataset order, then period
+        (``winter``, ``summer``, ``annual``).
+
+    Raises
+    ------
+    IMGWValidationError
+        If both or neither of ``version`` and ``dataset`` are given,
+        ``dataset`` lacks ``root`` or does not produce series, ``version`` is
+        not a series version, a station code is malformed or not in the
+        series, or a variable is unknown.
+    IMGWStoreError
+        If ``series.json``, its sidecar or the dataset series does not exist
+        (code ``not_found``) or ``root`` is not a supported store (code
+        ``store_unavailable``).
+    IMGWDataError
+        If the index is unreadable, does not match its sidecar or is not a
+        valid ``imgw-series/1`` index.
+    """
+    index = read_series_index(_series_path(version, root=root, dataset=dataset))
+    descriptor = get_dataset(index.dataset)
+    names = set(_variables(variables, descriptor))
+    if stations is None:
+        codes = tuple(sorted(index.stations))
+    else:
+        codes = tuple(sorted(_stations(stations)))
+        _outside(codes, index)
+    order = {
+        name: number
+        for number, name in enumerate(descriptor.variables)
+        if name in names
+    }
+    periods = {None: 0, **{period: number for number, period in enumerate(_PERIODS)}}
+    return tuple(
+        coverage
+        for code in codes
+        for coverage in sorted(
+            (
+                item
+                for item in index.stations[code].variables.values()
+                if item.variable in order
+            ),
+            key=lambda item: (order[item.variable], periods[item.period]),
+        )
+    )
+
+
+def _period_years(periods: Iterable[tuple[date, date]], year_type: str) -> set[int]:
+    """Years (hydrological or calendar) touched by the published periods."""
+
+    def year(day: date) -> int:
+        return (
+            day.year + 1
+            if year_type == "hydrological" and day.month >= 11
+            else day.year
+        )
+
+    return {
+        number for start, end in periods for number in range(year(start), year(end) + 1)
+    }
+
+
+def select_series(
+    root: RootArg,
+    /,
+    *,
+    dataset: str,
+    stations: Iterable[str],
+    variables: Iterable[str] | None = None,
+    years: YearsArg | None = None,
+    year_type: Literal["hydrological", "calendar"] | None = None,
+) -> SeriesSelection:
+    """
+    Validate a selection of stations, variables and years from the current series.
+
+    Nothing is written; the selection is the input of a project task
+    (``series select``). The current series version of ``dataset`` in
+    ``root`` must contain every selected station and every selected year.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+    dataset : str
+        Series dataset (key, slug or legacy alias).
+    stations : Iterable[str]
+        Non-empty nine-digit station codes; duplicates are merged, order is
+        kept.
+    variables : Iterable[str] or None, optional
+        Dataset variable names; ``None`` (default) means every variable.
+    years : YearsArg or None, optional
+        Years (``2024``, ``"2020-2023"``, ``"2020,2022"`` or a collection of
+        such items); ``None`` (default) means every year of the series.
+    year_type : {"hydrological", "calendar"} or None, optional
+        Year numbering of ``years``; ``None`` (default) means the numbering of
+        the series. Half-year series accept only ``"hydrological"``.
+
+    Returns
+    -------
+    SeriesSelection
+        Full dataset key, ``series.json`` of the current version, stations,
+        variables, sorted years and the year type.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the dataset does not produce series, a station code is malformed
+        or not in the series, a variable is unknown, ``years`` is invalid or
+        outside the series, or ``year_type`` is unknown or ``"calendar"`` for
+        a half-year series.
+    IMGWStoreError
+        If the dataset has no series in the store (code ``not_found``) or the
+        root is not a supported store (code ``store_unavailable``).
+    IMGWDataError
+        If the current series index is broken.
+    """
+    descriptor = _series_descriptor(dataset)
+    codes = _stations(stations)
+    names = _variables(variables, descriptor)
+    if year_type is not None and year_type not in ("hydrological", "calendar"):
+        raise IMGWValidationError(
+            f"Nieznany rodzaj roku {year_type!r}; dozwolone hydrological, calendar",
+            details={
+                "option": "year_type",
+                "value": str(year_type),
+                "allowed": ["hydrological", "calendar"],
+            },
+        )
+    if descriptor.time_unit == "half_year" and year_type == "calendar":
+        raise IMGWValidationError(
+            "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
+            details={"option": "year_type", "value": year_type},
+        )
+    selected = parse_years(years) if years is not None else None
+    path = _series_path(None, root=root, dataset=descriptor.key)
+    index = read_series_index(path)
+    _outside(codes, index)
+    kind = year_type or index.year_type
+    available = _period_years(index.periods, kind)
+    chosen = selected if selected is not None else tuple(sorted(available))
+    outside = [year for year in chosen if year not in available]
+    if outside:
+        raise IMGWValidationError(
+            f"Lata spoza szeregu {descriptor.key} ({kind}): {', '.join(map(str, outside))}",
+            details={"option": "years", "value": outside},
+        )
+    return SeriesSelection(descriptor.key, path, codes, names, chosen, kind)
