@@ -229,7 +229,20 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
             "versions",
         ),
         (lambda d: d["tasks"][0]["files"][0].update(sha256="ABC"), "SHA-256"),
-        (lambda d: d["tasks"][0]["files"][0].update(role="station_series"), "station"),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(role="station_series"),
+            "station_code",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(station=RABA),
+            "nieznane klucze 'station'",
+        ),
+        (
+            lambda d: d["tasks"][0]["files"][0].update(
+                path=PIN["path"].replace("codz_2024/", "codz_2023/")
+            ),
+            "slocie",
+        ),
         (lambda d: d["tasks"][0]["files"].append(dict(PIN)), "powtórzona ścieżka"),
         (lambda d: d["tasks"].append(dict(d["tasks"][0])), "powtórzona nazwa"),
     ],
@@ -461,7 +474,8 @@ def test_download_pins_selection_and_status_verify_detect_changes(pinned):
 
     assert task.pinned_at is not None and task.imgwtools_version == __version__
     assert [pin.role for pin in task.files] == ["series", "station_series", "input"]
-    assert station.station == RABA and station.path.parent.parent == series.path.parent
+    assert station.station_code == RABA
+    assert station.path.parent.parent == series.path.parent
     assert archive.sha256 == sha(OLD) and archive.path.parts[:2] == (
         "archives",
         "versions",
@@ -472,6 +486,15 @@ def test_download_pins_selection_and_status_verify_detect_changes(pinned):
         == verify_project(pinned).tasks
         == {"raba": "current"}
     )
+    report = verify_project(pinned)
+    assert [(result.slot, result.task) for result in report.files] == [
+        (f"series:{DAILY}", "raba"),
+        (f"series:{DAILY}:{RABA}", "raba"),
+        (f"archive:{DAILY}:2024/codz_2024.zip", "raba"),
+    ]
+    for result in (report.files[0], report.files[2]):
+        entry = current_version(store, slot=result.slot)
+        assert entry is not None and entry.version == result.version
 
     flip_last_byte(store / station.path)  # ten sam rozmiar: tylko pełne SHA to wykrywa
     assert get_project_status(pinned).tasks == {"raba": "current"}
@@ -480,13 +503,18 @@ def test_download_pins_selection_and_status_verify_detect_changes(pinned):
     assert report.tasks == {"raba": "changed"} and [
         notice.code for notice in notices
     ] == ["pin_mismatch"]
-    assert [result.status for result in report.files] == [
-        "unchanged",
-        "failed",
-        "unchanged",
+    assert [(result.status, result.error_code) for result in report.files] == [
+        ("unchanged", None),
+        ("failed", "data_error"),
+        ("unchanged", None),
     ]
     (store / series.path).unlink()
-    assert get_project_status(pinned).tasks == {"raba": "missing"}
+    status = get_project_status(pinned)
+    assert status.tasks == {"raba": "missing"}
+    assert (status.files[0].slot, status.files[0].error_code) == (
+        f"series:{DAILY}",
+        "not_found",
+    )
 
 
 def test_check_writes_nothing_and_only_upgrade_changes_pins(pinned, imgw):
@@ -528,13 +556,24 @@ def test_upgrade_with_a_stale_plan_fails_and_keeps_pins(pinned, imgw, tmp_path):
 
     report = download_project(pinned, update="upgrade", plan=plan_file)
     assert report.tasks == {"raba": "failed"}
-    assert [result.status for result in report.files] == ["stale_plan"]
+    ((stale),) = report.files
+    assert (stale.slot, stale.status, stale.task, stale.error_code) == (
+        f"archive:{DAILY}:2024/codz_2024.zip",
+        "stale_plan",
+        "raba",
+        None,
+    )
     assert (pinned / PROJECT_FILE).read_bytes() == before
     foreign = StorePlan("imgw-plan/1", tmp_path / "inny", datetime.now(UTC), (), {})
-    with pytest.raises(IMGWValidationError, match="innego magazynu"):
+    with pytest.raises(IMGWValidationError, match="innego magazynu") as error:
         download_project(pinned, plan=foreign)
-    with pytest.raises(IMGWProjectError, match="Nieznane zadania"):
+    assert error.value.details["option"] == "plan"
+    with pytest.raises(IMGWProjectError, match="Nieznane zadania") as error:
         download_project(pinned, tasks=["brak"])
+    assert (error.value.code, error.value.details) == (
+        "not_found",
+        {"option": "tasks", "value": ["brak"]},
+    )
 
 
 def test_restore_recreates_only_identical_bytes_and_never_repins(pinned, imgw):
@@ -554,11 +593,13 @@ def test_restore_recreates_only_identical_bytes_and_never_repins(pinned, imgw):
     notices = []
     report = download_project(pinned, on_notice=notices.append)
     assert report.tasks == {"raba": "failed"}
-    errors = {result.slot.split("/")[0]: result.error for result in report.files}
-    assert (
-        "inną treść" in errors["raba:archives"]
-        and "przypiętych wejść" in errors["raba:series"]
-    )
+    errors = {
+        result.slot.split(":")[0]: (result.error, result.error_code)
+        for result in report.files
+    }
+    assert "inną treść" in errors["archive"][0] and errors["archive"][1] == "not_found"
+    assert "przypiętych wejść" in errors["series"][0]
+    assert errors["series"][1] == "not_found"
     assert {result.status for result in report.files} == {
         "failed"
     } and "task_failed" in {n.code for n in notices}
@@ -668,8 +709,8 @@ def test_two_tasks_downloaded_concurrently_both_keep_their_pins(tmp_path, imgw):
     assert nested[0].tasks == {"b": "current"} and report.tasks == {"a": "current"}
     tasks = {task.name: task for task in open_project(project).tasks}
     assert tasks["a"].pinned_at and tasks["b"].pinned_at
-    assert [pin.station for pin in tasks["a"].files if pin.station] == [RABA]
-    assert [pin.station for pin in tasks["b"].files if pin.station] == [BEZ_Q]
+    assert [pin.station_code for pin in tasks["a"].files if pin.station_code] == [RABA]
+    assert [pin.station_code for pin in tasks["b"].files if pin.station_code] == [BEZ_Q]
     assert not (project / LOCK_NAME).exists()
 
 
@@ -694,6 +735,12 @@ def test_conflicting_change_of_the_same_task_is_an_explicit_error(tmp_path, imgw
         project, on_progress=other_process, on_notice=notices.append
     )
     assert report.tasks == {"a": "failed"} and "Konflikt" in report.files[-1].error
+    conflict = report.files[-1]
+    assert (conflict.slot, conflict.task, conflict.error_code) == (
+        None,
+        "a",
+        "conflict",
+    )
     assert "project_conflict" in {notice.code for notice in notices}
     (task,) = open_project(project).tasks
     assert (
@@ -723,12 +770,18 @@ def test_lock_serializes_writers_and_a_stale_lock_is_never_taken_over(
 
     lock = project / LOCK_NAME
     lock.mkdir()  # pozostałość przerwanego procesu
+    (lock / "owner").write_text("stacja-robocza pid 4242\n", encoding="utf-8")
     before = (project / PROJECT_FILE).read_bytes()
     monkeypatch.setattr(project_module, "LOCK_TIMEOUT_S", 0.2)
-    with pytest.raises(IMGWProjectError, match="zablokowany"):
+    with pytest.raises(IMGWProjectError, match="zablokowany") as error:
         remove_project_task(project, name="t0")
+    assert error.value.code == "conflict"
+    assert error.value.details == {
+        "reason": "locked",
+        "owner": "stacja-robocza pid 4242",
+    }
     assert lock.is_dir() and (project / PROJECT_FILE).read_bytes() == before
-    lock.rmdir()
+    shutil.rmtree(lock)
     assert len(remove_project_task(project, name="t0").tasks) == 7
 
 
@@ -778,3 +831,166 @@ def test_cancel_before_work_leaves_store_manifest_and_network_untouched(tmp_path
         "unverifiable"
     ]
     assert imgw.calls == (0, 0) and snapshot(tmp_path) == before
+
+
+def test_station_files_are_pinned_under_station_code(pinned, fixture_root):
+    (task,) = manifest(pinned)["tasks"]
+    (station,) = [pin for pin in task["files"] if pin["role"] == "station_series"]
+    assert station["station_code"] == RABA and "station" not in station
+
+    add_project_task(pinned, name="info", command="store info", options={})
+    assert manifest(pinned)["tasks"][0]["files"] == task["files"]  # zapis bez zmian
+
+    document = manifest(pinned)
+    for pin in document["tasks"][0]["files"]:
+        if "station_code" in pin:
+            pin["station"] = pin.pop("station_code")  # dawna nazwa pola
+    write(pinned, document)
+    with pytest.raises(IMGWProjectError, match="nieznane klucze 'station'") as error:
+        open_project(pinned)
+    assert error.value.code == "validation_error"
+
+
+def test_manifest_and_task_errors_carry_section_13_5_codes(tmp_path, fixture_root):
+    project = tmp_path / "project"
+    with pytest.raises(IMGWProjectError, match="Brak manifestu") as error:
+        open_project(project)
+    assert (error.value.code, error.value.details) == (
+        "not_found",
+        {"option": "project_dir"},
+    )
+    project.mkdir()
+    (project / PROJECT_FILE).mkdir()  # nieczytelny manifest
+    with pytest.raises(IMGWProjectError, match="Nie można odczytać") as error:
+        open_project(project)
+    assert error.value.code == "io_error"
+    (project / PROJECT_FILE).rmdir()
+    for content in ("{", '{"schema":"imgw-project/2","store_dir":"s","tasks":[]}'):
+        (project / PROJECT_FILE).write_text(content, encoding="utf-8")
+        with pytest.raises(IMGWProjectError) as error:
+            open_project(project)
+        assert error.value.code == "validation_error"
+    (project / PROJECT_FILE).write_bytes(b"\xff\xfe")
+    with pytest.raises(IMGWProjectError, match="UTF-8") as error:
+        open_project(project)
+    assert error.value.code == "validation_error"
+    (project / PROJECT_FILE).unlink()
+
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    (foreign / "notes.txt").write_text("x")
+    with pytest.raises(IMGWProjectError, match="magazynem IMGW") as error:
+        init_project(project, store_dir=foreign)
+    assert (error.value.code, error.value.details) == (
+        "store_unavailable",
+        {"option": "store_dir", "reason": "unsupported"},
+    )
+    store = init_store(tmp_path / "own").root
+    with pytest.raises(IMGWProjectError, match="nie może leżeć") as error:
+        init_project(store / "project", store_dir=store)
+    assert error.value.code == "validation_error"
+
+    init_project(project, store_dir=fixture_root)
+    with pytest.raises(IMGWProjectError, match="set_project_store") as error:
+        init_project(project, store_dir=store)
+    assert error.value.code == "conflict"
+    add_project_task(project, name="info", command="store info", options={})
+    with pytest.raises(IMGWProjectError, match="już istnieje") as error:
+        add_project_task(project, name="info", command="store info", options={})
+    assert (error.value.code, error.value.details) == (
+        "conflict",
+        {"option": "name", "value": "info"},
+    )
+    with pytest.raises(IMGWProjectError, match="Brak zadania") as error:
+        remove_project_task(project, name="brak")
+    assert (error.value.code, error.value.details) == (
+        "not_found",
+        {"option": "name", "value": "brak"},
+    )
+    with pytest.raises(IMGWProjectError) as error:
+        get_project_status(project, tasks=["info", "brak"])
+    assert (error.value.code, error.value.details["value"]) == ("not_found", ["brak"])
+
+
+@pytest.mark.parametrize(
+    ("command", "old", "new", "option"),
+    [
+        (
+            "pmaxtp sync",
+            {"lat": 52.23, "lon": 21.01},
+            {"latitude": 52.23, "longitude": 21.01},
+            "lat",
+        ),
+        (
+            "store sync",
+            {"dataset": [DAILY], "years": [2024]},
+            {"datasets": [DAILY], "years": [2024]},
+            "dataset",
+        ),
+        (
+            "store sync",
+            {"datasets": [DAILY], "years": [2024], "no_series": True},
+            {"datasets": [DAILY], "years": [2024], "series": False},
+            "no_series",
+        ),
+    ],
+)
+def test_task_options_use_only_the_section_13_2_names(
+    tmp_path, fixture_root, command, old, new, option
+):
+    project = tmp_path / "project"
+    init_project(project, store_dir=fixture_root)
+    with pytest.raises(
+        IMGWValidationError, match=f"Nieznana opcja '{option}'"
+    ) as error:
+        add_project_task(project, name="zadanie", command=command, options=old)
+    assert error.value.details["option"] == "options"  # flaga --options komendy
+
+    document = manifest(project)
+    document["tasks"] = [
+        {
+            "name": "zadanie",
+            "command": command,
+            "options": old,
+            "pinned_at": None,
+            "imgwtools_version": None,
+            "files": [],
+        }
+    ]
+    write(project, document)
+    with pytest.raises(IMGWProjectError, match="options") as error:
+        open_project(project)
+    assert (error.value.code, error.value.details["option"]) == (
+        "validation_error",
+        option,
+    )
+
+    document["tasks"] = []
+    write(project, document)
+    (task,) = add_project_task(
+        project, name="zadanie", command=command, options=new
+    ).tasks
+    assert task.options == new
+
+
+def test_failed_archive_of_a_download_task_has_its_slot_and_code(tmp_path, imgw):
+    project = tmp_path / "project"
+    init_project(project, store_dir="../store")
+    add_project_task(
+        project,
+        name="pobierz",
+        command="datasets download",
+        options={"dataset": DAILY, "years": [2024]},
+    )
+    imgw.get.mock(return_value=httpx.Response(503))
+
+    report = download_project(project)
+
+    assert report.tasks == {"pobierz": "failed"}
+    ((item),) = report.files
+    assert (item.slot, item.task, item.status, item.error_code) == (
+        f"archive:{DAILY}:2024/codz_2024.zip",
+        "pobierz",
+        "failed",
+        "source_unavailable",
+    )

@@ -1,39 +1,42 @@
 """
-IMGWTools CLI - main entry point.
+Entry point of the ``imgw`` command line.
 
-Usage:
-    imgw fetch hydro --interval dobowe --year 2023 --output ./data
-    imgw fetch meteo --interval miesieczne --year 2023 --subtype klimat
-    imgw store sync --root /dane/imgw --dataset pl.imgw.hydro_daily --years 2024
-    imgw series build --root /dane/imgw --dataset pl.imgw.hydro_daily
-    imgw list stations --type hydro
-    imgw admin keys create --name "User1"
+The groups ``datasets``, ``stations``, ``current``, ``pmaxtp``, ``store``,
+``series``, ``project`` and ``commands`` are generated from the command catalog
+by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``
+and ``imgw admin`` stay outside the catalog. Examples::
+
+    imgw datasets download -d hydro/dobowe -y 2023 -m 1
+    imgw stations find -k hydro -q raba --limit 20
+    imgw store sync --root /dane/imgw -d pl.imgw.hydro_daily -y 2024
+    imgw series summary --root /dane/imgw -d pl.imgw.hydro_daily -s 149190310
+    imgw commands schema --command "store sync"
+    imgw admin create --name "User1"
 """
 
 import typer
 from rich.console import Console
 
 from imgwtools._version import __version__
-from imgwtools.cli import admin, fetch, list_cmd, pmaxtp, project, series, store
+from imgwtools.cli import admin
+from imgwtools.cli._dispatch import ImgwGroup, register_catalog
 
-# Create main app
 app = typer.Typer(
     name="imgw",
-    help="Narzedzie do pobierania danych publicznych z IMGW-PIB",
+    help=(
+        "Narzędzie do pobierania danych publicznych IMGW-PIB. Wynik komend "
+        "katalogu to koperta JSON imgw-result/1 na standardowym wyjściu; błąd to "
+        "JSON w ostatniej linii standardowego wyjścia błędów."
+    ),
     add_completion=False,
+    cls=ImgwGroup,
 )
 
 # Console for rich output
 console = Console()
 
-# Add subcommands
-app.add_typer(fetch.app, name="fetch", help="Pobieranie danych")
-app.add_typer(list_cmd.app, name="list", help="Listowanie stacji i zbiorow danych")
+register_catalog(app)
 app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
-app.add_typer(store.app, name="store")
-app.add_typer(series.app, name="series")
-app.add_typer(pmaxtp.app, name="pmaxtp")
-app.add_typer(project.app, name="project")
 
 
 @app.command()

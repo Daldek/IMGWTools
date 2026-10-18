@@ -1,5 +1,6 @@
 """Top-level ``imgw`` commands: version, server and the console entry point."""
 
+import json
 import sys
 
 import pytest
@@ -56,10 +57,16 @@ def test_cli_main_server_options_reach_uvicorn(uvicorn_calls):
     ]
 
 
-def test_cli_main_server_rejects_non_numeric_port(uvicorn_calls):
+def test_cli_main_server_rejects_non_numeric_port_with_the_json_error_line(
+    uvicorn_calls,
+):
     result = RUNNER.invoke(cli_main.app, ["server", "--port", "osiem"])
 
     assert result.exit_code == 2
+    assert result.stdout == ""
+    error = json.loads(result.stderr.splitlines()[-1])
+    assert (error["code"], error["details"]["option"]) == ("validation_error", "port")
+    assert error["detail"].startswith("Nieprawidłowa wartość opcji --port")
     assert uvicorn_calls == []
 
 
@@ -73,10 +80,17 @@ def test_cli_main_entry_point_runs_command_from_argv(monkeypatch, capsys):
     assert imgwtools.__version__ in capsys.readouterr().out
 
 
-def test_cli_main_entry_point_unknown_command_exits_with_usage_error(monkeypatch):
+def test_cli_main_entry_point_unknown_command_ends_with_the_json_error_line(
+    monkeypatch, capsys
+):
     monkeypatch.setattr(sys, "argv", ["imgw", "nieistniejaca-komenda"])
 
     with pytest.raises(SystemExit) as exc_info:
         cli_main.main()
 
     assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    error = json.loads(captured.err.splitlines()[-1])
+    assert error["code"] == "validation_error"
+    assert "version" in error["details"]["allowed"]

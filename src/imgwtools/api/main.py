@@ -1,6 +1,7 @@
 """Main FastAPI application for IMGWTools REST API."""
 
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,8 +9,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from imgwtools._version import __version__
-from imgwtools.api.routes import download, hydro, meteo, pmaxtp, store
+from imgwtools.api.errors import EXCEPTION_HANDLERS
+from imgwtools.api.routes import commands
 from imgwtools.api.schemas import HealthCheck
+from imgwtools.commands import command_schema
 from imgwtools.config import settings
 from imgwtools.web.app import router as web_router
 
@@ -19,26 +22,30 @@ STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
 # API metadata
 API_TITLE = "IMGWTools API"
 API_DESCRIPTION = """
-API do pobierania danych publicznych z IMGW-PIB.
+API danych publicznych IMGW-PIB generowane z katalogu komend IMGWTools.
 
-## Funkcjonalnosci
+## Trasy
 
-* **Stacje** - lista stacji hydrologicznych i meteorologicznych
-* **Dane biezace** - aktualne dane z API IMGW
-* **Pobieranie** - generowanie linkow do pobierania danych archiwalnych
-* **PMAXTP** - dane o opadach maksymalnych prawdopodobnych
-* **Magazyn** - wersjonowany magazyn danych IMGW na serwerze (opcjonalny)
+* `GET|POST /api/v1/<grupa>/<komenda>` — jedna trasa na komendę katalogu
+  (`imgw <grupa> <komenda>` w CLI); lista tras: `GET /api/v1`, opis opcji:
+  `GET /api/v1/commands/schema`.
+* Odpowiedź: koperta `imgw-result/1` (`schema`, `command`, `check`, `status`,
+  `result`, `notices`); status `partial`/`failed` też ma kod 200, więc czytaj
+  pole `status`. `store export` i `series export` zwracają strumień CSV/JSONL
+  z nagłówkami `X-IMGW-Status` i `X-IMGW-Notices`.
+* Komendy listowe stronicują `limit` (domyślnie i najwyżej `IMGW_API_MAX_LIMIT`)
+  i `offset`.
+* Błędy: `application/problem+json` (RFC 9457) z polami `code` i `details`.
 
-## Wazne
+## Magazyn
 
-Domyslnie dane NIE sa przechowywane na serwerze. API generuje bezposrednie
-linki do serwerow IMGW, skad uzytkownik pobiera dane na swoj komputer.
-
-Trasy `/api/v1/store`, `/api/v1/series` i `/api/v1/pmaxtp/store` dzialaja
-wylacznie na magazynie wskazanym przez administratora w `IMGW_STORE_ROOT`
-(bez tego ustawienia zwracaja 503). Zapis jest domyslnie wylaczony (403):
-wymaga `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` oraz
-naglowka `X-API-Key`. Bledy tych tras: `{"code": ..., "detail": ...}`.
+Domyślnie dane NIE są przechowywane na serwerze: API generuje bezpośrednie
+linki do serwerów IMGW i odczytuje dane bieżące na żywo. Komendy magazynu
+działają wyłącznie na magazynie wskazanym przez administratora w
+`IMGW_STORE_ROOT` (bez niego 503 `store_unavailable`). Zapis (POST bez
+`?check=true`) jest domyślnie wyłączony (403 `forbidden`): wymaga
+`IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` i nagłówka
+`X-API-Key`; `?check=true` zwraca plan `imgw-plan/1` bez zapisu i bez tokenu.
 """
 API_VERSION = __version__
 
@@ -50,6 +57,14 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    openapi_tags=[
+        *(
+            {"name": group, "description": text}
+            for group, text in cast(dict[str, str], command_schema()["groups"]).items()
+        ),
+        {"name": "System", "description": "Stan serwera i lista tras"},
+    ],
+    exception_handlers=EXCEPTION_HANDLERS,
 )
 
 # Middleware
@@ -62,15 +77,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routers
-app.include_router(hydro.router, prefix="/api/v1/hydro", tags=["Hydrologia"])
-app.include_router(meteo.router, prefix="/api/v1/meteo", tags=["Meteorologia"])
-app.include_router(download.router, prefix="/api/v1/download", tags=["Pobieranie"])
-app.include_router(pmaxtp.router, prefix="/api/v1/pmaxtp", tags=["PMAXTP"])
-app.include_router(store.router, prefix="/api/v1/store", tags=["Magazyn"])
-app.include_router(store.series_router, prefix="/api/v1/series", tags=["Magazyn"])
-app.include_router(store.pmaxtp_router, prefix="/api/v1/pmaxtp/store", tags=["Magazyn"])
-app.add_exception_handler(store.StoreAPIError, store.store_error_handler)
+# Catalog routes /api/v1/<group>/<command>
+app.include_router(commands.router)
 
 # Include Web GUI router
 app.include_router(web_router)
@@ -86,20 +94,13 @@ async def health_check():
 
 
 @app.get("/api/v1", tags=["System"])
-async def api_info():
-    """API information."""
+async def api_info() -> dict[str, object]:
+    """List the catalog routes of the API."""
     return {
         "name": API_TITLE,
         "version": API_VERSION,
-        "endpoints": {
-            "hydro": "/api/v1/hydro",
-            "meteo": "/api/v1/meteo",
-            "download": "/api/v1/download",
-            "pmaxtp": "/api/v1/pmaxtp",
-            "store": "/api/v1/store",
-            "series": "/api/v1/series",
-            "pmaxtp_store": "/api/v1/pmaxtp/store",
-        },
+        "schema": "/api/v1/commands/schema",
+        "routes": commands.catalog_routes(),
     }
 
 
