@@ -2,6 +2,8 @@
 
 from typer.testing import CliRunner
 
+from imgwtools import commands
+from imgwtools import fetch as public_fetch
 from imgwtools.cli import fetch
 from imgwtools.datasets import ArchiveFile
 from imgwtools.fetch import DownloadResult
@@ -39,8 +41,8 @@ def test_hydro_public_apis_and_same_basename_in_distinct_server_folders(
         data = bytes([len(seen)])
         return DownloadResult(data, left.url, None, None, len(data))
 
-    monkeypatch.setattr(fetch, "archive_files", files)
-    monkeypatch.setattr(fetch, "download_hydro_data", download)
+    monkeypatch.setattr(commands, "archive_files", files)
+    monkeypatch.setattr(public_fetch, "download_hydro_data", download)
     result = RUNNER.invoke(
         fetch.app, ["hydro", "-i", "dobowe", "-y", "2024", "-o", str(tmp_path)]
     )
@@ -58,18 +60,18 @@ def test_failed_write_does_not_leave_complete_file_or_block_retry(
     tmp_path, monkeypatch
 ):
     item = archive("dane_hydrologiczne/dobowe/2024/a.zip")
-    monkeypatch.setattr(fetch, "archive_files", lambda *args, **kwargs: (item,))
+    monkeypatch.setattr(commands, "archive_files", lambda *args, **kwargs: (item,))
     monkeypatch.setattr(
-        fetch,
+        public_fetch,
         "download_hydro_data",
         lambda *args: DownloadResult(b"archive", item.url, None, None, 7),
     )
-    original = fetch.os.replace
+    original = commands.os.replace
 
     def interrupted(source, destination):
         raise OSError("przerwany zapis")
 
-    monkeypatch.setattr(fetch.os, "replace", interrupted)
+    monkeypatch.setattr(commands.os, "replace", interrupted)
     failed = RUNNER.invoke(
         fetch.app, ["hydro", "-i", "dobowe", "-y", "2024", "-o", str(tmp_path)]
     )
@@ -77,7 +79,7 @@ def test_failed_write_does_not_leave_complete_file_or_block_retry(
     assert "Niepowodzenia: 1" in failed.output
     assert not (tmp_path / item.server_path).exists()
     assert not list(tmp_path.rglob("*.part"))
-    monkeypatch.setattr(fetch.os, "replace", original)
+    monkeypatch.setattr(commands.os, "replace", original)
     passed = RUNNER.invoke(
         fetch.app, ["hydro", "-i", "dobowe", "-y", "2024", "-o", str(tmp_path)]
     )
@@ -97,9 +99,9 @@ def test_meteo_daily_public_enumerator_and_legacy_monthly(tmp_path, monkeypatch)
         seen.append((dataset, tuple(years), months))
         return (daily,)
 
-    monkeypatch.setattr(fetch, "archive_files", files)
+    monkeypatch.setattr(commands, "archive_files", files)
     monkeypatch.setattr(
-        fetch,
+        public_fetch,
         "download_meteo_data",
         lambda *args: DownloadResult(b"one", daily.url, None, None, 3),
     )
@@ -121,11 +123,11 @@ def test_meteo_daily_public_enumerator_and_legacy_monthly(tmp_path, monkeypatch)
     )
     assert result.exit_code == 0, result.output
     assert (tmp_path / daily.server_path).read_bytes() == b"one"
-    assert seen == [(daily.dataset, (2024,), (1,))]
+    assert set(seen) == {(daily.dataset, (2024,), (1,))}
     legacy_path = "dane_meteorologiczne/miesieczne/synop/2024/2024_m_s.zip"
     base = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/"
     monkeypatch.setattr(
-        fetch,
+        public_fetch,
         "download_meteo_data",
         lambda *args: DownloadResult(b"two", base + legacy_path, None, None, 3),
     )

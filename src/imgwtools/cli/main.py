@@ -4,6 +4,8 @@ IMGWTools CLI - main entry point.
 Usage:
     imgw fetch hydro --interval dobowe --year 2023 --output ./data
     imgw fetch meteo --interval miesieczne --year 2023 --subtype klimat
+    imgw store sync --root /dane/imgw --dataset pl.imgw.hydro_daily --years 2024
+    imgw series build --root /dane/imgw --dataset pl.imgw.hydro_daily
     imgw list stations --type hydro
     imgw admin keys create --name "User1"
 """
@@ -12,7 +14,7 @@ import typer
 from rich.console import Console
 
 from imgwtools._version import __version__
-from imgwtools.cli import admin, db, fetch, list_cmd
+from imgwtools.cli import admin, db, fetch, list_cmd, pmaxtp, project, series, store
 
 # Create main app
 app = typer.Typer(
@@ -29,6 +31,10 @@ app.add_typer(fetch.app, name="fetch", help="Pobieranie danych")
 app.add_typer(list_cmd.app, name="list", help="Listowanie stacji i zbiorow danych")
 app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
 app.add_typer(db.app, name="db", help="Zarzadzanie baza danych cache")
+app.add_typer(store.app, name="store")
+app.add_typer(series.app, name="series")
+app.add_typer(pmaxtp.app, name="pmaxtp")
+app.add_typer(project.app, name="project")
 
 
 @app.command()
