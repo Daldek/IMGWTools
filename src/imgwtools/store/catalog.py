@@ -26,7 +26,12 @@ import httpx
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools._version import __version__
 from imgwtools.core.url_builder import IMGW_API_URL
-from imgwtools.datasets import ArchiveFile, get_dataset, station_source_files
+from imgwtools.datasets import (
+    ArchiveFile,
+    datasets,
+    get_dataset,
+    station_source_files,
+)
 from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
@@ -35,6 +40,7 @@ from imgwtools.exceptions import (
 )
 from imgwtools.fetch import DEFAULT_TIMEOUT, DownloadResult
 from imgwtools.models import StationListEntry
+from imgwtools.store.series import _current_series, _series_versions
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -537,6 +543,54 @@ def _optional_int(value: object) -> int | None:
     return int(parsed[0])
 
 
+def _series_codes(
+    root: Path, problems: list[str]
+) -> tuple[dict[str, set[str]], list[dict[str, Any]]]:
+    """Station codes of the current series version of every dataset, by family.
+
+    Offline: reads only the ``series.json`` index of the newest verified version
+    of each series dataset; the index carries no station names or rivers. Also
+    returns one ``series`` sidecar entry per index read.
+    """
+    codes: dict[str, set[str]] = {"hydro": set(), "meteo": set()}
+    sources: list[dict[str, Any]] = []
+    for descriptor in datasets():
+        if descriptor.time_unit not in ("day", "month", "half_year"):
+            continue
+        current = _current_series(_series_versions(root, descriptor))
+        if current is None:
+            continue
+        relative = current.path.relative_to(root).as_posix()
+        try:
+            stations = json.loads(current.path.read_bytes())["stations"]
+            if not isinstance(stations, dict):
+                raise TypeError("pole stations nie jest obiektem")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise IMGWDataError(
+                f"Nieczytelny indeks szeregu {relative}: {exc}"
+            ) from exc
+        family = "hydro" if descriptor.slug.startswith("hydro_") else "meteo"
+        for code in stations:
+            if len(code) == 9 and code.isdecimal():
+                codes[family].add(code)
+            else:
+                problems.append(
+                    f"Indeks szeregu {relative}: pominięto niepoprawny kod stacji '{code}'"
+                )
+        sources.append(
+            {
+                "source": "series",
+                "dataset": descriptor.key,
+                "url": None,
+                "file": relative,
+                "fetched_at": None,
+                "count": len(stations),
+                "sha256": current.meta["sha256"],
+            }
+        )
+    return codes, sources
+
+
 # --------------------------------------------------------------------------
 # Catalog assembly
 # --------------------------------------------------------------------------
@@ -635,18 +689,19 @@ def _catalog_bytes(
     *,
     lists: Mapping[str, Mapping[str, StationListEntry]],
     apis: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    series: Mapping[str, set[str]],
     static: Mapping[str, tuple[str, str, str | None]],
     user: Mapping[str, tuple[str, str, str | None]],
     problems: list[str],
     rejections: list[str],
-) -> tuple[bytes, int, int, dict[str, int]]:
+) -> tuple[bytes, int, int, dict[str, int], list[str]]:
     for api_kind, api in apis.items():
         for code in api:
             if not (len(code) == 9 and code.isdecimal()):
                 problems.append(
                     f"API {api_kind}: pominięto niepoprawny kod stacji '{code}'"
                 )
-    codes = {
+    listed = {
         kind: {
             code
             for code in (*lists[kind], *apis[kind])
@@ -654,6 +709,7 @@ def _catalog_bytes(
         }
         for kind in ("hydro", "meteo")
     }
+    codes = {kind: listed[kind] | series[kind] for kind in ("hydro", "meteo")}
     shared = sorted(codes["hydro"] & codes["meteo"])
     if shared:
         raise IMGWDataError(
@@ -664,11 +720,20 @@ def _catalog_bytes(
     # user file only fills locations and names no station family.
     codes["hydro"] |= set(static) - codes["meteo"]
     known = codes["hydro"] | codes["meteo"]
+    # Codes measured in a stored series but absent from every list, API and the
+    # static file (e.g. stations closed long ago) stay as historical stations.
+    series_only = sorted(
+        (series["hydro"] | series["meteo"])
+        - listed["hydro"]
+        - listed["meteo"]
+        - set(static)
+    )
     unknown = sorted(set(user) - known)
     if unknown:
         problems.append(
-            f"Plik położeń użytkownika: {len(unknown)} kodów spoza list, API i pliku "
-            f"statycznego (np. {unknown[0]}); plik użytkownika uzupełnia tylko położenia"
+            f"Plik położeń użytkownika: {len(unknown)} kodów spoza list, API, pliku "
+            f"statycznego i szeregów (np. {unknown[0]}); plik użytkownika uzupełnia "
+            "tylko położenia"
         )
     features = []
     used: dict[str, int] = {}
@@ -697,7 +762,7 @@ def _catalog_bytes(
             used[source] = used.get(source, 0) + 1
         features.append(feature)
     document = {"type": "FeatureCollection", "features": features}
-    return _canonical(document), len(features), without, used
+    return _canonical(document), len(features), without, used, series_only
 
 
 # --------------------------------------------------------------------------
@@ -756,6 +821,19 @@ def _current_catalog(root: Path) -> tuple[Path, dict[str, Any]] | None:
     return _newest_downloaded(_existing(slot, CATALOG_FILE))
 
 
+def _catalog_codes(path: Path, meta: Mapping[str, Any]) -> set[str]:
+    """Station codes of a stored catalog version, verified against its sidecar."""
+    try:
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != meta["sha256"]:
+            raise ValueError("SHA-256 niezgodne z sidecarem")
+        return {feature["id"] for feature in json.loads(data)["features"]}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise IMGWStoreConflictError(
+            f"Uszkodzona wersja katalogu stacji {path}: {exc}"
+        ) from exc
+
+
 def check_catalog(
     root: RootArg,
     /,
@@ -770,8 +848,9 @@ def check_catalog(
 
     Station lists are checked with ``HEAD``; the public station APIs expose no
     stable signal and are reported as ``unverifiable``. Location files are
-    compared by SHA-256 with the entries recorded in the current catalog sidecar.
-    Nothing is downloaded or written.
+    compared by SHA-256 with the entries recorded in the current catalog sidecar;
+    the station codes of the current series indexes are compared with the codes
+    of the current catalog. Nothing is downloaded or written.
 
     Parameters
     ----------
@@ -796,8 +875,11 @@ def check_catalog(
         ``unverifiable`` or ``check_failed``) and ``store catalog`` actions: one
         ``unverifiable`` per public API, one per location file (``current``, or
         ``newer`` when the file appeared, disappeared or changed; ``missing``
-        without a catalog) and a final catalog action that is ``missing`` without
-        a catalog, ``newer`` when any source changed, otherwise ``unverifiable``.
+        without a catalog), one for the series indexes (``current``, ``newer``
+        when a series station code is absent from the catalog, ``missing``
+        without a catalog) and a final catalog action that is ``missing``
+        without a catalog, ``newer`` when any source changed, otherwise
+        ``unverifiable``.
 
     Raises
     ------
@@ -809,7 +891,8 @@ def check_catalog(
     IMGWValidationError
         If a location file exists but cannot be read.
     IMGWDataError
-        If a station list responds with an invalid ``Content-Length`` header.
+        If a station list responds with an invalid ``Content-Length`` header, or
+        a current series index is unreadable.
     """
     handle = _handle(root)
     user = _user_file(user_locations)
@@ -924,6 +1007,22 @@ def check_catalog(
         actions.append(
             PlanAction("store catalog", file_status, f"plik położeń {source}: {detail}")
         )
+    series, _ = _series_codes(handle.root, [])
+    series_codes = series["hydro"] | series["meteo"]
+    if catalog is None:
+        series_status: Literal["current", "newer", "missing"] = "missing"
+        series_detail = f"{len(series_codes)} kodów stacji"
+    else:
+        absent = sorted(series_codes - _catalog_codes(*catalog))
+        series_status = "newer" if absent else "current"
+        series_detail = (
+            f"{len(absent)} kodów spoza katalogu (np. {absent[0]})"
+            if absent
+            else f"{len(series_codes)} kodów stacji w katalogu"
+        )
+    actions.append(
+        PlanAction("store catalog", series_status, f"indeksy szeregów: {series_detail}")
+    )
     if catalog is None:
         overall: Literal["missing", "newer", "unverifiable"] = "missing"
     elif any(item.status in ("newer", "missing") for item in items) or any(
@@ -972,13 +1071,17 @@ def build_catalog(
     compares them): a list that is missing, has a different ETag/Last-Modified or
     no comparable signal is downloaded and stored with ``write_archive`` first,
     so the catalog always reflects the current lists; the public hydro and meteo
-    APIs are always downloaded. Every code of the lists, the APIs and the static
-    file is kept (a code only in the static file is a hydro station); codes only
-    in the user file are reported in ``problems``. Location precedence: API, then
-    the local static file (``settings.data_dir``), then the user CSV
-    ``station_code,lon,lat,source``. A missing static file is not an error: it is
-    reported in ``problems`` and recorded in the sidecar as ``available: false``.
-    Identical content (same SHA-256) yields ``unchanged`` without a new version.
+    APIs are always downloaded. Every code of the lists, the APIs, the static
+    file and the current series indexes is kept (a code only in the static file
+    is a hydro station; a code only in a series index is a historical station of
+    the series family with ``geometry`` null unless the user file locates it,
+    counted in ``from_series``); codes only in the user file are reported in
+    ``problems``. Location precedence: API, then the local static file
+    (``settings.data_dir``), then the user CSV ``station_code,lon,lat,source``.
+    A missing static file is not an error: it is reported in ``problems`` and
+    recorded in the sidecar as ``available: false``. Every series index read is
+    recorded in the sidecar as a ``series`` source. Identical content (same
+    SHA-256) yields ``unchanged`` without a new version.
 
     Parameters
     ----------
@@ -990,6 +1093,7 @@ def build_catalog(
         Called after each build step (station lists, APIs, assembly, publication).
     on_notice : NoticeHook or None, optional
         Receives catalog problems, rejected locations, location source summaries,
+        a ``series_station`` summary of stations known only from series indexes,
         stations without location, ``source_unverifiable`` for a list without a
         comparable signal, writer notices of downloaded lists, a
         ``leftover_incoming`` warning for every removed staging directory older
@@ -1004,7 +1108,8 @@ def build_catalog(
     CatalogReport
         Status ``created``, ``unchanged`` or ``cancelled``, the path of the
         current ``stations.geojson``, the station count, the number of stations
-        without location and the problems found in the sources.
+        without location, the number of stations known only from series indexes
+        and the problems found in the sources.
 
     Raises
     ------
@@ -1015,8 +1120,9 @@ def build_catalog(
         If a station list cannot be checked or downloaded, or a public API cannot
         be downloaded.
     IMGWDataError
-        If an API response is not a JSON list of objects, or a station code
-        appears in both the hydro and meteo families.
+        If an API response is not a JSON list of objects, a current series index
+        is unreadable, or a station code appears in both the hydro and meteo
+        families.
     IMGWValidationError
         If a location file exists but cannot be read.
     IMGWStoreConflictError
@@ -1034,7 +1140,7 @@ def build_catalog(
 
     def stopped() -> CatalogReport | None:
         if _cancelled(cancel):
-            return CatalogReport("cancelled", None, 0, 0, ())
+            return CatalogReport("cancelled", None, 0, 0, 0, ())
         return None
 
     sources: list[dict[str, Any]] = []
@@ -1108,9 +1214,12 @@ def build_catalog(
                 user[1], source="user", file=user[0].name, count=len(user_rows)
             )
         )
-    data, count, without, used = _catalog_bytes(
+    series, series_sources = _series_codes(handle.root, problems)
+    sources.extend(series_sources)
+    data, count, without, used, series_only = _catalog_bytes(
         lists=parsed_lists,
         apis={"hydro": apis[0], "meteo": apis[1]},
+        series=series,
         static=static,
         user=user_rows,
         problems=problems,
@@ -1138,6 +1247,16 @@ def build_catalog(
                         f"Źródła w pliku użytkownika: {', '.join(labels)}",
                     )
                 )
+        if series_only:
+            on_notice(
+                Notice(
+                    "info",
+                    "series_station",
+                    f"{len(series_only)} stacji wyłącznie z indeksów szeregów "
+                    f"(historyczne, active=false): {', '.join(series_only[:10])}"
+                    + (" …" if len(series_only) > 10 else ""),
+                )
+            )
         if without:
             on_notice(
                 Notice(
@@ -1153,7 +1272,9 @@ def build_catalog(
     current = _current_catalog(handle.root)
     if current is not None and current[1]["sha256"] == sha:
         progress(total, "unchanged", "Katalog stacji bez zmian")
-        return CatalogReport("unchanged", current[0], count, without, tuple(problems))
+        return CatalogReport(
+            "unchanged", current[0], count, without, len(series_only), tuple(problems)
+        )
     now = datetime.now(UTC)
     label = now.date().isoformat()
     meta = {
@@ -1195,4 +1316,6 @@ def build_catalog(
                 "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
             )
         )
-    return CatalogReport(status, path, count, without, tuple(problems))
+    return CatalogReport(
+        status, path, count, without, len(series_only), tuple(problems)
+    )

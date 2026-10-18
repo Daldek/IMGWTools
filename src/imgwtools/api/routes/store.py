@@ -721,6 +721,7 @@ def build_catalog_route(
         version=_relative(root, report.version),
         station_count=report.station_count,
         without_location=report.without_location,
+        from_series=report.from_series,
         problems=[_hide_paths(problem) for problem in report.problems],
     )
 

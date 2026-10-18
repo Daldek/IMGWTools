@@ -74,21 +74,34 @@ class TestFetchPmaxtp:
         with pytest.raises(IMGWValidationError) as exc_info:
             fetch_pmaxtp(latitude=100.0, longitude=21.01)
 
-        assert "latitude" in str(exc_info.value).lower()
+        assert str(exc_info.value) == (
+            "Szerokość geograficzna 100.0 poza zakresem Polski (49.0–55.0)"
+        )
 
     def test_invalid_longitude(self):
         """Test validation error for invalid longitude."""
         with pytest.raises(IMGWValidationError) as exc_info:
             fetch_pmaxtp(latitude=52.23, longitude=200.0)
 
-        assert "longitude" in str(exc_info.value).lower()
+        assert str(exc_info.value) == (
+            "Długość geograficzna 200.0 poza zakresem Polski (14.0–24.5)"
+        )
 
-    def test_coordinates_outside_poland(self):
-        """Test validation error for coordinates outside Poland."""
-        with pytest.raises(IMGWValidationError) as exc_info:
+    def test_coordinates_outside_poland_match_sync_pmaxtp(self, tmp_path):
+        """Live and stored PMAXTP reject a point outside the box identically."""
+        from imgwtools.store import init_store, sync_pmaxtp
+
+        with pytest.raises(IMGWValidationError) as live:
             fetch_pmaxtp(latitude=40.0, longitude=21.01)
+        with pytest.raises(IMGWValidationError) as stored:
+            sync_pmaxtp(
+                init_store(tmp_path / "store"),
+                method="POT",
+                latitude=40.0,
+                longitude=21.01,
+            )
 
-        assert "Poland" in str(exc_info.value) or "Polska" in str(exc_info.value)
+        assert str(live.value) == str(stored.value)
 
     @patch("imgwtools.fetch.httpx.Client")
     def test_timeout_error(self, mock_client):

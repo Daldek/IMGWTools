@@ -92,17 +92,19 @@ def _json_payload(response: httpx.Response) -> Any:
 
 
 def _validate_poland_coords(latitude: float, longitude: float) -> None:
-    """Validate that coordinates are within Poland bounds."""
-    if not (POLAND_LAT_MIN <= latitude <= POLAND_LAT_MAX):
-        raise IMGWValidationError(
-            f"Latitude {latitude} outside Poland bounds "
-            f"({POLAND_LAT_MIN}-{POLAND_LAT_MAX})"
-        )
-    if not (POLAND_LON_MIN <= longitude <= POLAND_LON_MAX):
-        raise IMGWValidationError(
-            f"Longitude {longitude} outside Poland bounds "
-            f"({POLAND_LON_MIN}-{POLAND_LON_MAX})"
-        )
+    """Validate that coordinates are numbers within the Poland bounds box."""
+    for name, value, low, high in (
+        ("Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
+        ("Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not low <= value <= high
+        ):
+            raise IMGWValidationError(
+                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})"
+            )
 
 
 # ============================================================================

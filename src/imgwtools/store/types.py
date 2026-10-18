@@ -511,6 +511,9 @@ class CatalogReport:
         Number of stations in the catalog.
     without_location : int
         Number of stations without a location (``geometry`` is null).
+    from_series : int
+        Number of historical stations known only from the current series
+        indexes (absent from the station lists, public APIs and static file).
     problems : tuple of str
         Human-readable descriptions of problems.
     """
@@ -519,6 +522,7 @@ class CatalogReport:
     version: Path | None
     station_count: int
     without_location: int
+    from_series: int
     problems: tuple[str, ...]
 
 

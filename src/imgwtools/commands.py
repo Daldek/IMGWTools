@@ -33,7 +33,6 @@ from imgwtools.core.url_builder import (
 from imgwtools.datasets import ArchiveFile, archive_files, datasets, get_dataset
 from imgwtools.exceptions import IMGWError, IMGWStoreError, IMGWValidationError
 from imgwtools.models import PMaXTPResult
-from imgwtools.store.pmaxtp import _validate_point
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -708,7 +707,7 @@ def _rules_series_select(options: Options) -> None:
 
 
 def _rules_pmaxtp(options: Options) -> None:
-    _validate_point(options["lat"], options["lon"])
+    _fetch._validate_poland_coords(options["lat"], options["lon"])
     if ("ind_x" in options) != ("ind_y" in options):
         _fail("Podaj oba indeksy komórki ind_x i ind_y albo żaden")
 

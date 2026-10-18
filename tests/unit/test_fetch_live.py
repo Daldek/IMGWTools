@@ -70,7 +70,7 @@ def test_fetch_pmaxtp_latitude_bounds_are_inclusive(respx_mock, latitude):
 
 @pytest.mark.parametrize(
     "latitude, longitude, word",
-    [(48.99, 20.0, "Latitude"), (52.0, 24.51, "Longitude"), (52.0, 13.99, "Longitude")],
+    [(48.99, 20.0, "Szerokość"), (52.0, 24.51, "Długość"), (52.0, 13.99, "Długość")],
 )
 def test_fetch_pmaxtp_rejects_coords_outside_poland_before_request(
     respx_mock, latitude, longitude, word

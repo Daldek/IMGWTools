@@ -3,6 +3,9 @@
 import csv
 import io
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -169,6 +172,24 @@ def test_store_read_cli_streams_the_same_records_as_python(root, tmp_path):
         )
         for r in records
     ]
+
+
+def test_store_read_cli_exits_quietly_when_reader_closes_the_pipe(root):
+    version = store_file(root, DAILY_2024).parent
+    reader, writer = os.pipe()
+    os.close(reader)  # like ``| head`` that already exited: every write gets EPIPE
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "imgwtools.cli.main", "store", "read"]
+            + ["--version", str(version)],
+            stdout=writer,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120,
+        )
+    finally:
+        os.close(writer)
+    assert (result.returncode, result.stderr) == (0, "")
 
 
 def test_store_read_cli_reports_station_list_version_in_polish(root):
