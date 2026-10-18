@@ -15,6 +15,8 @@ from typing import Any, Literal, cast
 from imgwtools._parsing import normalize_archive
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools.datasets import (
+    CATALOG_DATASET,
+    DATASET_KEY_PATTERN,
     STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
@@ -23,6 +25,7 @@ from imgwtools.datasets import (
     datasets,
     get_dataset,
     parse_years,
+    resolve_dataset_key,
     station_source_files,
 )
 from imgwtools.exceptions import (
@@ -97,8 +100,8 @@ _KINDS: tuple[EntryKind, ...] = (
 _STALE_SECONDS = 24 * 60 * 60
 _SIDECAR = ".meta.json"
 _SHA = re.compile(r"^[0-9a-f]{64}$")
-# Dataset key <country>.<provider>.<name> of any provider (ADR-003 D1).
-_DATASET = re.compile(r"^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$")
+# Dataset key <country>.<provider>.<name> of any provider (ADR-003 D1, IMGW-20).
+_DATASET = re.compile(DATASET_KEY_PATTERN)
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
 # Country and provider of every dataset the registry knows: all are IMGW-PIB's.
 _REGISTRY_ORIGIN = ("PL", "IMGW-PIB")
@@ -229,7 +232,7 @@ def _object(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
 
 def _registry_origin(dataset: str) -> tuple[str, str] | None:
     """``(country, provider)`` the registry gives ``dataset``; None for an unknown key."""
-    if dataset == _CATALOG_KEY or any(item.key == dataset for item in datasets()):
+    if resolve_dataset_key(dataset) is not None:
         return _REGISTRY_ORIGIN
     return None
 
@@ -314,6 +317,7 @@ def _parse_meta(payload: object) -> Meta:
     return Meta(
         schema,
         dataset,
+        resolve_dataset_key(dataset),
         sha,
         size,
         downloaded_at,
@@ -669,7 +673,7 @@ def _check_observation(
             "invalid_meta",
             f"nazwa {path.name} nie odpowiada sygnałowi obserwacji (oczekiwano {expected})",
         )
-    if observation.dataset != dataset:
+    if resolve_dataset_key(observation.dataset) != dataset:
         raise _Invalid(
             "invalid_meta",
             f"pole dataset {observation.dataset} różni się od zbioru slotu {dataset}",
@@ -732,7 +736,6 @@ _SLOT_GRAMMAR = (
     "archive:<klucz>:<ścieżka>, series:<klucz>, catalog:pl.imgw.stations "
     "albo pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>"
 )
-_CATALOG_KEY = "pl.imgw.stations"
 _PMAXTP_KEY = "pl.imgw.pmaxtp"
 
 
@@ -907,7 +910,7 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
         elif top.name == "stations":
             for version in _directories(root, versions):
                 yield _derived_entry(
-                    root, version, "catalog", f"catalog:{_CATALOG_KEY}", CATALOG_FILE
+                    root, version, "catalog", f"catalog:{CATALOG_DATASET}", CATALOG_FILE
                 )
         elif top.name == "series":
             series = _series_datasets()
@@ -1079,7 +1082,7 @@ def _slot_location(
             SERIES_FILE,
             {"subdirs": ("stations",)},
         )
-    if kind == "catalog" and key == _CATALOG_KEY:
+    if kind == "catalog" and key == CATALOG_DATASET:
         return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, {}
     raise _invalid_slot(slot, "nieznany rodzaj lub klucz")
 
@@ -1471,7 +1474,7 @@ def read_station_list(
             "budowa katalogu stacji (build_catalog, imgw store catalog)",
             code="not_found",
         )
-    if entry.meta.dataset != source.dataset:
+    if entry.meta.dataset_key != source.dataset:
         raise IMGWDataError(
             f"Wersja {entry.version} należy do zbioru {entry.meta.dataset}, "
             f"a nie {source.dataset}"
@@ -1535,14 +1538,16 @@ def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
     main = _archive_main(version)
     meta = read_meta(main)
     server_path = meta.request.get("server_path")
-    descriptor = next((d for d in datasets() if d.key == meta.dataset), None)
+    descriptor = next((d for d in datasets() if d.key == meta.dataset_key), None)
     if not isinstance(server_path, str) or descriptor is None:
         raise IMGWValidationError(
             f"{main} nie jest wersją archiwum IMGW (zbiór {meta.dataset}); szeregi "
             "czyta read_series, katalog read_catalog, komórki PMAXTP read_pmaxtp"
         )
     if descriptor.time_unit == "station_list":
-        kind = next(k for k, a in _station_lists().items() if a.dataset == meta.dataset)
+        kind = next(
+            k for k, a in _station_lists().items() if a.dataset == descriptor.key
+        )
         raise IMGWValidationError(
             f"{main} jest wersją listy stacji {meta.dataset}; listy stacji czyta "
             f"read_station_list(root, kind={kind!r})"
@@ -1552,7 +1557,7 @@ def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
             f"Plik {main.name} nie odpowiada request.server_path {server_path} sidecara"
         )
     try:
-        archive = _restore_archive(meta.dataset, {"request": meta.request})
+        archive = _restore_archive(descriptor.key, {"request": meta.request})
     except (KeyError, TypeError, ValueError, IMGWValidationError) as exc:
         raise IMGWDataError(f"Sidecar {main} nie opisuje archiwum: {exc}") from exc
     return normalize_archive(archive, data=_verified(main))

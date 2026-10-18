@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
+from types import MappingProxyType
 from typing import Literal
 
 from imgwtools.exceptions import IMGWValidationError
@@ -19,6 +20,23 @@ MonthsArg = int | str | Iterable[int | str]
 
 STATION_CODE_PATTERN = r"^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$"
 """Station code of any provider: nine IMGW-PIB digits or a WIGOS identifier (ČHMÚ)."""
+
+DATASET_KEY_PATTERN = r"^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$"
+"""Dataset key ``<country>.<key prefix>.<name>[_<variant>]`` of any provider (IMGW-20)."""
+
+CATALOG_DATASET = "pl.imgw.stations"
+"""Derived dataset key of the station catalog ``stations.geojson`` (no descriptor)."""
+
+DATASET_KEY_ALIASES: Mapping[str, str] = MappingProxyType({})
+"""
+Renamed dataset keys: published key → current key (ADR-001, IMGW-20).
+
+A key published in a release with the store never changes, and sidecars keep
+their raw ``dataset`` forever; a renamed dataset adds its old key here, and the
+entry is recorded in the changelog. Empty in 3.0.0. Unlike ``legacy_alias``
+(pre-3.0 input words), entries are stored keys that `read_meta` resolves into
+``Meta.dataset_key``.
+"""
 
 _YEAR = re.compile(r"([0-9]{1,4})(?:-([0-9]{1,4}))?")
 _MONTH = re.compile(r"[0-9]{1,2}")
@@ -446,13 +464,14 @@ def datasets(
 
 def get_dataset(dataset: str, /) -> DatasetDescriptor:
     """
-    Find a dataset by its key, slug or legacy alias.
+    Find a dataset by its key, slug, legacy alias or renamed key.
 
     Parameters
     ----------
     dataset : str
         Full key (``"pl.imgw.hydro_daily"``), slug (``"hydro_daily"``) or
-        legacy alias (``"hydro/dobowe"``), tried in this order.
+        legacy alias (``"hydro/dobowe"``), tried in this order, then a renamed
+        key of ``DATASET_KEY_ALIASES``.
 
     Returns
     -------
@@ -469,6 +488,10 @@ def get_dataset(dataset: str, /) -> DatasetDescriptor:
     """
     if isinstance(dataset, str):
         if (descriptor := _BY_NAME.get(dataset)) is not None:
+            return descriptor
+        if (
+            descriptor := _BY_NAME.get(DATASET_KEY_ALIASES.get(dataset, ""))
+        ) is not None:
             return descriptor
         if dataset in _UNSUPPORTED:
             reason, message = _UNSUPPORTED[dataset]
@@ -489,6 +512,29 @@ def get_dataset(dataset: str, /) -> DatasetDescriptor:
             "allowed": _ALLOWED,
         },
     )
+
+
+def resolve_dataset_key(dataset: str, /) -> str | None:
+    """
+    Resolve a stored dataset key to its current key.
+
+    Parameters
+    ----------
+    dataset : str
+        Dataset key as written, e.g. the ``dataset`` field of a sidecar.
+
+    Returns
+    -------
+    str or None
+        The key itself if it is current (a registry key or
+        ``CATALOG_DATASET``), the current key of a renamed key from
+        ``DATASET_KEY_ALIASES``, None for a key IMGWTools does not know
+        (slugs and legacy aliases are not keys and give None too).
+    """
+    key = DATASET_KEY_ALIASES.get(dataset, dataset)
+    if key == CATALOG_DATASET or any(item.key == key for item in _DATASETS):
+        return key
+    return None
 
 
 def _items(value: object, option: str) -> list[int | str]:

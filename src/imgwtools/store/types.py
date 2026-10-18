@@ -616,7 +616,12 @@ class Meta:
     schema : str
         Sidecar schema, ``"imgw-meta/1"``.
     dataset : str
-        Full dataset key, e.g. ``"pl.imgw.hydro_daily"``.
+        Dataset key as written in the sidecar, e.g. ``"pl.imgw.hydro_daily"``;
+        never rewritten, even after the dataset is renamed.
+    dataset_key : str or None
+        Current key of ``dataset`` (``imgwtools.datasets.resolve_dataset_key``):
+        the key itself, the new key of a renamed key, or None for a key
+        IMGWTools does not know (IMGW-20).
     sha256 : str
         Full SHA-256 hex digest of the main file.
     size_bytes : int
@@ -640,6 +645,7 @@ class Meta:
 
     schema: str
     dataset: str
+    dataset_key: str | None
     sha256: str
     size_bytes: int
     downloaded_at: datetime
