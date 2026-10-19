@@ -219,7 +219,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`IMGWConnectionError`|`source_unavailable`|Connection/timeout/HTTP errors|
 |`IMGWDataError`|`data_error`|Data parsing errors|
 |`IMGWStoreError`|`store_unavailable`|Bad/unsupported store root (`not_found` for missing versions)|
-|`IMGWStoreConflictError`|`conflict`|Collisions, races, non-atomic filesystems|
+|`IMGWStoreConflictError`|`conflict`|Collisions, races, busy locks, refused publication|
 |`IMGWStoreDependencyError`|`missing_dependency`|pyarrow missing|
 |`IMGWProjectError`|`validation_error`|Project manifest/lock/pins|
 |`IMGWCancelledError`|`cancelled`|Cancelled operation|
@@ -450,7 +450,7 @@ Wszystkie endpointy pod `/api/v1/...`
 
 ## Versioned Store (Optional)
 
-Explicit root only (`init_store(root)`, `--root`, `IMGW_STORE_ROOT`); readable offline, also from network shares; one store holds both providers. Decisions: `docs/DECISIONS.md` ADR-001, ADR-003; contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence) and `2026-10-18-chmi-provider-design.md` (ČHMÚ).
+Explicit root only (`init_store(root)`, `--root`, `IMGW_STORE_ROOT`); readable offline, also from network shares; one store holds both providers. Writes need neither Linux nor hard links (Windows, macOS, SMB): versions are published by one no-replace rename — `renameat2(RENAME_NOREPLACE)` on Linux, otherwise a portable fallback (`store/writer.py:_atomic_publish`, ADR-001 errata 2026-10-19) — and the marker is created exclusively (`open(..., "xb")`). Decisions: `docs/DECISIONS.md` ADR-001, ADR-003; contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence) and `2026-10-18-chmi-provider-design.md` (ČHMÚ).
 
 ### Configuration
 
@@ -531,7 +531,7 @@ npx -y pyright src/imgwtools/
 
 |File|Tests|Description|
 |---|---|---|
-|`tests/conftest.py`|-|Shared fixtures; autouse `isolated_data_dir`|
+|`tests/conftest.py`|-|Shared fixtures; autouse `isolated_data_dir`; `publication` (store tests on `renameat2`, without it, and without hard links — also in `imgw` subprocesses)|
 |`tests/unit/test_public_store_api.py`|192|`__all__` == spec §13.12 + ČHMÚ + `agent_guide`, removed names absent, light imports|
 |`tests/unit/test_cli_catalog.py`|155|CLI generated from the catalog: envelope, errors, exit codes, streams, help languages|
 |`tests/unit/test_api_commands.py`|113|REST routes from the catalog, problem+json, write guard, `Accept-Language`|
@@ -542,19 +542,19 @@ npx -y pyright src/imgwtools/
 |`tests/unit/test_project.py`|55|`imgw-project/1`|
 |`tests/unit/test_parsers.py`|50|Hydro/meteo/station-list parsers|
 |`tests/unit/test_exceptions.py`|50|`ERROR_CODES`, codes and details|
-|`tests/unit/test_store_*.py` (IMGW), `test_series_export.py`|206|Store writer, sync, series, catalog, pmaxtp, reader, export, types, fixtures|
-|`tests/unit/test_*_chmi.py`, `test_parsing_chmi.py`, `test_store_content.py`|360|ČHMÚ: parsers, registry, listing sync, catalog, series, export, commands, stations, projects, content form|
+|`tests/unit/test_store_*.py` (IMGW), `test_series_export.py`|230|Store writer, sync, series, catalog, pmaxtp, reader, export, types, fixtures|
+|`tests/unit/test_*_chmi.py`, `test_parsing_chmi.py`, `test_store_content.py`|364|ČHMÚ: parsers, registry, listing sync, catalog, series, export, commands, stations, projects, content form|
 |`tests/unit/test_catalog_effects.py`, `test_catalog_i18n.py`, `test_agent_guide.py`, `test_mcp_*.py`|179|Agents: effects = behavior, English texts, guide drift test, MCP tools/calls/stdio/HTTP|
 |`tests/unit/test_web_app.py`|45|Web GUI|
-|`tests/unit/` other files|151|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
+|`tests/unit/` other files|152|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
 |`tests/contract/test_interface_contract.py`|80|Python = CLI = REST for all 27 REST commands, error matrix, paging|
-|`tests/contract/test_chmi_contract.py`|68|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
+|`tests/contract/test_chmi_contract.py`|76|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
 |`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|85|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
-|`tests/contract/` other files|15|Store contract, CLI = API parity, project contract|
+|`tests/contract/` other files|21|Store contract, CLI = API parity, project contract|
 |`tests/live/test_interfaces_live.py`|53|Live IMGW-PIB: 37 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); skipped without `IMGW_LIVE=1`|
 |`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; skipped without `IMGW_LIVE=1`|
 
-**Total: 2208 tests** (`pytest --collect-only`, 2026-10-19): 2129 offline, 79 live (`IMGW_LIVE=1 .venv/bin/python -m pytest tests/live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
+**Total: 2251 tests** (`pytest --collect-only`, 2026-10-19): 2172 offline, 79 live (`IMGW_LIVE=1 .venv/bin/python -m pytest tests/live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
 
 ---
 

@@ -92,7 +92,7 @@ Dotyczy wyłącznie integracji pisanych na gałęzi przed ADR-002 (Archiwista, R
 | `StoreEntry.slot: str` | `str \| None` |
 | `CommandOption` z `lat`/`lon` typu `str` | typy `float`, `date`, `object`; nowe pola opisu opcji |
 | `DataCommand(name, description, options)` | + `function`, `check`, `result`, `method`, `requires`, `one_of`, `rules` |
-| `init_store` na systemie plików bez dowiązań twardych → `IMGWStoreError` | `IMGWStoreConflictError` (`details.reason="not_atomic"`) |
+| `init_store` na systemie plików bez dowiązań twardych (SMB, FAT) → `IMGWStoreError`; zapis poza Linuksem → `IMGWStoreConflictError` | magazyn powstaje i przyjmuje wersje także tam (znacznik przez wyłączne utworzenie pliku, przenośna publikacja bez `renameat2`) |
 
 #### Wobec stanu gałęzi przed ADR-003 i ADR-004 (commit `d8cb11c`)
 
@@ -451,6 +451,11 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `hydro_stations_locations.csv` (wpis `hydro` bez nazwy, `active=false`, położenie
   `static`); kody wyłącznie z pliku użytkownika trafiają do `problems` (plik ten tylko
   uzupełnia położenia).
+- Katalog stacji IMGW-PIB podaje `meteo_kind` stacji meteorologicznej z bieżących
+  szeregów: `climate` — stacja w szeregu `pl.imgw.meteo_climate_daily`, w przeciwnym
+  razie `precipitation` — w szeregu `pl.imgw.meteo_precip_daily`, bez takiego szeregu
+  `null` (ČHMÚ zawsze `null`); `check_catalog` zgłasza zmianę `meteo_kind` jako `newer`
+  akcji indeksów szeregów (ADR-001, errata 2026-10-19).
 - `summarize_coverage` i `series.json`: w zbiorach miesięcznych i półrocznych
   miesiąc/okres posiadanego archiwum, w którym stacji brak (a inne stacje są), jest luką
   w `gaps` — jak dni w zbiorach dobowych; dla półrocza jednostkę uznaje się za posiadaną
@@ -466,8 +471,14 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
 - Kontrola katalogów Kartografa przed zapisem nie przegląda własnych drzew wersji
   magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `.incoming/`): koszt zapisu
   nie rośnie z liczbą wersji, a uszkodzony sidecar w innym slocie nie blokuje zapisów.
-- `init_store` na systemie plików bez dowiązań twardych (SMB, FAT) zgłasza
-  `IMGWStoreConflictError` (`details.reason="not_atomic"`) z polskim komunikatem.
+- Zapis magazynu nie wymaga Linuksa ani dowiązań twardych — działa także na Windows,
+  macOS i na udziale SMB (ADR-001, errata 2026-10-19): znacznik `imgw-store.json` powstaje
+  wyłącznym utworzeniem pliku (`open(..., "xb")` + `fsync`), bez dowiązania twardego;
+  wersje publikuje jedna operacja rename bez zastępowania — na Linuksie
+  `renameat2(RENAME_NOREPLACE)`, bez niego (Windows, macOS, NFS) `os.rename` katalogu
+  wersji po sprawdzeniu, że cel nie istnieje (Windows nie zastępuje celu, a POSIX
+  katalogu niepustego) i `os.link` pliku obserwacji. Równolegli pisarze nadal dają jedno
+  `created` i `unchanged`, a przerwana publikacja zostawia najwyżej staging.
 - `iter_store` zgłasza wersję szeregu z nieobsługiwanym `extra.series_schema`
   (np. `imgw-series/2`) jako problem `unknown_schema`; `current_version` dla takiego
   slotu kończy się `IMGWDataError`.
@@ -640,7 +651,10 @@ bajty co bez dostawcy ČHMÚ.
   opendata.chmi.cz (stacje `0-203-1-001000` i `0-203-0-11799`) przez Python, CLI, REST
   i MCP z dziennikiem żądań każdego interfejsu; przebieg 2026-10-19: 26 passed w 77 s,
   124 żądania, 31,5 MB.
-- 2208 testów (`pytest --collect-only`, 2026-10-19): 2129 offline i 79 na żywo (53 IMGW-PIB,
+- Testy współbieżności i atomowości magazynu (zapis archiwów i obserwacji, szeregi —
+  także dwa procesy `imgw`, katalog, kontrakt ČHMÚ) przechodzą każdą ścieżkę publikacji:
+  `renameat2`, bez niego oraz bez niego i bez dowiązań twardych (fixture `publication`).
+- 2251 testów (`pytest --collect-only`, 2026-10-19): 2172 offline i 79 na żywo (53 IMGW-PIB,
   26 ČHMÚ).
 
 ## [2.2.0] — 2026-08-22

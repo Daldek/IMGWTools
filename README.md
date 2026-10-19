@@ -631,7 +631,7 @@ Obraz (`python:3.12-slim`) instaluje `.[api,mcp]` i uruchamia jeden proces uvico
 
 ## Magazyn wersjonowany (opcjonalny)
 
-Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_store(root)`, na serwerze `IMGW_STORE_ROOT`). Nie ma domyślnej lokalizacji ani bazy danych; magazyn można czytać offline z dysku lokalnego lub udziału sieciowego. Jeden magazyn mieści dane obu dostawców. Szczegóły: `docs/DECISIONS.md` (ADR-001, ADR-003), `docs/superpowers/specs/2026-10-17-versioned-store-design.md` i `2026-10-18-chmi-provider-design.md`.
+Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_store(root)`, na serwerze `IMGW_STORE_ROOT`). Nie ma domyślnej lokalizacji ani bazy danych; magazyn można czytać offline z dysku lokalnego lub udziału sieciowego. Zapis nie wymaga Linuksa ani dowiązań twardych — działa także na Windows, macOS i udziale SMB: wersję publikuje jedna operacja rename bez zastępowania (na Linuksie `renameat2`, gdzie indziej przenośny odpowiednik), więc pojawia się cała albo wcale. Jeden magazyn mieści dane obu dostawców. Szczegóły: `docs/DECISIONS.md` (ADR-001, ADR-003), `docs/superpowers/specs/2026-10-17-versioned-store-design.md` i `2026-10-18-chmi-provider-design.md`.
 
 ### Układ katalogu
 
@@ -699,7 +699,7 @@ Projekt zawiera testy jednostkowe i kontraktowe publicznego API, CLI, REST, MCP 
 
 ```
 tests/
-├── conftest.py              # Wspólne fixtures; autouse isolated_data_dir (settings.data_dir w tmp)
+├── conftest.py              # Wspólne fixtures; autouse isolated_data_dir (settings.data_dir w tmp); publication (ścieżki zapisu wersji)
 ├── fixtures/store/          # Syntetyczne archiwa, listingi i nagrane odpowiedzi HTTP IMGW-PIB i ČHMÚ (fikcyjne stacje)
 ├── fixtures/export_golden/  # Złote pliki eksportu archiwów (CSV z CRLF, JSONL)
 ├── unit/
@@ -719,7 +719,7 @@ tests/
 └── live/                    # regresja na żywo (tylko z IMGW_LIVE=1): IMGW-PIB 37 komend × Python/CLI/REST + MCP; ČHMÚ
 ```
 
-**Łącznie: 2208 testów** (`pytest --collect-only`, 2026-10-19): 2129 offline i 79 na żywo, pomijane bez `IMGW_LIVE=1`:
+**Łącznie: 2251 testów** (`pytest --collect-only`, 2026-10-19): 2172 offline i 79 na żywo, pomijane bez `IMGW_LIVE=1`:
 
 ```bash
 IMGW_LIVE=1 .venv/bin/python -m pytest tests/live/test_interfaces_live.py   # IMGW-PIB: 53 testy
