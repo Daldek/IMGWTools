@@ -5,8 +5,8 @@
 | Pole | Wartość |
 |------|---------|
 | **Wersja** | 3.0.0 |
-| **Data** | 2026-10-18 |
-| **Gałąź robocza** | `feature/versioned-store` (magazyn wersjonowany ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
+| **Data** | 2026-10-19 |
+| **Gałąź robocza** | `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004; wcześniej `feature/versioned-store`: magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
 | **Python** | >=3.12 |
 
 ---
@@ -15,7 +15,7 @@
 
 | Wersja | Data | Zakres |
 |--------|------|--------|
-| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, rejestr 13 zbiorów, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, projekty `imgw-project/1`; **jeden katalog 35 komend** (ADR-002): koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, CLI i REST generowane z katalogu, problem+json; dziedziny `/1` otwarte dla kolejnych dostawców (ADR-003 C01); **breaking:** `imgw fetch`/`imgw list` → grupy katalogu, nowe trasy REST, `station_id` → `station`/`station_code`, `download_*` → `DownloadResult`, usunięcie cache SQLite i `core/url_builder`. Szczegóły: `docs/CHANGELOG.md` |
+| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, projekty `imgw-project/1`; **jeden katalog 37 komend** (ADR-002): koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, CLI i REST generowane z katalogu, problem+json; **dostawca ČHMÚ** (ADR-003): rejestr 17 zbiorów dwóch dostawców (`cz.chmi.*`), aktualność z listingu, treść kanoniczna i rejestr obserwacji, katalog stacji z progami SPA, jakość i flagi w szeregach, odtwarzanie przypięć treścią; **wsparcie agentów AI** (ADR-004): `AGENTS.md`/`llms.txt`, opisy angielskie, metadane skutków, serwer MCP (`imgw mcp`, `/mcp`), `GET /llms.txt`; **breaking:** `imgw fetch`/`imgw list` → grupy katalogu, nowe trasy REST, `station_id` → `station`/`station_code`, `download_*` → `DownloadResult`, usunięcie cache SQLite i `core/url_builder`. Szczegóły: `docs/CHANGELOG.md` |
 | v2.2.0 | 2026-08 | Licencja (rok, PEP 639), ręczny proces CLA, moduł danych referencyjnych IMGW-PIB (`reference_data.py`), usunięcie danych IMGW z repo, **usunięcie legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` usunięty) |
 | v2.1.1 | 2026-07 | Parsery: auto-detekcja separatora/kodowania (UTF-8 BOM)/cudzysłowów; URL-e meteo zgodne z serwerem IMGW; zgodność z pyright; audyt dokumentacji |
 | v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
@@ -25,7 +25,7 @@
 
 ---
 
-## v3.0.0 — szczegóły wydania (2026-10-18)
+## v3.0.0 — szczegóły wydania (2026-10-19)
 
 Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/superpowers/plans/2026-10-17-versioned-store.md` (zadania T01–T24) i kontraktu `docs/superpowers/specs/2026-10-17-versioned-store-design.md`. Pełna lista zmian: `docs/CHANGELOG.md`.
 
@@ -50,6 +50,21 @@ Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/sup
 - **C01 (ADR-003, przed tagiem):** otwarte dziedziny kontraktów `/1` (klucz zbioru, kraj, dostawca, licencja, kod WIGOS, `location_source`), `content_sha256`/`content_form`, rejestr obserwacji `imgw-observation/1`.
 - **Fala 17 (U15):** dokumentacja wydania (CHANGELOG z tabelami migracji §13.11, README, CLAUDE.md, ARCHITECTURE, standardy); przykłady README uruchomione raz (Python i CLI na żywo na świeżym magazynie, odczyt na `build_fixture_store`, REST przez `imgw server`); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy).
 - **Fala 17 (U16) — bramka końcowa i regresja na żywo:** nowy `tests/live/test_interfaces_live.py` (pomijany bez `IMGW_LIVE=1`, raport JSON przez `IMGW_LIVE_REPORT`). Przebieg 2026-10-18T21:09:34Z (178,4 s, świeży magazyn w tmpfs, `imgw server` na localhost, żądania sekwencyjne): **42 passed** — każda z 35 komend przez Python, zainstalowany `imgw` i REST zgodna (status, klucze, sloty, ścieżki, strumienie bajt w bajt, drzewa magazynu; komendy lokalne w REST → 404 `not_found`), 6 błędów na żywo zgodnych (`validation_error` 2/400, `not_found` 3/404, `store_unavailable` 8/503). Naprawa z przebiegu: względne ścieżki przypięć projektu w JSON koperty nie zależą już od katalogu roboczego (`_jsonable`). Przebiegi przerwane awarią po stronie IMGW zgłaszały ją jednakowo (`source_unavailable`, exit 5 / HTTP 502); test powtarza taki przebieg po 20 s i 60 s. Bramka: `pytest` 1377 passed, 42 skipped (live); `ruff check` i `ruff format --check` czysto; `pyright` 0 błędów. Razem 1419 testów (`pytest --collect-only`).
+
+**ADR-003 — dostawca ČHMÚ** (spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`, plan C01–C10 w §16; decyzją właściciela z 2026-10-19 w wydaniu 3.0.0, errata ADR-003 D16):
+
+- **Fala C1 (C02–C03):** rejestr dostawców (`ProviderDescriptor`, `providers`, `get_provider`) i 4 deskryptory `cz.chmi.*`, `archive_files(stations=)`, typy §9.4, `write_archive` z polami dostawcy z rejestru, formą kanoniczną `chmi-json/1` (`content_sha256`), wierszem `content_unchanged` i zapisem obserwacji; parsery ČHMÚ (hydro JSON, meteo CSV, metadane, listing nginx) i syntetyczne pliki z fikcyjnymi kodami WIGOS.
+- **Fala C2 (C04, C06):** aktualność z listingu katalogów (`check_store`/`sync_store` ze `stations`, pola planu `station_code`, `signal`, `remote_listed_at`, `local_observation`, `requests`), `download_archives` z `not_published`, nagrania `chmi_recordings.json`; katalog stacji ČHMÚ (`stations/versions/chmi_stations/`, progi SPA, obrys Czech), czytniki per dostawca (`iter_store`, `read_catalog`, `read_station_list`, `store_info().providers`).
+- **Fala C3 (C05, C07):** szeregi ČHMÚ z okresami znanymi per stacja (`stations[<kod>].periods`, `summarize_coverage(station_periods=)`), kolumny jakości i flag w Parquet, CSV i JSONL, atrybucja dostawcy w eksportach; katalog 36 komend (`datasets providers`, opcje `provider` i `stations`, `data_commands(provider=)`), `find_stations` dla ČHMÚ, tytuł „Źródło danych niedostępne”, web wyłącznie IMGW-PIB.
+- **Fala C4 (C08):** projekty z zadaniami ČHMÚ i odtwarzaniem treścią (`restored_by_content`, `content_match`, `pin_restored_by_content`, `get_project_status(on_notice=)`), magazyn testowy `build_fixture_store(variant="complete_pl_cz")`.
+- **Fala C5 (C09):** kontrakt IMGW-15..19 `tests/contract/test_chmi_contract.py` (68 testów, parytet Python/CLI/REST/MCP) i test na żywo `tests/live/test_chmi_live.py` — przebieg 2026-10-19: 26 passed w 77 s, 124 żądania, 31,5 MB (stacje `0-203-1-001000`, 2024–2026 z nieopublikowanym 2026, i `0-203-0-11799`); naprawa z przebiegu: `details.value` w `series select` jako lista. Pełna bramka (obejmuje A01–A05): `pytest` 2129 passed, 79 skipped (live); `ruff check` i `ruff format --check` czysto; `pyright` 0 błędów. Regresja IMGW-PIB na żywo (`tests/live/test_interfaces_live.py`, 37 komend i noga MCP): 53 passed w 103 s.
+
+**ADR-004 — wsparcie agentów AI** (spec `docs/superpowers/specs/2026-10-19-agent-support-design.md`, plan A01–A06 w §11):
+
+- **Fala C4 + A1 (A01):** opisy angielskie katalogu, grup, błędów i zbiorów (`help_en`, `description_en`, `rules_en`, `title_en`), `command_schema(lang=)`, `IMGW_LANG` w CLI (także elementy Typer/Click), `Accept-Language` w REST, metadane skutków (`writes`, `network`, `operation_id`, `env_root_when`).
+- **Fala A2 (A02, A03):** `agent_guide`, komenda `commands guide` (37.), pliki pochodne `AGENTS.md` i `llms.txt` z testem dryfu; adapter MCP `src/imgwtools/mcp/` (dodatek `imgwtools[mcp]`, tryby `read`/`write`/`http`).
+- **Fala A3 (A04, A05):** porządek komunikatów legacy (pomoc `imgw admin`, `version`, `server`, opisy pól OpenAPI, `reference_data`, strony HTML poza OpenAPI; ponowny skan dopisał pozycje 34–37 spec §7.2 i uzupełnienia §7.3 — errata A04); `imgw mcp`, `/mcp` (`IMGW_MCP_ENABLED`, `IMGW_MCP_ALLOWED_HOSTS`), `GET /llms.txt`, obraz Dockera na Pythonie 3.12 z `.[api,mcp]` i `location = /mcp` w nginx (obraz zbudowany i sprawdzony 2026-10-19: `/health`, `/llms.txt`, `initialize` na `/mcp`).
+- **Fala A4 (A06) i C10:** dokumentacja wydania (CHANGELOG, README z sekcjami ČHMÚ i agentów, CLAUDE.md, ARCHITECTURE, standardy, PRD, RULES), erraty ADR-001 i ADR-002 według sekcji „Wpływ” ADR-003 i ADR-004, errata ADR-003 D13, status ADR-004 w indeksie, noty `[ADR-003]`/`[ADR-004]` w spec 2026-10-17 §13 i `[ADR-004]` w spec 2026-10-18 §9.3, „3.1.0” → 3.0.0 w spec ČHMÚ (z kontekstem historycznym); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy); przykłady ČHMÚ uruchomione raz offline na `complete_pl_cz` i na żywo (opendata.chmi.cz), przykłady MCP — konfiguracja stdio (także `--allow-writes`, `--lang en`, wariant `uvx`) i `/mcp` przez HTTP — przez klienta SDK, przykład Dockera na obrazie zbudowanym przez `docker compose build`. `AGENTS.md` i `llms.txt` bez regeneracji (teksty katalogu bez zmian); test dryfu i pełny `pytest`: 2129 passed, 79 skipped (live).
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
@@ -223,6 +238,14 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 - [ ] Lepsze nazewnictwo KS/SG/RB w `PMaXTPData` — aliasy właściwości i metoda `get_design_precipitation()`; szczegóły w sekcji "TODO: Poprawa czytelności PMaXTPData" poniżej. Priorytet: średni.
 - [ ] Natywna siatka PMAXTP w `fetch_pmaxtp` — od 3.0.0 magazyn PMAXTP (`sync_pmaxtp`/`read_pmaxtp`) kluczuje komórki indeksami `indX/indY` z odpowiedzi i zapisuje środek komórki w `cell.json`, ale `PMaXTPResult` z `fetch_pmaxtp` nadal nie ma pól `point`, brak funkcji konwersji/iteracji komórek, a docstringi podają zakres 7×6 zamiast 16×27; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
+- [ ] Dane ČHMÚ w Web GUI — formularze i wyszukiwarka obsługują wyłącznie IMGW-PIB (`datasets(provider="IMGW-PIB")`); pliki ČHMÚ są per stacja, więc formularz potrzebuje wyboru stacji (spec ČHMÚ §9.3). Priorytet: niski.
+
+### Wsparcie agentów AI (po 3.0.0, ADR-004)
+
+- [ ] Decyzja właściciela: czy publiczny serwer włącza `/mcp` (`IMGW_MCP_ENABLED`) — ADR-004, pytanie otwarte 2. Priorytet: średni.
+- [ ] Tłumaczenie treści wykonania (`detail`, `Notice.text`, postęp) na angielski — dziś tylko tytuły i opisy katalogu (ADR-004, pytanie 3). Priorytet: niski.
+- [ ] Filtr narzędzi MCP według grup albo dostawcy (`--groups`, `--provider`, `data_commands(provider=…)`), gdy koszt kontekstu listy narzędzi (ok. 42 KB) okaże się problemem (ADR-004, pytanie 4). Priorytet: niski.
+- [ ] Limit wywołań sieciowych serwera MCP na stdio (dziś tylko żądania sekwencyjne biblioteki) i zapis przez MCP po HTTP z autoryzacją (ADR-004, pytania 5–6). Priorytet: niski.
 
 ### Magazyn wersjonowany (po 3.0.0)
 
@@ -231,7 +254,9 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [ ] Wniosek do IMGW-PIB o oficjalny wykaz współrzędnych stacji (ADR-001 Q6) oraz potwierdzenie znaczenia kodu hydrograficznego i kolejności `river_order` (Q4, Q5) — do tego czasu bez interpretacji. Priorytet: średni.
 - [ ] Rozszerzenie magazynu o kolejne zbiory (meteo miesięczne/terminowe, synop) — D6 ogranicza 3.0.0 do pięciu zbiorów Archiwisty i PMAXTP. Priorytet: niski.
 - [x] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`), opcjonalne pola treści kanonicznej `content_sha256` i `content_form` w `imgw-meta/1` i w `files[]` `imgw-project/1` oraz rejestr obserwacji `imgw-observation/1` (katalog `observations/` w slocie archiwum, wpisy `kind="observation"` w skanie, wewnętrzna publikacja obserwacji) — bez zmiany zachowania i bajtów IMGW (zrobione 2026-10-18, commit `889d705`; wywołanie zapisu obserwacji w `write_archive` należy do C02).
-- [ ] Dostawca ČHMÚ (Czechy, opendata.chmi.cz) — ADR-003 (przyjęta 2026-10-18) i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10 w §16). Zakres: `cz.chmi.hydro_daily` (H, Q, T; plik na stację i rok), `cz.chmi.meteo_daily` (opad, Tmean, Tmax, Tmin z `historical_csv` — CSV potwierdzone pomiarem 2026-10-18: 4,36 GB wobec 25,36 GB JSON), listy stacji i katalog `cz.chmi.stations` z progami SPA, inwentarz i aktualność z listingu katalogów, licencja CC BY 4.0; treść kanoniczna (`content_sha256`, forma `chmi-json/1` bez koperty `zaznamID`/`datumVytvoreni`): inne bajty o tej samej treści nie tworzą wersji, nowy sygnał trafia do rejestru obserwacji (kolejne sprawdzenie `current` bez pobierania), a przypięcia odtwarza się treścią ze statusem `restored_by_content`; poza zakresem dane bieżące (`now`, `recent`), CAP i PMAXTP. Spełnia wymagania Archiwisty IMGW-15..19 (P3, v0.6 „PL + CZ”). Zależność: zakończony ADR-002 (U01–U16) i wydanie 3.0.0; wydanie 3.1.0. Otwarte: pytania do ČHMÚ i Archiwisty (spec §15). Priorytet: wysoki (blokuje MVP Archiwisty).
+- [x] **Dostawca ČHMÚ (Czechy, opendata.chmi.cz)** — ADR-003 i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10), w wydaniu 3.0.0 (errata D16): `cz.chmi.hydro_daily`, `cz.chmi.meteo_daily`, listy stacji i katalog `cz.chmi.stations` z progami SPA, aktualność z listingu, treść kanoniczna `chmi-json/1` z rejestrem obserwacji, jakość i flagi ČHMÚ w szeregach, odtwarzanie przypięć treścią; kontrakt IMGW-15..19 i test na żywo (zrobione 2026-10-19, C02–C10). Spełnia wymagania Archiwisty IMGW-15..19 (v0.6 „PL + CZ”).
+- [ ] Pytania do ČHMÚ (chmi@chmi.cz; ADR-003, pytania 5–10): strefa czasu znaczników `historical` i definicja doby HD/QD, oficjalny rok hydrologiczny, czy regeneracje zachowują bajty i czy istnieje rejestr korekt, ciągłość `historical_csv`, znaczenie `WGS_ELE`, `RICKM`, `HA`, `QA`, `CEVT`, `PRF_ID`, pełny słownik `FLAG`. Priorytet: średni.
+- [ ] Potwierdzenia Archiwisty (ADR-003, pytania 11–15): `stations[<kod>].periods` w etykietach pokrycia, rozróżnienie `relabeled`/`unchanged` treścią w IMGW-16, `restored_by_content`/`content_match` w IMGW-19, brak pól treści jako `null`, wpisy `kind="observation"` tylko do odczytu. Priorytet: średni.
 - [ ] Obserwator — przyszła zmiana nazwy (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem); dostawcę ČHMÚ opisuje ADR-003 (pozycja wyżej). Priorytet: niski.
 
 ### Infrastruktura i jakość kodu
@@ -250,6 +275,8 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [x] ~~SQLite cache (optional)~~ — usunięty w 3.0.0 (ADR-001 D5), zastąpiony magazynem wersjonowanym
 - [x] Wersjonowany magazyn danych: archiwa 1:1 z sidecarami, plan aktualności, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, eksport CSV, projekty, CLI i REST (v3.0.0)
 - [x] Jeden katalog komend dla Pythona, CLI i REST: koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, `command_schema`, CLI i REST generowane z katalogu, kontrakt międzyinterfejsowy (ADR-002, v3.0.0)
+- [x] Dostawca ČHMÚ w rejestrze, magazynie, katalogu komend i projektach (ADR-003, v3.0.0)
+- [x] Wsparcie agentów AI: `AGENTS.md`/`llms.txt`, opisy angielskie katalogu, metadane skutków, serwer MCP `imgw mcp` i `/mcp`, porządek komunikatów legacy (ADR-004, v3.0.0)
 - [x] Parsery meteo dobowych `k_d`/`o_d` z flagami braków (v3.0.0)
 - [x] Publiczny budowniczy magazynu testowego `imgwtools.testing` dla Archiwisty i Retmana (v3.0.0)
 - [x] Podniesienie Pythona do `>=3.12` dla spójności z innymi projektami (rekomendacja cross-project, v2.1.0)
@@ -378,6 +405,10 @@ Docstring `fetch_pmaxtp()` (`fetch.py`) i `PMaXTPData` podają nieaktualnie 7 cz
 
 # Type checking (config: [tool.pyright] w pyproject.toml)
 npx -y pyright src/imgwtools/
+
+# Przewodnik dla agentów (pliki pochodne; po każdej zmianie katalogu, rejestrów albo szablonów)
+imgw commands guide --format agents --lang pl --path AGENTS.md
+imgw commands guide --format llms --lang pl --path llms.txt
 ```
 
 ---
@@ -386,8 +417,9 @@ npx -y pyright src/imgwtools/
 
 - **master** - główna gałąź (stabilna)
 - **slave** - gałąź rozwojowa (v2.2.0)
-- **feature/versioned-store** - magazyn wersjonowany, wydanie 3.0.0
+- **feature/versioned-store** - magazyn wersjonowany i spójne interfejsy, wydanie 3.0.0
+- **feature/chmi-agents** - dostawca ČHMÚ i wsparcie agentów AI, wydanie 3.0.0
 
 ---
 
-**Ostatnia aktualizacja:** 2026-10-18
+**Ostatnia aktualizacja:** 2026-10-19

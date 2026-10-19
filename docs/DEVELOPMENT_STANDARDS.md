@@ -2,8 +2,8 @@
 
 ## IMGWTools - Biblioteka danych IMGW
 
-**Wersja:** 1.2
-**Data:** 2026-10-18
+**Wersja:** 1.3
+**Data:** 2026-10-19
 
 ---
 
@@ -53,7 +53,11 @@ DEFAULT_TIMEOUT = 30
 - Nazwa opcji = nazwa parametru funkcji = pole JSON (query/ciało REST, wyniki); flaga CLI =
   `--` + nazwa z `_` zamienionym na `-`. Jedna nazwa ma w całym katalogu jedno znaczenie i jeden typ.
 - `station` — jeden kod stacji (argument), `stations` — lista kodów, `station_code` — pole
-  wyniku; kod stacji to zawsze `str` (9 cyfr IMGW albo WIGOS według `STATION_CODE_PATTERN`).
+  wyniku; kod stacji to zawsze `str` (9 cyfr IMGW-PIB albo identyfikator WIGOS ČHMÚ według
+  `STATION_CODE_PATTERN`; gramatykę sprawdza się według dostawcy zbioru).
+- `provider` — identyfikator dostawcy z rejestru (`IMGW-PIB`, `CHMI`); w funkcjach i komendach
+  listowych brak = wszyscy dostawcy, w funkcjach jednego obiektu (`build_catalog`,
+  `read_station_list`) domyślnie `IMGW-PIB`. Klucz zbioru ma postać `<kraj>.<dostawca>.<zbiór>`.
 - `dataset` (jeden zbiór) / `datasets` (lista) przyjmują klucz, slug albo alias legacy;
   wyniki i sloty podają zawsze pełny klucz (`pl.imgw.hydro_daily`).
 - `years`/`months` przyjmują `YearsArg`/`MonthsArg` (`2024`, `"2020-2023"`, `"2020,2022"`,
@@ -63,8 +67,24 @@ DEFAULT_TIMEOUT = 30
 - Pierwszy obiekt (`root`, `version`, `dataset`, `command`) może być pozycyjny; wszystkie dalsze
   argumenty są keyword-only.
 - Nowa operacja to nowa komenda katalogu (`commands._CATALOG`) wywołująca dokładnie jedną
-  funkcję z `imgwtools.__all__`; CLI i REST powstają z katalogu, bez ręcznych komend i tras.
-- Teksty dla człowieka (komunikaty, `detail`, pomoc) po polsku; kody, nazwy i docstringi po angielsku.
+  funkcję z `imgwtools.__all__`; CLI, REST i narzędzia MCP powstają z katalogu, bez ręcznych
+  komend, tras i narzędzi.
+- Teksty dla człowieka (komunikaty, `detail`, pomoc) są domyślnie po polsku; kody, nazwy
+  i docstringi po angielsku (ADR-004 D3).
+- Teksty katalogu i rejestrów mają wariant angielski: opis komendy (`description_en`), pomoc
+  opcji (`help_en`), reguły (`rules_en`, te same pozycje co `rules`), opisy grup
+  (`_GROUPS_EN`), tytuły błędów (`ErrorSpec.title_en`) i zbiorów (`DatasetDescriptor.title_en`).
+  Nowy tekst katalogu dodaje się zawsze w parze polski + angielski (testy wymagają
+  niepustego wariantu i jednoznacznego odwzorowania pomocy PL ↔ EN). Język wybiera się
+  jawnie (`lang`, `IMGW_LANG`, `Accept-Language`, `imgw mcp --lang`); bez wariantu
+  angielskiego zostają `detail`, `Notice.text`, postęp, CSV, web GUI i OpenAPI. Język nie
+  zmienia kontraktu (te same właściwości, typy i reguły w obu schematach).
+- Komenda deklaruje skutki: `DataCommand.writes` (`none`/`add`/`replace`), `network`
+  i `CommandOption.writes` opcji zapisującej; komenda zapisująca ma bliźniaka `check`.
+- Zmiana tekstów katalogu, rejestru zbiorów, dostawców albo kodów błędów lub szablonów
+  `src/imgwtools/_data/agents/` regeneruje w tej samej zmianie pliki pochodne `AGENTS.md`
+  i `llms.txt` (`imgw commands guide --format agents|llms --lang pl --path …`); test dryfu
+  porównuje bajty.
 
 ---
 
@@ -234,17 +254,20 @@ class HydroCurrentData:
 tests/
 ├── unit/
 │   ├── test_models.py, test_fetch.py, test_fetch_live.py   # Modele, fetch_* (respx)
-│   ├── test_parsers.py      # Parsery CSV (separator/kodowanie/cudzysłowy)
-│   ├── test_stations.py     # find_stations
+│   ├── test_parsers.py, test_parsing_chmi.py   # Parsery IMGW-PIB (separator/kodowanie/cudzysłowy) i ČHMÚ
+│   ├── test_stations*.py    # find_stations (IMGW-PIB, ČHMÚ)
 │   ├── test_urls.py         # build_pmaxtp_url, build_api_url
-│   ├── test_datasets.py     # Rejestr zbiorów, archive_files
-│   ├── test_store_*.py      # Magazyn wersjonowany
-│   ├── test_commands.py, test_command_schema.py   # Katalog komend
+│   ├── test_datasets*.py    # Rejestr dostawców i zbiorów, archive_files
+│   ├── test_store_*.py      # Magazyn wersjonowany (także *_chmi, content)
+│   ├── test_commands*.py, test_command_schema.py   # Katalog komend
+│   ├── test_catalog_effects.py, test_catalog_i18n.py  # Skutki komend, opisy angielskie
+│   ├── test_agent_guide.py  # AGENTS.md i llms.txt (test dryfu)
+│   ├── test_mcp_*.py        # Serwer MCP (narzędzia, wywołania, stdio, /mcp)
 │   ├── test_cli_*.py, test_api_*.py, test_web_app.py  # Adaptery CLI, REST i web
-│   └── test_public_store_api.py                   # __all__ = spec §13.12
-├── contract/                # Kontrakt magazynu i Python = CLI = REST
-├── live/                    # Regresja na żywo (tylko z IMGW_LIVE=1)
-├── fixtures/                # Syntetyczne archiwa, nagrania, złote eksporty
+│   └── test_public_store_api.py                   # __all__ = spec §13.12 + ČHMÚ + agent_guide
+├── contract/                # Kontrakt magazynu, Python = CLI = REST = MCP, ČHMÚ (IMGW-15..19)
+├── live/                    # Regresja na żywo IMGW-PIB i ČHMÚ (tylko z IMGW_LIVE=1)
+├── fixtures/                # Syntetyczne archiwa, listingi, nagrania, złote eksporty
 └── conftest.py              # Shared fixtures
 ```
 
@@ -286,7 +309,7 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **1419 testów** (2026-10-18, `pytest --collect-only`; 1377 offline, 42 na żywo z `IMGW_LIVE=1`); ostatni pomiar
+Stan faktyczny: **2208 testów** (2026-10-19, `pytest --collect-only`; 2129 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
 pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
 — bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
 
@@ -479,5 +502,5 @@ npx -y pyright src/imgwtools/
 
 ---
 
-**Wersja dokumentu:** 1.2
-**Data ostatniej aktualizacji:** 2026-10-18
+**Wersja dokumentu:** 1.3
+**Data ostatniej aktualizacji:** 2026-10-19
