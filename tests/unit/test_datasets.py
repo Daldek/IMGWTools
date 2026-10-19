@@ -105,10 +105,17 @@ _REGISTRY = [
         "meteo/terminowe/klimat",
     ),
 ]
+# ČHMÚ datasets after the 13 IMGW-PIB ones (spec 2026-10-18 §2.2).
+_CHMI_KEYS = [
+    "cz.chmi.hydro_daily",
+    "cz.chmi.meteo_daily",
+    "cz.chmi.hydro_stations",
+    "cz.chmi.meteo_stations",
+]
 
 
-def test_registry_has_thirteen_descriptors_with_spec_fields():
-    descriptors = datasets()
+def test_registry_has_thirteen_imgw_descriptors_with_spec_fields():
+    descriptors = datasets(provider="IMGW-PIB")
     assert [
         (
             d.key,
@@ -132,11 +139,13 @@ def test_registry_has_thirteen_descriptors_with_spec_fields():
 
 def test_datasets_kind_filter():
     meteo = datasets(kind="meteo")
-    assert [d.key for d in meteo] == [row[0] for row in _REGISTRY if row[1] == "meteo"]
+    assert [d.key for d in meteo] == [
+        row[0] for row in _REGISTRY if row[1] == "meteo"
+    ] + ["cz.chmi.meteo_daily", "cz.chmi.meteo_stations"]
     assert [d.key for d in datasets(kind="hydro")] == [
         row[0] for row in _REGISTRY if row[1] == "hydro"
-    ]
-    assert len(meteo) == 7
+    ] + ["cz.chmi.hydro_daily", "cz.chmi.hydro_stations"]
+    assert len(meteo) == 9
     with pytest.raises(IMGWValidationError) as exc:
         datasets(kind="pmaxtp")
     assert exc.value.code == "validation_error"
@@ -155,7 +164,7 @@ def test_get_dataset_unknown_lists_allowed_keys():
     with pytest.raises(IMGWValidationError) as exc:
         get_dataset("hydro/tygodniowe")
     assert exc.value.code == "validation_error"
-    assert exc.value.details["allowed"] == [row[0] for row in _REGISTRY]
+    assert exc.value.details["allowed"] == [row[0] for row in _REGISTRY] + _CHMI_KEYS
 
 
 def test_every_dataset_key_follows_the_key_convention():
@@ -181,7 +190,7 @@ def test_renamed_key_resolves_to_the_current_key(monkeypatch):
     assert get_dataset("pl.imgw.hydro_day") is get_dataset("pl.imgw.hydro_daily")
     assert resolve_dataset_key("pl.imgw.hydro_daily") == "pl.imgw.hydro_daily"
     # Unknown keys, slugs and legacy input words are not keys IMGWTools knows.
-    for value in ("cz.chmi.hydro_daily", "hydro_daily", "hydro/dobowe"):
+    for value in ("sk.shmu.hydro_daily", "hydro_daily", "hydro/dobowe"):
         assert resolve_dataset_key(value) is None
 
 

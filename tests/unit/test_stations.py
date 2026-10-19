@@ -62,7 +62,7 @@ def _rows(stations):
 
 
 def test_find_stations_without_query_returns_both_lists_in_order(lists):
-    stations = find_stations()
+    stations = find_stations(provider="IMGW-PIB")
 
     assert _rows(stations) == [
         ("hydro", "150190340", "ŁÓDŹ ZACHÓD"),
@@ -93,17 +93,20 @@ def test_find_stations_without_query_returns_both_lists_in_order(lists):
     ],
 )
 def test_find_stations_matches_name_river_and_code_prefix(lists, query, expected):
-    stations = find_stations(query=query)
+    stations = find_stations(query=query, provider="IMGW-PIB")
     assert [(s.kind, s.station_code) for s in stations] == expected
 
 
 async def test_find_stations_kind_requests_only_its_list(respx_mock):
     meteo = respx_mock.get(METEO_URL).respond(content=METEO_CSV.encode("cp1250"))
 
-    stations = find_stations(kind="meteo", query="raba")
+    stations = find_stations(kind="meteo", query="raba", provider="IMGW-PIB")
 
     assert _rows(stations) == [("meteo", "249190310", "RABA GÓRNA")] * 2
-    assert await find_stations_async(kind="meteo", query="raba") == stations
+    assert (
+        await find_stations_async(kind="meteo", query="raba", provider="IMGW-PIB")
+        == stations
+    )
     assert meteo.call_count == 2
 
 

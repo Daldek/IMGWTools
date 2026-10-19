@@ -63,7 +63,11 @@ GET_CASES = [
         {"dataset": "hydro/dobowe", "years": ["2022-2023", "2024"], "months": "1,2"},
         False,
     ),
-    ("stations find", {"kind": "hydro", "query": "raba"}, False),
+    (
+        "stations find",
+        {"kind": "hydro", "query": "raba", "provider": "IMGW-PIB"},
+        False,
+    ),
     ("stations find", {"source": "store", "query": "1491"}, True),
     ("current hydro", {}, False),
     ("current meteo", {}, False),
@@ -260,7 +264,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for method, operation in operations.items()
     }
 
-    assert len(expected) == 25
+    assert len(expected) == 27
     assert served.keys() == expected.keys()
     assert [
         (route["method"], route["path"])
@@ -268,9 +272,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
     ] == list(expected)
     for key, schema in expected.items():
         operation, meta = served[key], schema["x-imgw"]
-        assert operation["operationId"] == meta["command"].replace(" ", "_").replace(
-            "-", "_"
-        )
+        assert operation["operationId"] == meta["operation_id"]
         assert operation["tags"] == [meta["group"]]
         assert "422" not in operation["responses"]
         problem_schema = operation["responses"]["4XX"]["content"]
@@ -315,6 +317,78 @@ def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("IMGW_API_MAX_LIMIT", "0")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(
+    ("header", "query", "lang"),
+    [
+        (None, None, "pl"),
+        ("en", None, "en"),
+        ("en-GB", None, "en"),
+        ("de-AT, en-US;q=0.8, pl;q=0.7", None, "en"),
+        ("pl;q=0.5, en;q=0.9", None, "en"),
+        ("en;q=0.5, pl", None, "pl"),
+        ("en, pl", None, "en"),  # equal weights: the item listed first
+        ("en;q=0, de", None, "pl"),
+        ("en;q=abc, fr", None, "pl"),
+        ("en", "pl", "pl"),
+        (None, "en", "en"),
+    ],
+)
+def test_api_lang_comes_from_the_query_then_accept_language_then_polish(
+    client, header, query, lang
+):
+    headers = {} if header is None else {"Accept-Language": header}
+    params = {"command": "store sync"} | ({} if query is None else {"lang": query})
+
+    response = client.get("/api/v1/commands/schema", params=params, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["result"] == json.loads(
+        json.dumps(command_schema("store sync", lang=lang))
+    )
+    assert response.headers["content-language"] == lang
+    vary = response.headers.get("vary", "").lower()
+    assert ("accept-language" in vary) == (query is None)
+
+
+def test_api_problem_title_follows_accept_language_and_detail_stays_polish(client):
+    english = {"Accept-Language": "en-US, pl;q=0.5"}
+    invalid = client.get(
+        "/api/v1/pmaxtp/fetch",
+        params={"latitude": "1", "longitude": "21.01"},
+        headers=english,
+    )
+    refused = client.get(
+        "/api/v1/commands/schema", params={"lang": "de"}, headers=english
+    )
+    unknown = client.get("/api/v1/nothing/here", headers=english)
+    polish = client.get("/api/v1/nothing/here")
+
+    assert (invalid.status_code, invalid.json()["title"]) == (
+        400,
+        ERROR_CODES["validation_error"].title_en,
+    )
+    assert (
+        invalid.json()["detail"]
+        == "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)"
+    )
+    assert refused.json()["details"] == {
+        "option": "lang",
+        "value": "de",
+        "allowed": ["pl", "en"],
+    }
+    assert unknown.json()["title"] == ERROR_CODES["not_found"].title_en
+    assert polish.json()["title"] == ERROR_CODES["not_found"].title
+    for response, lang in (
+        (invalid, "en"),
+        (refused, "en"),
+        (unknown, "en"),
+        (polish, "pl"),
+    ):
+        assert response.headers["content-type"] == "application/problem+json"
+        assert response.headers["content-language"] == lang
+        assert "accept-language" in response.headers["vary"].lower()
 
 
 # --------------------------------------------------------------------------
@@ -497,11 +571,11 @@ def test_api_list_limit_defaults_to_and_is_capped_by_the_server_maximum(
     monkeypatch.setattr(settings, "api_max_limit", 3)
 
     default = client.get("/api/v1/datasets/list").json()["result"]
-    last = client.get("/api/v1/datasets/list", params={"limit": 3, "offset": 12})
+    last = client.get("/api/v1/datasets/list", params={"limit": 3, "offset": 16})
     above = client.get("/api/v1/datasets/list", params={"limit": 4})
     zero = client.get("/api/v1/datasets/list", params={"limit": 0})
 
-    assert (default["limit"], default["offset"], default["total"]) == (3, 0, 13)
+    assert (default["limit"], default["offset"], default["total"]) == (3, 0, 17)
     assert len(default["items"]) == 3
     assert len(last.json()["result"]["items"]) == 1
     assert problem(above, 400, "validation_error")["details"] == {
@@ -642,7 +716,9 @@ def test_api_unsupported_root_is_described_only_by_store_info_and_scan(
 
 
 def test_api_stations_find_needs_the_root_only_for_the_store_source(client, live):
-    found = client.get("/api/v1/stations/find", params={"query": "raba"})
+    found = client.get(
+        "/api/v1/stations/find", params={"query": "raba", "provider": "IMGW-PIB"}
+    )
     stored = client.get("/api/v1/stations/find", params={"source": "store"})
 
     assert found.status_code == 200

@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Literal, overload
 
 from imgwtools._parsing.meteo import DATASET_ATTRIBUTES
-from imgwtools.datasets import DatasetDescriptor, get_dataset
+from imgwtools.datasets import DatasetDescriptor, get_dataset, get_provider
 from imgwtools.exceptions import IMGWCancelledError, IMGWDataError, IMGWValidationError
-from imgwtools.models import NormalizedRecord
+from imgwtools.models import Measurement, NormalizedRecord
 from imgwtools.store.catalog import RootArg
 from imgwtools.store.reader import (
     _archive_main,
@@ -28,7 +28,6 @@ from imgwtools.store.reader import (
     read_series,
     read_series_index,
 )
-from imgwtools.store.series import _PROCESSED
 from imgwtools.store.types import (
     Cancel,
     Notice,
@@ -44,10 +43,6 @@ _ARCHIVE_FORMATS = ("csv", "jsonl")
 _YEAR_TYPES = ("hydrological", "calendar")
 _PROGRESS_ROWS = 256
 _CANCELLED = "Anulowano eksport; plik docelowy pozostaje nietknięty"
-_TERMS = (
-    "Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia "
-    "warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości."
-)
 
 
 def _number(value: float) -> str:
@@ -96,12 +91,38 @@ def _target(path: PathArg) -> Path:
     return target
 
 
-def _license(dataset: str, on_notice: NoticeHook | None) -> None:
+def _attribution(descriptor: DatasetDescriptor) -> tuple[str, str]:
+    """Source and processed-data attribution formulas of the dataset's provider."""
+    processed = get_provider(descriptor.provider).processed_attribution
+    return descriptor.license.attribution, processed
+
+
+def _license(descriptor: DatasetDescriptor, on_notice: NoticeHook | None) -> None:
     if on_notice is not None:
-        attribution = get_dataset(dataset).license.attribution
-        on_notice(
-            Notice("info", "license_terms", f"{attribution}. {_PROCESSED}. {_TERMS}")
-        )
+        source, processed = _attribution(descriptor)
+        notice = get_provider(descriptor.provider).notice
+        on_notice(Notice("info", "license_terms", f"{source}. {processed}. {notice}"))
+
+
+def _field_names(name: str, descriptor: DatasetDescriptor) -> list[str]:
+    """``<V>_quality`` and ``<V>_source_flag`` columns of the dataset's extra fields."""
+    return [f"{name}_{field}" for field in descriptor.measurement_fields]
+
+
+def _measurement_cells(
+    measurement: Measurement | None, descriptor: DatasetDescriptor
+) -> list[str]:
+    """Value, flag and extra field cells of one variable; empty without a measurement."""
+    if measurement is None:
+        return [""] * (2 + len(descriptor.measurement_fields))
+    cells = [
+        "" if measurement.value is None else _number(measurement.value),
+        measurement.flag,
+    ]
+    for field in descriptor.measurement_fields:
+        value = getattr(measurement, field)
+        cells.append("" if value is None else str(value))
+    return cells
 
 
 def _csv_lines(rows: Iterable[Sequence[str]]) -> Iterator[str]:
@@ -197,7 +218,9 @@ def _deliver(
     return target
 
 
-def _record_json(record: NormalizedRecord) -> dict[str, object]:
+def _record_json(
+    record: NormalizedRecord, descriptor: DatasetDescriptor
+) -> dict[str, object]:
     return {
         "station_code": record.station_code,
         "dataset": record.dataset,
@@ -205,7 +228,14 @@ def _record_json(record: NormalizedRecord) -> dict[str, object]:
         "hydro_year": record.hydro_year,
         "period": record.period,
         "measurements": {
-            name: {"value": measurement.value, "flag": measurement.flag}
+            name: {
+                "value": measurement.value,
+                "flag": measurement.flag,
+                **{
+                    field: getattr(measurement, field)
+                    for field in descriptor.measurement_fields
+                },
+            }
             for name, measurement in record.measurements.items()
         },
         "attributes": dict(record.attributes),
@@ -251,14 +281,7 @@ def _archive_row(
         record.period or "",
     ]
     for name in descriptor.variables:
-        measurement = record.measurements.get(name)
-        if measurement is None:
-            cells += ["", ""]
-        else:
-            cells += [
-                "" if measurement.value is None else _number(measurement.value),
-                measurement.flag,
-            ]
+        cells += _measurement_cells(record.measurements.get(name), descriptor)
         if half_year:
             cells += _extrema(record, name)
     cells += [record.attributes.get(key) or "" for key in attributes]
@@ -277,16 +300,16 @@ def _archive_lines(
         yield first
         yield from records
 
+    descriptor = get_dataset(first.dataset)
     if format == "jsonl":
         return (), (
-            json.dumps(_record_json(record), ensure_ascii=False) + "\n"
+            json.dumps(_record_json(record, descriptor), ensure_ascii=False) + "\n"
             for record in chained()
         )
-    descriptor = get_dataset(first.dataset)
     attributes = tuple(DATASET_ATTRIBUTES.get(first.dataset, ()))
     header = ["station_code", "dataset", "date", "hydro_year", "period"]
     for name, unit in descriptor.variables.items():
-        header += [f"{name} [{unit}]", f"{name}_flag"]
+        header += [f"{name} [{unit}]", f"{name}_flag", *_field_names(name, descriptor)]
         if descriptor.time_unit == "half_year":
             header += [f"{name}_start", f"{name}_end", f"{name}_occurrences"]
     header += attributes
@@ -340,12 +363,14 @@ def export_archive(
     :func:`read_archive`) before anything is returned or written. CSV (UTF-8
     without BOM, comma, CRLF rows) starts with the header ``station_code,
     dataset,date,hydro_year,period``, then ``<V> [<unit>],<V>_flag`` for every
-    dataset variable (half-year datasets add ``<V>_start,<V>_end,
-    <V>_occurrences``) and one column per qualitative attribute of the dataset
-    (meteo ``precip_type`` etc.); a variable or attribute absent from a record
-    gives empty cells. JSONL writes one object per record with the
-    `NormalizedRecord` fields and LF line ends. An archive without records
-    gives no lines.
+    dataset variable (ČHMÚ meteo adds ``<V>_quality,<V>_source_flag``,
+    half-year datasets ``<V>_start,<V>_end,<V>_occurrences``) and one column
+    per qualitative attribute of the dataset (meteo ``precip_type`` etc.); a
+    variable or attribute absent from a record gives empty cells. JSONL
+    writes one object per record with the `NormalizedRecord` fields (the
+    ``Measurement`` fields ``quality`` and ``source_flag`` only for datasets
+    that fill them) and LF line ends. An archive without records gives no
+    lines.
 
     Parameters
     ----------
@@ -364,7 +389,9 @@ def export_archive(
         Called once after the export with ``unit="row"`` and the number of
         records.
     on_notice : NoticeHook or None, optional
-        Called with the ``license_terms`` notice before the first line.
+        Called with the ``license_terms`` notice of the dataset's provider
+        (source and processed-data attribution, license note) before the first
+        line.
     cancel : Cancel or None, optional
         Polled before the first line, every 256 records and before replacing
         the target; returning ``True`` aborts the export.
@@ -399,11 +426,11 @@ def export_archive(
     if root is not None:
         source = _open(root) / source
     records = read_archive(source)
-    dataset = read_meta(_archive_main(source)).dataset
+    descriptor = get_dataset(read_meta(_archive_main(source)).dataset)
     target = None if path is None else _target(path)
     head, rows = _archive_lines(records, format)
     _check_cancel(cancel)
-    _license(dataset, on_notice)
+    _license(descriptor, on_notice)
     lines = _Lines(
         head,
         rows,
@@ -475,18 +502,21 @@ def export_series(
     cancel: Cancel | None = None,
 ) -> Path | Iterator[str]:
     """
-    Export values, flags and both IMGW-PIB attribution formulas of one station as CSV.
+    Export values, flags and both attribution formulas of one station as CSV.
 
-    ``year_type=None`` uses the publication convention of ``series.json`` (hydro
-    ``hydrological``, meteo ``calendar``). Arguments and the station data are
-    validated and read before anything is returned or written.
+    ``year_type=None`` uses the publication convention of ``series.json`` (IMGW
+    hydro ``hydrological``, IMGW meteo and ČHMÚ ``calendar``). Arguments and
+    the station data are validated and read before anything is returned or
+    written.
 
     The CSV (UTF-8 without BOM, comma, dot decimal, CRLF rows) has a single
     header row ``date,year,<V> [<unit>],<V>_flag,…,attribution_source,
-    attribution_processed``; half-year series add ``period`` and ``<V>_start`` /
-    ``<V>_end`` extremum dates with ``<V>_occurrences`` (number of merged IMGW
-    rows). Both attribution formulas appear only in the first data row. Missing
-    values are empty cells flagged ``missing``.
+    attribution_processed``; ČHMÚ meteo series add ``<V>_quality`` and
+    ``<V>_source_flag`` after the flag of every variable, half-year series add
+    ``period`` and ``<V>_start`` / ``<V>_end`` extremum dates with
+    ``<V>_occurrences`` (number of merged IMGW rows). The source attribution
+    and the processed-data attribution of the dataset's provider appear only in
+    the first data row. Missing values are empty cells flagged ``missing``.
 
     Parameters
     ----------
@@ -501,7 +531,8 @@ def export_series(
         Series dataset (key, slug or legacy alias) whose current version in
         ``root`` is exported.
     station : str
-        Nine-digit station code present in the series.
+        Station code (nine IMGW-PIB digits or a ČHMÚ WIGOS identifier)
+        present in the series.
     variables : Iterable[str] or None, optional
         Dataset variable names; duplicates are merged, column order follows
         this collection, a single string or an empty collection is rejected.
@@ -524,7 +555,8 @@ def export_series(
     on_progress : ProgressHook or None, optional
         Called every 256 rows and once after the export with ``unit="row"``.
     on_notice : NoticeHook or None, optional
-        Called with the ``license_terms`` notice before the first line.
+        Called with the ``license_terms`` notice of the dataset's provider
+        before the first line.
     cancel : Cancel or None, optional
         Polled before the first line, every 256 rows and before replacing the
         target; returning ``True`` aborts the export.
@@ -590,15 +622,19 @@ def export_series(
             "eksport odrzucono, by nie utracić formuł atrybucji"
         )
     _check_cancel(cancel)
-    _license(index.dataset, on_notice)
+    _license(descriptor, on_notice)
 
     header = ["date", "year", *(["period"] if half_year else [])]
     for name in names:
-        header += [f"{name} [{descriptor.variables[name]}]", f"{name}_flag"]
+        header += [
+            f"{name} [{descriptor.variables[name]}]",
+            f"{name}_flag",
+            *_field_names(name, descriptor),
+        ]
         if half_year:
             header += [f"{name}_start", f"{name}_end", f"{name}_occurrences"]
     header += ["attribution_source", "attribution_processed"]
-    attribution = (descriptor.license.attribution, _PROCESSED)
+    attribution = _attribution(descriptor)
 
     def row(number: int, record: NormalizedRecord) -> list[str]:
         year = record.hydro_year if chosen == "hydrological" else record.date.year
@@ -608,11 +644,7 @@ def export_series(
             *([record.period or ""] if half_year else []),
         ]
         for name in names:
-            measurement = record.measurements[name]
-            cells += [
-                "" if measurement.value is None else _number(measurement.value),
-                measurement.flag,
-            ]
+            cells += _measurement_cells(record.measurements[name], descriptor)
             if half_year:
                 cells += _extrema(record, name)
         return [*cells, *(attribution if number == 0 else ("", ""))]

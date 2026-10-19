@@ -71,7 +71,7 @@
 
         function downloadWgetScript() {
             const links = document.getElementById('all-links').value.trim().split('\n');
-            let script = '#!/bin/bash\n# IMGWTools - wget download script\n\n';
+            let script = '#!/bin/bash\n# IMGWTools – skrypt pobierania plików IMGW-PIB (wget)\n\n';
             script += 'mkdir -p imgw_data\ncd imgw_data\n\n';
             links.forEach(url => {
                 script += 'wget -c "' + url + '"\n';

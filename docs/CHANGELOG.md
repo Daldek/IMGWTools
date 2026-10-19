@@ -4,14 +4,19 @@ Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.1.0/), wersj
 zgodne z [SemVer](https://semver.org/lang/pl/). Każda zmiana publicznego API i schematów
 magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
 
-## [3.0.0] — 2026-10-18
+## [3.0.0] — 2026-10-19
 
 Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite (ADR-001), a Python,
-CLI, REST i web korzystają z jednego katalogu 35 komend z jedną kopertą wyniku i jednym
-rejestrem kodów błędów (ADR-002). Przed tagiem dziedziny kontraktów `/1` otwarto dla
-kolejnych dostawców (ADR-003, C01). Decyzje: `docs/DECISIONS.md`; kontrakt:
-`docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 — spójność interfejsów,
-§13.11 — pełne tabele migracji). Wydanie nie ma aliasów ani shimów starych nazw.
+CLI, REST i web korzystają z jednego katalogu komend z jedną kopertą wyniku i jednym
+rejestrem kodów błędów (ADR-002). Drugim dostawcą obok IMGW-PIB jest czeski ČHMÚ
+(opendata.chmi.cz, ADR-003): zbiory `cz.chmi.*` w tych samych kontraktach, magazynie
+i komendach; dziedziny kontraktów `/1` otwarto przed tagiem (C01). Agenci AI dostają
+przewodnik `AGENTS.md`/`llms.txt`, angielskie opisy katalogu, metadane skutków komend
+i serwer MCP (ADR-004). Rejestr liczy 17 zbiorów dwóch dostawców, a katalog — 37 komend.
+Decyzje: `docs/DECISIONS.md`; kontrakty: `docs/superpowers/specs/2026-10-17-versioned-store-design.md`
+(§13 — spójność interfejsów, §13.11 — pełne tabele migracji),
+`2026-10-18-chmi-provider-design.md` (ČHMÚ) i `2026-10-19-agent-support-design.md`
+(agenci). Wydanie nie ma aliasów ani shimów starych nazw.
 
 ### BREAKING
 
@@ -89,6 +94,24 @@ Dotyczy wyłącznie integracji pisanych na gałęzi przed ADR-002 (Archiwista, R
 | `DataCommand(name, description, options)` | + `function`, `check`, `result`, `method`, `requires`, `one_of`, `rules` |
 | `init_store` na systemie plików bez dowiązań twardych → `IMGWStoreError` | `IMGWStoreConflictError` (`details.reason="not_atomic"`) |
 
+#### Wobec stanu gałęzi przed ADR-003 i ADR-004 (commit `d8cb11c`)
+
+Dotyczy integracji pisanych na gałęzi przed dodaniem dostawcy ČHMÚ i wsparcia agentów.
+
+| Było | Jest |
+|---|---|
+| `datasets()` → 13 deskryptorów IMGW-PIB | 17 deskryptorów, także `cz.chmi.*`; widok jednego dostawcy: `datasets(provider="IMGW-PIB")` |
+| `find_stations(...)` na żywo pyta wyłącznie listy IMGW-PIB | bez `provider` pyta IMGW-PIB i ČHMÚ (metadane `now` z opendata.chmi.cz); tylko IMGW-PIB: `provider="IMGW-PIB"` (CLI `--provider IMGW-PIB`) |
+| tytuł `source_unavailable` „Źródło IMGW niedostępne” | „Źródło danych niedostępne”; `detail` nazywa dostawcę i URL |
+| `ErrorSpec(code, title, exit_code, http_status)` | + wymagane `title_en` |
+| `command_schema()`: `years` w `required` komend `datasets files\|download` i `store check\|sync`; `oneOf` komendy `store sync` = `plan` \| `datasets`+`years` | `years` poza `required` (wymagalność zależy od zbioru, opis w `x-imgw.rules`); `oneOf` = `plan` \| `datasets` |
+| `archive_files`, `download_archives`, `check_store` bez `years` → `TypeError` | `years=None` w podpisie; brak wymaganego `years` → `IMGWValidationError` (`details.option="years"`) |
+| `DownloadItem.status` `downloaded\|failed\|cancelled`; pozycje i zadania `ProjectReport` bez odtworzenia treścią | nowe wartości: `not_published` (sukces pozycji pobierania), `restored_by_content` (sukces pozycji projektu), stan zadania `content_match` |
+| `Measurement(value, flag)` | + `quality`, `source_flag` (`None` poza `cz.chmi.meteo_daily`) |
+| błąd odtworzenia „IMGW udostępnia inną treść …” | „IMGW-PIB udostępnia inną treść …” (nazwa dostawcy z rejestru) |
+| pomoc CLI z angielskimi elementami Typer/Click („Options”, „Usage:”, `[OPTIONS]`, „Aborted.”) | po polsku („Opcje”, „Użycie:”, `[OPCJE]`, „Przerwano.”), po angielsku z `IMGW_LANG=en`; `IMGW_LANG` spoza `pl\|en` → `validation_error` (kod 2) w każdym wywołaniu `imgw` |
+| `/openapi.json` z trasami stron HTML web GUI | strony HTML poza dokumentem OpenAPI |
+
 #### CLI
 
 | Było | Jest |
@@ -159,7 +182,8 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
 
 #### Instalacja
 
-- **`imgwtools[full]`** obejmuje `store` (`pyarrow>=15`) obok `api`, `cli`, `pandas`.
+- **`imgwtools[full]`** obejmuje `store` (`pyarrow>=15`) i `mcp` obok `api`, `cli`, `pandas`.
+- Nowy dodatek **`imgwtools[mcp]`** = `imgwtools[cli]` + `mcp>=2.3,<3` (serwer MCP, ADR-004).
 
 ### Dodane
 
@@ -183,22 +207,24 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `export_series` (CSV z jednostkami i atrybucją IMGW-PIB) i `export_archive` (CSV albo
   JSONL jednej wersji archiwum; `store export`) — z `path` zapis przez `.part`
   i `os.replace`, bez `path` iterator gotowych linii (w CLI i REST strumień).
-- **Rejestr zbiorów** `imgwtools.datasets`: `datasets(*, kind=None)`, `get_dataset()`
-  (klucz, slug albo alias legacy), `archive_files()`, `station_source_files()`,
+- **Rejestr dostawców i zbiorów** `imgwtools.datasets`: `datasets(*, kind=None, provider=None)`,
+  `get_dataset()` (klucz, slug albo alias legacy), `archive_files()`, `station_source_files()`,
   `DatasetDescriptor`, `ArchiveFile`, `License`, `YearsArg`/`MonthsArg` (`2024`,
-  `"2020-2023"`, `"2020,2022"`, listy). 13 deskryptorów: pięć zbiorów archiwalnych
-  magazynu (`pl.imgw.hydro_daily`, `pl.imgw.hydro_monthly`, `pl.imgw.hydro_semiannual`,
-  `pl.imgw.meteo_climate_daily`, `pl.imgw.meteo_precip_daily`), listy stacji
-  (`pl.imgw.hydro_stations`, `pl.imgw.meteo_stations`), PMAXTP (`pl.imgw.pmaxtp`) i pięć
-  zbiorów tylko do pobrania (`pl.imgw.hydro_phenomena`, `pl.imgw.meteo_climate_monthly`,
-  `pl.imgw.meteo_precip_monthly`, `pl.imgw.meteo_synop_monthly`,
-  `pl.imgw.meteo_climate_terms`).
-- **`download_archives(dataset, /, *, years, months, params, output)`** →
+  `"2020-2023"`, `"2020,2022"`, listy). 17 deskryptorów: 13 IMGW-PIB — pięć zbiorów
+  archiwalnych magazynu (`pl.imgw.hydro_daily`, `pl.imgw.hydro_monthly`,
+  `pl.imgw.hydro_semiannual`, `pl.imgw.meteo_climate_daily`, `pl.imgw.meteo_precip_daily`),
+  listy stacji (`pl.imgw.hydro_stations`, `pl.imgw.meteo_stations`), PMAXTP
+  (`pl.imgw.pmaxtp`) i pięć zbiorów tylko do pobrania (`pl.imgw.hydro_phenomena`,
+  `pl.imgw.meteo_climate_monthly`, `pl.imgw.meteo_precip_monthly`,
+  `pl.imgw.meteo_synop_monthly`, `pl.imgw.meteo_climate_terms`) — oraz 4 ČHMÚ
+  (`cz.chmi.*`, sekcja „Dostawca ČHMÚ” niżej).
+- **`download_archives(dataset, /, *, years, months, params, stations, output)`** →
   `DownloadReport`/`DownloadItem` (slot, URL, status, ścieżka, `error_code`): pobieranie
-  płaskie w układzie ścieżek serwera IMGW, zapis przez `.part` i `os.replace`, komunikat
+  płaskie w układzie ścieżek serwera dostawcy, zapis przez `.part` i `os.replace`, komunikat
   `license_terms` po pobraniu.
-- **Dane na żywo**: `find_stations`/`find_stations_async` (listy IMGW na żywo albo
-  z magazynu, `source="live"|"store"`; wyszukiwanie bez wielkości liter i polskich znaków),
+- **Dane na żywo**: `find_stations`/`find_stations_async` (listy stacji na żywo albo
+  z magazynu, `source="live"|"store"`, `provider` — IMGW-PIB, ČHMÚ albo obaj; wyszukiwanie
+  bez wielkości liter i znaków diakrytycznych),
   `fetch_meteo_current`/`_async` → `MeteoCurrentData`, `fetch_hydro_states`/`_async` →
   `HydroState` (współrzędne i stan wody z `hydro-back.imgw.pl`); ostrzeżenia z endpointów
   `warningshydro`/`warningsmeteo` (`WarningData.event`); `StationListEntry` z opcjonalnymi
@@ -209,27 +235,28 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `store_unavailable` (8/503), `io_error` (9/500), `cancelled` (130), `forbidden` (403),
   `method_not_allowed` (405), `internal_error` (1/500). Każdy `IMGWError` ma `code`
   i `details` (np. `option`, `allowed`, `reason`); nowy `IMGWCancelledError`.
-- **Katalog komend** `imgwtools.commands`: 35 komend w grupach `datasets`, `stations`,
-  `current`, `pmaxtp`, `store`, `series`, `project`, `commands`; `command_schema(command=None)`
+- **Katalog komend** `imgwtools.commands`: 37 komend w grupach `datasets`, `stations`,
+  `current`, `pmaxtp`, `store`, `series`, `project`, `commands` (35 z ADR-002,
+  `datasets providers` z ADR-003 i `commands guide` z ADR-004); `command_schema(command=None)`
   (JSON Schema opcji + `x-imgw`: funkcja, bliźniak check, typ wyniku, flagi CLI, trasa REST,
   reguły; dokument `imgw-commands/1` z kodami błędów i wyjścia), `data_commands`,
   `validate_command`, `format_command`, `check_command`, `run_command` → `CommandResult`
   (koperta `imgw-result/1`: `status` `ok|partial|failed|cancelled`, `result`, `notices`
-  bez powtórzeń). **Stronicowanie**: 11 komend listowych zwraca `Page`
+  bez powtórzeń). **Stronicowanie**: 12 komend listowych zwraca `Page`
   (`items`, `total`, `limit`, `offset`) z opcjami `limit`/`offset`.
 - **CLI** generowane z katalogu (`cli/_dispatch.py`): koperta JSON na stdout, strumienie
   `store export`/`series export`, błąd jako JSON na stderr, kody wyjścia z rejestru,
   `--check` przy komendach z bliźniakiem, `--schema` przy każdej, `--root` z
   `IMGW_STORE_ROOT`, listy po przecinku albo powtórzona flaga; Ctrl+C anuluje między
   plikami (130).
-- **REST** generowane z katalogu (`/api/v1/<grupa>/<komenda>`, 25 tras; `GET /api/v1`
+- **REST** generowane z katalogu (`/api/v1/<grupa>/<komenda>`, 27 tras; `GET /api/v1`
   wypisuje trasy): ta sama koperta co CLI, `application/problem+json`, `?check=true`
   przy `POST`, `limit` domyślnie i najwyżej `IMGW_API_MAX_LIMIT` (1000). Komendy magazynu
   wyłącznie na serwerowym, absolutnym `IMGW_STORE_ROOT` (bez niego 503); zapis wymaga
   `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` i nagłówka `X-API-Key`; CSV
   współrzędnych użytkownika tylko z `IMGW_USER_LOCATIONS_DIR`. Odpowiedzi nie ujawniają
   katalogów serwera (ścieżki względne do root, także w tekstach).
-- **Web GUI** wyłącznie na publicznym API: formularz archiwów z rejestru (10 zbiorów),
+- **Web GUI** wyłącznie na publicznym API: formularz archiwów z rejestru (10 zbiorów IMGW-PIB),
   wyszukiwarka stacji ze stronicowaniem, mapa z `GET /api/v1/current/hydro-states`, błędy
   jako fragment z kodem `IMGWError`; stopka podaje bieżącą wersję pakietu.
 - **Projekty** `imgwtools.project` (`imgw-project.json`): `init_project`, `open_project`,
@@ -240,8 +267,8 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `parse_meteo_precip_daily`, `normalize_archive`, rekordy `NormalizedRecord` z flagami
   `value|missing|no_phenomenon|accumulated`; `summarize_coverage` (pokrycie per stacja ×
   zmienna, luki).
-- **Otwarte dziedziny kontraktów `/1` (ADR-003, C01)** — przygotowanie dostawcy ČHMÚ
-  w 3.1.0 bez zmiany bajtów IMGW: klucz zbioru `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`
+- **Otwarte dziedziny kontraktów `/1` (ADR-003, C01)** — podstawa dostawcy ČHMÚ bez zmiany
+  bajtów IMGW: klucz zbioru `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`
   (`imgw-meta/1`, `imgw-series/1`), `country` `^[A-Z]{2}$`, `provider` i `license.id`
   dowolnym niepustym tekstem (`License.id: str`), kod stacji 9 cyfr IMGW albo identyfikator
   WIGOS (`imgwtools.datasets.STATION_CODE_PATTERN`; klucze i pliki `series.json`,
@@ -270,17 +297,148 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   jako `StoreEntry(kind="observation", observation=Observation(…))`, a błędne jako
   problemy (`unknown_entry`, `symlink`, `unreadable`, `invalid_json`, `unknown_schema`,
   `invalid_meta`); `store scan --kind observation`;
-  `store_info().contracts["observation"]`. Zapis obserwacji wchodzi z dostawcą ČHMÚ (3.1.0).
+  `store_info().contracts["observation"]`. Obserwacje zapisuje `write_archive` w slotach
+  zbiorów z formą kanoniczną (ČHMÚ, niżej).
 - **`imgwtools.testing`**: `build_fixture_store` — publiczny, offline budowniczy magazynu
-  testowego (warianty `complete`, `corrupt`, `unknown_schema`) z nagranymi odpowiedziami;
-  `fixture_files()` — archiwa, nagrania (także `contract_recordings.json` z odpowiedziami
-  endpointów live) i `contract_schemas.json` (JSON Schemas z przykładami dokumentów
-  magazynu, `imgw-result/1`, `problem+json` i `cli-error`) dla konsumentów (Archiwista,
-  Retman).
+  testowego (warianty `complete`, `complete_pl_cz`, `corrupt`, `unknown_schema`) z nagranymi
+  odpowiedziami; `fixture_files()` — archiwa, listingi i nagrania (także
+  `contract_recordings.json` z odpowiedziami endpointów live oraz `chmi_recordings.json`,
+  `chmi_catalog_recordings.json`, `chmi_builder_recordings.json`) i `contract_schemas.json`
+  (JSON Schemas z przykładami dokumentów magazynu, `imgw-result/1`, `problem+json`
+  i `cli-error`) dla konsumentów (Archiwista, Retman).
 - **Wyjątki**: `IMGWStoreError`, `IMGWStoreConflictError`, `IMGWStoreDependencyError`
   (instrukcja `pip install imgwtools[store]`), `IMGWProjectError`, `IMGWCancelledError`.
 - **Dodatek** `imgwtools[store]` = `pyarrow>=15` (tylko ścieżki Parquet; import rdzenia
   nie wymaga pyarrow, fastapi ani typer).
+
+#### Dostawca ČHMÚ (ADR-003, C02–C09)
+
+- **Rejestr dostawców**: `ProviderDescriptor` (`id`, `short_name`, `name`, `country`,
+  `key_prefix`, `base_url`, `license`, `processed_attribution`, `notice`,
+  `station_code_pattern`, `datasets`), `providers()` i `get_provider(id | key_prefix)`
+  (nieznany dostawca → `validation_error` z `details.allowed`); dostawcy `IMGW-PIB` (PL,
+  `pl.imgw`) i `CHMI` (CZ, `cz.chmi`, nazwa wyświetlana „ČHMÚ”, licencja CC BY 4.0
+  z `License.terms_url`). `station_source_files(provider=…)`, `STATION_CODE_PATTERN`
+  (9 cyfr IMGW-PIB albo identyfikator WIGOS). W `imgwtools.__all__`: `ProviderDescriptor`,
+  `providers`, `get_provider`, `STATION_CODE_PATTERN`, `parse_chmi_hydro_daily`,
+  `parse_chmi_meteo_daily`, `parse_chmi_stations`.
+- **Zbiory `cz.chmi.*`**: `cz.chmi.hydro_daily` (H [cm], Q [m3/s], T [°C]; plik JSON na
+  stację i rok kalendarzowy, od 1887), `cz.chmi.meteo_daily` (P [mm], Tmean, Tmax, Tmin [°C]
+  z `historical_csv`; cztery pliki CSV na stację — SRA, T, TMA, TMI — z całą historią
+  stacji), listy stacji `cz.chmi.hydro_stations` i `cz.chmi.meteo_stations`
+  (`historical/metadata/meta1.json`). `DatasetDescriptor` + `provider`, `archive_scope`
+  (`country|station_year|station_element`), `variable_notes` (konwencje doby i terminów),
+  `measurement_fields`, `content_form`, `volatile_fields`, `update_signal="listing"`;
+  `ArchiveFile.station_code`. `archive_files(…, stations=[…])`: kandydaci stacja × rok
+  (hydro) albo cztery pliki na stację (meteo, bez `years`); `months` i `params` wyłącznie
+  dla IMGW-PIB. Kod stacji ČHMÚ to identyfikator WIGOS z nazw plików (np. `0-203-1-001000`).
+- **Aktualność z listingu**: `check_store`/`sync_store(…, stations=…)` dla `cz.chmi.*` —
+  jedno GET listingu katalogu serwera na zbiór (meteo: `precipitation/` i `temperature/`)
+  zamiast HEAD każdego pliku; `current|newer|missing` z pary (czas listingu co do minuty,
+  rozmiar) wobec sygnału odniesienia slotu; para stacja × rok spoza listingu →
+  `unverifiable` z `error="nieopublikowany"`, stacja bez plików → akcja planu; `years`
+  opcjonalne dla hydro (brak = lata opublikowane), zabronione dla meteo; jedno wywołanie
+  obejmuje archiwa krajowe IMGW-PIB albo pliki stacji ČHMÚ. Plan `imgw-plan/1` ma nowe pola
+  pozycji `station_code`, `signal` (`listing`|`head`), `remote_listed_at`,
+  `local_observation` i pole `requests` (`made`, `planned`; także dla IMGW-PIB);
+  `sync_store` wykonuje HEAD przed GET (zmiana od planu albo 404/410 → `stale_plan`).
+  Żądania do ČHMÚ mają `User-Agent: imgwtools/<wersja>` i idą po kolei.
+- **Treść kanoniczna i obserwacje**: forma `chmi-json/1` (JSON bez kluczy `zaznamID`
+  i `datumVytvoreni`, zapis RFC 8785/JCS) dla `cz.chmi.hydro_daily` i list stacji ČHMÚ —
+  `write_archive` zapisuje `content_sha256`/`content_form` w sidecarze, a inne bajty o tej
+  samej treści co bieżąca wersja dają `unchanged` bez nowej wersji, z komunikatem
+  `content_unchanged` (`info`) i — przy nowym sygnale — plikiem
+  `observations/<YYYY-MM-DD>_<sha8>.json` (`VersionResult.observed_sha256`,
+  `VersionResult.observation`), więc następne `check_store` daje `current` bez pobierania;
+  bajty niezgodne z formą → `data_error` bez zapisu. Sidecary ČHMÚ: `country`, `provider`
+  i `license` z rejestru, `request.station_code`/`param`, `extra.period.station_code`;
+  `read_meta` → `Meta.provider`, `Meta.country`. Sidecary IMGW bajtowo bez zmian.
+- **Katalog stacji ČHMÚ**: `build_catalog`/`check_catalog(…, provider="CHMI")` →
+  `stations/versions/chmi_stations/<label>_<sha8>/stations.geojson`, slot
+  `catalog:cz.chmi.stations`. Źródła w kolejności pierwszeństwa: `hydrology/now/metadata/meta1.json`,
+  `meta3.json` i archiwum `cz.chmi.hydro_stations`; najnowsze
+  `meteorology/climate/now/metadata/meta1-<RRRRMMDD>.json` i archiwum
+  `cz.chmi.meteo_stations`; plik użytkownika i indeksy szeregów ČHMÚ. Progi SPA
+  w addytywnej właściwości `thresholds` (`drought`, `spa1`–`spa3`, `q50` — stan albo
+  przepływ 50-letni), `hydrographic_code` = `HLGP4`, `active` = obecność w liście `now`,
+  obrys Czech z Natural Earth w pakiecie (`czechia_border_wgs84.geojson`), komunikat
+  `location_conflict`. `read_catalog(root=…, provider=…)`, `read_station_list(…,
+  provider=…)`, `iter_store(…, provider=…)`, `StoreInfo.providers`, `StoreEntry.provider`,
+  `StationFeature.provider`, `StationListEntry.provider`, `CatalogReport.provider`. Katalog
+  IMGW-PIB na magazynie z danymi ČHMÚ jest bajtowo taki sam.
+- **Szeregi, jakość i flagi**: `build_series` dla `cz.chmi.*` (`series/versions/chmi_hydro_daily/`,
+  `chmi_meteo_daily/`) z ciągłym kalendarzem stacji; `series.json` + `stations[<kod>].periods`
+  (okresy znane per stacja: lata posiadanych plików hydro, zakres wierszy plików meteo),
+  `StationSeriesIndex.periods`, `summarize_coverage(…, station_periods=…)` — rok bez
+  pliku (np. nieopublikowany) jest nieznany, nie jest luką. Meteo: `QUALITY` (0–5) i `FLAG`
+  ČHMÚ dosłownie w `Measurement.quality`/`source_flag`, w kolumnach Parquet `<V>_quality`
+  (`int8`) i `<V>_source_flag`, w CSV `export_series`/`export_archive` i w JSONL; ślad
+  opadu (`FLAG` `T`, 0.0) = `value`, `0.0` bez flagi = `no_phenomenon`; wartości nie są
+  poprawiane według jakości. Metadane Parquet `variable_notes`; atrybucja sidecarów
+  szeregów i eksportów według dostawcy (ČHMÚ: formuła źródła i „Dane ČHMÚ zostały
+  przetworzone (normalizacja i zmiana formatu)”); `extra.source_files[]` z polami treści
+  wejść hydro.
+- **Komendy i opcje**: `datasets providers` (`providers`, `GET /api/v1/datasets/providers`),
+  `--provider` w `datasets list`, `stations find`, `store scan` i `store catalog`,
+  `--stations`/`-s` w `datasets files|download` i `store check|sync`, reguły zbiorów
+  w `x-imgw.rules`; `data_commands(provider=…)` (widok jednego dostawcy). `find_stations`
+  na żywo czyta dla ČHMÚ metadane `now` (współrzędne źródła; „spindleruv” znajduje
+  „Špindlerův Mlýn”), a z magazynu — listy i katalogi dostawców. `download_archives(…,
+  stations=…)`: plik ČHMÚ bez publikacji (404/410) → pozycja `not_published` (sukces).
+  `series *` i `project *` przyjmują zbiory `cz.chmi.*` i kody WIGOS (`series select`
+  sprawdza gramatykę kodów dostawcy zbioru, a rok spoza okresów szeregu, także
+  nieopublikowany, daje `validation_error`); `current *` i `pmaxtp *` pozostają wyłącznie
+  IMGW-PIB.
+- **Projekty i odtworzenie treścią**: zadania IMGW-PIB i ČHMÚ w jednym projekcie;
+  `project download` synchronizuje stacje zadania ČHMÚ; piny zbiorów z formą mają
+  `content_sha256`/`content_form`. Gdy przypiętej ścieżki brak, a bieżąca wersja slotu ma
+  tę samą treść kanoniczną (szereg — te same bajty pod inną etykietą), pin ma stan
+  `content_match`, pozycja status `restored_by_content` z wersją równoważną, a komunikat
+  `pin_restored_by_content` (`warning`) podaje obie ścieżki i sumy; manifest w trybie
+  `pinned` się nie zmienia (`update="upgrade"` przepina). `get_project_status(…, on_notice=…)`.
+
+#### Wsparcie agentów AI (ADR-004, A01–A05)
+
+- **Opisy angielskie i język**: `help_en`, `description_en`, `rules_en`, opisy grup,
+  `ErrorSpec.title_en`, `DatasetDescriptor.title_en` (pole `title_en` w `datasets list`);
+  `command_schema(command=None, /, *, lang="pl"|"en")` i opcja `lang` komend
+  `commands schema` i `commands guide` (dokument `imgw-commands/1` z polem `lang`;
+  `imgwtools.commands.LANGS`). CLI: `IMGW_LANG=pl|en` — pomoc komend, opisy grup, elementy
+  Typer/Click i domyślne `--lang`. REST: `lang` z zapytania, inaczej nagłówek
+  `Accept-Language`, inaczej `pl`; odpowiedzi z `Content-Language` i `Vary: Accept-Language`,
+  `title` problem+json w języku nagłówka. Polski pozostaje domyślny; `detail`,
+  `Notice.text`, postęp, CSV, web GUI i OpenAPI nie są tłumaczone, a język nie zmienia
+  kontraktu (schematy obu języków różnią się wyłącznie tekstami).
+- **Metadane skutków**: `DataCommand.writes` (`none|add|replace`), `DataCommand.network`,
+  `CommandOption.writes`, `DataCommand.env_root_when` (wspólna reguła domyślnego `root`
+  CLI i MCP); w schemacie `x-imgw.writes`, `x-imgw.network`, `x-imgw.operation_id`
+  (`operationId` REST i nazwa narzędzia MCP) i `x-imgw-writes` opcji zapisujących. Każda
+  komenda zapisująca ma bliźniaka `check`.
+- **Przewodnik**: `agent_guide(*, format="agents"|"llms", lang="pl", path=None)`
+  (w `imgwtools.__all__`) i komenda `commands guide` (`GET /api/v1/commands/guide`,
+  strumień `text/markdown`); pliki pochodne `AGENTS.md` i `llms.txt` (llms.txt v2)
+  w katalogu głównym repozytorium, generowane z katalogu, rejestrów i szablonów
+  `src/imgwtools/_data/agents/` i pilnowane testem dryfu; `GET /llms.txt` serwera REST
+  w języku z `Accept-Language`.
+- **Serwer MCP**: dodatek `imgwtools[mcp]` i komenda `imgw mcp [--allow-writes] [--lang pl|en]`
+  (stdio; zmienne `IMGW_MCP_ALLOW_WRITES`, `IMGW_LANG`; bez dodatku linia
+  `missing_dependency`, kod 6). Narzędzie = komenda katalogu (nazwa `x-imgw.operation_id`,
+  schemat wejścia z `command_schema`, adnotacje `readOnlyHint`, `destructiveHint`,
+  `openWorldHint`); domyślnie tylko odczyt i plan — komendy zapisujące mają `check` stałe
+  `true`, zapis wyłącznie z `--allow-writes` i `check: false` (inaczej `forbidden`,
+  `details.reason="writes_disabled"`). `structuredContent` = koperta `imgw-result/1`,
+  błąd = `{code, title, detail, details}` z `isError`, listy domyślnie po 50, strumienie do
+  256 KiB, postęp i anulowanie; `root` jak w CLI (`IMGW_STORE_ROOT`). Punkt `/mcp`
+  (Streamable HTTP) w `imgw server` przy `IMGW_MCP_ENABLED=true` (`IMGW_MCP_ALLOWED_HOSTS`,
+  język z `IMGW_LANG`): narzędzia tras REST wywoływanych w procesie, wyłącznie odczyt
+  i plan (POST zawsze z `?check=true`); `docker/nginx.conf` ma `location = /mcp`.
+- **Porządek komunikatów**: polskie teksty z polskimi znakami w pomocy i komunikatach
+  `imgw admin` (metawartości `IDENTYFIKATOR`, `TEKST`, `LICZBA`), pomocy `imgw version`
+  i `imgw server` (`ADRES`, `LICZBA`), elementach pomocy Typer/Click („Opcje”, „Użycie:”,
+  `[OPCJE]`, `KOMENDA [ARGUMENTY]...`, „Przerwano.”), opisach pól modeli w OpenAPI,
+  wyjściu `python -m imgwtools.reference_data` (atrybucja IMGW-PIB z rejestru), opisach
+  `/health` i `/api/v1` oraz nagłówku skryptu wget w web GUI; strony HTML web GUI nie należą
+  już do `/openapi.json`.
 
 ### Zachowanie magazynu
 
@@ -343,6 +501,16 @@ nieznanego schematu. W linii 3.x publiczne funkcje odczytu nie znikają, a seman
 się nie zmienia. Dziedziny wartości `/1` (klucz zbioru, kraj, dostawca, licencja, kod
 stacji, `location_source`) są otwarte na kolejnych dostawców — patrz „Dodane”.
 
+Pola addytywne dostawcy ČHMÚ i wsparcia agentów (bez nowego `/N`): `imgw-meta/1` —
+`request.station_code`, `request.param`, `extra.period.station_code`, `license.terms_url`
+(zapisywane tylko, gdy ustawione); `imgw-series/1` — `stations[<kod>].periods`, kolumny
+Parquet `<V>_quality`/`<V>_source_flag` i metadane `variable_notes` (tylko zbiory
+z `measurement_fields` lub notami); `stations.geojson` — właściwość `thresholds` (hydro
+ČHMÚ); `imgw-plan/1` — `station_code`, `signal`, `remote_listed_at`, `local_observation`
+pozycji i `requests` planu; `imgw-commands/1` — `lang`, `x-imgw.writes`, `x-imgw.network`,
+`x-imgw.operation_id` i `x-imgw-writes`. Pliki IMGW-PIB zapisane tym wydaniem mają te same
+bajty co bez dostawcy ČHMÚ.
+
 ### Zmienione
 
 - Domyślnie serwer nadal tylko generuje URL-e do IMGW; dane trafiają na dysk wyłącznie
@@ -350,6 +518,13 @@ stacji, `location_source`) są otwarte na kolejnych dostawców — patrz „Doda
 - URL-e archiwów (biblioteka, CLI, REST, web) wynikają wyłącznie z rejestru
   `archive_files`, bez zahardkodowanej górnej granicy roku.
 - Lista stacji hydro zachowuje `river_order` (czwarta kolumna CSV) i `hydrographic_code`.
+- Teksty licencji z rejestru dostawcy: komunikat `license_terms`, atrybucje sidecarów,
+  szeregów, katalogu i eksportów CSV (IMGW-PIB — brzmienie bez zmian, ČHMÚ — CC BY 4.0
+  z oznaczeniem przetworzenia); błędy pobrania i odtworzenia nazywają dostawcę.
+- Web GUI pozostaje przy zbiorach IMGW-PIB: formularz archiwów pokazuje
+  `datasets(provider="IMGW-PIB")`, a wyszukiwarka stacji pyta `provider="IMGW-PIB"`.
+- `imgw --help`, opis OpenAPI i grupa `datasets` („Rejestr dostawców i zbiorów: lista,
+  pliki i pobieranie”) wymieniają obu dostawców; `imgw --help` wymienia `imgw mcp`.
 
 ### Poprawione
 
@@ -428,20 +603,45 @@ stacji, `location_source`) są otwarte na kolejnych dostawców — patrz „Doda
   wyniku — przypięcia `files[].path` w wynikach `project *` — jako względne do magazynu
   projektu, niezależnie od katalogu roboczego; wcześniej były absolutyzowane wobec
   katalogu roboczego procesu drukującego (nieistniejące ścieżki `<CWD>/series/versions/…`).
+- Obraz Dockera da się zbudować: baza `python:3.12-slim` zamiast `python:3.11-slim`
+  (pakiet wymaga Pythona ≥ 3.12), bez `COPY data/` (katalogu nie ma w repozytorium),
+  kopiowane `pyproject.toml`, `README.md`, `LICENSE` i `src/`, instalacja `.[api,mcp]`,
+  jeden proces uvicorn. `docker/docker-compose.yml` bez przestarzałego klucza `version`,
+  z `IMGW_MCP_ENABLED`, `IMGW_MCP_ALLOWED_HOSTS` i `IMGW_LANG` z otoczenia
+  `docker compose`.
 
 ### Testy
 
 - Kontrakt magazynu w `tests/contract/` (offline: HEAD → plan → sync → szeregi → katalog
   → CSV → projekt → verify/restore, JSON Schemas §11 dołączone do pakietu).
 - Kontrakt międzyinterfejsowy `tests/contract/test_interface_contract.py`: dla wszystkich
-  25 komend REST koperta `run_command` = stdout CLI = ciało REST, strumienie bajt w bajt,
+  27 komend REST koperta `run_command` = stdout CLI = ciało REST, strumienie bajt w bajt,
   zapis do świeżych magazynów daje identyczne drzewa, `?check=true` = `--check` =
   `check_command`, macierz 12 kodów błędów (kod wyjścia, status HTTP, tytuł, schematy
   `cli-error` i `problem+json`), okna stronicowania.
+- Kontrakt MCP: `tests/contract/test_mcp_contract.py` (stdio: każdy przypadek kontraktu,
+  plany POST, komendy lokalne i każdy kod błędu CLI — MCP = Python = CLI)
+  i `tests/contract/test_mcp_http_contract.py` (`/mcp` = REST dla każdego przypadku
+  i scenariusza błędu poza `method_not_allowed`).
+- Kontrakt ČHMÚ `tests/contract/test_chmi_contract.py`: każdy wiersz kryteriów IMGW-15..19
+  na `complete_pl_cz` i nagraniach, parytet Python/CLI/REST/MCP dla 31 uruchomień ČHMÚ
+  (te same koperty, żądania i sumy SHA-256 drzew), 7 bliźniaków `--check`, 5 komend
+  lokalnych i 4 odrzucone wybory; zero ruchu poza nagraniami.
+- Testy jednostkowe dostawcy ČHMÚ (`test_*_chmi.py`, `test_parsing_chmi.py`,
+  `test_store_content.py`) i agentów (`test_agent_guide.py` z testem dryfu `AGENTS.md`
+  i `llms.txt`, `test_catalog_effects.py` — skutki deklarowane = zachowanie,
+  `test_catalog_i18n.py`, `test_mcp_tools.py`, `test_mcp_calls.py`, `test_mcp_http.py`,
+  `test_mcp_stdio.py`).
 - Regresja na żywo `tests/live/test_interfaces_live.py` (`IMGW_LIVE=1`, raport JSON przez
-  `IMGW_LIVE_REPORT`): każda z 35 komend przez Python, zainstalowany `imgw` i REST
-  (`imgw server`) na serwerach IMGW w świeżym magazynie oraz 6 błędów na żywo.
-- 1419 testów (`pytest --collect-only`, 2026-10-18): 1377 offline i 42 na żywo.
+  `IMGW_LIVE_REPORT`): każda z 37 komend przez Python, zainstalowany `imgw` i REST
+  (`imgw server`) na serwerach IMGW-PIB w świeżym magazynie, 6 błędów na żywo i noga MCP
+  (`-k imgw_mcp`: jeden proces `imgw mcp`, 9 komend sieciowych bez zapisu); przebieg
+  2026-10-19: 53 passed w 103 s. `tests/live/test_chmi_live.py` — dostawca ČHMÚ na
+  opendata.chmi.cz (stacje `0-203-1-001000` i `0-203-0-11799`) przez Python, CLI, REST
+  i MCP z dziennikiem żądań każdego interfejsu; przebieg 2026-10-19: 26 passed w 77 s,
+  124 żądania, 31,5 MB.
+- 2208 testów (`pytest --collect-only`, 2026-10-19): 2129 offline i 79 na żywo (53 IMGW-PIB,
+  26 ČHMÚ).
 
 ## [2.2.0] — 2026-08-22
 

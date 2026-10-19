@@ -1,0 +1,25 @@
+# IMGWTools
+
+> Biblioteka Pythona, CLI, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: wersjonowany magazyn archiwów i szeregów stacji, dane bieżące i PMAXTP. Wersja 3.0.0: rejestr 17 zbiorów 2 dostawców (IMGW-PIB — Polska, ČHMÚ — Czechy) i jeden katalog 37 komend w 8 grupach dla wszystkich interfejsów.
+
+1. **Poznaj komendę:** `imgw commands schema [--command …] [--lang en]`, `imgw <grupa> <komenda> --schema`, `GET /api/v1/commands/schema`, w MCP `tools/list`. Opcje to właściwości JSON Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w `x-imgw.writes` i `x-imgw.network`.
+2. **Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; domyślne dla komend zapisujących), `check_command()` (Python) → plan `imgw-plan/1` bez zapisu i bez pobierania treści. `store check` i `project check` same są sprawdzeniem. Przy dużym planie zapytaj użytkownika.
+3. **Uruchom:** bez `check`; czytaj `status` koperty, nie tylko kod wyjścia.
+4. **Czytaj offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — bez ponownego pobierania.
+5. **Decyduj po kodach:** `code`, `status`, `items[].status`, `error_code`; tekst `detail` jest dla człowieka.
+
+- Wynik: koperta JSON `imgw-result/1` z polem `status` (`ok`, `partial`, `failed`, `cancelled`; kody wyjścia CLI 0, 10, 11, 130).
+- Błąd: `{"code", "detail", "details"}` w ostatniej linii stderr CLI albo `application/problem+json` w REST; kody z zamkniętego rejestru, np. `validation_error` = 2 / 400.
+- Zbiory: pełne klucze `<kraj>.<dostawca>.<zbiór>`, np. `pl.imgw.hydro_daily`, `cz.chmi.hydro_daily`; kody stacji: IMGW-PIB 9 cyfr, ČHMÚ identyfikator WIGOS.
+- Opis komend: `imgw commands schema` albo `GET /api/v1/commands/schema`; przewodnik w całości: `imgw commands guide` albo `GET /api/v1/commands/guide`.
+
+## Dokumentacja
+
+- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/AGENTS.md): przewodnik dla agentów — komendy, zbiory, flagi, kody błędów, przepływy, czego nie robić
+- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/README.md): instalacja i przykłady Python, CLI, REST, MCP
+- [Architektura](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/ARCHITECTURE.md): moduły, magazyn, przepływ danych
+- [Zmiany](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/CHANGELOG.md): zmiany i migracja z 2.x
+
+## Optional
+
+- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/DECISIONS.md): ADR-001–ADR-004

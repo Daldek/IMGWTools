@@ -1,5 +1,5 @@
-# IMGWTools Docker Image
-FROM python:3.11-slim
+# IMGWTools Docker image: REST API, web GUI and MCP over HTTP (/mcp)
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,13 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
-COPY pyproject.toml README.md ./
+# Copy the package (pyproject.toml names README.md and LICENSE); the image holds
+# no data: reference data and the store are mounted by docker-compose.yml
+COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
-COPY data/ data/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir .
+# REST API server with the MCP extra (/mcp needs IMGW_MCP_ENABLED=true)
+RUN pip install --no-cache-dir ".[api,mcp]"
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser && \
@@ -35,5 +35,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
+# Run the application (one worker: MCP sessions live in the process)
 CMD ["uvicorn", "imgwtools.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

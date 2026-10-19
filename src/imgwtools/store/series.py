@@ -7,13 +7,15 @@ import json
 import math
 import os
 import pickle
+import re
 import shutil
 import socket
 import tempfile
 import uuid
 import zlib
+from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
@@ -24,9 +26,11 @@ from imgwtools._version import __version__
 from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
-    archive_files,
+    _archive_from_path,
+    _license_document,
     datasets,
     get_dataset,
+    get_provider,
 )
 from imgwtools.exceptions import (
     IMGWDataError,
@@ -69,7 +73,8 @@ SeriesState = Literal["current", "outdated", "missing"]
 
 _FLAGS = ("value", "missing", "no_phenomenon", "accumulated")
 _PERIODS = ("winter", "summer", "annual")
-_PROCESSED = "Dane Instytutu Meteorologii i Gospodarki Wodnej – Państwowego Instytutu Badawczego zostały przetworzone"
+_SHA = re.compile(r"^[0-9a-f]{64}$")
+_INT8 = range(-128, 128)
 _CANCELLED = "anulowano"
 _CHUNK = 1024 * 1024
 
@@ -169,6 +174,7 @@ def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
                 meta["extra"]["version"]["label"], str
             ):
                 raise ValueError("brak sumy lub etykiety wersji")
+            _content_fields(meta)
             _downloaded(meta)
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
@@ -200,18 +206,37 @@ def _current_version(root: Path, archive: ArchiveFile) -> _Version | None:
     )
 
 
+def _content_fields(meta: Mapping[str, Any]) -> dict[str, str]:
+    """``content_sha256`` and ``content_form`` of a sidecar: both or none (ADR-003 D17)."""
+    fields = {
+        key: meta[key] for key in ("content_sha256", "content_form") if key in meta
+    }
+    if fields and not (
+        len(fields) == 2
+        and isinstance(fields["content_sha256"], str)
+        and _SHA.fullmatch(fields["content_sha256"])
+        and isinstance(fields["content_form"], str)
+        and fields["content_form"]
+    ):
+        raise ValueError("niepoprawna para content_sha256 i content_form")
+    return fields
+
+
 def _restore_archive(dataset: str, meta: Mapping[str, Any]) -> ArchiveFile:
+    """Registry `ArchiveFile` of a stored version, consistent with its ``request``."""
     request = meta["request"]
-    month = request.get("month")
-    candidates = archive_files(
-        dataset,
-        years=(request["year"],),
-        months=(month,) if month is not None else None,
+    server_path = request["server_path"]
+    archive = (
+        _archive_from_path(dataset, server_path)
+        if isinstance(server_path, str)
+        else None
     )
-    for candidate in candidates:
-        if candidate.server_path == request["server_path"]:
-            return candidate
-    raise ValueError(f"ścieżka {request['server_path']} nie należy do zbioru {dataset}")
+    if archive is None:
+        raise ValueError(f"ścieżka {server_path} nie należy do zbioru {dataset}")
+    for key in ("year", "month", "station_code", "param"):
+        if key in request and request[key] != getattr(archive, key):
+            raise ValueError(f"request.{key} nie odpowiada ścieżce {server_path}")
+    return archive
 
 
 def _scan_inputs(
@@ -341,7 +366,8 @@ def check_series(
     root : str, os.PathLike or StoreHandle
         Root of an existing IMGW store.
     dataset : str
-        Full key (``pl.imgw.*``) of a measurement series dataset.
+        Full key (``pl.imgw.*`` or ``cz.chmi.*``) of a measurement series
+        dataset.
     on_progress : ProgressHook or None, optional
         Called for each current input archive.
     on_notice : NoticeHook or None, optional
@@ -354,7 +380,8 @@ def check_series(
     -------
     StorePlan
         Plan whose items are the current input archive versions (status
-        ``current``, HTTP signals copied from their sidecars), whose
+        ``current``, HTTP signals copied from their sidecars, the station of
+        a per-station file in ``station_code``), whose
         ``series_state`` maps the dataset slug to ``current``, ``outdated`` or
         ``missing``, and whose ``series build`` actions carry the series status
         (``current``, ``newer`` for an outdated series, or ``missing``), one
@@ -387,6 +414,7 @@ def check_series(
                 remote_last_modified=http.get("last_modified"),
                 content_length=http.get("content_length"),
                 error=_CANCELLED if cancelled else None,
+                station_code=item.archive.station_code,
             )
         )
         if on_progress is not None and not cancelled:
@@ -460,16 +488,18 @@ def _period_start(hydro_year: int, period: str) -> date:
 
 
 _Key = tuple[date, str | None]
-# Flag, value and the sign bit: -0.0 == 0.0, but sharing must not change the sign.
-_Shared = dict[tuple[str, float | None, bool], Measurement]
+# Flag, value, the sign bit (-0.0 == 0.0, but sharing must not change the sign),
+# quality and source flag.
+_Shared = dict[tuple[str, float | None, bool, int | None, str | None], Measurement]
 # One spilled record: date ordinal, hydrological year, period, then the
-# (variable, value, flag), (variable, (start, end)) and (variable, occurrences)
-# entries of its measurements, extremum dates and extremum occurrence counts.
+# (variable, value, flag, quality, source flag), (variable, (start, end)) and
+# (variable, occurrences) entries of its measurements, extremum dates and
+# extremum occurrence counts.
 _Row = tuple[
     int,
     int,
     str | None,
-    tuple[tuple[str, float | None, Flag], ...],
+    tuple[tuple[str, float | None, Flag, int | None, str | None], ...],
     tuple[tuple[str, tuple[datetime | None, datetime | None]], ...],
     tuple[tuple[str, int], ...],
 ]
@@ -485,12 +515,24 @@ class _Station:
     hydro_years: set[int]
 
 
-def _shared(shared: _Shared, value: float | None, flag: Flag) -> Measurement:
+def _shared(
+    shared: _Shared,
+    value: float | None,
+    flag: Flag,
+    quality: int | None,
+    source_flag: str | None,
+) -> Measurement:
     """One object per distinct measurement of a station, keeping the sign of zero."""
-    key = (flag, value, value is not None and math.copysign(1.0, value) < 0)
+    key = (
+        flag,
+        value,
+        value is not None and math.copysign(1.0, value) < 0,
+        quality,
+        source_flag,
+    )
     measurement = shared.get(key)
     if measurement is None:
-        measurement = Measurement(value, flag)
+        measurement = Measurement(value, flag, quality, source_flag)
         if value == value:  # NaN never matches its key, caching it would only grow
             shared[key] = measurement
     return measurement
@@ -508,8 +550,8 @@ def _collect(
     day = date.fromordinal(ordinal)
     key = (day, period if descriptor.time_unit == "half_year" else None)
     columns = station.values.setdefault(key, {})
-    for variable, value, flag in measurements:
-        measurement = _shared(shared, value, flag)
+    for variable, value, flag, quality, source_flag in measurements:
+        measurement = _shared(shared, value, flag, quality, source_flag)
         previous = columns.get(variable)
         if previous is not None and previous != measurement:
             raise IMGWDataError(f"Sprzeczne wartości {variable} stacji {code} z {day}")
@@ -542,6 +584,9 @@ class _Spill:
     def __init__(self, directory: Path, descriptor: DatasetDescriptor) -> None:
         self._directory = directory
         self._descriptor = descriptor
+        self._code = re.compile(get_provider(descriptor.provider).station_code_pattern)
+        self._quality = "quality" in descriptor.measurement_fields
+        self._source_flag = "source_flag" in descriptor.measurement_fields
         self._queued: dict[str, list[_Row]] = {}
         self._count = 0
         self.stations: set[str] = set()
@@ -549,9 +594,9 @@ class _Spill:
     def add(self, record: NormalizedRecord) -> None:
         """Validate one record and queue it for the file of its station."""
         code = record.station_code
-        if len(code) != 9 or not code.isdigit():
+        if code not in self.stations and not self._code.fullmatch(code):
             raise IMGWDataError(f"Nieprawidłowy kod stacji: {code!r}")
-        measurements: list[tuple[str, float | None, Flag]] = []
+        measurements: list[tuple[str, float | None, Flag, int | None, str | None]] = []
         for variable, measurement in record.measurements.items():
             if variable not in self._descriptor.variables:
                 raise IMGWDataError(
@@ -563,7 +608,23 @@ class _Spill:
                 raise IMGWDataError(
                     f"Niespójna flaga {measurement.flag} zmiennej {variable} stacji {code}"
                 )
-            measurements.append((variable, measurement.value, measurement.flag))
+            # Fields the dataset does not declare must stay empty: the Parquet
+            # file has no column for them. Quality is stored as int8.
+            quality, source_flag = measurement.quality, measurement.source_flag
+            if not (
+                quality is None
+                or (self._quality and type(quality) is int and quality in _INT8)
+            ) or not (
+                source_flag is None
+                or (self._source_flag and isinstance(source_flag, str))
+            ):
+                raise IMGWDataError(
+                    f"Niedozwolona jakość {quality!r} lub flaga źródła "
+                    f"{source_flag!r} zmiennej {variable} stacji {code} z {record.date}"
+                )
+            measurements.append(
+                (variable, measurement.value, measurement.flag, quality, source_flag)
+            )
         self._queued.setdefault(code, []).append(
             (
                 record.date.toordinal(),
@@ -647,6 +708,15 @@ def _station_table(pa: Any, station: _Station, descriptor: DatasetDescriptor) ->
             pa.array([_FLAGS.index(item.flag) for item in measurements], pa.int8()),
             flags,
         )
+        # ČHMÚ meteo: QUALITY as published and FLAG verbatim, both nullable.
+        if "quality" in descriptor.measurement_fields:
+            columns[f"{variable}_quality"] = pa.array(
+                [item.quality for item in measurements], pa.int8()
+            )
+        if "source_flag" in descriptor.measurement_fields:
+            columns[f"{variable}_source_flag"] = pa.array(
+                [item.source_flag for item in measurements], pa.string()
+            ).dictionary_encode()
         if descriptor.time_unit == "half_year":
             bounds = [
                 station.extrema.get(key, {}).get(variable, (None, None))
@@ -667,22 +737,56 @@ def _station_table(pa: Any, station: _Station, descriptor: DatasetDescriptor) ->
         "dataset": descriptor.key,
         "units": _canonical(dict(descriptor.variables)).decode("utf-8").rstrip("\n"),
     }
+    if descriptor.variable_notes:
+        metadata["variable_notes"] = (
+            _canonical(dict(descriptor.variable_notes)).decode("utf-8").rstrip("\n")
+        )
     return pa.table(columns).replace_schema_metadata(metadata)
 
 
-def _periods(inputs: Iterable[_Input]) -> list[list[str]]:
-    """Union of exact publication periods of possessed archives, adjacent spans merged."""
-    spans = sorted(
-        {(item.archive.period_start, item.archive.period_end) for item in inputs}
-    )
-    merged: list[list[date]] = []
-    for start, end in spans:
-        assert start is not None and end is not None
-        if merged and start <= merged[-1][1] + timedelta(days=1):
-            merged[-1][1] = max(merged[-1][1], end)
-        else:
-            merged.append([start, end])
-    return [[start.isoformat(), end.isoformat()] for start, end in merged]
+def _archive_span(archive: ArchiveFile) -> tuple[date, date]:
+    """Exact publication period of a dated archive."""
+    assert archive.period_start is not None and archive.period_end is not None
+    return archive.period_start, archive.period_end
+
+
+def _iso_spans(spans: Iterable[tuple[date, date]]) -> list[list[str]]:
+    """``series.json`` form of closed date ranges."""
+    return [[start.isoformat(), end.isoformat()] for start, end in spans]
+
+
+def _spill_station_file(
+    spill: _Spill,
+    archive: ArchiveFile,
+    records: Iterable[NormalizedRecord],
+    spans: dict[str, list[tuple[date, date]]],
+) -> None:
+    """
+    Spill the records of one per-station file and add its known period.
+
+    A station-year file covers its calendar year (``extra.period``); a
+    station-element file the days from its first to its last record, explicit
+    missing rows included (ADR-003 D10). A record of another station than
+    the file's is a data error.
+    """
+    code = archive.station_code
+    assert code is not None
+    first = last = None
+    for record in records:
+        if record.station_code != code:
+            raise IMGWDataError(
+                f"Rekord stacji {record.station_code} w pliku stacji {code}: "
+                f"{archive.server_path}"
+            )
+        spill.add(record)
+        if first is None or record.date < first:
+            first = record.date
+        if last is None or record.date > last:
+            last = record.date
+    if archive.period_start is not None and archive.period_end is not None:
+        spans[code].append(_archive_span(archive))
+    elif first is not None and last is not None:
+        spans[code].append((first, last))
 
 
 def _coverage_index(coverage: Iterable[StationCoverage]) -> dict[str, dict[str, Any]]:
@@ -762,12 +866,24 @@ def build_series(
     parsed records, not by the dataset. An unreadable input or conflicting
     values fail the whole build; an incomplete snapshot is never published.
 
+    Datasets of per-station files (``cz.chmi.*``, ADR-003 D10) also record the
+    known periods of every station in ``stations[<code>].periods``: the
+    calendar years of its station-year files, or the first to last row of
+    each station-element file, merged. Gaps are counted only on those days, so
+    a year whose file is not published is unknown, not a gap; the dataset
+    ``periods`` are the union of the station periods. Meteorological stations
+    get the ``<V>_quality`` and ``<V>_source_flag`` Parquet columns, inputs of
+    a dataset with a canonical form carry ``content_sha256`` and
+    ``content_form`` in ``extra.source_files``, and the sidecar names the
+    provider of the dataset with its processed-data attribution.
+
     Parameters
     ----------
     root : str, os.PathLike or StoreHandle
         Root of an existing IMGW store.
     dataset : str
-        Full key (``pl.imgw.*``) of a measurement series dataset.
+        Full key (``pl.imgw.*`` or ``cz.chmi.*``) of a measurement series
+        dataset.
     on_progress : ProgressHook or None, optional
         Called after each parsed archive and each written station file, or once
         for a reused version.
@@ -848,9 +964,17 @@ def build_series(
         )
 
     # Lazy import: imgwtools.coverage imports store.types, which loads this package.
-    from imgwtools.coverage import _KnownUnits, _station_coverage
+    from imgwtools.coverage import (
+        _KnownSpans,
+        _KnownUnits,
+        _merge_spans,
+        _station_coverage,
+    )
 
     known = _KnownUnits(descriptor.time_unit)
+    # Per-station files (ČHMÚ, ADR-003 D10): known periods of every station.
+    per_station = descriptor.archive_scope != "country"
+    spans: dict[str, list[tuple[date, date]]] = defaultdict(list)
     with tempfile.TemporaryDirectory(prefix="imgw-series-") as local:
         spill = _Spill(Path(local), descriptor)
         try:
@@ -864,9 +988,13 @@ def build_series(
                     )
                 # Records go to their station files and are dropped: neither the
                 # parsed records nor the values of all stations stay in memory.
-                for record in normalize_archive(item.archive, data=data):
-                    spill.add(record)
-                    known.add(record)
+                records = normalize_archive(item.archive, data=data)
+                if per_station:
+                    _spill_station_file(spill, item.archive, records, spans)
+                else:
+                    for record in records:
+                        spill.add(record)
+                        known.add(record)
                 if on_progress is not None:
                     on_progress(
                         Progress(
@@ -882,6 +1010,7 @@ def build_series(
             if on_notice is not None:
                 on_notice(Notice("error", "archive_failed", str(exc)))
             return _report("failed", sources=sources, problems=[str(exc)])
+        station_periods = {code: _merge_spans(items) for code, items in spans.items()}
 
         incoming = path / ".incoming"
         incoming.mkdir(exist_ok=True)
@@ -901,19 +1030,26 @@ def build_series(
                         on_notice(Notice("error", "archive_failed", str(exc)))
                     return _report("failed", sources=sources, problems=[str(exc)])
                 table = _station_table(pa, station, descriptor)
+                periods = station_periods[code] if per_station else None
                 coverage = _station_coverage(
-                    code, station.values, descriptor=descriptor, known=known
+                    code,
+                    station.values,
+                    descriptor=descriptor,
+                    known=known if periods is None else _KnownSpans(periods),
                 )
                 built = Path(local) / f"{code}.parquet"
                 pq.write_table(table, built)
                 digest = _copy_hashed(built, staging / "stations" / f"{code}.parquet")
                 built.unlink()
-                index_stations[code] = {
+                entry: dict[str, Any] = {
                     "file": f"stations/{code}.parquet",
                     "sha256": digest,
                     "rows": table.num_rows,
                     "variables": _coverage_index(coverage),
                 }
+                if periods is not None:
+                    entry["periods"] = _iso_spans(periods)
+                index_stations[code] = entry
                 if on_progress is not None:
                     on_progress(
                         Progress(number, total, "station", "written", f"Stacja {code}")
@@ -921,9 +1057,17 @@ def build_series(
             _fsync_dir(staging / "stations")
             series = {
                 "schema": SERIES_SCHEMA,
-                "dataset": dataset,
+                "dataset": descriptor.key,
                 "year_type": descriptor.year_type,
-                "periods": _periods(inputs),
+                "periods": _iso_spans(
+                    _merge_spans(
+                        span
+                        for code in index_stations
+                        for span in station_periods[code]
+                    )
+                    if per_station
+                    else _merge_spans(_archive_span(item.archive) for item in inputs)
+                ),
                 "stations": index_stations,
             }
             content = _canonical(series)
@@ -940,16 +1084,20 @@ def build_series(
                 if published
                 else now.date().isoformat()
             )
-            license_info = asdict(descriptor.license)
+            provider = get_provider(descriptor.provider)
+            license_info = _license_document(descriptor.license)
             license_info["attribution"] = (
-                f"{descriptor.license.attribution}. {_PROCESSED}"
+                f"{descriptor.license.attribution}. {provider.processed_attribution}"
             )
+            # Inputs of a dataset with a canonical form carry its content sum (pins
+            # ``input`` restorable by content, ADR-003 D17); others keep 3.0.0 bytes.
             source_files = [
                 {
                     "name": item.version.file.name,
                     "file": item.version.relative,
                     "sha256": item.version.sha256,
                     "label": item.version.label,
+                    **_content_fields(item.version.meta),
                 }
                 for item in sorted(inputs, key=lambda entry: entry.version.relative)
             ]
@@ -959,10 +1107,10 @@ def build_series(
                     "schema": "imgw-meta/1",
                     "producer": "imgwtools",
                     "producer_version": __version__,
-                    "dataset": dataset,
-                    "country": "PL",
-                    "provider": "IMGW-PIB",
-                    "request": {"dataset": dataset},
+                    "dataset": descriptor.key,
+                    "country": provider.country,
+                    "provider": provider.id,
+                    "request": {"dataset": descriptor.key},
                     "license": license_info,
                     "downloaded_at": _utc(now),
                     "sha256": sha,
@@ -1015,7 +1163,7 @@ def build_series(
                         Notice(
                             "info",
                             "license_terms",
-                            f"{license_info['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                            f"{license_info['attribution']}. {provider.notice}",
                         )
                     )
                 return _report(

@@ -1,9 +1,10 @@
 """Offline fixture store for contract tests of IMGWTools consumers.
 
 ``build_fixture_store`` builds a small versioned store with the real public writers
-(``init_store``, ``write_archive``, ``build_series``, ``build_catalog``) while every
-HTTP request is answered from recordings shipped with the package. No request reaches
-the network; an unrecorded request fails as a connection error.
+(``init_store``, ``write_archive``, ``sync_store``, ``build_series``,
+``build_catalog``) while every HTTP request is answered from recordings shipped with
+the package. No request reaches the network; an unrecorded request fails as a
+connection error.
 
 Requires the ``pyarrow`` dependency of series building (``imgwtools[store]``).
 """
@@ -14,7 +15,7 @@ import hashlib
 import json
 import threading
 from collections import deque
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -26,16 +27,23 @@ import httpx
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
 from imgwtools.fetch import download_hydro_data, download_meteo_data
-from imgwtools.store import build_catalog, build_series, init_store, write_archive
+from imgwtools.store import (
+    build_catalog,
+    build_series,
+    init_store,
+    sync_store,
+    write_archive,
+)
 from imgwtools.store import catalog as _store_catalog
 from imgwtools.store.types import PathArg, StoreHandle
 from imgwtools.store.writer import _canonical
 
 __all__ = ["FixtureVariant", "build_fixture_store", "fixture_files"]
 
-FixtureVariant = Literal["complete", "corrupt", "unknown_schema"]
+FixtureVariant = Literal["complete", "corrupt", "unknown_schema", "complete_pl_cz"]
 
 _RECORDINGS = ("recordings.json", "builder_recordings.json")
+_CHMI_RECORDINGS = ("chmi_builder_recordings.json",)
 _HYDRO = "pl.imgw.hydro_daily"
 _METEO = "pl.imgw.meteo_precip_daily"
 _UNKNOWN_LABEL = "2026-10-20"
@@ -51,6 +59,47 @@ _SCENARIO = (
     "hydro_current",
     "meteo_current",
 )
+_CHMI_HYDRO = "cz.chmi.hydro_daily"
+_CHMI_METEO = "cz.chmi.meteo_daily"
+# Fictional ČHMÚ stations of the fixture files (spec 2026-10-18 §13.2).
+_CHMI_FULL, _CHMI_GAP = "0-203-1-900001", "0-203-1-900002"
+_CHMI_ELEMENTS, _CHMI_RAIN = "0-203-0-90001", "0-203-0-90000000002"
+# ČHMÚ part of complete_pl_cz (spec 2026-10-18 §13.2 scenarios (1)-(3) and (8)):
+# sync_store selectors with the expected statuses of the items and of the series.
+_CHMI_STEPS: tuple[tuple[str, Mapping[str, Any], tuple[str, ...], str], ...] = (
+    (
+        "ČHMÚ hydro (1) pierwsza publikacja",
+        {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL, _CHMI_GAP)},
+        ("created",) * 4,
+        "created",
+    ),
+    (
+        "ČHMÚ hydro (2) ponowna publikacja",
+        {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_GAP,)},
+        ("relabeled",) * 2,
+        "reused",
+    ),
+    (
+        "ČHMÚ hydro (3) poprawka",
+        {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2024,)},
+        ("created",),
+        "created",
+    ),
+    (
+        "ČHMÚ hydro (8) ponowna serializacja",
+        {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2023,)},
+        ("unchanged",),
+        "reused",
+    ),
+    (
+        "ČHMÚ meteo",
+        {"datasets": (_CHMI_METEO,), "stations": (_CHMI_ELEMENTS, _CHMI_RAIN)},
+        # The three temperature elements of the precipitation-only station are
+        # not published: unchanged without a version.
+        ("created",) * 5 + ("unchanged",) * 3,
+        "created",
+    ),
+)
 # Recorder patching is process-global; serialize concurrent builders.
 _HTTP_LOCK = threading.Lock()
 
@@ -59,13 +108,17 @@ def fixture_files() -> Traversable:
     """
     Return the packaged fixture data directory.
 
-    Layout: ``archives/<IMGW server path>``, ``variants/``, recorded HTTP
-    answers ``recordings.json``, ``builder_recordings.json`` and
+    Layout: ``archives/<server path>`` (IMGW-PIB yearbooks and station lists,
+    ČHMÚ station files and metadata), ``listings/`` (ČHMÚ directory
+    listings), ``variants/``, recorded HTTP answers ``recordings.json``,
+    ``builder_recordings.json``, ``chmi_recordings.json``,
+    ``chmi_catalog_recordings.json``, ``chmi_builder_recordings.json`` and
     ``contract_recordings.json`` (live endpoints of the interface contract
     tests), and ``contract_schemas.json`` (JSON Schemas with examples of the
     store documents ``imgw-store/1`` ... ``imgw-pmaxtp/1``, the envelope
     ``imgw-result/1`` and the error documents ``problem+json`` and
-    ``cli-error``). Data are short synthetic samples, not real yearbooks.
+    ``cli-error``). Data are short synthetic samples with fictional station
+    codes, not real yearbooks.
 
     Returns
     -------
@@ -76,16 +129,16 @@ def fixture_files() -> Traversable:
     return files("imgwtools").joinpath("_data", "fixtures")
 
 
-def _interactions() -> dict[str, dict[str, Any]]:
+def _interactions(recordings: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Recorded interactions of the given files keyed by case, in file order."""
     result: dict[str, dict[str, Any]] = {}
-    for name in _RECORDINGS:
+    for name in recordings:
         document = json.loads(
             fixture_files().joinpath(name).read_text(encoding="utf-8")
         )
+        base = str(document.get("base_url")).rstrip("/")
         for interaction in document["interactions"]:
-            interaction.setdefault(
-                "url", f"{document.get('base_url')}/{interaction.get('path')}"
-            )
+            interaction.setdefault("url", f"{base}/{interaction.get('path')}")
             result[interaction["case"]] = interaction
     return result
 
@@ -97,12 +150,15 @@ def _body(interaction: Mapping[str, Any]) -> tuple[bytes, dict[str, str]]:
         return json.dumps(interaction["json"], ensure_ascii=False).encode(
             "utf-8"
         ), headers
+    if "body" in interaction:
+        return str(interaction["body"]).encode("utf-8"), headers
     if "archive" in interaction:
         resource = fixture_files().joinpath(
             "archives", *interaction["archive"].split("/")
         )
-    elif "variant" in interaction:
-        resource = fixture_files().joinpath(*interaction["variant"].split("/"))
+    elif "variant" in interaction or "listing" in interaction:
+        relative = interaction.get("variant") or interaction["listing"]
+        resource = fixture_files().joinpath(*relative.split("/"))
     else:
         return b"", headers
     data = resource.read_bytes()
@@ -115,11 +171,17 @@ def _body(interaction: Mapping[str, Any]) -> tuple[bytes, dict[str, str]]:
 
 
 @contextmanager
-def _recorded_http(cases: Iterator[str] | tuple[str, ...]) -> Iterator[None]:
-    """Answer synchronous httpx requests from recordings, in the given order per URL."""
-    recorded = _interactions()
+def _recorded_http(
+    cases: Iterable[str] | None, *, recordings: Iterable[str] = _RECORDINGS
+) -> Iterator[None]:
+    """
+    Answer synchronous httpx requests from recordings, in the given order per URL.
+
+    ``cases=None`` replays every interaction of ``recordings`` in file order.
+    """
+    recorded = _interactions(recordings)
     queues: dict[tuple[str, str], deque[Mapping[str, Any]]] = {}
-    for case in cases:
+    for case in recorded if cases is None else cases:
         interaction = recorded[case]
         queues.setdefault((interaction["method"], interaction["url"]), deque()).append(
             interaction
@@ -197,6 +259,30 @@ def _add_unknown_version(root: Path) -> None:
     )
 
 
+def _add_chmi(handle: StoreHandle) -> None:
+    """
+    ČHMÚ part of ``complete_pl_cz``, replayed from ``chmi_builder_recordings.json``.
+
+    Each step is one `sync_store` (listing, then HEAD and GET of every new or
+    changed file, then the dataset's series); the ČHMÚ catalog is built last.
+    """
+    with _recorded_http(None, recordings=_CHMI_RECORDINGS):
+        for step, selectors, items, built in _CHMI_STEPS:
+            report = sync_store(handle, **selectors)
+            _expect(
+                step,
+                ", ".join(sorted(item.status for item in report.items)),
+                ", ".join(sorted(items)),
+            )
+            _expect(
+                f"{step}: szereg",
+                ", ".join(series.status for series in report.series),
+                built,
+            )
+        catalog = build_catalog(handle, provider="CHMI")
+        _expect("katalog stacji ČHMÚ", catalog.status, "created")
+
+
 def build_fixture_store(
     root: PathArg, *, variant: FixtureVariant = "complete"
 ) -> StoreHandle:
@@ -219,11 +305,27 @@ def build_fixture_store(
     ``unknown_schema`` additionally adds a ``hydro_daily`` series version with
     ``imgw-meta/2``/``imgw-series/2`` that readers must report without parsing.
 
+    ``complete_pl_cz`` is ``complete`` plus the ČHMÚ provider (spec 2026-10-18
+    §13.3), synchronized with `sync_store` from ``chmi_builder_recordings.json``
+    (fictional station codes):
+
+    * ``cz.chmi.hydro_daily`` files: ``H_0-203-1-900002_DQ_2004.json`` and
+      ``…_2006.json`` in a first and a ``relabeled`` version (the same bytes
+      republished), ``H_0-203-1-900001_DQ_2024.json`` in a first and a
+      corrected version, and ``H_0-203-1-900001_DQ_2023.json`` in one version
+      with an observation in ``observations/`` (re-serialized bytes with the
+      same canonical content, ``content_unchanged``);
+    * ``cz.chmi.meteo_daily`` CSV files of ``0-203-0-90001`` (SRA, T, TMA,
+      TMI) and ``0-203-0-90000000002`` (SRA only);
+    * the ``chmi_hydro_daily`` series in two versions (before and after the
+      correction), the ``chmi_meteo_daily`` series, both ČHMÚ station lists
+      and the ČHMÚ catalog ``stations/versions/chmi_stations/``.
+
     Parameters
     ----------
     root : str or os.PathLike
         Store directory; it must not exist or be an empty directory.
-    variant : {"complete", "corrupt", "unknown_schema"}, optional
+    variant : {"complete", "corrupt", "unknown_schema", "complete_pl_cz"}, optional
         Fixture variant to build.
 
     Returns
@@ -296,4 +398,6 @@ def build_fixture_store(
         sidecar.write_bytes(sidecar.read_bytes()[: sidecar.stat().st_size // 2])
     elif variant == "unknown_schema":
         _add_unknown_version(handle.root)
+    elif variant == "complete_pl_cz":
+        _add_chmi(handle)
     return handle
