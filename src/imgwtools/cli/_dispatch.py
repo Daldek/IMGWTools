@@ -17,8 +17,9 @@ line. Exit codes follow the error registry and the envelope status (spec
 
 The help is in the language of ``IMGW_LANG`` (``Settings.lang``, ``pl`` by
 default, chosen at import): catalog texts and the help elements of Typer and
-Click (panels, ``--help``, the usage line, the environment and default
-markers) alike; another value ends every call with ``validation_error`` (spec
+Click (panels, ``--help``, the usage line with its ``[OPTIONS]`` and
+``COMMAND [ARGS]...`` placeholders, the environment and default markers, the
+abort message) alike; another value ends every call with ``validation_error`` (spec
 2026-10-19 §4.2–§4.3). ``IMGW_LANG`` is also the default of ``--lang``.
 """
 
@@ -74,6 +75,9 @@ class _HelpTexts:
     envvar: str
     default: str
     required: str
+    options_metavar: str
+    commands_metavar: str
+    aborted: str
     check: str
     schema: str
     metavars: Mapping[str, str]
@@ -90,6 +94,9 @@ _HELP_TEXTS: dict[Lang, _HelpTexts] = {
         envvar="[zmienna środowiskowa: {}]",
         default="[domyślnie: {}]",
         required="[wymagane]",
+        options_metavar="[OPCJE]",
+        commands_metavar="KOMENDA [ARGUMENTY]...",
+        aborted="Przerwano.",
         check="Tylko sprawdź: wypisz plan imgw-plan/1 bez zapisu i bez pobierania "
         "danych",
         schema="Wypisz schemat JSON opcji tej komendy (jak imgw commands schema "
@@ -116,6 +123,9 @@ _HELP_TEXTS: dict[Lang, _HelpTexts] = {
         envvar="[env var: {}]",
         default="[default: {}]",
         required="[required]",
+        options_metavar="[OPTIONS]",
+        commands_metavar="COMMAND [ARGS]...",
+        aborted="Aborted.",
         check="Check only: print the imgw-plan/1 plan without writing or "
         "downloading data",
         schema="Print the JSON Schema of the options of this command (like imgw "
@@ -159,6 +169,13 @@ rich_utils.ARGUMENTS_PANEL_TITLE = _HELP.arguments_panel
 rich_utils.ENVVAR_STRING = _HELP.envvar
 rich_utils.DEFAULT_STRING = _HELP.default
 rich_utils.REQUIRED_LONG_STRING = _HELP.required
+rich_utils.ABORTED_TEXT = _HELP.aborted
+# Usage-line placeholders of Click (``Command.options_metavar``,
+# ``Group.subcommand_metavar``) in the CLI language.
+_USAGE_PIECES = {
+    "[OPTIONS]": _HELP.options_metavar,
+    "COMMAND [ARGS]...": _HELP.commands_metavar,
+}
 
 
 def _localized(polish: str, english: str) -> str:
@@ -301,9 +318,10 @@ def _help_option(option: Any) -> Any:
 
 
 def _write_usage(command: Any, ctx: Any, formatter: Any) -> None:
-    """Write the usage line of ``command`` with the prefix of the CLI language."""
-    pieces = command.collect_usage_pieces(ctx)
-    formatter.write_usage(ctx.command_path, " ".join(pieces), prefix=_HELP.usage)
+    """Write the usage line of ``command`` in the CLI language."""
+    pieces: list[str] = command.collect_usage_pieces(ctx)
+    line = " ".join(_USAGE_PIECES.get(piece, piece) for piece in pieces)
+    formatter.write_usage(ctx.command_path, line, prefix=_HELP.usage)
 
 
 class ImgwGroup(TyperGroup):

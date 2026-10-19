@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class HealthCheck(BaseModel):
-    """Health check response."""
+    """Odpowiedź GET /health: stan serwera i wersja pakietu."""
 
     status: str = "ok"
     version: str = "1.0.0"

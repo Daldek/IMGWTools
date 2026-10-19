@@ -4,11 +4,13 @@ import re
 import httpx
 import pytest
 import respx
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from imgwtools import archive_files, run_command, station_source_files
 from imgwtools.api.main import app
 from imgwtools.store.types import Page
+from imgwtools.web.app import router as web_router
 
 HYDRO_BASE = (
     "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne"
@@ -119,6 +121,15 @@ def test_web_app_page_title_uses_base_layout(client):
     response = client.get("/download/archives")
 
     assert "<title>Dane archiwalne | IMGWTools</title>" in response.text
+
+
+def test_web_app_pages_stay_out_of_the_openapi_document(client):
+    pages = {route.path for route in web_router.routes if isinstance(route, APIRoute)}
+    documented = set(client.get("/openapi.json").json()["paths"])
+
+    assert {"/", "/download/files", "/stations/find", "/map"} <= pages
+    assert not pages & documented
+    assert "/api/v1/stations/find" in documented
 
 
 @pytest.mark.parametrize(

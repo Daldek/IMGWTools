@@ -124,11 +124,11 @@ class PMaXTPData(BaseModel):
     )
     sg: dict[str, dict[str, float]] = Field(
         default_factory=dict,
-        description="Gorne granice przedzialu ufnosci [mm]",
+        description="Górne granice przedziału ufności [mm]",
     )
     rb: dict[str, dict[str, float]] = Field(
         default_factory=dict,
-        description="Bledy estymacji kwantyli [mm]",
+        description="Błędy estymacji kwantyli [mm]",
     )
 
     @classmethod
@@ -212,8 +212,8 @@ class PMaXTPData(BaseModel):
             import pandas as pd
         except ImportError as e:
             raise ImportError(
-                "pandas is required for to_dataframe(). "
-                "Install with: pip install imgwtools[pandas]"
+                "Metoda to_dataframe() wymaga pakietu pandas. "
+                "Zainstaluj dodatek: pip install imgwtools[pandas]"
             ) from e
 
         rows = []
@@ -234,10 +234,10 @@ class PMaXTPData(BaseModel):
 class PMaXTPResult(BaseModel):
     """Complete PMAXTP result with metadata."""
 
-    method: str = Field(description="Calculation method (POT or AMP)")
-    latitude: float = Field(description="Latitude in decimal degrees")
-    longitude: float = Field(description="Longitude in decimal degrees")
-    data: PMaXTPData = Field(description="Precipitation data")
+    method: str = Field(description="Metoda obliczeń: POT albo AMP")
+    latitude: float = Field(description="Szerokość geograficzna punktu (WGS84)")
+    longitude: float = Field(description="Długość geograficzna punktu (WGS84)")
+    data: PMaXTPData = Field(description="Dane opadowe PMAXTP (ks, sg, rb)")
 
 
 class HydroCurrentData(BaseModel):
@@ -247,26 +247,32 @@ class HydroCurrentData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/hydro
     """
 
-    station_code: str = Field(description="Station code")
-    station_name: str = Field(description="Station name")
-    river: str | None = Field(default=None, description="River name")
-    province: str | None = Field(default=None, description="Province (wojewodztwo)")
-    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
-    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
-    water_level_cm: float | None = Field(default=None, description="Water level [cm]")
-    water_level_date: str | None = Field(
-        default=None, description="Water level measurement date"
+    station_code: str = Field(description="Kod stacji")
+    station_name: str = Field(description="Nazwa stacji")
+    river: str | None = Field(default=None, description="Nazwa rzeki")
+    province: str | None = Field(default=None, description="Województwo")
+    latitude: float | None = Field(
+        default=None, description="Szerokość geograficzna (WGS84)"
     )
-    flow_m3s: float | None = Field(default=None, description="Flow [m3/s]")
-    flow_date: str | None = Field(default=None, description="Flow measurement date")
+    longitude: float | None = Field(
+        default=None, description="Długość geograficzna (WGS84)"
+    )
+    water_level_cm: float | None = Field(default=None, description="Stan wody [cm]")
+    water_level_date: str | None = Field(
+        default=None, description="Data pomiaru stanu wody"
+    )
+    flow_m3s: float | None = Field(default=None, description="Przepływ [m³/s]")
+    flow_date: str | None = Field(default=None, description="Data pomiaru przepływu")
     water_temp_c: float | None = Field(
-        default=None, description="Water temperature [C]"
+        default=None, description="Temperatura wody [°C]"
     )
     water_temp_date: str | None = Field(
-        default=None, description="Temperature measurement date"
+        default=None, description="Data pomiaru temperatury wody"
     )
-    ice_phenomenon: str | None = Field(default=None, description="Ice phenomenon code")
-    overgrowth: str | None = Field(default=None, description="Overgrowth code")
+    ice_phenomenon: str | None = Field(
+        default=None, description="Kod zjawiska lodowego"
+    )
+    overgrowth: str | None = Field(default=None, description="Kod zarastania")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> HydroCurrentData:
@@ -309,22 +315,28 @@ class MeteoCurrentData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/meteo
     """
 
-    station_code: str = Field(description="Station code")
-    station_name: str = Field(description="Station name")
-    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
-    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
-    air_temp_c: float | None = Field(default=None, description="Air temperature [C]")
+    station_code: str = Field(description="Kod stacji")
+    station_name: str = Field(description="Nazwa stacji")
+    latitude: float | None = Field(
+        default=None, description="Szerokość geograficzna (WGS84)"
+    )
+    longitude: float | None = Field(
+        default=None, description="Długość geograficzna (WGS84)"
+    )
+    air_temp_c: float | None = Field(
+        default=None, description="Temperatura powietrza [°C]"
+    )
     air_temp_date: str | None = Field(
-        default=None, description="Air temperature measurement date"
+        default=None, description="Data pomiaru temperatury powietrza"
     )
     wind_speed_ms: float | None = Field(
-        default=None, description="Mean wind speed [m/s]"
+        default=None, description="Średnia prędkość wiatru [m/s]"
     )
     humidity_percent: float | None = Field(
-        default=None, description="Relative humidity [%]"
+        default=None, description="Wilgotność względna [%]"
     )
     precipitation_10min_mm: float | None = Field(
-        default=None, description="Precipitation over the last 10 minutes [mm]"
+        default=None, description="Opad z ostatnich 10 minut [mm]"
     )
 
     @classmethod
@@ -363,26 +375,26 @@ class SynopData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/synop
     """
 
-    station_code: str = Field(description="Station code")
-    station_name: str = Field(description="Station name")
-    measurement_date: str | None = Field(default=None, description="Measurement date")
-    measurement_hour: int | None = Field(default=None, description="Measurement hour")
-    temperature_c: float | None = Field(default=None, description="Air temperature [C]")
-    wind_speed_ms: float | None = Field(default=None, description="Wind speed [m/s]")
-    wind_direction: int | None = Field(
-        default=None, description="Wind direction [degrees]"
+    station_code: str = Field(description="Kod stacji")
+    station_name: str = Field(description="Nazwa stacji")
+    measurement_date: str | None = Field(default=None, description="Data pomiaru")
+    measurement_hour: int | None = Field(default=None, description="Godzina pomiaru")
+    temperature_c: float | None = Field(
+        default=None, description="Temperatura powietrza [°C]"
     )
+    wind_speed_ms: float | None = Field(
+        default=None, description="Prędkość wiatru [m/s]"
+    )
+    wind_direction: int | None = Field(default=None, description="Kierunek wiatru [°]")
     humidity_percent: float | None = Field(
-        default=None, description="Relative humidity [%]"
+        default=None, description="Wilgotność względna [%]"
     )
-    precipitation_mm: float | None = Field(
-        default=None, description="Total precipitation [mm]"
-    )
+    precipitation_mm: float | None = Field(default=None, description="Suma opadu [mm]")
     pressure_hpa: float | None = Field(
-        default=None, description="Atmospheric pressure [hPa]"
+        default=None, description="Ciśnienie atmosferyczne [hPa]"
     )
-    visibility_m: int | None = Field(default=None, description="Visibility [m]")
-    cloud_cover: int | None = Field(default=None, description="Cloud cover [octants]")
+    visibility_m: int | None = Field(default=None, description="Widzialność [m]")
+    cloud_cover: int | None = Field(default=None, description="Zachmurzenie [oktanty]")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> SynopData:
@@ -424,15 +436,22 @@ class WarningData(BaseModel):
     and https://danepubliczne.imgw.pl/api/data/warningsmeteo
     """
 
-    id: str = Field(description="Warning identifier (meteo id, hydro number)")
-    kind: Literal["hydro", "meteo"] = Field(description="Warning family")
-    event: str | None = Field(default=None, description="Event name")
-    level: int | None = Field(default=None, description="Warning level")
-    region: str | None = Field(default=None, description="Affected area")
-    description: str | None = Field(default=None, description="Warning text")
-    valid_from: str | None = Field(default=None, description="Valid from datetime")
-    valid_to: str | None = Field(default=None, description="Valid to datetime")
-    probability: int | None = Field(default=None, description="Probability [%]")
+    id: str = Field(
+        description="Identyfikator ostrzeżenia (id ostrzeżenia meteo, numer "
+        "ostrzeżenia hydro)"
+    )
+    kind: Literal["hydro", "meteo"] = Field(description="Rodzaj ostrzeżenia")
+    event: str | None = Field(default=None, description="Nazwa zjawiska")
+    level: int | None = Field(default=None, description="Stopień ostrzeżenia")
+    region: str | None = Field(default=None, description="Obszar ostrzeżenia")
+    description: str | None = Field(default=None, description="Treść ostrzeżenia")
+    valid_from: str | None = Field(
+        default=None, description="Początek obowiązywania (data i godzina)"
+    )
+    valid_to: str | None = Field(
+        default=None, description="Koniec obowiązywania (data i godzina)"
+    )
+    probability: int | None = Field(default=None, description="Prawdopodobieństwo [%]")
 
     @classmethod
     def from_api_response(
@@ -478,14 +497,19 @@ class HydroState(BaseModel):
     (``hydro-back.imgw.pl/map/stations/hydrologic``).
     """
 
-    station_code: str = Field(description="Station code")
-    name: str = Field(description="Station name")
-    river: str | None = Field(default=None, description="River name")
-    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
-    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
+    station_code: str = Field(description="Kod stacji")
+    name: str = Field(description="Nazwa stacji")
+    river: str | None = Field(default=None, description="Nazwa rzeki")
+    latitude: float | None = Field(
+        default=None, description="Szerokość geograficzna (WGS84)"
+    )
+    longitude: float | None = Field(
+        default=None, description="Długość geograficzna (WGS84)"
+    )
     water_state: str | None = Field(
         default=None,
-        description="Water state (alarm, warning, high, medium, low, ...)",
+        description="Stan wody względem stanów charakterystycznych (wartości: "
+        "alarm, warning, high, medium, low, …)",
     )
 
 
