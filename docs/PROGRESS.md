@@ -6,7 +6,7 @@
 |------|---------|
 | **Wersja** | 3.0.0 |
 | **Data** | 2026-10-19 |
-| **Gałąź robocza** | `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004; wcześniej `feature/versioned-store`: magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
+| **Gałąź robocza** | `fix/archiwista-compat` (poprawki zgodności z Archiwistą przed tagiem 3.0.0); wcześniej `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004) i `feature/versioned-store` (magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
 | **Python** | >=3.12 |
 
 ---
@@ -65,6 +65,13 @@ Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/sup
 - **Fala A2 (A02, A03):** `agent_guide`, komenda `commands guide` (37.), pliki pochodne `AGENTS.md` i `llms.txt` z testem dryfu; adapter MCP `src/imgwtools/mcp/` (dodatek `imgwtools[mcp]`, tryby `read`/`write`/`http`).
 - **Fala A3 (A04, A05):** porządek komunikatów legacy (pomoc `imgw admin`, `version`, `server`, opisy pól OpenAPI, `reference_data`, strony HTML poza OpenAPI; ponowny skan dopisał pozycje 34–37 spec §7.2 i uzupełnienia §7.3 — errata A04); `imgw mcp`, `/mcp` (`IMGW_MCP_ENABLED`, `IMGW_MCP_ALLOWED_HOSTS`), `GET /llms.txt`, obraz Dockera na Pythonie 3.12 z `.[api,mcp]` i `location = /mcp` w nginx (obraz zbudowany i sprawdzony 2026-10-19: `/health`, `/llms.txt`, `initialize` na `/mcp`).
 - **Fala A4 (A06) i C10:** dokumentacja wydania (CHANGELOG, README z sekcjami ČHMÚ i agentów, CLAUDE.md, ARCHITECTURE, standardy, PRD, RULES), erraty ADR-001 i ADR-002 według sekcji „Wpływ” ADR-003 i ADR-004, errata ADR-003 D13, status ADR-004 w indeksie, noty `[ADR-003]`/`[ADR-004]` w spec 2026-10-17 §13 i `[ADR-004]` w spec 2026-10-18 §9.3, „3.1.0” → 3.0.0 w spec ČHMÚ (z kontekstem historycznym); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy); przykłady ČHMÚ uruchomione raz offline na `complete_pl_cz` i na żywo (opendata.chmi.cz), przykłady MCP — konfiguracja stdio (także `--allow-writes`, `--lang en`, wariant `uvx`) i `/mcp` przez HTTP — przez klienta SDK, przykład Dockera na obrazie zbudowanym przez `docker compose build`. `AGENTS.md` i `llms.txt` bez regeneracji (teksty katalogu bez zmian); test dryfu i pełny `pytest`: 2129 passed, 79 skipped (live).
+
+**Poprawki zgodności z Archiwistą przed tagiem** (audyt zgodności 3.0.0 z wymaganiami Archiwisty, decyzja właściciela 2026-10-19; gałąź `fix/archiwista-compat`):
+
+- **A — przenośna publikacja:** znacznik `imgw-store.json` przez wyłączne `open(..., "xb")` + `fsync`, bez dowiązania twardego; `_atomic_publish` bez `renameat2(RENAME_NOREPLACE)` (Windows, macOS, NFS, biblioteka C bez funkcji) publikuje bez zastępowania: Windows `os.rename`, katalog wersji `os.rename` po sprawdzeniu celu, plik obserwacji `os.link` albo `os.rename` po sprawdzeniu; odmowa przy istniejącym celu = istniejący cel; bez `fsync` katalogów na Windows. Testy współbieżności i atomowości przechodzą trzy ścieżki (fixture `publication`, także w podprocesach `imgw`). Errata ADR-001 2026-10-19.
+- **B — `meteo_kind`:** katalog IMGW-PIB podaje `climate`/`precipitation` z bieżących szeregów `pl.imgw.meteo_climate_daily`/`pl.imgw.meteo_precip_daily`, `check_catalog` wykrywa zmianę. Errata ADR-001 2026-10-19.
+- **D — regresja płaskiego pobierania:** dobowe i terminowe `2001_01_k.zip` w osobnych ścieżkach serwera i slotach.
+- Bramka: `pytest` 2172 passed, 79 skipped (live); `ruff check` i `ruff format --check` czysto; `pyright` 0 błędów.
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
@@ -253,6 +260,7 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [ ] Lokalny, odbudowywalny indeks magazynu (ADR-001 D2: poza wydaniem 3.0.0; nigdy jako źródło prawdy). Priorytet: niski.
 - [ ] Wniosek do IMGW-PIB o oficjalny wykaz współrzędnych stacji (ADR-001 Q6) oraz potwierdzenie znaczenia kodu hydrograficznego i kolejności `river_order` (Q4, Q5) — do tego czasu bez interpretacji. Priorytet: średni.
 - [ ] Rozszerzenie magazynu o kolejne zbiory (meteo miesięczne/terminowe, synop) — D6 ogranicza 3.0.0 do pięciu zbiorów Archiwisty i PMAXTP. Priorytet: niski.
+- [ ] Sprawdzenie przenośnej publikacji (ADR-001, errata 2026-10-19) na prawdziwym Windows (NTFS i udział SMB) i macOS — dziś pokryta testami offline z symulacją braku `renameat2`, dowiązań twardych i semantyki `MoveFileExW`; brak CI na tych systemach. Priorytet: średni.
 - [x] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`), opcjonalne pola treści kanonicznej `content_sha256` i `content_form` w `imgw-meta/1` i w `files[]` `imgw-project/1` oraz rejestr obserwacji `imgw-observation/1` (katalog `observations/` w slocie archiwum, wpisy `kind="observation"` w skanie, wewnętrzna publikacja obserwacji) — bez zmiany zachowania i bajtów IMGW (zrobione 2026-10-18, commit `889d705`; wywołanie zapisu obserwacji w `write_archive` należy do C02).
 - [x] **Dostawca ČHMÚ (Czechy, opendata.chmi.cz)** — ADR-003 i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10), w wydaniu 3.0.0 (errata D16): `cz.chmi.hydro_daily`, `cz.chmi.meteo_daily`, listy stacji i katalog `cz.chmi.stations` z progami SPA, aktualność z listingu, treść kanoniczna `chmi-json/1` z rejestrem obserwacji, jakość i flagi ČHMÚ w szeregach, odtwarzanie przypięć treścią; kontrakt IMGW-15..19 i test na żywo (zrobione 2026-10-19, C02–C10). Spełnia wymagania Archiwisty IMGW-15..19 (v0.6 „PL + CZ”).
 - [ ] Pytania do ČHMÚ (chmi@chmi.cz; ADR-003, pytania 5–10): strefa czasu znaczników `historical` i definicja doby HD/QD, oficjalny rok hydrologiczny, czy regeneracje zachowują bajty i czy istnieje rejestr korekt, ciągłość `historical_csv`, znaczenie `WGS_ELE`, `RICKM`, `HA`, `QA`, `CEVT`, `PRF_ID`, pełny słownik `FLAG`. Priorytet: średni.

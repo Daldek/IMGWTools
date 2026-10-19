@@ -26,8 +26,8 @@ Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asynci
 > `test_parsing_chmi.py`, `test_store_content.py` i kontrakt `tests/contract/test_chmi_contract.py` (IMGW-15..19 na
 > `build_fixture_store(variant="complete_pl_cz")`), a na żywo `tests/live/test_chmi_live.py`; wsparcie agentów —
 > `test_agent_guide.py` (test dryfu `AGENTS.md`/`llms.txt`), `test_catalog_effects.py`, `test_catalog_i18n.py`,
-> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan: 2208 testów
-> (2129 offline, 79 na żywo; `pytest --collect-only`).
+> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan: 2251 testów
+> (2172 offline, 79 na żywo; `pytest --collect-only`).
 
 Komendy bazowe:
 
@@ -351,10 +351,10 @@ Testy publiczne nie mogą wymagać importu Kartografa ani sieci.
 | Plik | Co utrwala |
 |---|---|
 | `test_store_types.py` | niemutowalne typy, `StorePlan.to_json/from_json` (round-trip, `cancelled`, pola addytywne), wyjątki dziedziczą z `IMGWError`, instrukcja `pip install imgwtools[store]` |
-| `test_store_writer.py` | pochodzenie i sidecar `imgw-meta/1`, `relabeled`/`unchanged`, współbieżni pisarze, brak zastąpienia pustego celu, jawna odmowa FS bez atomowego rename, sprzątanie po przerwaniu + `fsync`, wykrycie Kartografa bez importu, ucieczka ścieżek |
+| `test_store_writer.py` | pochodzenie i sidecar `imgw-meta/1`, `relabeled`/`unchanged`, współbieżni pisarze, brak zastąpienia pustego celu, publikacja bez `renameat2` (brak funkcji lub flagi w systemie plików, Windows) i wyścig w oknie sprawdzenia, znacznik bez dowiązań twardych i oczekiwanie na znacznik w zapisie, sprzątanie po przerwaniu + `fsync`, wykrycie Kartografa bez importu, ucieczka ścieżek; testy współbieżności i atomowości (także szeregów, katalogu, obserwacji i kontraktu) przechodzą każdą ścieżkę publikacji przez fixture `publication` |
 | `test_store_sync.py` | `check_store` tylko listing + `HEAD` (pięć statusów), round-trip planu, `stale_plan` bez GET, nowy hash = nowa wersja, ten sam hash pod nowym sygnałem = `relabeled`, `unverifiable`/`check_failed` nie są pobierane, anulowanie bez połowicznej wersji, seria tylko z kompletnych wejść |
 | `test_store_series.py` | `check_series` offline, migawki dobowe/miesięczne/półroczne (29 II, rok hydrologiczny, `accumulated`), `reused` bez writera Parquet, brak pyarrow → `IMGWStoreDependencyError`, import rdzenia bez pyarrow |
-| `test_store_catalog.py` | listy stacji archiwizowane najpierw, pierwszeństwo położeń API → statyczny (`isolated_data_dir`) → użytkownik, obrys Polski bez GIS, RFC 7946, `unchanged` przy identycznej treści, `check_catalog` tylko `HEAD` |
+| `test_store_catalog.py` | listy stacji archiwizowane najpierw, pierwszeństwo położeń API → statyczny (`isolated_data_dir`) → użytkownik, obrys Polski bez GIS, RFC 7946, `unchanged` przy identycznej treści, `check_catalog` tylko `HEAD`, `meteo_kind` z bieżących szeregów klimatycznego i opadowego |
 | `test_store_pmaxtp.py` | klucz komórki z odpowiedzi, ta sama komórka bez nowej wersji, AMP osobno, błędne indeksy/puste dane bez zapisu, odczyt offline |
 | `test_store_reader.py` | odczyt na katalogu read-only bez sieci i zapisu, zakresy dat zgodne z parserem, problemy skanu, nieznany `imgw-store/2` raportowany, walidacja pól `Meta` |
 | `test_series_export.py` | CSV: nagłówek z jednostkami, formuły atrybucji raz, każdy dzień, `year_type`, kolumny półrocza, atomowy zapis `.part` |

@@ -309,7 +309,7 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **2208 testów** (2026-10-19, `pytest --collect-only`; 2129 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
+Stan faktyczny: **2251 testów** (2026-10-19, `pytest --collect-only`; 2172 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
 pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
 — bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
 
@@ -426,7 +426,7 @@ mapuje kod na tytuł, kod wyjścia CLI i status HTTP — adaptery nie mają wła
 | `IMGWConnectionError` | `source_unavailable` | — |
 | `IMGWDataError` | `data_error` | `io_error` (nieczytelny plik) |
 | `IMGWStoreError` | `store_unavailable` | `not_found` (brak wersji, sidecara, szeregu), `validation_error` (dowiązanie w ścieżce) |
-| `IMGWStoreConflictError` | `conflict` | `details.reason`: `path_conflict`, `not_atomic`, `locked`, … |
+| `IMGWStoreConflictError` | `conflict` | `details.reason`: `path_conflict`, `locked`, … |
 | `IMGWStoreDependencyError` | `missing_dependency` | — |
 | `IMGWProjectError` | `validation_error` | `not_found`, `conflict`, `io_error` |
 | `IMGWCancelledError` | `cancelled` | — |
