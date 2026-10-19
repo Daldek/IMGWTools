@@ -1,25 +1,38 @@
 """
 Station search and current states of hydrological stations.
 
-`find_stations` searches the IMGW station lists, live or from a versioned
-store; `fetch_hydro_states` reads the locations and current water states of
-hydrological stations from the hydro.imgw.pl map API.
+`find_stations` searches the station lists of the data providers (IMGW-PIB
+and ČHMÚ), live or from a versioned store; `fetch_hydro_states` reads the
+locations and current water states of hydrological stations from the
+hydro.imgw.pl map API.
 """
 
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Iterable
-from dataclasses import replace
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 
+from imgwtools._parsing.chmi import iter_stations, parse_listing
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools._version import __version__
-from imgwtools.datasets import station_source_files
-from imgwtools.exceptions import IMGWDataError, IMGWValidationError
-from imgwtools.fetch import DEFAULT_TIMEOUT, _get, _get_async, _json_payload
+from imgwtools.datasets import (
+    ProviderDescriptor,
+    get_provider,
+    providers,
+    station_source_files,
+)
+from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
+from imgwtools.fetch import (
+    _IDENTIFY,
+    DEFAULT_TIMEOUT,
+    _get,
+    _get_async,
+    _json_payload,
+)
 from imgwtools.models import HydroState, StationListEntry
 
 if TYPE_CHECKING:
@@ -32,7 +45,8 @@ _MAP_HEADERS = {
 }
 _KINDS: tuple[Literal["hydro", "meteo"], ...] = ("hydro", "meteo")
 _SOURCES = ("live", "store")
-_CATALOG_SLOT = "catalog:pl.imgw.stations"
+# The newest dated file of a listed directory, as plans name it.
+_NEWEST = "meta1-<RRRRMMDD>.json"
 
 
 # ============================================================================
@@ -41,7 +55,12 @@ _CATALOG_SLOT = "catalog:pl.imgw.stations"
 
 
 def _normalize(text: str) -> str:
-    """Casefolded text without Polish diacritics (``"ŁÓDŹ"`` -> ``"lodz"``)."""
+    """
+    Casefolded text without diacritics (``"ŁÓDŹ"`` -> ``"lodz"``).
+
+    Polish ``ł`` becomes ``l`` (it has no decomposition); Czech letters
+    decompose, so ``"Špindlerův"`` becomes ``"spindleruv"``.
+    """
     folded = unicodedata.normalize("NFKD", text.casefold().replace("ł", "l"))
     return "".join(char for char in folded if not unicodedata.combining(char))
 
@@ -82,10 +101,15 @@ def _search_kinds(
     return kinds, needle
 
 
+def _owners(provider: str | None) -> tuple[ProviderDescriptor, ...]:
+    """Providers of a search: every provider for None, else the named one."""
+    return providers() if provider is None else (get_provider(provider),)
+
+
 def _matching(
     entries: Iterable[StationListEntry], query: str | None
 ) -> tuple[StationListEntry, ...]:
-    """Stations matching ``query``, ordered by family, normalized name and code."""
+    """Stations matching ``query``, by provider, family, normalized name and code."""
     rows = list(entries)
     if query is not None:
         needle = _normalize(query)
@@ -96,11 +120,13 @@ def _matching(
             or (entry.river is not None and needle in _normalize(entry.river))
             or entry.station_code.startswith(query)
         ]
+    rank = {owner.id: index for index, owner in enumerate(providers())}
     order = {family: index for index, family in enumerate(_KINDS)}
     return tuple(
         sorted(
             rows,
             key=lambda entry: (
+                rank[entry.provider],
                 order[entry.kind],
                 _normalize(entry.name),
                 entry.station_code,
@@ -109,40 +135,180 @@ def _matching(
     )
 
 
+@dataclass(frozen=True)
+class _LiveSource:
+    """
+    Live station list of one provider and family.
+
+    ``listing`` marks the URL of a directory listing whose newest
+    ``meta1-<YYYYMMDD>.json`` is the list (ČHMÚ meteo ``now`` metadata).
+    """
+
+    provider: ProviderDescriptor
+    kind: Literal["hydro", "meteo"]
+    url: str
+    listing: bool = False
+
+
 def _live_sources(
-    kinds: Iterable[Literal["hydro", "meteo"]],
-) -> list[tuple[Literal["hydro", "meteo"], str]]:
-    """Station list URL of each requested family."""
-    urls = dict(zip(_KINDS, (file.url for file in station_source_files()), strict=True))
-    return [(family, urls[family]) for family in kinds]
+    kinds: Sequence[Literal["hydro", "meteo"]],
+    owners: Iterable[ProviderDescriptor],
+) -> list[_LiveSource]:
+    """Live station list of each provider and family, in search order."""
+    # The current ČHMÚ metadata, as the first source of its catalog (§7.2).
+    from imgwtools.store.catalog import _CHMI_HYDRO_NOW, _CHMI_METEO_NOW_DIR
+
+    sources: list[_LiveSource] = []
+    for owner in owners:
+        if owner.id == "CHMI":
+            hydro = _LiveSource(owner, "hydro", owner.base_url + _CHMI_HYDRO_NOW)
+            meteo = _LiveSource(
+                owner, "meteo", owner.base_url + _CHMI_METEO_NOW_DIR, listing=True
+            )
+        else:
+            hydro_list, meteo_list = station_source_files(provider=owner.id)
+            hydro = _LiveSource(owner, "hydro", hydro_list.url)
+            meteo = _LiveSource(owner, "meteo", meteo_list.url)
+        sources.extend(hydro if family == "hydro" else meteo for family in kinds)
+    return sources
+
+
+def _live_urls(
+    kinds: Sequence[Literal["hydro", "meteo"]],
+    owners: Iterable[ProviderDescriptor],
+) -> list[str]:
+    """URLs a live search reads, the newest file of a listing as a pattern (plans)."""
+    urls: list[str] = []
+    for source in _live_sources(kinds, owners):
+        urls.append(source.url)
+        if source.listing:
+            urls.append(source.url + _NEWEST)
+    return urls
+
+
+def _identity(source: _LiveSource) -> tuple[Mapping[str, str] | None, str]:
+    """Request headers and the server name of errors (ČHMÚ requests name the library)."""
+    if source.provider.id == "CHMI":
+        return _IDENTIFY, source.provider.short_name
+    return None, "IMGW"
+
+
+def _newest(source: _LiveSource, content: bytes) -> str:
+    """URL of the newest ``meta1-<YYYYMMDD>.json`` in the listing of ``source``."""
+    from imgwtools.store.catalog import _CHMI_METEO_NOW_FILE
+
+    names = sorted(
+        entry.name
+        for entry in parse_listing(content, url=source.url)
+        if _CHMI_METEO_NOW_FILE.fullmatch(entry.name)
+    )
+    if not names:
+        raise IMGWDataError(
+            f"Nieczytelny listing {source.url}: brak pliku {_NEWEST}",
+            details={"url": source.url},
+        )
+    return source.url + names[-1]
+
+
+def _parsed(source: _LiveSource, content: bytes, url: str) -> list[StationListEntry]:
+    """Stations of a live list: an IMGW-PIB CSV or ČHMÚ metadata JSON."""
+    if source.provider.id == "CHMI":
+        return list(iter_stations(content, kind=source.kind, filename=url))
+    return list(parse_stations_csv(content, kind=source.kind))
+
+
+def _read_live(source: _LiveSource, timeout: float) -> list[StationListEntry]:
+    """Stations of one live list (one GET; a listed directory adds its listing)."""
+    headers, name = _identity(source)
+    url = source.url
+    if source.listing:
+        listing = _get(url, timeout=timeout, headers=headers, source=name)
+        url = _newest(source, listing.content)
+    response = _get(url, timeout=timeout, headers=headers, source=name)
+    return _parsed(source, response.content, url)
+
+
+async def _read_live_async(
+    source: _LiveSource, timeout: float
+) -> list[StationListEntry]:
+    """Async twin of `_read_live`."""
+    headers, name = _identity(source)
+    url = source.url
+    if source.listing:
+        listing = await _get_async(url, timeout=timeout, headers=headers, source=name)
+        url = _newest(source, listing.content)
+    response = await _get_async(url, timeout=timeout, headers=headers, source=name)
+    return _parsed(source, response.content, url)
+
+
+def _located(
+    root: RootArg, owner: ProviderDescriptor, entries: list[StationListEntry]
+) -> list[StationListEntry]:
+    """Entries located by the provider's current station catalog, when it has one."""
+    from imgwtools.store import read_catalog
+
+    try:
+        features = read_catalog(root=root, provider=owner.id)
+    except IMGWStoreError as exc:
+        if exc.code != "not_found":
+            raise
+        return entries  # without a catalog the coordinates of the list stay
+    points = {feature.station_code: feature.geometry for feature in features}
+    located: list[StationListEntry] = []
+    for entry in entries:
+        if entry.station_code not in points:
+            located.append(entry)
+            continue
+        point = points[entry.station_code]
+        located.append(
+            replace(
+                entry,
+                longitude=None if point is None else point[0],
+                latitude=None if point is None else point[1],
+            )
+        )
+    return located
 
 
 def _stored(
-    root: RootArg, kinds: Iterable[Literal["hydro", "meteo"]]
+    root: RootArg,
+    kinds: Sequence[Literal["hydro", "meteo"]],
+    owners: Sequence[ProviderDescriptor],
+    *,
+    explicit: bool,
 ) -> list[StationListEntry]:
-    """Stored station lists with coordinates from the current station catalog."""
-    from imgwtools.store import current_version, read_catalog, read_station_list
+    """
+    Stored station lists of the providers, located by their current catalogs.
 
-    entries = [
-        entry for family in kinds for entry in read_station_list(root, kind=family)
-    ]
-    catalog = current_version(root, slot=_CATALOG_SLOT)
-    if catalog is None or catalog.version is None:
-        return entries
-    points = {
-        feature.station_code: feature.geometry
-        for feature in read_catalog(catalog.version)
-        if feature.geometry is not None
-    }
-    located: list[StationListEntry] = []
-    for entry in entries:
-        point = points.get(entry.station_code)
-        located.append(
-            entry
-            if point is None
-            else replace(entry, longitude=point[0], latitude=point[1])
-        )
-    return located
+    A provider without any stored list is skipped unless it was named
+    (``explicit``); a provider holding only some of the lists, or a store
+    without the lists of all searched providers, is ``not_found``.
+    """
+    from imgwtools.store import read_station_list
+
+    found: list[StationListEntry] = []
+    absent: IMGWStoreError | None = None
+    read = False
+    for owner in owners:
+        entries: list[StationListEntry] = []
+        missing: list[IMGWStoreError] = []
+        for family in kinds:
+            try:
+                entries.extend(read_station_list(root, kind=family, provider=owner.id))
+            except IMGWStoreError as exc:
+                if exc.code != "not_found":
+                    raise
+                missing.append(exc)
+        if missing and (explicit or len(missing) < len(kinds)):
+            raise missing[0]
+        if missing:
+            absent = absent or missing[0]
+            continue
+        read = True
+        found.extend(_located(root, owner, entries))
+    if not read and absent is not None:
+        raise absent
+    return found
 
 
 def find_stations(
@@ -151,10 +317,11 @@ def find_stations(
     query: str | None = None,
     source: Literal["live", "store"] = "live",
     root: RootArg | None = None,
+    provider: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> tuple[StationListEntry, ...]:
     """
-    Find IMGW stations by name, river or code prefix.
+    Find stations of IMGW-PIB and ČHMÚ by name, river or code prefix.
 
     Parameters
     ----------
@@ -162,51 +329,72 @@ def find_stations(
         Station family; None searches both lists.
     query : str or None, optional
         Text matched case- and diacritic-insensitively (``"lodz"`` finds
-        ``"ŁÓDŹ"``) as a fragment of the station name or river, or as a
-        prefix of the station code. None returns every station.
+        ``"ŁÓDŹ"``, ``"spindleruv"`` finds ``"Špindlerův Mlýn"``) as a
+        fragment of the station name or river, or as a prefix of the
+        station code. None returns every station.
     source : {"live", "store"}, optional
-        ``"live"`` downloads the IMGW station list CSV of each family (one
-        GET per family); ``"store"`` reads the current stored lists offline.
+        ``"live"`` downloads the current lists of each provider: the
+        IMGW-PIB station list CSV of each family (one GET per family) and
+        the ČHMÚ metadata ``hydrology/now/metadata/meta1.json`` and the
+        newest ``meteorology/climate/now/metadata/meta1-<YYYYMMDD>.json``
+        (its directory listing, then the file). ``"store"`` reads the
+        current stored lists offline.
     root : str, os.PathLike or StoreHandle, optional
         Store root; required with ``source="store"`` and not allowed with
         ``source="live"``.
+    provider : str or None, optional
+        Provider identifier or key prefix (``"IMGW-PIB"``, ``"CHMI"``,
+        ``"cz.chmi"``); None searches every provider and, with
+        ``source="store"``, skips providers without stored lists.
     timeout : float, optional
         Request timeout in seconds (live source).
 
     Returns
     -------
     tuple of StationListEntry
-        Matching stations ordered by family (hydro, meteo), normalized name
-        and code; a code listed twice on the meteo list is returned for each
-        row. With ``source="store"`` ``latitude``/``longitude`` come from the
-        current station catalog (None without a catalog or for stations with
-        ``geometry: null``); live lists have no coordinates.
+        Matching stations ordered by provider (registry order), family
+        (hydro, meteo), normalized name and code, each with its
+        ``provider``; a code listed twice on the IMGW-PIB meteo list is
+        returned for each row. Live ČHMÚ entries carry the coordinates
+        published in the metadata, without validation against the country
+        border; live IMGW-PIB lists have no coordinates. With
+        ``source="store"`` the coordinates come from the provider's current
+        station catalog (None for stations with ``geometry: null``); without
+        a catalog the stored list keeps its own (none for IMGW-PIB).
 
     Raises
     ------
     IMGWValidationError
-        If ``kind`` or ``source`` is unknown, ``query`` is blank, or ``root``
-        is missing with ``source="store"`` or given with ``source="live"``.
+        If ``kind``, ``source`` or ``provider`` is unknown, ``query`` is
+        blank, or ``root`` is missing with ``source="store"`` or given with
+        ``source="live"``.
     IMGWConnectionError
-        If an IMGW server cannot be reached or answers with an HTTP error
-        (``details`` ``url``, ``reason`` and, for HTTP errors, ``status``).
+        If a provider's server cannot be reached or answers with an HTTP
+        error (``details`` ``url``, ``reason`` and, for HTTP errors,
+        ``status``).
     IMGWStoreError
-        If the root is not a supported store or holds no station list.
+        If the root is not a supported store, holds no station list of any
+        searched provider, or lacks a list of a named ``provider`` (code
+        ``not_found``).
     IMGWDataError
-        If a stored list or catalog does not match its sidecar.
+        If a live list or listing, or a stored list or catalog, is malformed
+        or does not match its sidecar.
 
     Examples
     --------
     >>> [s.name for s in find_stations(kind="hydro", query="lodz")]
+    >>> find_stations(provider="CHMI", query="spindleruv")
     >>> find_stations(query="1491", source="store", root="data/store")
     """
     kinds, needle = _search_kinds(kind, query, source, root)
+    owners = _owners(provider)
     if root is not None:  # validated: root is given exactly with source="store"
-        return _matching(_stored(root, kinds), needle)
+        stored = _stored(root, kinds, owners, explicit=provider is not None)
+        return _matching(stored, needle)
     entries = [
         entry
-        for family, url in _live_sources(kinds)
-        for entry in parse_stations_csv(_get(url, timeout=timeout).content, kind=family)
+        for live in _live_sources(kinds, owners)
+        for entry in _read_live(live, timeout)
     ]
     return _matching(entries, needle)
 
@@ -217,6 +405,7 @@ async def find_stations_async(
     query: str | None = None,
     source: Literal["live", "store"] = "live",
     root: RootArg | None = None,
+    provider: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> tuple[StationListEntry, ...]:
     """
@@ -225,12 +414,13 @@ async def find_stations_async(
     See `find_stations` for full documentation.
     """
     kinds, needle = _search_kinds(kind, query, source, root)
+    owners = _owners(provider)
     if root is not None:  # validated: root is given exactly with source="store"
-        return _matching(_stored(root, kinds), needle)
+        stored = _stored(root, kinds, owners, explicit=provider is not None)
+        return _matching(stored, needle)
     entries: list[StationListEntry] = []
-    for family, url in _live_sources(kinds):
-        response = await _get_async(url, timeout=timeout)
-        entries.extend(parse_stations_csv(response.content, kind=family))
+    for live in _live_sources(kinds, owners):
+        entries.extend(await _read_live_async(live, timeout))
     return _matching(entries, needle)
 
 

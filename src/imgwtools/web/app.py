@@ -5,9 +5,11 @@ Handlers call only public functions: `datasets` and `archive_files` (archive
 download links by dataset key), `run_command` (``stations find`` with paging),
 `validate_command` and `fetch_pmaxtp_async` (PMAXTP tables). The station map
 reads the catalog route ``GET /api/v1/current/hydro-states`` from the browser.
-Every `IMGWError` is rendered as ``partials/error.html`` with its ``code`` and
-``detail`` and the HTTP status of the error registry; HTMX swaps those answers
-too (``static/js/app.js``).
+The GUI offers IMGW-PIB data only: its forms have no station field, which the
+per-station ČHMÚ datasets require (spec 2026-10-18 §9.3). Every `IMGWError` is
+rendered as ``partials/error.html`` with its ``code`` and ``detail`` and the
+HTTP status of the error registry; HTMX swaps those answers too
+(``static/js/app.js``).
 """
 
 from __future__ import annotations
@@ -44,6 +46,8 @@ templates.env.globals["version"] = __version__
 router = APIRouter()
 
 _KIND_TITLES = {"hydro": "Dane hydrologiczne", "meteo": "Dane meteorologiczne"}
+# The only provider of the GUI (spec 2026-10-18 §9.3).
+_PROVIDER = "IMGW-PIB"
 _PMAXTP_METHODS = (
     ("POT", "Peak Over Threshold"),
     ("AMP", "Annual Max Precipitation"),
@@ -84,11 +88,11 @@ def _error(request: Request, error: IMGWError) -> HTMLResponse:
 
 
 def _archive_datasets() -> tuple[DatasetDescriptor, ...]:
-    """The ten archive datasets of the registry (yearly server archives)."""
+    """The ten IMGW-PIB datasets with archive files (no station lists, no PMAXTP)."""
     return tuple(
         descriptor
-        for descriptor in datasets()
-        if descriptor.first_year is not None and descriptor.server_dir is not None
+        for descriptor in datasets(provider=_PROVIDER)
+        if descriptor.server_dir is not None and descriptor.time_unit != "station_list"
     )
 
 
@@ -241,10 +245,11 @@ def find_stations_partial(
     offset: str = "0",
 ) -> HTMLResponse:
     """
-    Search IMGW station lists with ``stations find`` (HTMX partial).
+    Search IMGW-PIB station lists with ``stations find`` (HTMX partial).
 
-    The command runs through `run_command`, so results, ordering and paging
-    equal those of ``imgw stations find`` and ``GET /api/v1/stations/find``.
+    The command runs through `run_command` with ``provider=IMGW-PIB``, so
+    results, ordering and paging equal those of ``imgw stations find
+    --provider IMGW-PIB`` and ``GET /api/v1/stations/find?provider=IMGW-PIB``.
 
     Parameters
     ----------
@@ -265,7 +270,13 @@ def find_stations_partial(
         ``partials/station_table.html`` with the page and links to the
         neighbouring pages, or the error partial.
     """
-    given = {"kind": kind, "query": query, "limit": limit, "offset": offset}
+    given = {
+        "kind": kind,
+        "query": query,
+        "provider": _PROVIDER,
+        "limit": limit,
+        "offset": offset,
+    }
     try:
         outcome = run_command(
             "stations find",

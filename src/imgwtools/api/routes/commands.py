@@ -124,7 +124,7 @@ _ANNOTATIONS: dict[str, Any] = {
 
 
 class PlanItemDocument(TypedDict):
-    """Archive of an ``imgw-plan/1`` plan (spec §11.5)."""
+    """Archive of an ``imgw-plan/1`` plan (spec §11.5, spec 2026-10-18 §4.2)."""
 
     dataset: str
     server_path: str
@@ -133,11 +133,15 @@ class PlanItemDocument(TypedDict):
     month: int | None
     param: str | None
     year_type: Literal["hydrological", "calendar", "none"]
+    station_code: str | None
     status: Literal["current", "newer", "missing", "unverifiable", "check_failed"]
+    signal: Literal["head", "listing"]
     local_path: str | None
     local_sha256: str | None
+    local_observation: str | None
     remote_etag: str | None
     remote_last_modified: str | None
+    remote_listed_at: str | None
     content_length: int | None
     error: str | None
 
@@ -152,6 +156,7 @@ class PlanDocument(TypedDict):
     items: list[PlanItemDocument]
     series_state: dict[str, Literal["current", "outdated", "missing"]]
     actions: list[PlanAction]
+    requests: dict[str, int] | None
 
 
 class _Envelope(BaseModel):
@@ -609,7 +614,7 @@ def _option_schema(route: _Route, option: CommandOption) -> dict[str, Any]:
         schema = {
             "type": "object",
             "description": "Plan imgw-plan/1 (result komendy store check albo "
-            '?check=true) z root "." (zamiast datasets, years i months)',
+            '?check=true) z root "." (zamiast datasets, years, months i stations)',
         }
     elif option.name == "limit":
         maximum = settings.api_max_limit

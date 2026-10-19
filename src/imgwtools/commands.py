@@ -1,5 +1,5 @@
 """
-Catalog of the 35 data commands and the single dispatcher of public functions.
+Catalog of the 36 data commands and the single dispatcher of public functions.
 
 ``data_commands`` describes every operation of IMGWTools (spec §13.3). Each
 command calls exactly one public function whose parameters carry the option
@@ -32,12 +32,15 @@ from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
     MonthsArg,
+    ProviderDescriptor,
     YearsArg,
     archive_files,
     datasets,
     get_dataset,
+    get_provider,
     parse_months,
     parse_years,
+    providers,
 )
 from imgwtools.exceptions import (
     ERROR_CODES,
@@ -46,6 +49,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.store import reader as _reader
+from imgwtools.store import sync as _sync
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -109,14 +113,21 @@ _INTEGER = re.compile(r"-?[0-9]+")
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _KINDS = ("hydro", "meteo")
 _YEAR_TYPES = ("hydrological", "calendar")
+# Datasets with source files (spec 2026-10-18 §9.3: 10 IMGW-PIB and 2 ČHMÚ);
+# station lists and PMAXTP have none.
 _ARCHIVE_DATASETS = tuple(
-    d.key for d in datasets() if d.first_year is not None and d.server_dir is not None
+    d.key
+    for d in datasets()
+    if d.server_dir is not None and d.time_unit != "station_list"
 )
 _SERIES_DATASETS = tuple(
     d.key
     for d in datasets()
     if d.in_store and d.time_unit in ("day", "month", "half_year")
 )
+_PROVIDERS = tuple(provider.id for provider in providers())
+# Groups reading the sources of one provider only (spec 2026-10-18 §9.3).
+_GROUP_PROVIDERS = {"current": "IMGW-PIB", "pmaxtp": "IMGW-PIB"}
 # Commands a project task may store in the manifest (spec §13.3).
 _TASK_COMMANDS = (
     "store info",
@@ -137,7 +148,7 @@ _PROJECT_PATHS = ("store_dir", "geometry")
 _DONE = ("created", "relabeled", "unchanged", "reused")
 _EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
 _GROUPS = {
-    "datasets": "Rejestr zbiorów IMGW: lista, pliki i pobieranie",
+    "datasets": "Rejestr dostawców i zbiorów: lista, pliki i pobieranie",
     "stations": "Wyszukiwanie stacji",
     "current": "Dane bieżące z API IMGW",
     "pmaxtp": "Opady maksymalne PMAXTP",
@@ -178,6 +189,7 @@ _PROJECT_FUNCTIONS = (
 # Public module of every function the catalog dispatches to (resolved per call).
 _MODULES = {
     "datasets": "imgwtools.datasets",
+    "providers": "imgwtools.datasets",
     "archive_files": "imgwtools.datasets",
     "download_archives": "imgwtools.fetch",
     "fetch_hydro_current": "imgwtools.fetch",
@@ -284,8 +296,8 @@ _STORE_DIR = _option(
 _ARCHIVE_DATASET = _option(
     "dataset",
     "choice",
-    "Zbiór archiwalny: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily "
-    "albo hydro/dobowe",
+    "Zbiór archiwalny: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily, "
+    "hydro/dobowe albo cz.chmi.hydro_daily",
     required=True,
     choices=_ARCHIVE_DATASETS,
     aliases=("-d",),
@@ -300,7 +312,8 @@ _SERIES_DATASET = _option(
 _DATASETS = _option(
     "datasets",
     "list",
-    "Zbiory magazynu rozdzielone przecinkami: klucz, slug albo alias legacy",
+    "Zbiory magazynu rozdzielone przecinkami: klucz, slug albo alias legacy; zbiory "
+    "jednego rodzaju: pl.imgw.* albo cz.chmi.*",
     choices=_SERIES_DATASETS,
     items="choice",
     aliases=("-d",),
@@ -321,10 +334,22 @@ _YEARS = _option(
     maximum=9999,
     aliases=("-y",),
 )
+_ARCHIVE_YEARS = replace(
+    _YEARS,
+    help="Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022; wymagane poza "
+    "cz.chmi.meteo_daily (tam niedozwolone)",
+)
+_STORE_YEARS = replace(
+    _YEARS,
+    help="Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022; wymagane dla "
+    "pl.imgw.*, opcjonalne dla cz.chmi.hydro_daily (brak = lata opublikowane), "
+    "niedozwolone dla cz.chmi.meteo_daily",
+)
 _MONTHS = _option(
     "months",
     "list",
-    "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie)",
+    "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie); tylko zbiory "
+    "pl.imgw.*",
     items="int",
     minimum=1,
     maximum=12,
@@ -359,6 +384,17 @@ _STATIONS = _option(
     items="str",
     pattern=_STATION,
     aliases=("-s",),
+)
+_ARCHIVE_STATIONS = replace(
+    _STATIONS,
+    help="Kody stacji ČHMÚ (identyfikatory WIGOS, np. 0-203-1-001000) rozdzielone "
+    "przecinkami; wymagane dla zbiorów cz.chmi.*, niedozwolone dla pl.imgw.*",
+)
+_PROVIDER = _option(
+    "provider",
+    "choice",
+    "Dostawca danych: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy dostawcy",
+    choices=_PROVIDERS,
 )
 _VARIABLES = _option(
     "variables",
@@ -451,7 +487,21 @@ _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
 _VERSION_OR_DATASET = (("version",), ("dataset", "root"))
 _ARCHIVE_RULES = (
     "roczniki nie wcześniejsze niż pierwszy rocznik zbioru (first_year)",
+    "years wymagane poza cz.chmi.meteo_daily, którego pliki obejmują całą historię "
+    "stacji (tam years niedozwolone)",
+    "stations wymagane dla zbiorów cz.chmi.* i niedozwolone dla pl.imgw.*; kody "
+    "według gramatyki dostawcy zbioru",
+    "months wyłącznie dla zbiorów pl.imgw.*",
     "params wyłącznie dla pl.imgw.hydro_semiannual",
+)
+_STORE_RULES = (
+    "zbiory jednego rodzaju: archiwa krajowe pl.imgw.* albo pliki stacji cz.chmi.*",
+    "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
+    "years wymagane dla zbiorów pl.imgw.*, opcjonalne dla cz.chmi.hydro_daily (brak "
+    "= lata opublikowane w listingu stacji) i niedozwolone dla cz.chmi.meteo_daily",
+    "stations wymagane dla zbiorów cz.chmi.* i niedozwolone dla pl.imgw.*; kody "
+    "według gramatyki dostawcy zbioru",
+    "months wyłącznie dla zbiorów pl.imgw.*",
 )
 _SERIES_RULES = (
     "dokładnie jedno z: version albo root+dataset (bieżąca wersja szeregu zbioru)",
@@ -461,9 +511,18 @@ _SERIES_RULES = (
 _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     _command(
         "datasets list",
-        "Wypisz zbiory IMGW z rejestru: klucze, aliasy legacy, zmienne i pierwszy "
-        "rocznik.",
-        (replace(_FAMILY, help="Rodzina zbiorów: hydro albo meteo; brak = wszystkie"),),
+        "Wypisz zbiory z rejestru: klucze, dostawców, aliasy legacy, zmienne i "
+        "pierwszy rocznik.",
+        (
+            replace(
+                _FAMILY, help="Rodzina zbiorów: hydro albo meteo; brak = wszystkie"
+            ),
+            replace(
+                _PROVIDER,
+                help="Dostawca zbiorów: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
+                "dostawcy",
+            ),
+        ),
         function="datasets",
         result="list",
         method="GET",
@@ -471,9 +530,9 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets files",
-        "Wypisz pliki archiwów zbioru IMGW dla wybranych roczników (offline, bez "
-        "pobierania).",
-        (_ARCHIVE_DATASET, replace(_YEARS, required=True), _MONTHS, _PARAMS),
+        "Wypisz pliki źródłowe zbioru dla wybranych roczników albo stacji (offline, "
+        "bez pobierania).",
+        (_ARCHIVE_DATASET, _ARCHIVE_YEARS, _MONTHS, _PARAMS, _ARCHIVE_STATIONS),
         function="archive_files",
         result="list",
         method="GET",
@@ -482,16 +541,34 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets download",
-        "Pobierz archiwa zbioru IMGW do katalogu odzwierciedlającego ścieżki serwera.",
-        (_ARCHIVE_DATASET, replace(_YEARS, required=True), _MONTHS, _PARAMS, _OUTPUT),
+        "Pobierz pliki źródłowe zbioru do katalogu odzwierciedlającego ścieżki "
+        "serwera dostawcy.",
+        (
+            _ARCHIVE_DATASET,
+            _ARCHIVE_YEARS,
+            _MONTHS,
+            _PARAMS,
+            _ARCHIVE_STATIONS,
+            _OUTPUT,
+        ),
         function="download_archives",
         check="check_command",
         result_type="DownloadReport",
         rules=_ARCHIVE_RULES,
     ),
     _command(
+        "datasets providers",
+        "Wypisz dostawców danych z rejestru: identyfikatory, kraje, licencje, wzorce "
+        "kodów stacji i zbiory.",
+        (),
+        function="providers",
+        result="list",
+        method="GET",
+        result_type="ProviderDescriptor",
+    ),
+    _command(
         "stations find",
-        "Znajdź stacje IMGW po nazwie, rzece albo prefiksie kodu.",
+        "Znajdź stacje IMGW-PIB i ČHMÚ po nazwie, rzece albo prefiksie kodu.",
         (
             replace(_FAMILY, help="Rodzaj stacji; brak = obie rodziny"),
             _option(
@@ -503,7 +580,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "source",
                 "choice",
-                "live: listy IMGW na żywo; store: zapisany magazyn",
+                "live: listy stacji dostawców na żywo; store: listy i katalogi "
+                "stacji zapisane w magazynie",
                 choices=("live", "store"),
                 default="live",
             ),
@@ -512,13 +590,22 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 required=False,
                 help="Katalog magazynu (wymagany przy source=store)",
             ),
+            replace(
+                _PROVIDER,
+                help="Dostawca stacji: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
+                "dostawcy",
+            ),
         ),
         function="find_stations",
         check="check_command",
         result="list",
         method="GET",
         result_type="StationListEntry",
-        rules=("root jest wymagany przy source=store i niedozwolony przy source=live",),
+        rules=(
+            "root jest wymagany przy source=store i niedozwolony przy source=live",
+            "source=store bez provider pomija dostawców bez zapisanej listy stacji; "
+            "przy jawnym provider brak listy to błąd not_found",
+        ),
     ),
     _command(
         "current hydro",
@@ -685,6 +772,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 ),
                 aliases=("-k",),
             ),
+            replace(
+                _PROVIDER,
+                help="Dostawca wpisów: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
+                "dostawcy (problemy bez slotu zawsze)",
+            ),
         ),
         function="iter_store",
         result="list",
@@ -693,12 +785,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store check",
-        "Sprawdź aktualność archiwów IMGW (listing i HEAD, bez pobierania danych).",
+        "Sprawdź aktualność archiwów zbiorów: listing i HEAD (IMGW-PIB) albo sam "
+        "listing serwera (ČHMÚ), bez pobierania danych.",
         (
             _ROOT,
             replace(_DATASETS, required=True),
-            replace(_YEARS, required=True),
+            _STORE_YEARS,
             _MONTHS,
+            _ARCHIVE_STATIONS,
             _option(
                 "plan",
                 "path",
@@ -710,25 +804,26 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         method="GET",
         result_type="StorePlan",
         rules=(
-            "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
+            *_STORE_RULES,
             "plan zapisywany wyłącznie poza magazynem, w istniejącym katalogu",
         ),
     ),
     _command(
         "store sync",
-        "Pobierz nowe lub brakujące archiwa IMGW do magazynu według planu albo "
-        "wyboru zbiorów.",
+        "Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru "
+        "zbiorów i stacji.",
         (
             _ROOT,
             _option(
                 "plan",
                 "path",
                 "Plik planu imgw-plan/1 z komendy store check (zamiast datasets, "
-                "years i months)",
+                "years, months i stations)",
             ),
             _DATASETS,
-            _YEARS,
+            _STORE_YEARS,
             _MONTHS,
+            _ARCHIVE_STATIONS,
             _option(
                 "series",
                 "bool",
@@ -739,18 +834,21 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         function="sync_store",
         check="check_store",
         method="POST",
-        one_of=(("plan",), ("datasets", "years")),
+        one_of=(("plan",), ("datasets",)),
         result_type="SyncReport",
-        rules=(
-            "plan wyklucza datasets, years i months",
-            "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
-        ),
+        rules=("plan wyklucza datasets, years, months i stations", *_STORE_RULES),
     ),
     _command(
         "store catalog",
-        "Zbuduj wersjonowany katalog stacji stations.geojson.",
+        "Zbuduj wersjonowany katalog stacji stations.geojson jednego dostawcy.",
         (
             _ROOT,
+            replace(
+                _PROVIDER,
+                help="Dostawca katalogu: IMGW-PIB albo CHMI (ČHMÚ); jedna wersja "
+                "katalogu jednego dostawcy na wywołanie",
+                default="IMGW-PIB",
+            ),
             _option(
                 "user_locations",
                 "path",
@@ -868,7 +966,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series export",
-        "Wyeksportuj szereg jednej stacji jako CSV z atrybucją IMGW-PIB.",
+        "Wyeksportuj szereg jednej stacji jako CSV z atrybucją dostawcy danych.",
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
@@ -1044,9 +1142,45 @@ _BY_NAME = {command.name: command for command in _COMMANDS}
 _RESULT_TYPES = {command.name: result_type for command, result_type in _CATALOG}
 
 
-def data_commands() -> tuple[DataCommand, ...]:
+def _narrowed(command: DataCommand, owner: ProviderDescriptor) -> DataCommand | None:
     """
-    Return the catalog of all 35 data commands.
+    ``command`` as offered for one provider; None when it has no data of it.
+
+    The ``dataset``/``datasets`` choices keep the provider's keys and the
+    ``provider`` option is fixed to it (required, its only choice, no
+    default), so every call valid in the narrowed catalog concerns the
+    provider alone.
+    """
+    if _GROUP_PROVIDERS.get(command.name.split(" ", 1)[0], owner.id) != owner.id:
+        return None
+    options: list[CommandOption] = []
+    for option in command.options:
+        narrowed = option
+        if option.name in ("dataset", "datasets"):
+            choices = tuple(key for key in option.choices if key in owner.datasets)
+            if not choices:
+                return None
+            narrowed = replace(option, choices=choices)
+        elif option.name == "provider":
+            narrowed = replace(option, required=True, choices=(owner.id,), default=None)
+        options.append(narrowed)
+    return replace(command, options=tuple(options))
+
+
+def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
+    """
+    Return the catalog of all 36 data commands or its view for one provider.
+
+    Parameters
+    ----------
+    provider : str or None, optional
+        Provider identifier or key prefix (see `get_provider`); None returns
+        the whole catalog. With a provider, the choices of the ``dataset``
+        and ``datasets`` options keep only its datasets, the ``provider``
+        option becomes required with that provider as its only choice, and
+        commands without any data of the provider are left out (for
+        ``CHMI``: ``current …`` and ``pmaxtp …``). `validate_command` and
+        the other functions always use the whole catalog.
 
     Returns
     -------
@@ -1056,8 +1190,21 @@ def data_commands() -> tuple[DataCommand, ...]:
         ``commands``) with their options, the public function they call,
         the check twin, the result shape, the REST method and the
         validation rules; texts for humans are in Polish.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``provider`` names no provider (``details.option`` is
+        ``provider``).
     """
-    return _COMMANDS
+    if provider is None:
+        return _COMMANDS
+    owner = get_provider(provider)
+    return tuple(
+        command
+        for command in (_narrowed(spec, owner) for spec in _COMMANDS)
+        if command is not None
+    )
 
 
 # --- walidacja -------------------------------------------------------------------------------
@@ -1202,6 +1349,9 @@ def _choice_text(option: CommandOption, text: str) -> str:
             raise IMGWValidationError(
                 exc.detail, details={**exc.details, "option": option.name}
             ) from exc
+    elif option.name == "provider":
+        # A key prefix (cz.chmi) names its provider, like dataset aliases.
+        text = get_provider(text).id
     if text not in option.choices:
         _fail(
             f"Nieprawidłowa wartość {text!r} opcji {option.name}; dozwolone: "
@@ -1347,27 +1497,30 @@ def _half_year(descriptor: DatasetDescriptor, year_type: object) -> None:
 
 
 def _rules_archives(options: Options, task: bool) -> None:
-    archive_files(
-        options["dataset"],
-        years=options["years"],
-        months=options.get("months"),
-        params=options.get("params"),
-    )
+    # Years, months, params and stations follow the dataset's provider (§2.3).
+    _archives(options)
 
 
 def _rules_store_check(options: Options, task: bool) -> None:
-    for dataset in options["datasets"]:
-        archive_files(dataset, years=options["years"], months=options.get("months"))
+    # One kind of datasets per call; selectors as in check_store (§4.2).
+    _sync._selection(
+        options["datasets"],
+        options.get("years"),
+        options.get("months"),
+        options.get("stations"),
+    )
 
 
 def _rules_store_sync(options: Options, task: bool) -> None:
     if "plan" not in options:
         _rules_store_check(options, task)
         return
-    given = [name for name in ("datasets", "years", "months") if name in options]
+    selectors = ("datasets", "years", "months", "stations")
+    given = [name for name in selectors if name in options]
     if given:
         _fail(
-            "Plan imgw-plan/1 wyklucza opcje datasets, years i months", option=given[0]
+            "Plan imgw-plan/1 wyklucza opcje datasets, years, months i stations",
+            option=given[0],
         )
 
 
@@ -1532,7 +1685,8 @@ def validate_command(
     """
     Normalize and validate command options without network access.
 
-    Dataset aliases and slugs become keys, numeric text becomes ``int`` or
+    Dataset aliases and slugs become keys, a provider key prefix
+    (``cz.chmi``) becomes its identifier, numeric text becomes ``int`` or
     ``float``, ISO text becomes ``date``, every form of ``years`` (``2024``,
     ``"2020-2023"``, ``"2020,2022"``, ``[2020, "2022-2023"]``) and ``months``
     becomes a sorted tuple of numbers, other lists become tuples without
@@ -1541,7 +1695,9 @@ def validate_command(
     ``None`` values and ``bool`` values equal to their default are omitted,
     so formatting the result with `format_command` and validating it again
     yields identical options. Coordinates are checked by the library
-    validator of Poland's bounds.
+    validator of Poland's bounds; ``years``, ``months``, ``params`` and
+    ``stations`` of archive and store commands follow the provider of the
+    dataset (station codes in its grammar).
 
     Parameters
     ----------
@@ -1704,9 +1860,12 @@ def _status(result: object) -> Status:
             sum(s in _DONE for s in (*items, *series)),
         )
     if isinstance(result, DownloadReport):
+        # A ČHMÚ candidate the source does not publish is a successful item.
         items = [item.status for item in result.items]
         return _outcome(
-            result.cancelled, items.count("failed"), items.count("downloaded")
+            result.cancelled,
+            items.count("failed"),
+            items.count("downloaded") + items.count("not_published"),
         )
     if isinstance(result, ProjectReport):
         states = [*result.tasks.values(), *(file.status for file in result.files)]
@@ -1830,15 +1989,22 @@ def _twin(name: str, *, without: tuple[str, ...] = ()) -> Checker:
 def _archives(options: Options) -> tuple[ArchiveFile, ...]:
     return archive_files(
         options["dataset"],
-        years=options["years"],
+        years=options.get("years"),
         months=options.get("months"),
         params=options.get("params"),
+        stations=options.get("stations"),
     )
 
 
 def _check_datasets_list(options: Options, hooks: Hooks) -> StorePlan:
-    found = datasets(kind=options.get("kind"))
-    return _reading("datasets list", f"Rejestr zbiorów IMGW (offline): {len(found)}")
+    found = datasets(kind=options.get("kind"), provider=options.get("provider"))
+    return _reading("datasets list", f"Rejestr zbiorów (offline): {len(found)}")
+
+
+def _check_datasets_providers(options: Options, hooks: Hooks) -> StorePlan:
+    return _reading(
+        "datasets providers", f"Rejestr dostawców (offline): {len(providers())}"
+    )
 
 
 def _check_datasets_files(options: Options, hooks: Hooks) -> StorePlan:
@@ -1876,9 +2042,8 @@ def _check_stations(options: Options, hooks: Hooks) -> StorePlan:
     )
     root = options.get("root")
     if not isinstance(root, Path):
-        return _live(
-            "stations find", (url for _, url in _stations._live_sources(kinds))
-        )
+        owners = _stations._owners(options.get("provider"))
+        return _live("stations find", _stations._live_urls(kinds, owners))
     info = _store.store_info(root)
     action = (
         PlanAction("stations find", "current", f"Odczyt list stacji z magazynu {root}")
@@ -1981,7 +2146,7 @@ def _check_reading(command: str, key: str) -> Checker:
 def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
     root = cast(Path, options["root"])
     if "plan" not in options:
-        selection = ("root", "datasets", "years", "months")
+        selection = ("root", "datasets", "years", "months", "stations")
         return _call(
             "check_store", {k: v for k, v in options.items() if k in selection}, hooks
         )
@@ -2101,6 +2266,7 @@ _CHECKS: dict[str, Checker] = {
     "datasets list": _check_datasets_list,
     "datasets files": _check_datasets_files,
     "datasets download": _check_download,
+    "datasets providers": _check_datasets_providers,
     "stations find": _check_stations,
     "current hydro": _check_current("hydro"),
     "current meteo": _check_current("meteo"),
@@ -2321,7 +2487,7 @@ def command_schema(command: str | None = None, /) -> dict[str, object]:
     dict of {str : object}
         JSON Schema of the command options, or the ``imgw-commands/1``
         document with ``version``, ``result_schema``, ``groups``,
-        ``commands`` (35 schemas), ``errors`` (the error code registry) and
+        ``commands`` (36 schemas), ``errors`` (the error code registry) and
         ``exit_codes`` of the envelope statuses.
 
     Raises

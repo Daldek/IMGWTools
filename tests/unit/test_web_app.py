@@ -19,7 +19,8 @@ MAP_URL = "https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=f
 PMAXTP_POT_URL = "https://powietrze.imgw.pl/tpmax-api/point/P/KS/50.0600/19.9400"
 PMAXTP_FORM = {"method": "POT", "latitude": "50.06", "longitude": "19.94"}
 
-# Spec §13.4: archive datasets = all but the station lists and PMAXTP.
+# Spec §13.4 and spec 2026-10-18 §9.3: the archive datasets of IMGW-PIB (no station
+# lists, PMAXTP or ČHMÚ datasets: the GUI form has no station field).
 ARCHIVE_DATASETS = {
     "pl.imgw.hydro_daily",
     "pl.imgw.hydro_monthly",
@@ -56,7 +57,9 @@ def _station_codes(html: str) -> list[str]:
 
 def _stations_find(**options: object) -> list[str]:
     """Station codes of the ``stations find`` page for the same options."""
-    page = run_command("stations find", options=options).result
+    page = run_command(
+        "stations find", options={"provider": "IMGW-PIB", **options}
+    ).result
     assert isinstance(page, Page)
     return [entry.station_code for entry in page.items]
 
@@ -354,7 +357,7 @@ def test_web_app_pmaxtp_source_failure_renders_source_unavailable(client, upstre
         response = client.post("/download/pmaxtp/generate", data=PMAXTP_FORM)
 
     _assert_error_partial(
-        response, 502, "source_unavailable", "Źródło IMGW niedostępne"
+        response, 502, "source_unavailable", "Źródło danych niedostępne"
     )
 
 
@@ -489,5 +492,5 @@ def test_web_app_map_source_failure_is_problem_with_code_title_detail(client):
     assert response.status_code == 502
     problem = response.json()
     assert problem["code"] == "source_unavailable"
-    assert problem["title"] == "Źródło IMGW niedostępne"
+    assert problem["title"] == "Źródło danych niedostępne"
     assert problem["detail"]

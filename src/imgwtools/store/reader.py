@@ -1819,12 +1819,30 @@ def _coverage(code: str, key: str, value: Any) -> StationCoverage:
     )
 
 
+def _station_periods(code: str, value: object) -> tuple[tuple[date, date], ...] | None:
+    """Known periods of one station: ascending, non-overlapping ranges, or None."""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError(f"periods stacji {code} musi być listą przedziałów")
+    spans = tuple(_span(item) for item in value)
+    for (_, end), (start, _) in zip(spans, spans[1:], strict=False):
+        if start <= end:
+            raise ValueError(
+                f"periods stacji {code} nie są rosnącymi, rozłącznymi przedziałami"
+            )
+    return spans
+
+
 def read_series_index(version: PathArg, /) -> SeriesIndex:
     """
     Validate ``series.json`` and its Parquet paths without pyarrow or reading Parquet bytes.
 
     The ``series.json`` bytes are verified against the sidecar; each station
     Parquet file must exist as a regular file, but its contents are not read.
+    The known periods of a station (``stations[<code>].periods``, written for
+    datasets of per-station files, ADR-003 D10) must be ascending,
+    non-overlapping date ranges when present.
 
     Parameters
     ----------
@@ -1834,7 +1852,8 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
     Returns
     -------
     SeriesIndex
-        Dataset, year type, periods and per-station Parquet index.
+        Dataset, year type, periods and per-station Parquet index (with the
+        station periods, or None when the index has none).
 
     Raises
     ------
@@ -1889,6 +1908,7 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
                 sha,
                 _count(entry["rows"], "rows", minimum=1),
                 {key: _coverage(code, key, value) for key, value in variables.items()},
+                _station_periods(code, entry.get("periods")),
             )
     except (IMGWValidationError, KeyError, TypeError, ValueError) as exc:
         raise IMGWDataError(f"Nieprawidłowy spis szeregu {path}: {exc}") from exc
@@ -2005,6 +2025,9 @@ def read_series(
     (``date``). Days or months filled in by the builder are returned with
     the ``missing`` flag. Half-year records carry ``extrema_dates`` and, for
     units with IMGW rows, ``extrema_occurrences`` (``<V>_occurrences``).
+    Measurements of datasets with measurement fields (ČHMÚ meteo) carry
+    ``quality`` and ``source_flag`` from the ``<V>_quality`` and
+    ``<V>_source_flag`` columns; elsewhere both are None.
 
     Parameters
     ----------
@@ -2093,6 +2116,7 @@ def read_series(
         present = set(pq.read_schema(pa.BufferReader(data)).names)
         for name in names:
             columns += [f"{name}_value", f"{name}_flag"]
+            columns += [f"{name}_{field}" for field in descriptor.measurement_fields]
             if half_year:
                 columns += [f"{name}_start", f"{name}_end"]
                 if f"{name}_occurrences" in present:
@@ -2118,6 +2142,7 @@ def read_series(
         station=station,
         dataset=index.dataset,
         names=names,
+        fields=descriptor.measurement_fields,
         half_year=half_year,
         start=start,
         end=end,
@@ -2130,10 +2155,12 @@ def _records(
     station: str,
     dataset: str,
     names: tuple[str, ...],
+    fields: tuple[str, ...],
     half_year: bool,
     start: date | None,
     end: date | None,
 ) -> Iterator[NormalizedRecord]:
+    with_quality, with_source_flag = "quality" in fields, "source_flag" in fields
     for row in rows:
         day = row["date"]
         if (start is not None and day < start) or (end is not None and day > end):
@@ -2145,7 +2172,16 @@ def _records(
                 raise IMGWDataError(
                     f"Niespójna flaga {flag!r} zmiennej {name} stacji {station} z {day}"
                 )
-            measurements[name] = Measurement(value, flag)
+            quality = row[f"{name}_quality"] if with_quality else None
+            source_flag = row[f"{name}_source_flag"] if with_source_flag else None
+            if not (quality is None or type(quality) is int) or not (
+                source_flag is None or isinstance(source_flag, str)
+            ):
+                raise IMGWDataError(
+                    f"Niepoprawna jakość lub flaga źródła zmiennej {name} stacji "
+                    f"{station} z {day}"
+                )
+            measurements[name] = Measurement(value, flag, quality, source_flag)
         extrema = (
             {name: (row[f"{name}_start"], row[f"{name}_end"]) for name in names}
             if half_year

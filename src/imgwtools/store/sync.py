@@ -680,6 +680,46 @@ def _station_request(
     return codes, candidates
 
 
+def _selection(
+    datasets: Iterable[str],
+    years: YearsArg | None,
+    months: MonthsArg | None,
+    stations: Iterable[str] | None,
+) -> tuple[
+    list[DatasetDescriptor],
+    tuple[str, ...],
+    dict[str, tuple[ArchiveFile, ...] | None],
+    list[ArchiveFile],
+]:
+    """
+    Validate the selectors of a check offline, before any request.
+
+    Shared by `check_store` and the command catalog (``validate_command`` of
+    ``store check`` and ``store sync``).
+
+    Returns
+    -------
+    tuple
+        The datasets without repetitions, then for per-station datasets
+        (ČHMÚ) the station codes and the candidates of each dataset (see
+        `_station_request`) with no archives, or for country datasets
+        (IMGW-PIB) no codes, no candidates and the archives.
+    """
+    descriptors = _descriptors(datasets)
+    per_station = {descriptor.archive_scope != "country" for descriptor in descriptors}
+    if len(per_station) > 1:
+        raise IMGWValidationError(
+            "Jedno wywołanie obejmuje zbiory jednego rodzaju: archiwa krajowe "
+            "IMGW-PIB (bez opcji stations) albo pliki stacji ČHMÚ (z opcją "
+            f"stations); podano {', '.join(item.key for item in descriptors)}",
+            details={"option": "stations", "value": None},
+        )
+    if per_station == {True}:
+        codes, candidates = _station_request(descriptors, years, months, stations)
+        return descriptors, codes, candidates, []
+    return descriptors, (), {}, _country_archives(descriptors, years, months, stations)
+
+
 def _series_states(
     root: Path, descriptors: list[DatasetDescriptor], items: list[PlanItem]
 ) -> dict[str, SeriesState]:
@@ -811,22 +851,10 @@ def check_store(
         ``plan`` lies inside the store or in a missing directory.
     """
     path = _root(root)
-    descriptors = _descriptors(datasets)
-    per_station = {descriptor.archive_scope != "country" for descriptor in descriptors}
-    if len(per_station) > 1:
-        raise IMGWValidationError(
-            "Jedno wywołanie obejmuje zbiory jednego rodzaju: archiwa krajowe "
-            "IMGW-PIB (bez opcji stations) albo pliki stacji ČHMÚ (z opcją "
-            f"stations); podano {', '.join(item.key for item in descriptors)}",
-            details={"option": "stations", "value": None},
-        )
-    listed = per_station == {True}
-    if listed:
-        codes, candidates = _station_request(descriptors, years, months, stations)
-        archives: list[ArchiveFile] = []
-    else:
-        codes, candidates = (), {}
-        archives = _country_archives(descriptors, years, months, stations)
+    descriptors, codes, candidates, archives = _selection(
+        datasets, years, months, stations
+    )
+    listed = descriptors[0].archive_scope != "country"
     target = _plan_target(path, plan) if plan is not None else None
     made = 0
 

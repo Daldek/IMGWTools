@@ -3,7 +3,8 @@ IMGWTools - Python library for accessing IMGW public data.
 
 IMGW (Institute of Meteorology and Water Management) provides public
 hydrological and meteorological data for Poland. This library provides
-easy access to that data.
+easy access to that data and, as a second provider, to the open data of the
+Czech Hydrometeorological Institute (ČHMÚ).
 
 Quick Start:
     >>> from imgwtools import fetch_pmaxtp, find_stations
@@ -24,6 +25,7 @@ Features:
     - Archive data download (daily, monthly, semi-annual)
     - Station search and hydrological station states with coordinates
     - Versioned local store of IMGW archives, Parquet series and station catalog
+    - ČHMÚ daily hydrological and meteorological data, stations and catalog
     - Data command catalog and ``imgw-project/1`` project manifests
 
 Installation:
@@ -56,14 +58,18 @@ from imgwtools.coverage import summarize_coverage
 
 # Dataset registry
 from imgwtools.datasets import (
+    STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
     License,
     MonthsArg,
+    ProviderDescriptor,
     YearsArg,
     archive_files,
     datasets,
     get_dataset,
+    get_provider,
+    providers,
     station_source_files,
 )
 
@@ -122,6 +128,9 @@ from imgwtools.models import (
 from imgwtools.parsers import (
     IMGW_ENCODING,
     normalize_archive,
+    parse_chmi_hydro_daily,
+    parse_chmi_meteo_daily,
+    parse_chmi_stations,
     parse_daily_csv,
     parse_meteo_climate_daily,
     parse_meteo_precip_daily,
@@ -300,12 +309,19 @@ __all__ = [
     "parse_meteo_precip_daily",
     "normalize_archive",
     "IMGW_ENCODING",
+    "parse_chmi_hydro_daily",
+    "parse_chmi_meteo_daily",
+    "parse_chmi_stations",
     # Dataset registry
     "License",
+    "ProviderDescriptor",
     "DatasetDescriptor",
     "ArchiveFile",
     "YearsArg",
     "MonthsArg",
+    "STATION_CODE_PATTERN",
+    "providers",
+    "get_provider",
     "datasets",
     "get_dataset",
     "archive_files",

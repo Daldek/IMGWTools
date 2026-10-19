@@ -20,7 +20,11 @@ from tests.unit.test_commands import DAILY, REJECTED, ROOT, SAMPLES, SPEC_COMMAN
 from tests.unit.test_store_reader import observe, store_archives, with_content
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
-ARCHIVE_KEYS = [d.key for d in datasets() if d.first_year is not None]
+ARCHIVE_KEYS = [
+    d.key
+    for d in datasets()
+    if d.server_dir is not None and d.time_unit != "station_list"
+]
 SERIES_KEYS = [
     d.key
     for d in datasets()
@@ -28,7 +32,7 @@ SERIES_KEYS = [
 ]
 
 
-def test_catalog_document_lists_35_schemas_groups_errors_and_exit_codes():
+def test_catalog_document_lists_36_schemas_groups_errors_and_exit_codes():
     document = command_schema()
     assert json.loads(json.dumps(document)) == document
     assert (document["schema"], document["version"], document["result_schema"]) == (
@@ -84,6 +88,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "root": {"type": "string", "x-imgw-type": "path"},
         "limit": {"type": "integer", "minimum": 1},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "provider": {"enum": ["IMGW-PIB", "CHMI"]},
     }
     meta = {key: value for key, value in find["x-imgw"].items() if key != "rules"}
     assert meta == {
@@ -100,6 +105,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
                 "query": ["--query", "-q"],
                 "source": ["--source"],
                 "root": ["--root", "-r"],
+                "provider": ["--provider"],
                 "limit": ["--limit"],
                 "offset": ["--offset"],
             },
@@ -112,7 +118,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         },
     }
     check = command_schema("store check")
-    assert check["required"] == ["root", "datasets", "years"]
+    assert check["required"] == ["root", "datasets"]
     assert check["properties"]["datasets"]["items"] == {"enum": SERIES_KEYS}
     assert check["properties"]["years"]["items"] == {
         "anyOf": [
@@ -132,7 +138,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
     store_sync = command_schema("store sync")
     assert store_sync["oneOf"] == [
         {"required": ["plan"]},
-        {"required": ["datasets", "years"]},
+        {"required": ["datasets"]},
     ]
     assert store_sync["properties"]["series"]["default"] is True
     assert store_sync["x-imgw"]["cli"]["flags"]["series"] == ["--series", "--no-series"]

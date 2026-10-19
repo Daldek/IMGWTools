@@ -65,7 +65,7 @@ ERROR_CODES: Mapping[ErrorCode, ErrorSpec] = MappingProxyType(
             ErrorSpec("validation_error", "Nieprawidłowe dane wejściowe", 2, 400),
             ErrorSpec("not_found", "Nie znaleziono", 3, 404),
             ErrorSpec("conflict", "Konflikt stanu", 4, 409),
-            ErrorSpec("source_unavailable", "Źródło IMGW niedostępne", 5, 502),
+            ErrorSpec("source_unavailable", "Źródło danych niedostępne", 5, 502),
             ErrorSpec("missing_dependency", "Brak opcjonalnej zależności", 6, 503),
             ErrorSpec("data_error", "Niepoprawne dane", 7, 500),
             ErrorSpec("store_unavailable", "Magazyn niedostępny", 8, 503),
@@ -139,7 +139,7 @@ class IMGWError(Exception):
 
 class IMGWConnectionError(IMGWError):
     """
-    Connection to IMGW servers failed (timeout, network error, HTTP 4xx/5xx).
+    Connection to a data provider's server failed (timeout, network, HTTP 4xx/5xx).
 
     Default code: ``source_unavailable``.
     """
@@ -149,7 +149,7 @@ class IMGWConnectionError(IMGWError):
 
 class IMGWDataError(IMGWError):
     """
-    IMGW data or a stored version is invalid (format, SHA, size, JSON, CSV, ZIP).
+    Provider data or a stored version is invalid (format, SHA, size, JSON, CSV, ZIP).
 
     Default code: ``data_error``; a stored file the system cannot read is
     raised by `io_error` with ``code="io_error"``.

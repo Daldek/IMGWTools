@@ -18,9 +18,12 @@ import imgwtools.stations
 import imgwtools.store
 import imgwtools.urls
 
-# Spec §2–10, §12 and §13.12: every function, type and exception a consumer may
-# need; new functions take keyword-only options after the first object.
+# Spec §2–10, §12 and §13.12 (and spec 2026-10-18 §9.1): every function, type and
+# exception a consumer may need; new functions take keyword-only options after the
+# first object.
 SPEC_FUNCTIONS = (
+    "providers",
+    "get_provider",
     "datasets",
     "get_dataset",
     "archive_files",
@@ -37,6 +40,9 @@ SPEC_FUNCTIONS = (
     "parse_meteo_climate_daily",
     "parse_meteo_precip_daily",
     "normalize_archive",
+    "parse_chmi_hydro_daily",
+    "parse_chmi_meteo_daily",
+    "parse_chmi_stations",
     "summarize_coverage",
     "check_series",
     "build_series",
@@ -90,6 +96,7 @@ SPEC_TYPES = (
     "NoticeHook",
     "Cancel",
     "License",
+    "ProviderDescriptor",
     "DatasetDescriptor",
     "ArchiveFile",
     "DownloadResult",
@@ -133,6 +140,7 @@ SPEC_VALUES = (
     "ErrorCode",
     "ERROR_CODES",
     "Flag",
+    "STATION_CODE_PATTERN",
     "YearsArg",
     "MonthsArg",
     "IMGW_ENCODING",

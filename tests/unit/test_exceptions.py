@@ -28,7 +28,7 @@ SPEC_TABLE = {
     "validation_error": (2, 400, "Nieprawidłowe dane wejściowe"),
     "not_found": (3, 404, "Nie znaleziono"),
     "conflict": (4, 409, "Konflikt stanu"),
-    "source_unavailable": (5, 502, "Źródło IMGW niedostępne"),
+    "source_unavailable": (5, 502, "Źródło danych niedostępne"),
     "missing_dependency": (6, 503, "Brak opcjonalnej zależności"),
     "data_error": (7, 500, "Niepoprawne dane"),
     "store_unavailable": (8, 503, "Magazyn niedostępny"),
