@@ -454,6 +454,23 @@ def slots(value: object) -> Iterator[str]:
             yield from slots(item)
 
 
+def unversioned(value: object) -> Iterator[str]:
+    """
+    Slots of the result objects whose ``version`` is ``null``.
+
+    Such a result names its slot without a version (an unpublished ČHMÚ file,
+    a failed item): ``current_version`` rightly finds none (spec §13.7).
+    """
+    if isinstance(value, dict):
+        if isinstance(value.get("slot"), str) and value.get("version", "") is None:
+            yield value["slot"]
+        for item in value.values():
+            yield from unversioned(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from unversioned(item)
+
+
 def version_slot(slot: str) -> str:
     """
     Slot that ``current_version`` takes for ``slot`` (spec §13.7).

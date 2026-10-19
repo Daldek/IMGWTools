@@ -1929,12 +1929,12 @@ def _rules_series_select(options: Options, task: bool) -> None:
         if not pattern.fullmatch(code)
     ]
     if foreign:
-        _fail(
+        # The codes as a list, like every other stations error (not a repr).
+        raise IMGWValidationError(
             f"Kody stacji spoza gramatyki {provider.short_name} zbioru "
             f"{descriptor.key}: {', '.join(foreign)}; oczekiwano "
             f"{provider.station_code_pattern}",
-            option="stations",
-            value=foreign,
+            details={"option": "stations", "value": foreign},
         )
 
 

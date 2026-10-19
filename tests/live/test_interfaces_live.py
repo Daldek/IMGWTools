@@ -93,6 +93,7 @@ from tests.contract.support import (
     schema_errors,
     slots,
     snapshot,
+    unversioned,
     version_slot,
 )
 
@@ -918,11 +919,17 @@ class Live:
         return {name: lines for name, lines in problems.items() if lines}
 
     def unresolved(self, answer: PythonAnswer, root: Path | None) -> list[str]:
-        """Slots of a Python answer without a version in the store it left (§13.7)."""
+        """
+        Slots of a Python answer without a version in the store it left (§13.7).
+
+        A result with ``version: null`` (an unpublished ČHMÚ file) names its
+        slot without a version and is skipped.
+        """
         if answer.envelope is None or answer.data is not None:
             return []
         missing = []
-        for slot in sorted(set(slots(answer.envelope.to_json(root=root)))):
+        document = answer.envelope.to_json(root=root)
+        for slot in sorted(set(slots(document)) - set(unversioned(document))):
             wanted = version_slot(slot)
             try:
                 entry = current_version(self.root, slot=wanted)
