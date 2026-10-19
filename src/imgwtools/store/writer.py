@@ -178,8 +178,18 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
     ``os.link`` never replaces an entry, so concurrent writers of the same
     content end in one version, and a file already present with the same
     bytes is kept, which completes an interrupted publication. This is the
-    publication model of Kartograf (its D18, D21, D22): it needs hard links
-    only (ext4, APFS, NTFS, SMB), not an OS-specific no-replace rename.
+    publication model of Kartograf (its D18, D21, D22): it needs a file
+    system with hard links (ext4, APFS, NTFS, SMB shares that support them;
+    not FAT or exFAT), not an OS-specific no-replace rename.
+
+    On failure (``KeyboardInterrupt`` included) no file is removed from
+    ``target``: a concurrent writer of the same bytes may already have kept
+    a data file linked here and committed its own sidecar. The linked data
+    files stay as an interrupted publication that the next write of the
+    same content completes; directories created by this call are removed
+    only while empty. A linked sidecar is never removed (that version is
+    committed with all its data files); an unlinked one stays in
+    ``staging``, which the caller removes.
 
     Parameters
     ----------
@@ -208,7 +218,6 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
     directories = sorted({(target / name).parent for name in data} | {target})
     committed = target / sidecar
     made: list[Path] = []
-    linked: list[Path] = []
     try:
         if committed.exists() or committed.is_symlink():
             # A committed version is never extended (e.g. by a newer attachment).
@@ -228,18 +237,12 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
                     or _sha256_file(destination) != _sha256_file(source)
                 ):
                     raise
-                continue
-            linked.append(destination)
         for directory in directories:
             _fsync_dir(directory)
         _link(staging / sidecar, committed)
-    except FileExistsError:
-        # Another writer owns these entries; nothing created here is removed.
-        raise
     except BaseException:
-        for path in reversed(linked):
-            with contextlib.suppress(OSError):
-                path.unlink()
+        # Linked files may already belong to another writer's committed version;
+        # only directories created here go, and rmdir refuses non-empty ones.
         for directory in reversed(made):
             with contextlib.suppress(OSError):
                 directory.rmdir()

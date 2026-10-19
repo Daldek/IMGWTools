@@ -156,6 +156,45 @@ def test_interrupted_publication_with_other_bytes_is_never_replaced(tmp_path):
     assert (target / "codz_2024.zip").read_bytes() == CHANGED
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [OSError(errno.EIO, os.strerror(errno.EIO)), KeyboardInterrupt()],
+    ids=["eio", "keyboard_interrupt"],
+)
+def test_failed_commit_keeps_files_a_concurrent_writer_committed(
+    tmp_path, monkeypatch, failure
+):
+    root = init_store(tmp_path / "store")
+    target = _version_dir(root)
+    real_link = os.link
+    first_commit = True
+    concurrent = []
+
+    def link(source, destination):
+        nonlocal first_commit
+        if first_commit and Path(destination).name.endswith(".meta.json"):
+            first_commit = False
+            # Writer A has linked codz_2024.zip; writer B (same bytes) keeps that
+            # file and commits its sidecar before A's own commit fails.
+            concurrent.append(write_archive(root, archive=ARCHIVE, response=response()))
+            raise failure
+        return real_link(source, destination)
+
+    monkeypatch.setattr(writer.os, "link", link)
+    with pytest.raises(type(failure)):
+        write_archive(root, archive=ARCHIVE, response=response())
+    [winner] = concurrent
+    assert (winner.status, winner.path) == ("created", target / "codz_2024.zip")
+    assert sorted(path.name for path in target.iterdir()) == [
+        "codz_2024.zip",
+        "codz_2024.zip.meta.json",
+    ]
+    assert winner.path.read_bytes() == DATA
+    assert list(iter_store(root, kind="problem")) == []
+    assert current_version(root, slot=DAILY_2024).version == winner.path
+    assert list((root.root / ".incoming").iterdir()) == []
+
+
 def test_file_system_without_hard_links_is_explicit(tmp_path, monkeypatch):
     root = init_store(tmp_path / "store")
 
