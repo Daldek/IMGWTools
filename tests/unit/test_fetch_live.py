@@ -125,7 +125,7 @@ LIVE_READS = [
     (
         find_stations,
         find_stations_async,
-        {"kind": "hydro"},
+        {"kind": "hydro", "provider": "IMGW-PIB"},
         HYDRO_LIST_URL,
         '"149190310","SAN ESCOBAR","Raba (2138)"\n'.encode("cp1250"),
     ),

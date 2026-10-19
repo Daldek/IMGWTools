@@ -63,7 +63,11 @@ GET_CASES = [
         {"dataset": "hydro/dobowe", "years": ["2022-2023", "2024"], "months": "1,2"},
         False,
     ),
-    ("stations find", {"kind": "hydro", "query": "raba"}, False),
+    (
+        "stations find",
+        {"kind": "hydro", "query": "raba", "provider": "IMGW-PIB"},
+        False,
+    ),
     ("stations find", {"source": "store", "query": "1491"}, True),
     ("current hydro", {}, False),
     ("current meteo", {}, False),
@@ -260,7 +264,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for method, operation in operations.items()
     }
 
-    assert len(expected) == 25
+    assert len(expected) == 26
     assert served.keys() == expected.keys()
     assert [
         (route["method"], route["path"])
@@ -497,11 +501,11 @@ def test_api_list_limit_defaults_to_and_is_capped_by_the_server_maximum(
     monkeypatch.setattr(settings, "api_max_limit", 3)
 
     default = client.get("/api/v1/datasets/list").json()["result"]
-    last = client.get("/api/v1/datasets/list", params={"limit": 3, "offset": 12})
+    last = client.get("/api/v1/datasets/list", params={"limit": 3, "offset": 16})
     above = client.get("/api/v1/datasets/list", params={"limit": 4})
     zero = client.get("/api/v1/datasets/list", params={"limit": 0})
 
-    assert (default["limit"], default["offset"], default["total"]) == (3, 0, 13)
+    assert (default["limit"], default["offset"], default["total"]) == (3, 0, 17)
     assert len(default["items"]) == 3
     assert len(last.json()["result"]["items"]) == 1
     assert problem(above, 400, "validation_error")["details"] == {
@@ -642,7 +646,9 @@ def test_api_unsupported_root_is_described_only_by_store_info_and_scan(
 
 
 def test_api_stations_find_needs_the_root_only_for_the_store_source(client, live):
-    found = client.get("/api/v1/stations/find", params={"query": "raba"})
+    found = client.get(
+        "/api/v1/stations/find", params={"query": "raba", "provider": "IMGW-PIB"}
+    )
     stored = client.get("/api/v1/stations/find", params={"source": "store"})
 
     assert found.status_code == 200

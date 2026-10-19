@@ -153,20 +153,28 @@ def _source_error(
 
 
 def _get(
-    url: str, *, timeout: float, headers: Mapping[str, str] | None = None
+    url: str,
+    *,
+    timeout: float,
+    headers: Mapping[str, str] | None = None,
+    source: str = "IMGW",
 ) -> httpx.Response:
-    """GET an IMGW URL; any HTTP failure becomes ``source_unavailable``."""
+    """GET a URL of the ``source`` provider; failures become ``source_unavailable``."""
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url, headers=headers)
             response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise _source_error(exc, url) from exc
+        raise _source_error(exc, url, source=source) from exc
     return response
 
 
 async def _get_async(
-    url: str, *, timeout: float, headers: Mapping[str, str] | None = None
+    url: str,
+    *,
+    timeout: float,
+    headers: Mapping[str, str] | None = None,
+    source: str = "IMGW",
 ) -> httpx.Response:
     """Async twin of `_get`."""
     try:
@@ -174,7 +182,7 @@ async def _get_async(
             response = await client.get(url, headers=headers)
             response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise _source_error(exc, url) from exc
+        raise _source_error(exc, url, source=source) from exc
     return response
 
 

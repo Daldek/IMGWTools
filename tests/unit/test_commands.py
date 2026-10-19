@@ -1,4 +1,4 @@
-"""Command catalog (spec §13.3, §13.6): 35 commands, validation, envelope, paging, checks."""
+"""Command catalog (spec §13.3, §13.6): 36 commands, validation, envelope, paging, checks."""
 
 import functools
 import importlib
@@ -58,6 +58,7 @@ SPEC_COMMANDS = [
     "datasets list",
     "datasets files",
     "datasets download",
+    "datasets providers",
     "stations find",
     "current hydro",
     "current meteo",
@@ -245,7 +246,7 @@ INVALID = {
     "datasets list": [({"kind": "both"}, "kind"), ({"limit": 0}, "limit")],
     "datasets files": [
         ({"dataset": "pl.imgw.pmaxtp", "years": [2024]}, "dataset"),
-        ({"dataset": DAILY}, "years"),
+        ({"dataset": DAILY, "years": [2024], "stations": ["1491"]}, "stations"),
         ({"dataset": DAILY, "years": [2024], "months": [13]}, "months"),
     ],
     "datasets download": [
@@ -286,10 +287,10 @@ INVALID = {
             {"root": ROOT, "datasets": ["pl.imgw.hydro_phenomena"], "years": [2024]},
             "datasets",
         ),
-        ({"root": ROOT, "datasets": [DAILY]}, "years"),
+        ({"root": ROOT, "datasets": [DAILY], "stations": ["1491"]}, "stations"),
     ],
     "store sync": [
-        ({"root": ROOT, "datasets": [DAILY]}, "plan"),
+        ({"root": ROOT}, "plan"),
         (
             {"root": ROOT, "plan": "/tmp/p.json", "datasets": [DAILY], "years": [2024]},
             "datasets",
@@ -1016,6 +1017,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
             "years": 2024,
             "output": tmp_path / "out",
         },
+        "datasets providers": {},
         "stations find": {"source": "store", "root": root},
         "current hydro": {},
         "current meteo": {"station": RABA},

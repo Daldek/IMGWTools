@@ -101,8 +101,9 @@ CASES: dict[str, list[Case]] = {
             }
         )
     ],
+    "datasets providers": [Case({"limit": 1, "offset": 1})],
     "stations find": [
-        Case({"kind": "hydro", "query": "raba", "limit": 2}),
+        Case({"kind": "hydro", "query": "raba", "provider": "IMGW-PIB", "limit": 2}),
         Case({"source": "store", "query": "1491", "offset": 1}, "served"),
     ],
     "current hydro": [Case({"station": RABA})],
