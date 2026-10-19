@@ -9,7 +9,7 @@ comma-separated text), POST from a JSON body checked by a model built with
 list, object). Values are normalized only by `validate_command`; the answer is
 the ``imgw-result/1`` envelope of `run_command` (on POST with ``?check=true``
 of `check_command`) with the store root written as ``"."``, or a text stream
-for ``store export`` and ``series export``.
+for ``store export``, ``series export`` and ``commands guide``.
 
 Server rules: the store root comes only from ``IMGW_STORE_ROOT`` (503
 ``store_unavailable`` when it is missing, relative or unsupported; ``store
@@ -21,7 +21,10 @@ object. Server and local options in a request are refused. Writes (POST
 without ``?check=true``) need ``IMGW_STORE_WRITES_ENABLED``, a configured
 ``IMGW_STORE_WRITE_TOKEN`` and a matching ``X-API-Key`` (constant-time
 comparison) and are checked before the root; list commands page by ``limit``
-(default and maximum ``IMGW_API_MAX_LIMIT``) and ``offset``.
+(default and maximum ``IMGW_API_MAX_LIMIT``) and ``offset``. A command with a
+``lang`` option takes it from ``Accept-Language`` when the request omits it
+(``?lang=`` first, Polish by default; ``Content-Language`` and ``Vary``);
+``operationId`` is ``x-imgw.operation_id`` of the catalog.
 """
 
 import hmac
@@ -53,7 +56,7 @@ from pydantic import (
 
 import imgwtools
 from imgwtools._jsonable import jsonable
-from imgwtools.api.errors import PROBLEM_RESPONSES, hide_server_paths
+from imgwtools.api.errors import PROBLEM_RESPONSES, accept_language, hide_server_paths
 from imgwtools.commands import (
     check_command,
     command_schema,
@@ -62,7 +65,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.config import settings
-from imgwtools.datasets import ArchiveFile, License
+from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
 from imgwtools.exceptions import (
     ErrorCode,
     IMGWDataError,
@@ -96,9 +99,18 @@ _API_KEY = APIKeyHeader(
 _VERSION_DIRS = {"store": "archives", "series": "series", "pmaxtp": "pmaxtp"}
 # Commands answering diagnostically also for an unsupported store root.
 _DIAGNOSTIC = ("store info", "store scan")
-_MEDIA_TYPES = {"csv": "text/csv; charset=utf-8", "jsonl": "application/x-ndjson"}
+_MEDIA_TYPES = {
+    "csv": "text/csv; charset=utf-8",
+    "jsonl": "application/x-ndjson",
+    "agents": "text/markdown; charset=utf-8",
+    "llms": "text/markdown; charset=utf-8",
+}
+# File names of the guide streams of commands guide (spec 2026-10-19 §3.4).
+_GUIDE_FILES = {"agents": "AGENTS.md", "llms": "llms.txt"}
 # Option given in REST as an imgw-plan/1 object instead of a file (spec §13.2).
 _PLAN = "plan"
+# Option chosen by Accept-Language when the request omits it (spec 2026-10-19 §4.2).
+_LANG = "lang"
 # Loose JSON kinds of POST body fields; `validate_command` normalizes values.
 _NUMBER = StrictInt | StrictFloat | StrictStr
 _LOOSE_TYPES: dict[str, Any] = {
@@ -119,11 +131,12 @@ _ANNOTATIONS: dict[str, Any] = {
     "ErrorCode": ErrorCode,
     "License": License,
     "PMaXTPResult": PMaXTPResult,
+    "ProviderDescriptor": ProviderDescriptor,
 }
 
 
 class PlanItemDocument(TypedDict):
-    """Archive of an ``imgw-plan/1`` plan (spec §11.5)."""
+    """Archive of an ``imgw-plan/1`` plan (spec §11.5, spec 2026-10-18 §4.2)."""
 
     dataset: str
     server_path: str
@@ -132,11 +145,15 @@ class PlanItemDocument(TypedDict):
     month: int | None
     param: str | None
     year_type: Literal["hydrological", "calendar", "none"]
+    station_code: str | None
     status: Literal["current", "newer", "missing", "unverifiable", "check_failed"]
+    signal: Literal["head", "listing"]
     local_path: str | None
     local_sha256: str | None
+    local_observation: str | None
     remote_etag: str | None
     remote_last_modified: str | None
+    remote_listed_at: str | None
     content_length: int | None
     error: str | None
 
@@ -151,6 +168,7 @@ class PlanDocument(TypedDict):
     items: list[PlanItemDocument]
     series_state: dict[str, Literal["current", "outdated", "missing"]]
     actions: list[PlanAction]
+    requests: dict[str, int] | None
 
 
 class _Envelope(BaseModel):
@@ -180,7 +198,7 @@ class _Route:
 
     @property
     def operation_id(self) -> str:
-        return self.spec.name.replace(" ", "_").replace("-", "_")
+        return cast(str, self.schema["x-imgw"]["operation_id"])
 
     @property
     def params(self) -> tuple[CommandOption, ...]:
@@ -483,14 +501,23 @@ def _paged(options: dict[str, object]) -> None:
         )
 
 
+def _stream_format(route: _Route, options: Mapping[str, object]) -> str:
+    """Format of a stream: the given option or its catalog default."""
+    default = next(o.default for o in route.spec.options if o.name == "format")
+    return cast(str, options.get("format", default))
+
+
 def _attachment(route: _Route, options: Mapping[str, object]) -> str:
-    """File name of an exported stream."""
+    """File name of an exported stream or of a guide."""
+    format_ = _stream_format(route, options)
+    if format_ in _GUIDE_FILES:
+        return _GUIDE_FILES[format_]
     if route.spec.name == "series export":
         return f"{options['station']}.csv"
     version = cast(Path, options["version"])
     name = version.name.removesuffix(".meta.json")
     stem = version.parent.name if version.is_dir() else PurePosixPath(name).stem
-    return f"{stem}.{options.get('format', 'csv')}"
+    return f"{stem}.{format_}"
 
 
 def _stream(
@@ -503,7 +530,7 @@ def _stream(
     notices = hide_server_paths(jsonable(envelope.notices, root=root, server=True))
     return StreamingResponse(
         (line.encode("utf-8") for line in lines),
-        media_type=_MEDIA_TYPES[cast(str, options.get("format", "csv"))],
+        media_type=_MEDIA_TYPES[_stream_format(route, options)],
         headers={
             "Content-Disposition": f'attachment; filename="{_attachment(route, options)}"',
             "X-IMGW-Status": envelope.status,
@@ -542,8 +569,22 @@ def _respond(route: _Route, options: dict[str, object], *, check: bool) -> Respo
             "Operację przerwano bez raportu; REST nie przekazuje anulowania"
         )
     if route.spec.result == "stream" and not check:
-        return _stream(route, envelope, normalized, root)
-    return JSONResponse(hide_server_paths(envelope.to_json(root=root, server=True)))
+        response: Response = _stream(route, envelope, normalized, root)
+    else:
+        response = JSONResponse(
+            hide_server_paths(envelope.to_json(root=root, server=True))
+        )
+    if _LANG in normalized:
+        response.headers["Content-Language"] = cast(str, normalized[_LANG])
+    return response
+
+
+def _negotiated(route: _Route, options: dict[str, object], request: Request) -> bool:
+    """Fill an absent ``lang`` option from ``Accept-Language``; True when filled."""
+    if _LANG in options or all(option.name != _LANG for option in route.params):
+        return False
+    options[_LANG] = accept_language(request.headers.get("accept-language"))
+    return True
 
 
 class _Endpoint:
@@ -551,7 +592,9 @@ class _Endpoint:
     Endpoint of one catalog route; FastAPI reads the parameters from `__signature__`.
 
     GET routes take only the request; POST routes also take the generated
-    body model and the ``?check=true`` flag resolved by the write guard.
+    body model and the ``?check=true`` flag resolved by the write guard. A
+    command with a ``lang`` option absent from the request answers in the
+    language of ``Accept-Language`` (``Vary: Accept-Language``).
     """
 
     def __init__(self, route: _Route, body: type[BaseModel] | None) -> None:
@@ -575,12 +618,17 @@ class _Endpoint:
     ) -> Response:
         route = self._route
         if route.method == "GET":
-            return _respond(route, _query_options(route, request), check=False)
-        for name in request.query_params:
-            if name != "check":
-                _refuse(route, name)
-        options = {} if body is None else body.model_dump(exclude_unset=True)
-        return _respond(route, options, check=check)
+            options = _query_options(route, request)
+        else:
+            for name in request.query_params:
+                if name != "check":
+                    _refuse(route, name)
+            options = {} if body is None else body.model_dump(exclude_unset=True)
+        negotiated = _negotiated(route, options, request)
+        response = _respond(route, options, check=check)
+        if negotiated:
+            response.headers.add_vary_header("Accept-Language")
+        return response
 
 
 # --------------------------------------------------------------------------
@@ -608,7 +656,7 @@ def _option_schema(route: _Route, option: CommandOption) -> dict[str, Any]:
         schema = {
             "type": "object",
             "description": "Plan imgw-plan/1 (result komendy store check albo "
-            '?check=true) z root "." (zamiast datasets, years i months)',
+            '?check=true) z root "." (zamiast datasets, years, months i stations)',
         }
     elif option.name == "limit":
         maximum = settings.api_max_limit

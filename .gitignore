@@ -24,6 +24,8 @@ htmlcov/
 /temp/
 /data/downloaded/
 *.txt
+# Derived guide for AI agents (imgw commands guide --format llms), kept in the repository
+!/llms.txt
 
 # IMGW reference data — NOT shipped; fetch via `python -m imgwtools.reference_data`
 # (data is IMGW-PIB's, under its terms, not this project's MIT licence)

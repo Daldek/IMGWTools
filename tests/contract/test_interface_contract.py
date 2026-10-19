@@ -101,8 +101,9 @@ CASES: dict[str, list[Case]] = {
             }
         )
     ],
+    "datasets providers": [Case({"limit": 1, "offset": 1})],
     "stations find": [
-        Case({"kind": "hydro", "query": "raba", "limit": 2}),
+        Case({"kind": "hydro", "query": "raba", "provider": "IMGW-PIB", "limit": 2}),
         Case({"source": "store", "query": "1491", "offset": 1}, "served"),
     ],
     "current hydro": [Case({"station": RABA})],
@@ -155,7 +156,12 @@ CASES: dict[str, list[Case]] = {
             "served",
         )
     ],
-    "commands schema": [Case({"command": "series export"}), Case({})],
+    "commands schema": [
+        Case({"command": "series export"}),
+        Case({}),
+        Case({"command": "store sync", "lang": "en"}),
+    ],
+    "commands guide": [Case({}), Case({"format": "llms", "lang": "en"})],
 }
 
 
@@ -243,7 +249,9 @@ def assert_alike(command, python, printed, answered, root):
             {"level": n.level, "code": n.code, "text": n.text} for n in python.notices
         ]
         assert json.loads(answered.headers["x-imgw-notices"]) == notices
-        assert "license_terms" in {notice["code"] for notice in notices}
+        # Data exports name the license of their provider; the guide is no data.
+        exported = ROUTES[command]["function"].startswith("export_")
+        assert ("license_terms" in {notice["code"] for notice in notices}) == exported
         for notice in python.notices:
             assert printed.stderr.count(f"{LABELS[notice.level]}: {notice.text}") == 1
         return

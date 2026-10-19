@@ -20,7 +20,11 @@ from tests.unit.test_commands import DAILY, REJECTED, ROOT, SAMPLES, SPEC_COMMAN
 from tests.unit.test_store_reader import observe, store_archives, with_content
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
-ARCHIVE_KEYS = [d.key for d in datasets() if d.first_year is not None]
+ARCHIVE_KEYS = [
+    d.key
+    for d in datasets()
+    if d.server_dir is not None and d.time_unit != "station_list"
+]
 SERIES_KEYS = [
     d.key
     for d in datasets()
@@ -28,14 +32,15 @@ SERIES_KEYS = [
 ]
 
 
-def test_catalog_document_lists_35_schemas_groups_errors_and_exit_codes():
+def test_catalog_document_lists_37_schemas_groups_errors_and_exit_codes():
     document = command_schema()
     assert json.loads(json.dumps(document)) == document
-    assert (document["schema"], document["version"], document["result_schema"]) == (
-        "imgw-commands/1",
-        __version__,
-        "imgw-result/1",
-    )
+    assert (
+        document["schema"],
+        document["version"],
+        document["lang"],
+        document["result_schema"],
+    ) == ("imgw-commands/1", __version__, "pl", "imgw-result/1")
     assert [schema["title"] for schema in document["commands"]] == SPEC_COMMANDS
     assert list(document["groups"]) == list(
         dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS)
@@ -84,15 +89,19 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "root": {"type": "string", "x-imgw-type": "path"},
         "limit": {"type": "integer", "minimum": 1},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "provider": {"enum": ["IMGW-PIB", "CHMI"]},
     }
     meta = {key: value for key, value in find["x-imgw"].items() if key != "rules"}
     assert meta == {
         "command": "stations find",
+        "operation_id": "stations_find",
         "group": "stations",
         "function": "find_stations",
         "check": "check_command",
         "result": "list",
         "result_type": "StationListEntry",
+        "writes": "none",
+        "network": True,
         "cli": {
             "command": "imgw stations find",
             "flags": {
@@ -100,6 +109,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
                 "query": ["--query", "-q"],
                 "source": ["--source"],
                 "root": ["--root", "-r"],
+                "provider": ["--provider"],
                 "limit": ["--limit"],
                 "offset": ["--offset"],
             },
@@ -112,7 +122,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         },
     }
     check = command_schema("store check")
-    assert check["required"] == ["root", "datasets", "years"]
+    assert check["required"] == ["root", "datasets"]
     assert check["properties"]["datasets"]["items"] == {"enum": SERIES_KEYS}
     assert check["properties"]["years"]["items"] == {
         "anyOf": [
@@ -132,7 +142,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
     store_sync = command_schema("store sync")
     assert store_sync["oneOf"] == [
         {"required": ["plan"]},
-        {"required": ["datasets", "years"]},
+        {"required": ["datasets"]},
     ]
     assert store_sync["properties"]["series"]["default"] is True
     assert store_sync["x-imgw"]["cli"]["flags"]["series"] == ["--series", "--no-series"]
@@ -191,18 +201,29 @@ def test_invalid_options_fail_both_the_schema_and_validate_command(
 
 def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
     for command, options in (
+        ("series select", {"root": ROOT, "dataset": DAILY, "stations": ["149190310"]}),
         (
             "series select",
             {
                 "root": ROOT,
-                "dataset": DAILY,
-                "stations": ["149190310", "0-203-1-CB900003"],
+                "dataset": "cz.chmi.hydro_daily",
+                "stations": ["0-203-1-CB900003"],
             },
         ),
         ("series read", {"root": ROOT, "dataset": DAILY, "station": "0-20000-0-11406"}),
     ):
         assert violations(options, command_schema(command)) == []
         validate_command(command, options=options)
+    # The provider's grammar depends on the dataset: a rule, not the schema pattern.
+    mixed = {
+        "root": ROOT,
+        "dataset": DAILY,
+        "stations": ["149190310", "0-203-1-CB900003"],
+    }
+    assert violations(mixed, command_schema("series select")) == []
+    with pytest.raises(IMGWValidationError) as error:
+        validate_command("series select", options=mixed)
+    assert error.value.details["option"] == "stations"
     for command, options, option in (
         (
             "series select",

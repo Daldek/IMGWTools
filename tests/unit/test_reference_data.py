@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from imgwtools import reference_data
-from imgwtools.datasets import station_source_files
+from imgwtools.datasets import get_provider, station_source_files
 from imgwtools.stations import HYDRO_MAP_API_URL
 
 HYDRO_STATIONS_CSV_URL, METEO_STATIONS_CSV_URL = (
@@ -74,11 +74,13 @@ def test_reference_data_main_writes_stations_and_descriptions(
 
     out = capsys.readouterr().out
     assert str(isolated_data_dir) in out
-    assert reference_data.ATTRIBUTION in out
+    attribution = get_provider("IMGW-PIB").license.attribution
+    assert f"Wymagana atrybucja: {attribution}\n" in out
     assert (
-        "skipped: dane_hydrologiczne/dobowe/ZJAW_publiczne_format.txt: HTTP 404" in out
+        "pominięto: dane_hydrologiczne/dobowe/ZJAW_publiczne_format.txt: HTTP 404"
+        in out
     )
-    assert "skipped: k_d_t_format.txt: HTTP 500" in out
+    assert "pominięto: k_d_t_format.txt: HTTP 500" in out
     # Only the locations file and format descriptions are written; latitude
     # before longitude; stations without coordinates are omitted.
     assert {
@@ -143,8 +145,8 @@ def test_reference_data_main_station_failure_keeps_previous_file(
     assert reference_data.main() == 1
 
     captured = capsys.readouterr()
-    assert "Error fetching data:" in captured.err
-    assert "Done." not in captured.out
+    assert "Błąd pobierania danych:" in captured.err
+    assert "Gotowe" not in captured.out
     assert previous.read_text(encoding="utf-8") == (
         "station_code,latitude,longitude\n149190310,49.0,20.0\n"
     )
@@ -173,7 +175,7 @@ def test_reference_data_main_connection_error_in_descriptions_returns_1(
 
     assert reference_data.main() == 1
 
-    assert "Error fetching data: brak sieci" in capsys.readouterr().err
+    assert "Błąd pobierania danych: brak sieci" in capsys.readouterr().err
     assert (isolated_data_dir / "hydro_stations_locations.csv").is_file()
     assert not (isolated_data_dir / "desc" / "dane_meteorologiczne").exists()
 

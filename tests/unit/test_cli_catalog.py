@@ -29,6 +29,7 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
+from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES
 from imgwtools.store.types import CommandResult, Notice, SeriesReport, SyncReport
 from imgwtools.testing import build_fixture_store
@@ -85,8 +86,9 @@ CLI_ERROR = {
 
 @pytest.fixture(autouse=True)
 def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT must not reach the commands under test."""
+    """The developer's IMGW_STORE_ROOT and IMGW_LANG must not reach the commands."""
     monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    monkeypatch.delenv("IMGW_LANG", raising=False)
 
 
 @pytest.fixture(scope="module")
@@ -189,17 +191,39 @@ def raising(monkeypatch, module, name, error):
     monkeypatch.setattr(module, name, fake)
 
 
-def run_installed(*args, **kwargs):
-    """The installed ``imgw`` in its own process, without IMGW_STORE_ROOT or network."""
+def run_installed(*args, lang=None, **kwargs):
+    """
+    The installed ``imgw`` in its own process, without IMGW_STORE_ROOT or network.
+
+    ``lang`` is the IMGW_LANG of the process (unset by default).
+    """
     command = [str(INSTALLED)] if INSTALLED.exists() else [sys.executable, "-m"]
     if not INSTALLED.exists():
         command.append("imgwtools.cli.main")
     dead = "http://127.0.0.1:9"
-    env = {key: value for key, value in os.environ.items() if key != "IMGW_STORE_ROOT"}
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in ("IMGW_STORE_ROOT", "IMGW_LANG")
+    }
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "NO_PROXY": ""}
+    if lang is not None:
+        env["IMGW_LANG"] = lang
     return subprocess.run(
         [*command, *map(str, args)], env=env, timeout=120, check=False, **kwargs
     )
+
+
+def shown(text):
+    """Rendered help as one line of words (rich wraps lines and draws borders)."""
+    return " ".join(text.replace("│", " ").split())
+
+
+def tree(command, path=("imgw",)):
+    """Words and Click command of every command of the ``imgw`` tree."""
+    yield path, command
+    for name, sub in getattr(command, "commands", {}).items():
+        yield from tree(sub, (*path, name))
 
 
 # --- rejestracja, help i flagi ---------------------------------------------------------------
@@ -284,6 +308,96 @@ def test_cli_catalog_schema_flag_prints_the_commands_schema_envelope(spec):
     assert printed.stdout == expected.stdout
     assert envelope(printed)["result"] == json.loads(
         json.dumps(command_schema(spec.name))
+    )
+
+
+# --- język: IMGW_LANG i --lang ---------------------------------------------------------------
+
+
+def test_cli_help_of_every_command_is_polish_by_default():
+    for path, _ in tree(typer.main.get_command(app)):
+        text = shown(invoke(*path[1:], "--help").output)
+        assert f"Użycie: {' '.join(path)} [OPCJE]" in text, path
+        assert "Pokaż pomoc i zakończ." in text, path
+        for english in ("Usage:", "Show this message", "[OPTIONS]", "COMMAND", "ARGS"):
+            assert english not in text, path
+    store_sync = shown(invoke("store", "sync", "--help").output)
+    for element in (
+        "Opcje wymagane",
+        "─ Opcje ─",
+        "[zmienna środowiskowa: IMGW_STORE_ROOT]",
+        "ŚCIEŻKA",
+    ):
+        assert element in store_sync
+    listed = shown(invoke("--help").output)
+    assert "─ Komendy ─" in listed
+    assert "Użycie: imgw [OPCJE] KOMENDA [ARGUMENTY]..." in listed
+    assert "─ Argumenty ─" in shown(invoke("admin", "delete", "--help").output)
+
+
+def test_cli_help_follows_imgw_lang_en():
+    spec = SPECS["store sync"]
+
+    printed = run_installed(
+        "store", "sync", "--help", lang="en", capture_output=True, text=True
+    )
+    listed = run_installed("--help", lang="en", capture_output=True, text=True)
+
+    assert printed.returncode == 0, printed.stderr
+    text = shown(printed.stdout)
+    assert spec.description_en in text
+    for option in spec.options:
+        assert option.help_en in text, option.name
+    for element in (
+        "Usage: imgw store sync [OPTIONS]",
+        "─ Options ─",
+        "─ Required options ─",
+        "Show this message and exit.",
+        "[env var: IMGW_STORE_ROOT]",
+        "PATH",
+    ):
+        assert element in text
+    for word in ("Użycie", "Opcje", "Pokaż", "zmienna"):
+        assert word not in text
+    roots = shown(listed.stdout)
+    assert "─ Commands ─" in roots
+    assert "Usage: imgw [OPTIONS] COMMAND [ARGS]..." in roots
+    for group, description in command_schema(lang="en")["groups"].items():
+        assert f"{group} {description}" in roots
+
+
+def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
+    monkeypatch,
+):
+    result = run_installed("datasets", "list", lang="de", capture_output=True)
+    assert (result.returncode, result.stdout) == (2, b"")
+    line = json.loads(result.stderr.decode("utf-8").splitlines()[-1])
+    assert line["code"] == "validation_error"
+    assert line["details"] == {
+        "option": "IMGW_LANG",
+        "value": "de",
+        "allowed": ["pl", "en"],
+    }
+    # The language is checked before Click parses anything, help included.
+    monkeypatch.setattr(settings, "lang", "english")
+    for args in (("--help",), ("version",), ("admin", "keys"), ("store", "info")):
+        document = error_line(invoke(*args), "validation_error")
+        assert document["details"]["option"] == "IMGW_LANG"
+
+
+def test_cli_lang_flag_and_imgw_lang_choose_the_commands_schema_language():
+    english = json.loads(json.dumps(command_schema(lang="en")))
+    polish = json.loads(json.dumps(command_schema()))
+
+    assert envelope(invoke("commands", "schema", "--lang", "en"))["result"] == english
+    by_variable = invoke("commands", "schema", env={"IMGW_LANG": "en"})
+    assert envelope(by_variable)["result"] == english
+    flag_first = invoke("commands", "schema", "--lang", "pl", env={"IMGW_LANG": "en"})
+    assert envelope(flag_first)["result"] == polish
+    flag = run_installed("store", "sync", "--schema", lang="en", capture_output=True)
+    assert flag.returncode == 0, flag.stderr
+    assert json.loads(flag.stdout)["result"] == json.loads(
+        json.dumps(command_schema("store sync", lang="en"))
     )
 
 

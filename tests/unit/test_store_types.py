@@ -346,6 +346,102 @@ def test_new_fields_have_defaults_and_catalog_constructs():
     assert (command.requires, command.one_of, command.rules) == ({}, (), ())
 
 
+def test_chmi_fields_default_so_3_0_constructors_keep_working():
+    version = VersionResult("unchanged", Path("/s/a.json"), "a" * 64, "2026-05-21")
+    (archive,) = archive_files("pl.imgw.hydro_daily", years=[2024])
+    item = PlanItem(archive, "current", None, None, None, None, None, None)
+    plan = StorePlan("imgw-plan/1", Path("/s"), datetime.now(UTC), (item,), {})
+
+    assert (version.observed_sha256, version.observation) == (None, None)
+    assert (item.station_code, item.signal, item.remote_listed_at) == (
+        None,
+        "head",
+        None,
+    )
+    assert (item.local_observation, plan.requests) == (None, None)
+    assert StoreInfo(Path("/s"), True, None, True, {}, ()).providers == ()
+    assert StoreEntry("problem", None, None, None, "x", "Brak").provider is None
+    assert CatalogReport("created", None, 0, 0, 0, ()).provider == "IMGW-PIB"
+
+
+def _chmi_plan(tmp_path):
+    (archive,) = archive_files(
+        "cz.chmi.hydro_daily", stations=["0-203-1-900001"], years=[2025]
+    )
+    item = PlanItem(
+        archive,
+        "current",
+        Path("archives/versions/hydrology/x.json"),
+        "a" * 64,
+        None,
+        None,
+        21647,
+        None,
+        station_code="0-203-1-900001",
+        signal="listing",
+        remote_listed_at="2026-05-21T11:19Z",
+        local_observation=Path("archives/versions/hydrology/observations/o.json"),
+    )
+    return StorePlan(
+        "imgw-plan/1",
+        tmp_path,
+        datetime(2026, 10, 19, tzinfo=UTC),
+        (item,),
+        {"chmi_hydro_daily": "current"},
+        requests={"made": 1, "planned": 0},
+    )
+
+
+def test_plan_of_chmi_files_keeps_station_listing_signal_and_requests(tmp_path):
+    plan = _chmi_plan(tmp_path)
+    path = plan.to_json(tmp_path / "plan.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    (row,) = payload["items"]
+    assert payload["requests"] == {"made": 1, "planned": 0}
+    assert {
+        key: row[key] for key in ("station_code", "signal", "remote_listed_at")
+    } == {
+        "station_code": "0-203-1-900001",
+        "signal": "listing",
+        "remote_listed_at": "2026-05-21T11:19Z",
+    }
+    assert row["local_observation"] == "archives/versions/hydrology/observations/o.json"
+    loaded = StorePlan.from_json(path)
+    assert loaded == plan
+    assert loaded.items[0].archive.station_code == "0-203-1-900001"
+    assert loaded.items[0].archive.period_end == date(2025, 12, 31)
+
+
+def test_plan_without_the_chmi_fields_reads_with_defaults(tmp_path):
+    plan = _plan(tmp_path)
+    path = plan.to_json(tmp_path / "plan.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["requests"]
+    for row in payload["items"]:
+        for key in ("station_code", "signal", "remote_listed_at", "local_observation"):
+            del row[key]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert StorePlan.from_json(path) == plan
+
+
+@pytest.mark.parametrize(
+    ("change", "text"),
+    [
+        (lambda d: d["items"][0].update(signal="ftp"), "sygnał"),
+        (lambda d: d.update(requests={"made": -1}), "requests"),
+        (lambda d: d["items"][0].update(station_code="0-203-1-900002"), "ścieżka"),
+        (lambda d: d["items"][0].update(server_path="hydrology/x/y.json"), "ścieżka"),
+    ],
+)
+def test_plan_with_invalid_chmi_fields_is_a_data_error(tmp_path, change, text):
+    path = _chmi_plan(tmp_path).to_json(tmp_path / "plan.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    change(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(IMGWDataError, match=text):
+        StorePlan.from_json(path)
+
+
 def test_types_do_not_import_pyarrow():
     code = (
         "import sys, imgwtools._jsonable, imgwtools.store.types; "

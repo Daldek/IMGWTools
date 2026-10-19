@@ -8,6 +8,7 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 import imgwtools
+from imgwtools import agent_guide
 from imgwtools.api.main import app, run_server
 from imgwtools.config import settings
 
@@ -41,6 +42,23 @@ def test_api_main_info_names_the_api_and_links_the_catalog_schema(client):
     assert schema.json()["result"]["schema"] == "imgw-commands/1"
     openapi = client.get("/openapi.json").json()
     assert openapi["info"]["version"] == imgwtools.__version__
+
+
+@pytest.mark.parametrize(
+    ("header", "lang"),
+    [(None, "pl"), ("en-GB,en;q=0.9", "en"), ("de, en;q=0.5, pl", "pl")],
+)
+def test_api_main_llms_txt_is_the_llms_guide_in_the_accepted_language(
+    client, header, lang
+):
+    headers = {} if header is None else {"Accept-Language": header}
+    response = client.get("/llms.txt", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+    assert response.text == "".join(agent_guide(format="llms", lang=lang))
+    assert response.headers["content-language"] == lang
+    assert "accept-language" in response.headers["vary"].lower()
+    assert "content-disposition" not in response.headers
 
 
 def test_api_main_cors_preflight_allows_any_origin(client):

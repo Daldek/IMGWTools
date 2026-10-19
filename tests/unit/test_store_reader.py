@@ -891,17 +891,27 @@ def test_scan_enforces_content_pair_and_registry_origin_of_known_datasets(
 
 
 def test_valid_sidecar_of_an_unknown_dataset_is_an_unknown_entry(root, offline):
-    stem = "H_0-203-1-900001_DQ_2025"
+    # A provider IMGWTools does not know (since C02 ČHMÚ is a registered one).
+    stem = "H_0-703-1-900001_DQ_2025"
+    server_path = f"hydrologia/denne/{stem}.json"
     version = (
         root
-        / "archives/versions/hydrology/historical/data/daily"
+        / "archives/versions/hydrologia/denne"
         / stem
         / f"2026-05-21_{CHMI_META['sha256'][:8]}"
     )
     version.mkdir(parents=True)
     (version / f"{stem}.json").write_bytes(b"{}")
+    unknown = {
+        **CHMI_META,
+        **CONTENT,
+        "dataset": "sk.shmu.hydro_daily",
+        "country": "SK",
+        "provider": "SHMU",
+        "request": {**CHMI_META["request"], "server_path": server_path},
+    }
     (version / f"{stem}.json.meta.json").write_text(
-        json.dumps({**CHMI_META, **CONTENT}), encoding="utf-8"
+        json.dumps(unknown), encoding="utf-8"
     )
     assert read_meta(version / f"{stem}.json").content_form == "chmi-json/1"
     assert [(e.kind, e.slot, e.problem_code, e.version) for e in iter_store(root)] == [
@@ -1151,11 +1161,13 @@ def test_registers_change_no_version_choice_of_series_or_catalog(tmp_path):
             catalog_sources(router)
             build_catalog(root)
             if name == "observed":
+                # Observations of no current version are history, never the
+                # reference signal of check_catalog (spec 2026-10-18 §3.2).
                 for sidecar in list(root.glob("archives/versions/**/*.meta.json")):
-                    register = sidecar.parent.parent / "observations"
-                    register.mkdir(exist_ok=True)
-                    (register / "2026-10-19_00000000.json").write_text(
-                        "{}", encoding="utf-8"
+                    observe(
+                        sidecar.with_name(sidecar.name.removesuffix(".meta.json")),
+                        same_content_as="2000-01-01_00000000",
+                        **CONTENT,
                     )
             plan = check_catalog(root)
             catalog = build_catalog(root)

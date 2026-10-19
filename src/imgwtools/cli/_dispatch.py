@@ -14,6 +14,13 @@ without ``--path``); stderr carries progress, every distinct notice once and,
 on an error, the JSON error line ``{"code", "detail", "details"}`` as its last
 line. Exit codes follow the error registry and the envelope status (spec
 §13.5). The first Ctrl+C requests cancellation, the second aborts at once.
+
+The help is in the language of ``IMGW_LANG`` (``Settings.lang``, ``pl`` by
+default, chosen at import): catalog texts and the help elements of Typer and
+Click (panels, ``--help``, the usage line with its ``[OPTIONS]`` and
+``COMMAND [ARGS]...`` placeholders, the environment and default markers, the
+abort message) alike; another value ends every call with ``validation_error`` (spec
+2026-10-19 §4.2–§4.3). ``IMGW_LANG`` is also the default of ``--lang``.
 """
 
 import inspect
@@ -25,47 +32,115 @@ import threading
 import traceback
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
 from typing import Any, cast
 
 import typer
 from rich.console import Console
+from typer import rich_utils
 from typer.core import TyperCommand, TyperGroup
 
 from imgwtools.commands import (
+    LANGS,
+    Lang,
     check_command,
     command_schema,
     data_commands,
     run_command,
 )
+from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
 from imgwtools.store.types import CommandOption, DataCommand, Notice, Progress
 
-__all__ = ["ImgwGroup", "register_catalog"]
+__all__ = ["ImgwCommand", "ImgwGroup", "ImgwSubgroup", "register_catalog"]
 
 _ROOT_ENV = "IMGW_STORE_ROOT"
-# Commands whose root is meaningful for one value of another option only: the
-# environment default of --root applies only then (spec §13.3, stations find).
-_ROOT_WHEN = {"stations find": ("source", "store")}
-_REQUIRED_PANEL = "Opcje wymagane"
-_OPTIONAL_PANEL = "Opcje"
-_CHECK_HELP = (
-    "Tylko sprawdź: wypisz plan imgw-plan/1 bez zapisu i bez pobierania danych"
-)
-_SCHEMA_HELP = (
-    "Wypisz schemat JSON opcji tej komendy (jak imgw commands schema --command) "
-    "bez jej wykonania"
-)
-_METAVARS = {
-    "str": "TEKST",
-    "int": "LICZBA",
-    "float": "LICZBA",
-    "date": "RRRR-MM-DD",
-    "path": "ŚCIEŻKA",
-    "choice": "WARTOŚĆ",
-    "list": "LISTA",
-    "object": "JSON",
+_LANG_ENV = "IMGW_LANG"
+# Catalog options whose CLI default comes from an environment variable.
+_ENVVARS = {"root": _ROOT_ENV, "lang": _LANG_ENV}
+
+
+@dataclass(frozen=True)
+class _HelpTexts:
+    """Help texts of the CLI in one language (spec 2026-10-19 §4.3)."""
+
+    required_panel: str
+    optional_panel: str
+    commands_panel: str
+    arguments_panel: str
+    help_option: str
+    usage: str
+    envvar: str
+    default: str
+    required: str
+    options_metavar: str
+    commands_metavar: str
+    aborted: str
+    check: str
+    schema: str
+    metavars: Mapping[str, str]
+
+
+_HELP_TEXTS: dict[Lang, _HelpTexts] = {
+    "pl": _HelpTexts(
+        required_panel="Opcje wymagane",
+        optional_panel="Opcje",
+        commands_panel="Komendy",
+        arguments_panel="Argumenty",
+        help_option="Pokaż pomoc i zakończ.",
+        usage="Użycie: ",
+        envvar="[zmienna środowiskowa: {}]",
+        default="[domyślnie: {}]",
+        required="[wymagane]",
+        options_metavar="[OPCJE]",
+        commands_metavar="KOMENDA [ARGUMENTY]...",
+        aborted="Przerwano.",
+        check="Tylko sprawdź: wypisz plan imgw-plan/1 bez zapisu i bez pobierania "
+        "danych",
+        schema="Wypisz schemat JSON opcji tej komendy (jak imgw commands schema "
+        "--command) bez jej wykonania",
+        metavars={
+            "str": "TEKST",
+            "int": "LICZBA",
+            "float": "LICZBA",
+            "date": "RRRR-MM-DD",
+            "path": "ŚCIEŻKA",
+            "choice": "WARTOŚĆ",
+            "list": "LISTA",
+            "object": "JSON",
+        },
+    ),
+    # The English elements of Typer and Click are their own texts.
+    "en": _HelpTexts(
+        required_panel="Required options",
+        optional_panel="Options",
+        commands_panel="Commands",
+        arguments_panel="Arguments",
+        help_option="Show this message and exit.",
+        usage="Usage: ",
+        envvar="[env var: {}]",
+        default="[default: {}]",
+        required="[required]",
+        options_metavar="[OPTIONS]",
+        commands_metavar="COMMAND [ARGS]...",
+        aborted="Aborted.",
+        check="Check only: print the imgw-plan/1 plan without writing or "
+        "downloading data",
+        schema="Print the JSON Schema of the options of this command (like imgw "
+        "commands schema --command) without running it",
+        metavars={
+            "str": "TEXT",
+            "int": "NUMBER",
+            "float": "NUMBER",
+            "date": "YYYY-MM-DD",
+            "path": "PATH",
+            "choice": "VALUE",
+            "list": "LIST",
+            "object": "JSON",
+        },
+    ),
 }
 _LEVELS = {
     "info": ("Informacja", "cyan"),
@@ -78,8 +153,37 @@ _ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 _click_errors = sys.modules[typer.BadParameter.__module__]
 
 
+def _language() -> Lang | None:
+    """Language of ``IMGW_LANG`` (``Settings.lang``); None outside ``pl`` and ``en``."""
+    value = settings.lang.strip()
+    return cast(Lang, value) if value in LANGS else None
+
+
+# Language of the help, chosen once: an invalid IMGW_LANG keeps the Polish help
+# while every call ends with the validation_error line (ImgwGroup).
+_LANG: Lang = _language() or "pl"
+_HELP = _HELP_TEXTS[_LANG]
+rich_utils.OPTIONS_PANEL_TITLE = _HELP.optional_panel
+rich_utils.COMMANDS_PANEL_TITLE = _HELP.commands_panel
+rich_utils.ARGUMENTS_PANEL_TITLE = _HELP.arguments_panel
+rich_utils.ENVVAR_STRING = _HELP.envvar
+rich_utils.DEFAULT_STRING = _HELP.default
+rich_utils.REQUIRED_LONG_STRING = _HELP.required
+rich_utils.ABORTED_TEXT = _HELP.aborted
+# Usage-line placeholders of Click (``Command.options_metavar``,
+# ``Group.subcommand_metavar``) in the CLI language.
+_USAGE_PIECES = {
+    "[OPTIONS]": _HELP.options_metavar,
+    "COMMAND [ARGS]...": _HELP.commands_metavar,
+}
+
+
+def _localized(polish: str, english: str) -> str:
+    return english if _LANG == "en" else polish
+
+
 def _catalog_tables() -> tuple[dict[str, str], dict[str, int]]:
-    document = command_schema()
+    document = command_schema(lang=_LANG)
     return (
         cast(dict[str, str], document["groups"]),
         cast(dict[str, int], document["exit_codes"]),
@@ -195,14 +299,43 @@ def _usage_failure(exc: Any) -> int:
     return _error_line("validation_error", f"{detail} (pomoc: {path} --help)", details)
 
 
+def _language_failure() -> int:
+    """Report ``IMGW_LANG`` outside ``pl`` and ``en``; return the exit code."""
+    value = settings.lang
+    return _error_line(
+        "validation_error",
+        f"Nieprawidłowa wartość {value!r} zmiennej środowiskowej {_LANG_ENV}; "
+        f"dozwolone: {', '.join(LANGS)}",
+        {"option": _LANG_ENV, "value": value, "allowed": list(LANGS)},
+    )
+
+
+def _help_option(option: Any) -> Any:
+    """``--help`` described in the CLI language (Click caches it per command)."""
+    if option is not None:
+        option.help = _HELP.help_option
+    return option
+
+
+def _write_usage(command: Any, ctx: Any, formatter: Any) -> None:
+    """Write the usage line of ``command`` in the CLI language."""
+    pieces: list[str] = command.collect_usage_pieces(ctx)
+    line = " ".join(_USAGE_PIECES.get(piece, piece) for piece in pieces)
+    formatter.write_usage(ctx.command_path, line, prefix=_HELP.usage)
+
+
 class ImgwGroup(TyperGroup):
     """
-    Root ``imgw`` group reporting Click syntax errors as the JSON error line.
+    Root ``imgw`` group: checks ``IMGW_LANG`` and reports syntax errors as JSON.
 
-    An unknown flag or command, a missing option value or a missing command is
-    the ``validation_error`` of spec §13.5: stdout stays empty, the last stderr
+    ``IMGW_LANG`` outside ``pl`` and ``en`` ends every call, ``--help``
+    included, with the ``validation_error`` line (``details.option`` is
+    ``IMGW_LANG``, ``details.allowed`` the languages, exit code 2). An unknown
+    flag or command, a missing option value or a missing command is the
+    ``validation_error`` of spec §13.5: stdout stays empty, the last stderr
     line is ``{"code", "detail", "details"}`` with a Polish ``detail`` and the
-    original Click message in ``details.click``, and the exit code is 2.
+    original Click message in ``details.click``, and the exit code is 2. The
+    help elements of Typer and Click are in the CLI language.
     """
 
     def make_context(
@@ -213,6 +346,8 @@ class ImgwGroup(TyperGroup):
         **extra: Any,
     ) -> Any:
         """Parse the root arguments; a syntax error ends with the JSON error line."""
+        if _language() is None:
+            raise typer.Exit(_language_failure())
         try:
             return super().make_context(info_name, args, parent, **extra)
         except _click_errors.UsageError as exc:
@@ -225,8 +360,50 @@ class ImgwGroup(TyperGroup):
         except _click_errors.UsageError as exc:
             raise typer.Exit(_usage_failure(exc)) from None
 
+    def get_help_option(self, ctx: Any) -> Any:
+        """Return the ``--help`` option described in the CLI language."""
+        return _help_option(super().get_help_option(ctx))
 
-class _CatalogCommand(TyperCommand):
+    def format_usage(self, ctx: Any, formatter: Any) -> None:
+        """Write the usage line with the prefix of the CLI language."""
+        _write_usage(self, ctx, formatter)
+
+
+class ImgwSubgroup(TyperGroup):
+    """
+    Group under ``imgw`` (``typer.Typer(cls=ImgwSubgroup)``).
+
+    Its ``--help`` option and usage line are in the CLI language, like those
+    of the catalog groups.
+    """
+
+    def get_help_option(self, ctx: Any) -> Any:
+        """Return the ``--help`` option described in the CLI language."""
+        return _help_option(super().get_help_option(ctx))
+
+    def format_usage(self, ctx: Any, formatter: Any) -> None:
+        """Write the usage line with the prefix of the CLI language."""
+        _write_usage(self, ctx, formatter)
+
+
+class ImgwCommand(TyperCommand):
+    """
+    Command of the ``imgw`` tree (``@app.command(cls=ImgwCommand)``).
+
+    Its ``--help`` option and usage line are in the CLI language, also for
+    the commands outside the catalog (``imgw version``, ``imgw admin …``).
+    """
+
+    def get_help_option(self, ctx: Any) -> Any:
+        """Return the ``--help`` option described in the CLI language."""
+        return _help_option(super().get_help_option(ctx))
+
+    def format_usage(self, ctx: Any, formatter: Any) -> None:
+        """Write the usage line with the prefix of the CLI language."""
+        _write_usage(self, ctx, formatter)
+
+
+class _CatalogCommand(ImgwCommand):
     """Catalog command whose syntax errors name it (Click omits the context)."""
 
     def parse_args(self, ctx: Any, args: list[str]) -> list[str]:
@@ -305,24 +482,25 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
 
 def _metavar(option: CommandOption) -> str:
     choices = "|".join(option.choices)
-    return choices if choices and len(choices) <= 40 else _METAVARS[option.type]
+    return choices if choices and len(choices) <= 40 else _HELP.metavars[option.type]
 
 
 def _option(option: CommandOption) -> inspect.Parameter:
     """Click option of a catalog option: raw text in, defaults left to the catalog."""
-    panel = _REQUIRED_PANEL if option.required else _OPTIONAL_PANEL
+    panel = _HELP.required_panel if option.required else _HELP.optional_panel
+    help_ = _localized(option.help, option.help_en)
     annotation: object
     if option.type == "bool" and option.default is True:
         default = typer.Option(
             None,
             f"{option.flag}/--no-{option.flag[2:]}",
-            help=option.help,
+            help=help_,
             rich_help_panel=panel,
         )
         annotation = bool | None
     elif option.type == "bool":
         default = typer.Option(
-            False, option.flag, *option.aliases, help=option.help, rich_help_panel=panel
+            False, option.flag, *option.aliases, help=help_, rich_help_panel=panel
         )
         annotation = bool
     else:
@@ -330,10 +508,10 @@ def _option(option: CommandOption) -> inspect.Parameter:
             None,
             option.flag,
             *option.aliases,
-            help=option.help,
+            help=help_,
             metavar=_metavar(option),
             rich_help_panel=panel,
-            envvar=_ROOT_ENV if option.name == "root" else None,
+            envvar=_ENVVARS.get(option.name),
         )
         annotation = list[str] | None if option.type == "list" else str | None
     return inspect.Parameter(
@@ -349,7 +527,7 @@ def _flag(name: str, help_: str) -> inspect.Parameter:
         name,
         inspect.Parameter.KEYWORD_ONLY,
         default=typer.Option(
-            False, f"--{name}", help=help_, rich_help_panel=_OPTIONAL_PANEL
+            False, f"--{name}", help=help_, rich_help_panel=_HELP.optional_panel
         ),
         annotation=bool,
     )
@@ -363,8 +541,8 @@ def _parameters(spec: DataCommand) -> list[inspect.Parameter]:
         *(_option(option) for option in spec.options),
     ]
     if spec.check is not None:
-        parameters.append(_flag("check", _CHECK_HELP))
-    parameters.append(_flag("schema", _SCHEMA_HELP))
+        parameters.append(_flag("check", _HELP.check))
+    parameters.append(_flag("schema", _HELP.schema))
     return parameters
 
 
@@ -386,21 +564,25 @@ def _given(spec: DataCommand, values: Mapping[str, Any]) -> dict[str, object]:
 def _environment_root(
     spec: DataCommand, options: dict[str, object], ctx: typer.Context
 ) -> None:
-    """Drop a --root read from IMGW_STORE_ROOT where the command rejects root."""
-    rule = _ROOT_WHEN.get(spec.name)
-    origin = ctx.get_parameter_source("root") if rule is not None else None
-    if rule is None or origin is None or origin.name != "ENVIRONMENT":
+    """Drop a --root read from IMGW_STORE_ROOT unless ``env_root_when`` holds."""
+    if not spec.env_root_when or "root" not in options:
         return
-    name, value = rule
-    if str(options.get(name, "")).strip() != value:
-        options.pop("root", None)
+    origin = ctx.get_parameter_source("root")
+    if origin is None or origin.name != "ENVIRONMENT":
+        return
+    defaults = {option.name: option.default for option in spec.options}
+    for name, value in spec.env_root_when.items():
+        if str(options.get(name, defaults.get(name))).strip() != value:
+            options.pop("root")
+            return
 
 
 def _register(group: typer.Typer, spec: DataCommand) -> None:
     def callback(ctx: typer.Context, **values: Any) -> None:
         check = bool(values.pop("check", False))
         if values.pop("schema"):
-            code = _run("commands schema", {"command": spec.name}, check=False)
+            options: dict[str, object] = {"command": spec.name, "lang": _LANG}
+            code = _run("commands schema", options, check=False)
         else:
             options = _given(spec, values)
             _environment_root(spec, options, ctx)
@@ -410,9 +592,10 @@ def _register(group: typer.Typer, spec: DataCommand) -> None:
 
     cast(Any, callback).__signature__ = inspect.Signature(_parameters(spec))
     name = spec.name.split(" ", 1)[1]
-    group.command(
-        name, cls=_CatalogCommand, help=spec.description, short_help=spec.description
-    )(callback)
+    description = _localized(spec.description, spec.description_en)
+    group.command(name, cls=_CatalogCommand, help=description, short_help=description)(
+        callback
+    )
 
 
 def register_catalog(app: typer.Typer, /) -> None:
@@ -423,11 +606,13 @@ def register_catalog(app: typer.Typer, /) -> None:
     ``pmaxtp``, ``store``, ``series``, ``project``, ``commands``) becomes a
     subcommand group with the catalog group description as its help, holding
     every catalog command of that group. Command help is the catalog
-    description; options are the catalog flags and aliases (required ones in
-    the "Opcje wymagane" panel), ``--root`` falls back to
-    ``$IMGW_STORE_ROOT``, list options take comma-separated values or a
-    repeated flag, ``--check`` exists only for commands with a check twin and
-    ``--schema`` for every command.
+    description in the language of ``IMGW_LANG``; options are the catalog
+    flags and aliases (required ones in the "Opcje wymagane" panel, in
+    English "Required options"), ``--root`` falls back to
+    ``$IMGW_STORE_ROOT`` (only under ``env_root_when`` of the command),
+    ``--lang`` to ``$IMGW_LANG``, list options take comma-separated values or
+    a repeated flag, ``--check`` exists only for commands with a check twin
+    and ``--schema`` for every command.
 
     Parameters
     ----------
@@ -435,7 +620,9 @@ def register_catalog(app: typer.Typer, /) -> None:
         The ``imgw`` application, created with ``cls=ImgwGroup`` so that Click
         syntax errors end with the JSON error line.
     """
-    groups = {name: typer.Typer(help=text) for name, text in _GROUPS.items()}
+    groups = {
+        name: typer.Typer(help=text, cls=ImgwSubgroup) for name, text in _GROUPS.items()
+    }
     for spec in data_commands():
         _register(groups[spec.name.split(" ", 1)[0]], spec)
     for name, group in groups.items():

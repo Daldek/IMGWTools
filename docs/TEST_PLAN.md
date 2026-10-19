@@ -21,6 +21,13 @@ Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asynci
 > `test_api_commands.py`, `test_command_schema.py`, `test_commands.py` i kontrakt
 > `tests/contract/test_interface_contract.py`; testy builderów URL — `test_datasets.py` (`archive_files`) i `test_urls.py`
 > (`build_pmaxtp_url`, `build_api_url`). Regresję na żywo daje `tests/live/test_interfaces_live.py` (`IMGW_LIVE=1`). Stan: 1419 testów (1377 offline, 42 na żywo; `pytest --collect-only`). Sekcje 1–4 pozostają zapisem historycznym.
+>
+> **Aktualizacja 2026-10-19 (3.0.0, ADR-003 i ADR-004):** dostawcę ČHMÚ pokrywają `tests/unit/test_*_chmi.py`,
+> `test_parsing_chmi.py`, `test_store_content.py` i kontrakt `tests/contract/test_chmi_contract.py` (IMGW-15..19 na
+> `build_fixture_store(variant="complete_pl_cz")`), a na żywo `tests/live/test_chmi_live.py`; wsparcie agentów —
+> `test_agent_guide.py` (test dryfu `AGENTS.md`/`llms.txt`), `test_catalog_effects.py`, `test_catalog_i18n.py`,
+> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan: 2208 testów
+> (2129 offline, 79 na żywo; `pytest --collect-only`).
 
 Komendy bazowe:
 
