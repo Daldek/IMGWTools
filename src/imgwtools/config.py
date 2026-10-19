@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # Default and maximum page size of REST list commands (IMGW_API_MAX_LIMIT).
     api_max_limit: int = Field(default=1000, ge=1)
 
+    # Language of the CLI help and of the --lang default (IMGW_LANG): "pl" or
+    # "en"; checked where it is used, so a wrong value fails every imgw call
+    # with validation_error instead of this module's import. REST ignores it.
+    lang: str = "pl"
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

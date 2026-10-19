@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from imgwtools.models import PMaXTPResult
 
 PathArg = str | PathLike[str]
+Writes = Literal["none", "add", "replace"]
 
 
 @dataclass(frozen=True)
@@ -985,6 +986,13 @@ class CommandOption:
     rest : {"param", "server", "local"}, optional
         REST role: request parameter, server configuration value, or absent
         from REST (local only).
+    help_en : str, optional
+        English help text, the same information as ``help`` (non-empty for
+        every catalog option).
+    writes : {"none", "add", "replace"}, optional
+        Effect of giving the option: ``"add"`` writes only new files,
+        ``"replace"`` may overwrite an existing file (e.g. ``path`` of an
+        export or ``plan`` of ``store check``); ``"none"`` writes nothing.
     """
 
     name: str
@@ -1002,6 +1010,8 @@ class CommandOption:
     maximum: float | None = None
     pattern: str | None = None
     rest: Literal["param", "server", "local"] = "param"
+    help_en: str = ""
+    writes: Writes = "none"
 
 
 @dataclass(frozen=True)
@@ -1031,6 +1041,20 @@ class DataCommand:
         Alternative groups of required options (``oneOf``).
     rules : tuple of str, optional
         Other validation rules (in Polish), published as ``x-imgw.rules``.
+    description_en : str, optional
+        English description, the same information as ``description``.
+    rules_en : tuple of str, optional
+        English rules, in the order and number of ``rules``.
+    writes : {"none", "add", "replace"}, optional
+        Effect of a run (not of its check): ``"none"`` changes no file or
+        store, ``"add"`` writes only new files, versions, a manifest or a
+        task, ``"replace"`` may overwrite or remove existing user content
+        (a manifest, a result file, a file of a download directory).
+    network : bool, optional
+        Whether a run connects to a source server for some option values.
+    env_root_when : Mapping of str to str, optional
+        Option values under which an absent ``root`` comes from
+        ``IMGW_STORE_ROOT`` (CLI, MCP stdio); empty means always.
     """
 
     name: str
@@ -1043,6 +1067,11 @@ class DataCommand:
     requires: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     one_of: tuple[tuple[str, ...], ...] = ()
     rules: tuple[str, ...] = ()
+    description_en: str = ""
+    rules_en: tuple[str, ...] = ()
+    writes: Writes = "none"
+    network: bool = False
+    env_root_when: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

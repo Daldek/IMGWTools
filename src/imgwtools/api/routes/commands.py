@@ -21,7 +21,10 @@ object. Server and local options in a request are refused. Writes (POST
 without ``?check=true``) need ``IMGW_STORE_WRITES_ENABLED``, a configured
 ``IMGW_STORE_WRITE_TOKEN`` and a matching ``X-API-Key`` (constant-time
 comparison) and are checked before the root; list commands page by ``limit``
-(default and maximum ``IMGW_API_MAX_LIMIT``) and ``offset``.
+(default and maximum ``IMGW_API_MAX_LIMIT``) and ``offset``. A command with a
+``lang`` option takes it from ``Accept-Language`` when the request omits it
+(``?lang=`` first, Polish by default; ``Content-Language`` and ``Vary``);
+``operationId`` is ``x-imgw.operation_id`` of the catalog.
 """
 
 import hmac
@@ -53,7 +56,7 @@ from pydantic import (
 
 import imgwtools
 from imgwtools._jsonable import jsonable
-from imgwtools.api.errors import PROBLEM_RESPONSES, hide_server_paths
+from imgwtools.api.errors import PROBLEM_RESPONSES, accept_language, hide_server_paths
 from imgwtools.commands import (
     check_command,
     command_schema,
@@ -99,6 +102,8 @@ _DIAGNOSTIC = ("store info", "store scan")
 _MEDIA_TYPES = {"csv": "text/csv; charset=utf-8", "jsonl": "application/x-ndjson"}
 # Option given in REST as an imgw-plan/1 object instead of a file (spec §13.2).
 _PLAN = "plan"
+# Option chosen by Accept-Language when the request omits it (spec 2026-10-19 §4.2).
+_LANG = "lang"
 # Loose JSON kinds of POST body fields; `validate_command` normalizes values.
 _NUMBER = StrictInt | StrictFloat | StrictStr
 _LOOSE_TYPES: dict[str, Any] = {
@@ -186,7 +191,7 @@ class _Route:
 
     @property
     def operation_id(self) -> str:
-        return self.spec.name.replace(" ", "_").replace("-", "_")
+        return cast(str, self.schema["x-imgw"]["operation_id"])
 
     @property
     def params(self) -> tuple[CommandOption, ...]:
@@ -548,8 +553,22 @@ def _respond(route: _Route, options: dict[str, object], *, check: bool) -> Respo
             "Operację przerwano bez raportu; REST nie przekazuje anulowania"
         )
     if route.spec.result == "stream" and not check:
-        return _stream(route, envelope, normalized, root)
-    return JSONResponse(hide_server_paths(envelope.to_json(root=root, server=True)))
+        response: Response = _stream(route, envelope, normalized, root)
+    else:
+        response = JSONResponse(
+            hide_server_paths(envelope.to_json(root=root, server=True))
+        )
+    if _LANG in normalized:
+        response.headers["Content-Language"] = cast(str, normalized[_LANG])
+    return response
+
+
+def _negotiated(route: _Route, options: dict[str, object], request: Request) -> bool:
+    """Fill an absent ``lang`` option from ``Accept-Language``; True when filled."""
+    if _LANG in options or all(option.name != _LANG for option in route.params):
+        return False
+    options[_LANG] = accept_language(request.headers.get("accept-language"))
+    return True
 
 
 class _Endpoint:
@@ -557,7 +576,9 @@ class _Endpoint:
     Endpoint of one catalog route; FastAPI reads the parameters from `__signature__`.
 
     GET routes take only the request; POST routes also take the generated
-    body model and the ``?check=true`` flag resolved by the write guard.
+    body model and the ``?check=true`` flag resolved by the write guard. A
+    command with a ``lang`` option absent from the request answers in the
+    language of ``Accept-Language`` (``Vary: Accept-Language``).
     """
 
     def __init__(self, route: _Route, body: type[BaseModel] | None) -> None:
@@ -581,12 +602,17 @@ class _Endpoint:
     ) -> Response:
         route = self._route
         if route.method == "GET":
-            return _respond(route, _query_options(route, request), check=False)
-        for name in request.query_params:
-            if name != "check":
-                _refuse(route, name)
-        options = {} if body is None else body.model_dump(exclude_unset=True)
-        return _respond(route, options, check=check)
+            options = _query_options(route, request)
+        else:
+            for name in request.query_params:
+                if name != "check":
+                    _refuse(route, name)
+            options = {} if body is None else body.model_dump(exclude_unset=True)
+        negotiated = _negotiated(route, options, request)
+        response = _respond(route, options, check=check)
+        if negotiated:
+            response.headers.add_vary_header("Accept-Language")
+        return response
 
 
 # --------------------------------------------------------------------------

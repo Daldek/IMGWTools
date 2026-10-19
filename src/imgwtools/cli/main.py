@@ -19,7 +19,7 @@ from rich.console import Console
 
 from imgwtools._version import __version__
 from imgwtools.cli import admin
-from imgwtools.cli._dispatch import ImgwGroup, register_catalog
+from imgwtools.cli._dispatch import ImgwCommand, ImgwGroup, register_catalog
 
 app = typer.Typer(
     name="imgw",
@@ -39,13 +39,13 @@ register_catalog(app)
 app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
 
 
-@app.command()
+@app.command(cls=ImgwCommand)
 def version():
     """Wyswietl wersje programu."""
     console.print(f"[bold]IMGWTools[/bold] v{__version__}")
 
 
-@app.command()
+@app.command(cls=ImgwCommand)
 def server(
     host: str = typer.Option("0.0.0.0", help="Host do nasluchu"),
     port: int = typer.Option(8000, help="Port do nasluchu"),
