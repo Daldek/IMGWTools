@@ -4,30 +4,6 @@ Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.1.0/), wersj
 zgodne z [SemVer](https://semver.org/lang/pl/). Każda zmiana publicznego API i schematów
 magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
 
-## [Unreleased]
-
-### Naprawione
-
-- Zapis do magazynu działa na macOS i Windows, nie tylko na Linuksie. Wersje są
-  publikowane według modelu Kartografa: pliki trafiają z `.incoming/` do katalogu
-  `<label>_<sha8>` dowiązaniami twardymi (`os.link`, nigdy nie zastępują celu), a
-  sidecar pliku głównego, dowiązywany ostatni, zatwierdza wersję; obserwacje
-  (`observations/`) publikuje to samo `os.link`. Dotąd `store sync`, `series build`,
-  `store catalog`, `pmaxtp sync` i `project download` poza Linuksem kończyły się błędem
-  `conflict` (brak `renameat2`), a na Windows także `store init`, zapis manifestu
-  projektu i eksport z `--path` (błąd `fsync` katalogu). `fsync` katalogu jest teraz
-  pomijany na Windows i na systemach plików, które go nie obsługują (ADR-001, errata
-  2026-10-19).
-
-### Zmienione
-
-- Katalog wersji bez sidecara pliku głównego to przerwana publikacja, nie wersja:
-  `current_version` i zapis go pomijają (dotąd: `IMGWDataError` / `conflict` dla całego
-  slotu), `iter_store` nadal zgłasza go jako `missing_sidecar` (także gdy brakuje
-  pliku głównego), a następny zapis tej samej treści go uzupełnia.
-- System plików bez dowiązań twardych (FAT, exFAT, część FUSE) przy zapisie wersji:
-  `IMGWStoreConflictError` z `details.reason="not_atomic"`, jak dotąd w `init_store`.
-
 ## [3.0.0] — 2026-10-19
 
 Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite (ADR-001), a Python,
@@ -213,8 +189,9 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
 
 - **Wersjonowany magazyn** (`imgwtools.store`, re-eksport w `imgwtools`): niezmienne,
   tylko przyrostowe wersje archiwów IMGW 1:1 z sidecarem `*.meta.json` (SHA-256, rozmiar,
-  nagłówki HTTP, licencja IMGW-PIB), atomowa publikacja katalogu wersji (rename bez
-  zastępowania), staging `.incoming/`, wykrywanie katalogów Kartografa bez jego importu.
+  nagłówki HTTP, licencja IMGW-PIB), publikacja ze stagingu `.incoming/` dowiązaniami
+  twardymi bez zastępowania celu, z sidecarem pliku głównego dowiązywanym na końcu
+  (zatwierdza wersję; model Kartografa), wykrywanie katalogów Kartografa bez jego importu.
   Funkcje: `init_store`, `open_store`, `write_archive`, `check_store`/`sync_store`
   (listing + `HEAD`, plan `imgw-plan/1`, pozycje `stale_plan`), `check_series`/`build_series`
   (Parquet per stacja), `check_catalog`/`build_catalog` (`stations.geojson`, obrys
@@ -475,6 +452,11 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `hydro_stations_locations.csv` (wpis `hydro` bez nazwy, `active=false`, położenie
   `static`); kody wyłącznie z pliku użytkownika trafiają do `problems` (plik ten tylko
   uzupełnia położenia).
+- Katalog stacji IMGW-PIB podaje `meteo_kind` stacji meteorologicznej z bieżących
+  szeregów: `climate` — stacja w szeregu `pl.imgw.meteo_climate_daily`, w przeciwnym
+  razie `precipitation` — w szeregu `pl.imgw.meteo_precip_daily`, bez takiego szeregu
+  `null` (ČHMÚ zawsze `null`); `check_catalog` zgłasza zmianę `meteo_kind` jako `newer`
+  akcji indeksów szeregów (ADR-001, errata 2026-10-19).
 - `summarize_coverage` i `series.json`: w zbiorach miesięcznych i półrocznych
   miesiąc/okres posiadanego archiwum, w którym stacji brak (a inne stacje są), jest luką
   w `gaps` — jak dni w zbiorach dobowych; dla półrocza jednostkę uznaje się za posiadaną
@@ -490,8 +472,24 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
 - Kontrola katalogów Kartografa przed zapisem nie przegląda własnych drzew wersji
   magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `.incoming/`): koszt zapisu
   nie rośnie z liczbą wersji, a uszkodzony sidecar w innym slocie nie blokuje zapisów.
-- `init_store` na systemie plików bez dowiązań twardych (SMB, FAT) zgłasza
-  `IMGWStoreConflictError` (`details.reason="not_atomic"`) z polskim komunikatem.
+- Magazyn wymaga systemu plików z dowiązaniami twardymi, tak jak magazyn Kartografa
+  (jego ADR-036): wersje, obserwacje i znacznik `imgw-store.json` są publikowane
+  `os.link`, które nigdy nie zastępuje celu, więc zapis działa na Linuksie, macOS
+  i Windows (ext4, APFS, NTFS, udział SMB z dowiązaniami twardymi). System plików bez
+  dowiązań (FAT, exFAT, część NAS i FUSE, klient SMB macOS) daje w `init_store` i każdym
+  zapisie `IMGWStoreConflictError` (`details.reason="not_atomic"`) z polskim
+  komunikatem; odczyt dowiązań nie wymaga. `fsync` katalogu jest pomijany na Windows
+  i na systemach plików, które go nie obsługują (ADR-001, errata 2026-10-19).
+- Katalog wersji bez sidecara pliku głównego to przerwana publikacja, nie wersja:
+  `current_version` i zapis go pomijają, `iter_store` zgłasza go jako `missing_sidecar`
+  (także gdy brakuje pliku głównego), a następny zapis tej samej treści pod tą samą
+  etykietą go uzupełnia. Błąd albo Ctrl+C w trakcie publikacji nie usuwa dowiązanych
+  plików danych (mógł je przejąć równoległy zapis tych samych bajtów i zatwierdzić
+  swoim sidecarem) — zostaje przerwana publikacja, a znikają tylko puste katalogi
+  utworzone przez ten zapis. Etykieta katalogu stacji to data budowy, a PMAXTP
+  i archiwum bez `Last-Modified` — data pobrania (UTC): przerwaną publikację, której nie
+  dokończy ponowienie innego dnia ani zapis innej treści, usuwa się ręcznie (cały
+  katalog `<label>_<sha8>/` bez sidecara), gdy nie trwa żaden zapis do magazynu.
 - `iter_store` zgłasza wersję szeregu z nieobsługiwanym `extra.series_schema`
   (np. `imgw-series/2`) jako problem `unknown_schema`; `current_version` dla takiego
   slotu kończy się `IMGWDataError`.
@@ -664,7 +662,7 @@ bajty co bez dostawcy ČHMÚ.
   opendata.chmi.cz (stacje `0-203-1-001000` i `0-203-0-11799`) przez Python, CLI, REST
   i MCP z dziennikiem żądań każdego interfejsu; przebieg 2026-10-19: 26 passed w 77 s,
   124 żądania, 31,5 MB.
-- 2208 testów (`pytest --collect-only`, 2026-10-19): 2129 offline i 79 na żywo (53 IMGW-PIB,
+- 2213 testów (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo (53 IMGW-PIB,
   26 ČHMÚ).
 
 ## [2.2.0] — 2026-08-22

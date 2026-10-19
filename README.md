@@ -63,6 +63,8 @@ cd IMGWTools
 pip install -e ".[dev]"
 ```
 
+Zapis do magazynu wersjonowanego wymaga systemu plików z dowiązaniami twardymi — tak jak magazyn Kartografa (jego ADR-036). Linux, macOS i Windows (ext4, APFS, NTFS) oraz udział SMB obsługujący dowiązania twarde działają; na FAT/exFAT, części NAS i FUSE oraz na udziale SMB zamontowanym w macOS `store init` i każdy zapis kończą się błędem `conflict` (`details.reason="not_atomic"`). Odczyt magazynu dowiązań nie wymaga.
+
 ---
 
 ## Użycie jako biblioteka Python
@@ -646,7 +648,9 @@ Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_s
   .incoming/                                            # staging; nigdy nie jest wersją
 ```
 
-Wersje są niezmienne i tylko dopisywane: brak nadpisywania, dowiązań i ścieżki `latest`. Bieżącą wersję wylicza `current_version(root, slot=...)`; sloty: `archive:<klucz>:<plik>` (np. `archive:pl.imgw.hydro_daily:2024/codz_2024.zip`, `archive:cz.chmi.hydro_daily:H_0-203-1-001000_DQ_2025.json`), `series:<klucz>`, `catalog:pl.imgw.stations`, `catalog:cz.chmi.stations`, `pmaxtp:pl.imgw.pmaxtp:<METODA>/<indX>_<indY>`. Każdy plik główny ma sidecar `*.meta.json` (`imgw-meta/1`) z SHA-256, rozmiarem, żądaniem, nagłówkami HTTP i licencją dostawcy; sidecary archiwów ČHMÚ z formą kanoniczną mają też `content_sha256`. Katalog `observations/` (`imgw-observation/1`) zapisuje nowy sygnał źródła, gdy pobrane bajty mają tę samą treść co bieżąca wersja — nie jest wersją, `store scan --kind observation` pokazuje go jako historię publikacji.
+Wersje są niezmienne i tylko dopisywane: brak nadpisywania, trwałych dowiązań i ścieżki `latest`. Bieżącą wersję wylicza `current_version(root, slot=...)`; sloty: `archive:<klucz>:<plik>` (np. `archive:pl.imgw.hydro_daily:2024/codz_2024.zip`, `archive:cz.chmi.hydro_daily:H_0-203-1-001000_DQ_2025.json`), `series:<klucz>`, `catalog:pl.imgw.stations`, `catalog:cz.chmi.stations`, `pmaxtp:pl.imgw.pmaxtp:<METODA>/<indX>_<indY>`. Każdy plik główny ma sidecar `*.meta.json` (`imgw-meta/1`) z SHA-256, rozmiarem, żądaniem, nagłówkami HTTP i licencją dostawcy; sidecary archiwów ČHMÚ z formą kanoniczną mają też `content_sha256`. Katalog `observations/` (`imgw-observation/1`) zapisuje nowy sygnał źródła, gdy pobrane bajty mają tę samą treść co bieżąca wersja — nie jest wersją, `store scan --kind observation` pokazuje go jako historię publikacji.
+
+Zapis przenosi pliki wersji ze stagingu `.incoming/` dowiązaniami twardymi, które nigdy nie zastępują istniejącego pliku; sidecar pliku głównego jest dowiązywany na końcu i dopiero on zatwierdza wersję (model Kartografa, stąd wymóg dowiązań twardych — zob. „Instalacja”). Katalog wersji bez sidecara to przerwana publikacja (np. po błędzie zapisu, Ctrl+C albo zabiciu procesu): odczyt i zapis go pomijają, `store scan` pokazuje go jako problem `missing_sidecar`, a następny zapis tej samej treści pod tą samą etykietą go uzupełnia. Etykieta katalogu stacji to data budowy, a PMAXTP i archiwum bez `Last-Modified` — data pobrania (UTC): przerwaną publikację, której nie dokończy ponowienie z tą samą treścią i etykietą (np. katalog zbudowany ponownie następnego dnia), usuń ręcznie — cały katalog `<etykieta>_<sha8>/` bez sidecara — gdy nie trwa żaden zapis do magazynu.
 
 ### Zbiory
 
@@ -719,7 +723,7 @@ tests/
 └── live/                    # regresja na żywo (tylko z IMGW_LIVE=1): IMGW-PIB 37 komend × Python/CLI/REST + MCP; ČHMÚ
 ```
 
-**Łącznie: 2208 testów** (`pytest --collect-only`, 2026-10-19): 2129 offline i 79 na żywo, pomijane bez `IMGW_LIVE=1`:
+**Łącznie: 2213 testów** (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo, pomijane bez `IMGW_LIVE=1`:
 
 ```bash
 IMGW_LIVE=1 .venv/bin/python -m pytest tests/live/test_interfaces_live.py   # IMGW-PIB: 53 testy

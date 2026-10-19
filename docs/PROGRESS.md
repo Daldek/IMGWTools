@@ -6,7 +6,7 @@
 |------|---------|
 | **Wersja** | 3.0.0 |
 | **Data** | 2026-10-19 |
-| **Gałąź robocza** | `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004; wcześniej `feature/versioned-store`: magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
+| **Gałąź robocza** | `fix/archiwista-compat-2` (od `slave` `0d98f3b`: poprawki zgodności z Archiwistą przed tagiem 3.0.0); wcześniej `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004) i `feature/versioned-store` (magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
 | **Python** | >=3.12 |
 
 ---
@@ -65,6 +65,14 @@ Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/sup
 - **Fala A2 (A02, A03):** `agent_guide`, komenda `commands guide` (37.), pliki pochodne `AGENTS.md` i `llms.txt` z testem dryfu; adapter MCP `src/imgwtools/mcp/` (dodatek `imgwtools[mcp]`, tryby `read`/`write`/`http`).
 - **Fala A3 (A04, A05):** porządek komunikatów legacy (pomoc `imgw admin`, `version`, `server`, opisy pól OpenAPI, `reference_data`, strony HTML poza OpenAPI; ponowny skan dopisał pozycje 34–37 spec §7.2 i uzupełnienia §7.3 — errata A04); `imgw mcp`, `/mcp` (`IMGW_MCP_ENABLED`, `IMGW_MCP_ALLOWED_HOSTS`), `GET /llms.txt`, obraz Dockera na Pythonie 3.12 z `.[api,mcp]` i `location = /mcp` w nginx (obraz zbudowany i sprawdzony 2026-10-19: `/health`, `/llms.txt`, `initialize` na `/mcp`).
 - **Fala A4 (A06) i C10:** dokumentacja wydania (CHANGELOG, README z sekcjami ČHMÚ i agentów, CLAUDE.md, ARCHITECTURE, standardy, PRD, RULES), erraty ADR-001 i ADR-002 według sekcji „Wpływ” ADR-003 i ADR-004, errata ADR-003 D13, status ADR-004 w indeksie, noty `[ADR-003]`/`[ADR-004]` w spec 2026-10-17 §13 i `[ADR-004]` w spec 2026-10-18 §9.3, „3.1.0” → 3.0.0 w spec ČHMÚ (z kontekstem historycznym); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy); przykłady ČHMÚ uruchomione raz offline na `complete_pl_cz` i na żywo (opendata.chmi.cz), przykłady MCP — konfiguracja stdio (także `--allow-writes`, `--lang en`, wariant `uvx`) i `/mcp` przez HTTP — przez klienta SDK, przykład Dockera na obrazie zbudowanym przez `docker compose build`. `AGENTS.md` i `llms.txt` bez regeneracji (teksty katalogu bez zmian); test dryfu i pełny `pytest`: 2129 passed, 79 skipped (live).
+
+**Poprawki zgodności z Archiwistą przed tagiem** (audyt zgodności 3.0.0 z wymaganiami Archiwisty i przegląd `0d98f3b`, decyzja właściciela 2026-10-19; gałąź `fix/archiwista-compat-2` od `slave`):
+
+- **Wycofanie publikacji:** `_publish_dir` po błędzie albo Ctrl+C nie usuwa już dowiązanych plików danych — równoległy zapis tych samych bajtów mógł je przejąć i zatwierdzić swoim sidecarem, a ich usunięcie zostawiało zatwierdzoną wersję bez pliku głównego (`missing_file`, `IMGWDataError` dla slotu); zostaje przerwana publikacja, usuwane są tylko puste katalogi utworzone przez zapis. Regresja `test_failed_commit_keeps_files_a_concurrent_writer_committed` (EIO, Ctrl+C). Errata ADR-001 2026-10-19.
+- **Wymóg dowiązań twardych:** znacznik `imgw-store.json` zostaje przy `os.link`; README, ARCHITECTURE, CHANGELOG i erraty opisują wymóg (FAT/exFAT, część NAS i FUSE, klient SMB macOS → `not_atomic`; ten sam wymóg co magazyn Kartografa, jego ADR-036) i ręczne usuwanie przerwanej publikacji, której nie dokończy ponowienie pod tą samą etykietą (katalog stacji, PMAXTP, archiwum bez `Last-Modified` ponowione innego dnia). CHANGELOG: sekcja `[Unreleased]` włączona do `[3.0.0]`.
+- **B — `meteo_kind`:** katalog IMGW-PIB podaje `climate`/`precipitation` z bieżących szeregów `pl.imgw.meteo_climate_daily`/`pl.imgw.meteo_precip_daily`, `check_catalog` wykrywa zmianę (cherry-pick `1443011` z `fix/archiwista-compat`). Errata ADR-001 2026-10-19.
+- **D — regresja płaskiego pobierania:** dobowe i terminowe `2001_01_k.zip` w osobnych ścieżkach serwera i slotach (cherry-pick `6bcdde6`).
+- Bramka (offline, sieć zablokowana proxy): `pytest` 2134 passed, 79 skipped (live); `ruff check` i `ruff format --check src/ tests/` czysto; `pyright` 0 błędów.
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
