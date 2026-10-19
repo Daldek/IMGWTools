@@ -1,5 +1,5 @@
 """
-Catalog of the 36 data commands and the single dispatcher of public functions.
+Catalog of the 37 data commands and the single dispatcher of public functions.
 
 ``data_commands`` describes every operation of IMGWTools (spec §13.3). Each
 command calls exactly one public function whose parameters carry the option
@@ -225,6 +225,7 @@ _MODULES = {
     **dict.fromkeys(_STORE_FUNCTIONS, "imgwtools.store"),
     **dict.fromkeys(_PROJECT_FUNCTIONS, "imgwtools.project"),
     "command_schema": "imgwtools.commands",
+    "agent_guide": "imgwtools.agent_guide",
 }
 
 
@@ -577,7 +578,7 @@ _TASK_NAME_OPTION = _option(
     pattern=_TASK_PATTERN,
     rest="local",
 )
-# Language of the texts of a description command (commands schema).
+# Language of the texts of the description commands (commands schema, commands guide).
 _LANGUAGE = _option(
     "lang",
     "choice",
@@ -1459,6 +1460,33 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         result_type="ProjectReport",
     ),
 )
+# The description commands close the catalog: commands schema names every command.
+_GUIDE = _command(
+    "commands guide",
+    "Wygeneruj przewodnik dla agentów AI z katalogu komend i rejestrów: AGENTS.md "
+    "albo llms.txt, po polsku albo angielsku.",
+    "Generate the guide for AI agents from the command catalog and the registries: "
+    "AGENTS.md or llms.txt, in Polish or English.",
+    (
+        _option(
+            "format",
+            "choice",
+            "Format przewodnika: agents (AGENTS.md) albo llms (llms.txt)",
+            "Guide format: agents (AGENTS.md) or llms (llms.txt)",
+            choices=("agents", "llms"),
+            default="agents",
+            aliases=("-f",),
+        ),
+        _LANGUAGE,
+        _PATH,
+    ),
+    function="agent_guide",
+    check="check_command",
+    result="stream",
+    method="GET",
+    result_type="str",
+    rules=(_PATH_RULE,),
+)
 _CATALOG += (
     _command(
         "commands schema",
@@ -1471,7 +1499,11 @@ _CATALOG += (
                 "choice",
                 "Nazwa komendy katalogu; brak = cały katalog imgw-commands/1",
                 "Name of a catalog command; none = the whole imgw-commands/1 catalog",
-                choices=(*(command.name for command, _ in _CATALOG), "commands schema"),
+                choices=(
+                    *(command.name for command, _ in _CATALOG),
+                    "commands schema",
+                    _GUIDE[0].name,
+                ),
             ),
             _LANGUAGE,
         ),
@@ -1479,6 +1511,7 @@ _CATALOG += (
         method="GET",
         result_type="dict",
     ),
+    _GUIDE,
 )
 _COMMANDS = tuple(command for command, _ in _CATALOG)
 _BY_NAME = {command.name: command for command in _COMMANDS}
@@ -1512,7 +1545,7 @@ def _narrowed(command: DataCommand, owner: ProviderDescriptor) -> DataCommand | 
 
 def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
     """
-    Return the catalog of all 36 data commands or its view for one provider.
+    Return the catalog of all 37 data commands or its view for one provider.
 
     Parameters
     ----------
@@ -1922,7 +1955,7 @@ def _rules_series(options: Options, task: bool) -> None:
         _outside_store(options.get("path"))
 
 
-def _rules_store_export(options: Options, task: bool) -> None:
+def _rules_result_file(options: Options, task: bool) -> None:
     _outside_store(options.get("path"))
 
 
@@ -1960,12 +1993,13 @@ _RULES: dict[str, Rule] = {
     "pmaxtp sync": _rules_coordinates,
     "store check": _rules_store_check,
     "store sync": _rules_store_sync,
-    "store export": _rules_store_export,
+    "store export": _rules_result_file,
     "series select": _rules_series_select,
     "series read": _rules_series,
     "series summary": _rules_series,
     "series export": _rules_series,
     "project add": _rules_project_add,
+    "commands guide": _rules_result_file,
 }
 
 
@@ -2264,9 +2298,9 @@ def run_command(
     accept them. List commands are paged here: ``total`` counts the items
     returned by the function, ``items`` is the slice
     ``[offset, offset + limit)`` (to the end without ``limit``). Stream
-    commands (``store export``, ``series export`` without ``path``) return
-    the iterator of text lines as ``result``; an error while iterating is
-    raised from the iterator.
+    commands (``store export``, ``series export``, ``commands guide``
+    without ``path``) return the iterator of text lines as ``result``; an
+    error while iterating is raised from the iterator.
 
     Parameters
     ----------
@@ -2623,6 +2657,18 @@ def _check_manifest(command: str) -> Checker:
     return check
 
 
+def _check_commands_guide(options: Options, hooks: Hooks) -> StorePlan:
+    # The guide is rendered offline from the package; the plan names its target.
+    path = options.get("path")
+    target = "standardowe wyjście"
+    if isinstance(path, Path):
+        replaced = " (istniejący plik zostanie zastąpiony)" if path.exists() else ""
+        target = f"{path}{replaced}"
+    language = options.get("lang", "pl")
+    detail = f"Przewodnik {options.get('format', 'agents')} ({language}) → {target}"
+    return _reading("commands guide", detail)
+
+
 _CHECKS: dict[str, Checker] = {
     "datasets list": _check_datasets_list,
     "datasets files": _check_datasets_files,
@@ -2662,6 +2708,7 @@ _CHECKS: dict[str, Checker] = {
     "commands schema": lambda options, hooks: _reading(
         "commands schema", "Opis katalogu komend imgw-commands/1 (offline)"
     ),
+    "commands guide": _check_commands_guide,
 }
 
 
@@ -2868,7 +2915,7 @@ def command_schema(
     dict of {str : object}
         JSON Schema of the command options, or the ``imgw-commands/1``
         document with ``version``, ``lang``, ``result_schema``, ``groups``,
-        ``commands`` (36 schemas), ``errors`` (the error code registry) and
+        ``commands`` (37 schemas), ``errors`` (the error code registry) and
         ``exit_codes`` of the envelope statuses.
 
     Raises

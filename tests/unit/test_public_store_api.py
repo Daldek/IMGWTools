@@ -77,6 +77,7 @@ SPEC_FUNCTIONS = (
     "format_command",
     "check_command",
     "run_command",
+    "agent_guide",
     "init_project",
     "open_project",
     "set_project_store",

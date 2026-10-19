@@ -27,6 +27,7 @@ Features:
     - Versioned local store of IMGW archives, Parquet series and station catalog
     - ČHMÚ daily hydrological and meteorological data, stations and catalog
     - Data command catalog and ``imgw-project/1`` project manifests
+    - Guide for AI agents (``AGENTS.md``, ``llms.txt``) generated from the catalog
 
 Installation:
     pip install imgwtools           # Core library only
@@ -42,6 +43,9 @@ and are intentionally not re-exported here.
 """
 
 from imgwtools._version import __version__
+
+# Guide for AI agents
+from imgwtools.agent_guide import agent_guide
 
 # Data command catalog
 from imgwtools.commands import (
@@ -391,6 +395,7 @@ __all__ = [
     "format_command",
     "check_command",
     "run_command",
+    "agent_guide",
     # Projects
     "ProjectFile",
     "ProjectTask",

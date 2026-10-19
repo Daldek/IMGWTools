@@ -32,7 +32,7 @@ SERIES_KEYS = [
 ]
 
 
-def test_catalog_document_lists_36_schemas_groups_errors_and_exit_codes():
+def test_catalog_document_lists_37_schemas_groups_errors_and_exit_codes():
     document = command_schema()
     assert json.loads(json.dumps(document)) == document
     assert (

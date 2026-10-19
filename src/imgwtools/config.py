@@ -1,10 +1,10 @@
 """Application configuration using pydantic-settings."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # with validation_error instead of this module's import. REST ignores it.
     lang: str = "pl"
 
+    # MCP over Streamable HTTP in imgw server (spec 2026-10-19 §6.2, §6.9): the
+    # /mcp endpoint exists only with IMGW_MCP_ENABLED=true and the mcp extra;
+    # it answers only the Host names of IMGW_MCP_ALLOWED_HOSTS (comma-separated,
+    # each with or without a port).
+    mcp_enabled: bool = False
+    mcp_allowed_hosts: Annotated[list[str], NoDecode] = ["127.0.0.1", "localhost"]
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -59,6 +66,14 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.env == "production"
+
+    @field_validator("mcp_allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, value: object) -> object:
+        """Split the comma-separated text of ``IMGW_MCP_ALLOWED_HOSTS``."""
+        if isinstance(value, str):
+            return [host.strip() for host in value.split(",") if host.strip()]
+        return value
 
 
 # Global settings instance

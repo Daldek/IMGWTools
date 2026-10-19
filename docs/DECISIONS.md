@@ -267,3 +267,9 @@ Agent poznaje IMGWTools z jednego źródła zgodnego z kodem (`AGENTS.md`, `llms
 
 - **Do właściciela:** (1) zatwierdzenie D1–D12; (2) czy publiczny serwer ma włączyć `/mcp` (`IMGW_MCP_ENABLED`).
 - **Po 3.0.0:** (3) tłumaczenie treści wykonania (`detail`, `Notice.text`); (4) filtr narzędzi MCP według grup albo dostawcy (`data_commands(provider=…)`, ADR-003 D13); (5) limit wywołań sieciowych serwera stdio; (6) zapis przez MCP po HTTP z autoryzacją.
+
+### Erraty
+
+**2026-10-19 — D4, reguła ścieżki `commands guide` (A02).** Spec §3.4 („bez reguł”) poprawiony erratą w opisie taska A02: `commands guide` ma regułę „path wewnątrz magazynu jest niedozwolona”, tak jak `store export` i `series export`, bo jej opcja `path` to wspólna opcja wyniku z pomocą „Plik wyniku poza magazynem, w istniejącym katalogu”, a magazyn jest tylko przyrostowy (ADR-001 D1). Treść D4 bez zmian.
+
+**2026-10-19 — D7, D8, spec §6.4–§6.5 (A03).** Spec poprawiony erratą w opisie taska A03: (1) `arguments` niebędące obiektem odrzuca SDK `mcp` 2.3.0 błędem protokołu −32602 przed handlerem (model `CallToolRequestParams`), a nie błąd wykonania `validation_error`; (2) w trybie `http` argument `check` (stałe `true`) mają wyłącznie narzędzia tras POST, bo trasy GET nie przyjmują `?check=true`. Treść D7 i D8 bez zmian.

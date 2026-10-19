@@ -62,6 +62,7 @@ EFFECTS = {
     "project status": ("none", False, {}),
     "project verify": ("none", False, {}),
     "commands schema": ("none", False, {}),
+    "commands guide": ("none", False, {"path": "replace"}),
 }
 # Writing options of local commands (without a contract case).
 LOCAL_WRITES = {("project check", "plan")}
