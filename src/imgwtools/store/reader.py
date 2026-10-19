@@ -22,8 +22,10 @@ from imgwtools.datasets import (
     DatasetDescriptor,
     License,
     YearsArg,
+    _archive_from_path,
     datasets,
     get_dataset,
+    get_provider,
     parse_years,
     resolve_dataset_key,
     station_source_files,
@@ -103,8 +105,6 @@ _SHA = re.compile(r"^[0-9a-f]{64}$")
 # Dataset key <country>.<provider>.<name> of any provider (ADR-003 D1, IMGW-20).
 _DATASET = re.compile(DATASET_KEY_PATTERN)
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
-# Country and provider of every dataset the registry knows: all are IMGW-PIB's.
-_REGISTRY_ORIGIN = ("PL", "IMGW-PIB")
 _CODE = re.compile(STATION_CODE_PATTERN)
 _VERSION_DIR = re.compile(r"^.+_[0-9a-f]{8}$")
 _CELL = re.compile(r"^[0-9]+_[0-9]+$")
@@ -232,9 +232,12 @@ def _object(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
 
 def _registry_origin(dataset: str) -> tuple[str, str] | None:
     """``(country, provider)`` the registry gives ``dataset``; None for an unknown key."""
-    if resolve_dataset_key(dataset) is not None:
-        return _REGISTRY_ORIGIN
-    return None
+    key = resolve_dataset_key(dataset)
+    if key is None:
+        return None
+    # Every registry key starts with its provider's key prefix (ADR-003 D1).
+    provider = get_provider(key.rsplit(".", 1)[0])
+    return provider.country, provider.id
 
 
 def _content_fields(payload: Mapping[str, Any]) -> tuple[str | None, str | None]:
@@ -314,6 +317,7 @@ def _parse_meta(payload: object) -> Meta:
             f"pole label_source musi być jednym z {', '.join(_LABEL_SOURCES)}",
         )
     content_sha256, content_form = _content_fields(payload)
+    terms_url = license_.get("terms_url")
     return Meta(
         schema,
         dataset,
@@ -321,11 +325,18 @@ def _parse_meta(payload: object) -> Meta:
         sha,
         size,
         downloaded_at,
-        License(license_id, attribution, url),
+        License(
+            license_id,
+            attribution,
+            url,
+            terms_url if isinstance(terms_url, str) and terms_url else None,
+        ),
         request,
         extra,
         content_sha256,
         content_form,
+        provider=provider,
+        country=country,
     )
 
 
@@ -769,10 +780,13 @@ def _archive_slot(server_path: str) -> str | None:
     if descriptor.time_unit == "station_list":
         names = {
             PurePosixPath(item.server_path).name
-            for item in _station_lists().values()
+            for item in station_source_files(provider=descriptor.provider)
             if item.dataset == descriptor.key
         }
         valid = selector in names
+    elif descriptor.archive_scope != "country":
+        # Per-station files follow the file-name grammar of the dataset.
+        valid = _archive_from_path(descriptor.key, server_path) is not None
     else:
         valid = "/" in selector
     if not valid or ":" in selector:

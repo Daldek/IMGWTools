@@ -29,10 +29,21 @@ class Measurement:
         ``"value"`` for a regular measurement, ``"missing"`` for no data,
         ``"no_phenomenon"`` when the phenomenon did not occur,
         ``"accumulated"`` for a sum covering preceding missing days.
+    quality : int or None, optional
+        ČHMÚ ``QUALITY`` code 0-5 (0 good, 1 suspect, 2 poor, 3 estimated,
+        4 missing, 5 unknown), kept as published; it never changes ``value``
+        or ``flag``. None when the source publishes no quality (IMGW-PIB,
+        ČHMÚ hydrology) or leaves it empty.
+    source_flag : str or None, optional
+        ČHMÚ ``FLAG`` verbatim, also codes outside the ČHMÚ dictionary (e.g.
+        ``"T"`` unmeasurable trace of precipitation, ``"M"`` manual gauge);
+        None when absent.
     """
 
     value: float | None
     flag: Flag
+    quality: int | None = None
+    source_flag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,9 +54,11 @@ class NormalizedRecord:
     Attributes
     ----------
     station_code : str
-        Nine-digit station code.
+        Station code: nine IMGW-PIB digits or a ČHMÚ WIGOS identifier
+        (e.g. ``"0-203-1-001000"``).
     dataset : str
-        Full dataset key, e.g. ``"pl.imgw.hydro_daily"``.
+        Full dataset key, e.g. ``"pl.imgw.hydro_daily"`` or
+        ``"cz.chmi.hydro_daily"``.
     date : date
         Calendar start of the time unit (day, first day of the month or
         start of the half-year period).
@@ -515,32 +528,40 @@ def _safe_int(value: Any) -> int | None:
 @dataclass(frozen=True)
 class StationListEntry:
     """
-    One row of an IMGW station list (hydrological or meteorological).
+    One station of a provider station list (hydrological or meteorological).
 
     Attributes
     ----------
     kind : {"hydro", "meteo"}
         Station family of the list the row comes from.
     station_code : str
-        Station code as text (normally nine digits; kept verbatim).
+        Station code as text, kept verbatim (nine IMGW-PIB digits or a
+        ČHMÚ WIGOS identifier).
     name : str
         Station name.
     river : str or None
-        Hydro only: river name without the hydrographic code suffix.
+        Hydro only: river name without the IMGW hydrographic code suffix;
+        ČHMÚ ``STREAM_NAME``.
     hydrographic_code : str or None
-        Hydro only: hydrographic code from the parentheses of the river
-        column, kept as text (leading zeros preserved).
+        Hydro only: IMGW hydrographic code from the parentheses of the river
+        column or ČHMÚ ``HLGP4`` (e.g. ``"1-05-02-0720"``), kept as text
+        (leading zeros preserved).
     river_order : int or None
-        Hydro only: fourth column of the list, without assigned hydrological
-        meaning.
+        Hydro only: fourth column of the IMGW list, without assigned
+        hydrological meaning; None for ČHMÚ.
     short_code : str or None
-        Meteo only: third column of the list (IMGW short station number),
-        kept as text without surrounding whitespace.
+        Meteo only: third column of the IMGW list (short station number),
+        kept as text without surrounding whitespace; None for ČHMÚ.
     latitude : float or None
-        Latitude (WGS84) from the stored station catalog; None for live
-        lists, stations without a location or a store without a catalog.
+        Latitude (WGS84): for IMGW-PIB from the stored station catalog (None
+        for live lists, stations without a location or a store without a
+        catalog); for ČHMÚ as published in the station metadata, without
+        validation against the country border.
     longitude : float or None
         Longitude (WGS84), as ``latitude``.
+    provider : str, optional
+        Provider identifier of the list: ``"IMGW-PIB"`` (default) or
+        ``"CHMI"``.
     """
 
     kind: Literal["hydro", "meteo"]
@@ -552,6 +573,7 @@ class StationListEntry:
     short_code: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    provider: str = "IMGW-PIB"
 
 
 class HydroArchiveStation(BaseModel):

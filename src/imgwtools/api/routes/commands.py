@@ -62,7 +62,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.config import settings
-from imgwtools.datasets import ArchiveFile, License
+from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
 from imgwtools.exceptions import (
     ErrorCode,
     IMGWDataError,
@@ -119,6 +119,7 @@ _ANNOTATIONS: dict[str, Any] = {
     "ErrorCode": ErrorCode,
     "License": License,
     "PMaXTPResult": PMaXTPResult,
+    "ProviderDescriptor": ProviderDescriptor,
 }
 
 

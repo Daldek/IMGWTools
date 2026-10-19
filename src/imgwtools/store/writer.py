@@ -13,23 +13,31 @@ import socket
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 from imgwtools._version import __version__
-from imgwtools.datasets import ArchiveFile, get_dataset
+from imgwtools.datasets import (
+    ArchiveFile,
+    DatasetDescriptor,
+    _license_document,
+    get_dataset,
+    get_provider,
+)
 from imgwtools.exceptions import (
     IMGWCancelledError,
+    IMGWDataError,
     IMGWStoreConflictError,
     IMGWStoreError,
     IMGWValidationError,
     io_error,
 )
 from imgwtools.fetch import DownloadResult
+from imgwtools.store.content import CONTENT_FORMS, content_sha256
 from imgwtools.store.types import (
     Cancel,
     Notice,
@@ -44,6 +52,7 @@ from imgwtools.store.types import (
 
 _MARKER = "imgw-store.json"
 _ATTRIBUTION_CODE = "license_terms"
+_CONTENT_CODE = "content_unchanged"
 # Trees directly under a store root written only by IMGWTools; the reader reports
 # anything unexpected there, so the Kartograf probe does not walk into them.
 _MANAGED_TREES = frozenset({"archives", "series", "stations", "pmaxtp", ".incoming"})
@@ -52,6 +61,11 @@ OBSERVATION_SCHEMA = "imgw-observation/1"
 # Observation register of an archive slot, beside its version directories.
 _OBSERVATIONS = "observations"
 _SEEN_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+# File types each provider publishes as archives.
+_SUFFIXES = {"IMGW-PIB": (".zip", ".csv"), "CHMI": (".json", ".csv")}
+# Provider whose archive sidecars keep the 3.0.0 layout: no station_code or
+# param in request and no station_code in extra.period (the same bytes).
+_COUNTRY_LAYOUT = "IMGW-PIB"
 
 
 def _canonical(value: object) -> bytes:
@@ -641,6 +655,165 @@ def _publish_observation(
             shutil.rmtree(staging)
 
 
+def _content_of(data: bytes, *, form: str, filename: str) -> str:
+    """``content_sha256`` of downloaded bytes; a form error names the file."""
+    try:
+        return content_sha256(data, form=form)
+    except IMGWDataError as exc:
+        raise IMGWDataError(
+            f"Plik {filename} nie spełnia formy treści {form}: {exc}"
+        ) from exc
+
+
+def _content_fields(
+    same: list[tuple[Path, dict[str, Any], tuple[Any, Any]]],
+    *,
+    content: str | None,
+    form: str | None,
+) -> dict[str, str]:
+    """
+    ``content_sha256`` and ``content_form`` of a new version's sidecar.
+
+    A relabeled copy keeps the fields of the stored version with the same
+    bytes; otherwise the fields come from the dataset's form (none without
+    a form, so IMGW-PIB sidecars keep their bytes).
+    """
+    for _, old_meta, _ in same:
+        digest, old_form = old_meta.get("content_sha256"), old_meta.get("content_form")
+        if isinstance(digest, str) and isinstance(old_form, str):
+            return {"content_sha256": digest, "content_form": old_form}
+    if content is None or form is None:
+        return {}
+    return {"content_sha256": content, "content_form": form}
+
+
+def _content_unchanged(
+    root: Path,
+    *,
+    descriptor: DatasetDescriptor,
+    archive: ArchiveFile,
+    response: DownloadResult,
+    sha: str,
+    content: str,
+    slot_dir: str,
+    now: datetime,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> VersionResult | None:
+    """
+    Decide on bytes no version of a slot has, by the canonical content (§3.1).
+
+    The bytes are compared with the current version of the slot by the form
+    recorded in that version. The same content gives ``"unchanged"`` without
+    a version: a signal (URL, ETag, Last-Modified, size) other than the
+    slot's reference signal is recorded once as an observation (ADR-003 D18),
+    and the ``content_unchanged`` notice names the slot, both SHA-256 sums,
+    the common ``content_sha256`` and the observation.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        Store root.
+    descriptor : DatasetDescriptor
+        Dataset of the slot, with a canonical form.
+    archive : ArchiveFile
+        Downloaded file.
+    response : DownloadResult
+        Downloaded bytes and HTTP headers.
+    sha : str
+        SHA-256 of the downloaded bytes.
+    content : str
+        ``content_sha256`` of the bytes by the dataset's form.
+    slot_dir : str
+        Slot directory relative to ``root``.
+    now : datetime
+        Time of the download (UTC); its whole seconds become ``seen_at``.
+    on_notice : NoticeHook or None
+        Receives the ``content_unchanged`` notice.
+    cancel : Cancel or None
+        Polled before an observation is published.
+
+    Returns
+    -------
+    VersionResult or None
+        The ``"unchanged"`` result naming the current version, or None when
+        a new version is due: other content, or a current version without
+        content fields or with a form this library does not know.
+    """
+    # The reader imports this module, so it is imported at call time.
+    from imgwtools.store.reader import _archive_slot, _reference_signal
+
+    slot = _archive_slot(archive.server_path)
+    reference = None if slot is None else _reference_signal(root, slot=slot)
+    if (
+        reference is None
+        or reference.version.meta is None
+        or reference.version.version is None
+    ):
+        return None
+    meta = reference.version.meta
+    form = meta.content_form
+    if meta.content_sha256 is None or form is None or form not in CONTENT_FORMS:
+        return None
+    if form != descriptor.content_form:
+        content = _content_of(response.data, form=form, filename=archive.server_path)
+    if content != meta.content_sha256:
+        return None
+    current = reference.version.version
+    seen = (response.url, response.etag, response.last_modified, len(response.data))
+    if seen == (
+        reference.url,
+        reference.etag,
+        reference.last_modified,
+        reference.size_bytes,
+    ):
+        observation = reference.observation
+    else:
+        observation = _publish_observation(
+            root,
+            slot=slot_dir,
+            observation=Observation(
+                dataset=descriptor.key,
+                seen_at=_utc(now.replace(microsecond=0)),
+                url=response.url,
+                last_modified=response.last_modified,
+                etag=response.etag,
+                size_bytes=len(response.data),
+                sha256=sha,
+                content_sha256=meta.content_sha256,
+                content_form=form,
+                same_content_as=current.parent.name,
+            ),
+            cancel=cancel,
+        )
+    if on_notice is not None:
+        recorded = (
+            observation.relative_to(root).as_posix()
+            if observation is not None
+            else "brak (sygnałem odniesienia jest bieżąca wersja)"
+        )
+        on_notice(
+            Notice(
+                "info",
+                _CONTENT_CODE,
+                f"Treść bez zmian w {slot}: pobrane bajty (SHA-256 {sha}) mają tę "
+                f"samą treść kanoniczną {form} (content_sha256 "
+                f"{meta.content_sha256}) co bieżąca wersja "
+                f"{current.relative_to(root).as_posix()} (SHA-256 {meta.sha256}); "
+                f"nowej wersji nie zapisano, obserwacja: {recorded}",
+            )
+        )
+    label = cast(Mapping[str, object], meta.extra["version"])["label"]
+    return VersionResult(
+        "unchanged",
+        current,
+        meta.sha256,
+        str(label),
+        observed_sha256=sha,
+        observation=observation,
+    )
+
+
 def write_archive(
     root: PathArg | StoreHandle,
     /,
@@ -658,8 +831,16 @@ def write_archive(
     ``.incoming`` and published as a whole version directory
     ``<label>_<sha8>`` by a single no-replace rename. The label is the UTC
     date of ``Last-Modified`` (or of the download when absent); identical
-    content with a different HTTP signal on the same day gets a stable
-    ``+<8 hex>`` suffix.
+    bytes with a different HTTP signal on the same day get a stable
+    ``+<8 hex>`` suffix. Country, provider and license of the sidecar come
+    from the provider registry.
+
+    For a dataset with a canonical form (``DatasetDescriptor.content_form``,
+    ADR-003 D17) the sidecar also records ``content_sha256`` and
+    ``content_form``, and bytes that differ from every version but carry the
+    canonical content of the current version give ``"unchanged"`` without a
+    version: a new source signal is recorded once in the slot's observation
+    register ``observations/`` (ADR-003 D18).
 
     Parameters
     ----------
@@ -667,24 +848,32 @@ def write_archive(
         Store root directory or an open store handle.
     archive : ArchiveFile
         Archive descriptor; its ``server_path`` must lie in the dataset's
-        server directory and end with ``.zip`` or ``.csv``.
+        server directory and end with ``.zip`` or ``.csv`` (IMGW-PIB) or
+        ``.json`` or ``.csv`` (ČHMÚ).
     response : DownloadResult
         Downloaded bytes and HTTP headers (``ETag``, ``Last-Modified``).
     on_progress : ProgressHook or None, optional
         Called once with a ``created`` progress event after publication.
     on_notice : NoticeHook or None, optional
         Called with a ``leftover_incoming`` warning for every abandoned
-        staging directory removed from ``.incoming`` and with the
-        ``license_terms`` notice after publication.
+        staging directory removed from ``.incoming``, with the
+        ``license_terms`` notice of the provider after publication, and with
+        the ``content_unchanged`` notice for other bytes of the same
+        canonical content.
     cancel : Cancel or None, optional
-        Polled before and after staging; returning ``True`` aborts the write.
+        Polled before and after staging and before an observation is
+        published; returning ``True`` aborts the write.
 
     Returns
     -------
     VersionResult
         ``status`` is ``"created"`` for new content, ``"relabeled"`` for
-        already stored content with a new HTTP signal, or ``"unchanged"``
-        when content and signal match an existing version.
+        already stored bytes with a new HTTP signal, or ``"unchanged"``
+        when bytes and signal match an existing version or the bytes carry
+        the canonical content of the current version (then ``path`` and
+        ``sha256`` name the current version, ``observed_sha256`` the
+        downloaded bytes and ``observation`` the recorded or reference
+        observation).
 
     Raises
     ------
@@ -692,6 +881,10 @@ def write_archive(
         If the dataset is unknown, the server path does not match the
         dataset or has a disallowed extension, the path is unsafe, or the
         ``Last-Modified`` header is invalid.
+    IMGWDataError
+        If the bytes of a dataset with a canonical form do not meet the form
+        (nothing is written), or an observation of the current version is
+        broken.
     IMGWStoreError
         If the root is not a supported store (code ``store_unavailable``) or a
         path contains a symbolic link (code ``validation_error``).
@@ -708,16 +901,24 @@ def write_archive(
     path = handle.root
     _check_kartograf(path)
     descriptor = get_dataset(archive.dataset)
+    provider = get_provider(descriptor.provider)
     _validate_slot(path, f"archives/versions/{archive.server_path}")
     relative = PurePosixPath(archive.server_path)
     if descriptor.server_dir is None or not archive.server_path.startswith(
         descriptor.server_dir + "/"
     ):
         raise IMGWValidationError(f"Ścieżka nie odpowiada zbiorowi {archive.dataset}")
-    if relative.suffix.lower() not in (".zip", ".csv"):
+    if relative.suffix.lower() not in _SUFFIXES.get(provider.id, ()):
         raise IMGWValidationError(f"Niedozwolony typ archiwum: {relative}")
-    slot = _validate_slot(
-        path, f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
+    slot_dir = f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
+    slot = _validate_slot(path, slot_dir)
+    filename = relative.name
+    form = descriptor.content_form
+    # A file that does not meet the dataset's form is rejected before any write.
+    content = (
+        None
+        if form is None
+        else _content_of(response.data, form=form, filename=archive.server_path)
     )
     if cancel is not None and cancel():
         raise IMGWCancelledError("Anulowano zapis archiwum")
@@ -726,7 +927,6 @@ def write_archive(
     _cleanup(incoming, on_notice=on_notice)
     staging = incoming / f"{socket.gethostname()}_{os.getpid()}_{uuid.uuid4().hex}"
     staging.mkdir()
-    filename = relative.name
     try:
         digest = hashlib.sha256()
         with (staging / filename).open("xb") as stream:
@@ -758,15 +958,30 @@ def write_archive(
         signal = (response.etag, response.last_modified)
         # Scan every stored copy of these bytes for an identical signal before
         # deciding on a relabel, so an older signal reappearing stays unchanged.
-        same = [
+        versions = [
             (old_file, old_meta, _archive_signal(old_file.parent, old_meta))
             for old_file, old_meta in _existing(slot, filename, archive=True)
         ]
-        same = [entry for entry in same if entry[1]["sha256"] == sha]
+        same = [entry for entry in versions if entry[1]["sha256"] == sha]
         for old_file, old_meta, old_signal in same:
             if not any(signal) or signal == old_signal:
                 old_version = old_meta["extra"]["version"]["label"]
                 return VersionResult("unchanged", old_file, sha, old_version)
+        if versions and not same and content is not None:
+            kept = _content_unchanged(
+                path,
+                descriptor=descriptor,
+                archive=archive,
+                response=response,
+                sha=sha,
+                content=content,
+                slot_dir=slot_dir,
+                now=now,
+                on_notice=on_notice,
+                cancel=cancel,
+            )
+            if kept is not None:
+                return kept
         matching = bool(same)
         if any(
             old_meta["extra"]["version"]["label"] == label
@@ -776,36 +991,38 @@ def write_archive(
             label += "+" + hashlib.sha256(_canonical(signal)).hexdigest()[:8]
         if cancel is not None and cancel():
             raise IMGWCancelledError("Anulowano zapis archiwum")
+        request: dict[str, object] = {
+            "server_path": archive.server_path,
+            "year": archive.year,
+            "month": archive.month,
+        }
+        period: dict[str, object] = {
+            "year": archive.year,
+            "month": archive.month,
+            "param": archive.param,
+            "year_type": archive.year_type,
+            "start": archive.period_start.isoformat() if archive.period_start else None,
+            "end": archive.period_end.isoformat() if archive.period_end else None,
+        }
+        if provider.id != _COUNTRY_LAYOUT:
+            request.update(station_code=archive.station_code, param=archive.param)
+            period["station_code"] = archive.station_code
         meta = {
             "schema": "imgw-meta/1",
             "producer": "imgwtools",
             "producer_version": __version__,
             "dataset": archive.dataset,
-            "country": "PL",
-            "provider": "IMGW-PIB",
-            "request": {
-                "server_path": archive.server_path,
-                "year": archive.year,
-                "month": archive.month,
-            },
-            "license": asdict(descriptor.license),
+            "country": provider.country,
+            "provider": provider.id,
+            "request": request,
+            "license": _license_document(provider.license),
             "downloaded_at": stamp,
             "sha256": sha,
             "size_bytes": len(response.data),
+            **_content_fields(same, content=content, form=form),
             "extra": {
                 "version": {"label": label, "label_source": label_source},
-                "period": {
-                    "year": archive.year,
-                    "month": archive.month,
-                    "param": archive.param,
-                    "year_type": archive.year_type,
-                    "start": archive.period_start.isoformat()
-                    if archive.period_start
-                    else None,
-                    "end": archive.period_end.isoformat()
-                    if archive.period_end
-                    else None,
-                },
+                "period": period,
                 "http": {
                     "url": response.url,
                     "etag": response.etag,
@@ -817,10 +1034,7 @@ def write_archive(
         _write_json(staging / f"{filename}.meta.json", meta)
         _fsync_dir(staging)
         slot.mkdir(parents=True, exist_ok=True)
-        _validate_slot(
-            path,
-            f"archives/versions/{relative.parent.as_posix()}/{relative.stem}/{label}_{sha[:8]}",
-        )
+        _validate_slot(path, f"{slot_dir}/{label}_{sha[:8]}")
         target = slot / f"{label}_{sha[:8]}"
         try:
             _atomic_publish(staging, target)
@@ -839,7 +1053,7 @@ def write_archive(
                 Notice(
                     "info",
                     _ATTRIBUTION_CODE,
-                    f"{descriptor.license.attribution}. Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                    f"{provider.license.attribution}. {provider.notice}",
                 )
             )
         return VersionResult(

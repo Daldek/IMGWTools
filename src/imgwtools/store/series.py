@@ -13,7 +13,7 @@ import tempfile
 import uuid
 import zlib
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
@@ -24,6 +24,7 @@ from imgwtools._version import __version__
 from imgwtools.datasets import (
     ArchiveFile,
     DatasetDescriptor,
+    _license_document,
     archive_files,
     datasets,
     get_dataset,
@@ -940,7 +941,7 @@ def build_series(
                 if published
                 else now.date().isoformat()
             )
-            license_info = asdict(descriptor.license)
+            license_info = _license_document(descriptor.license)
             license_info["attribution"] = (
                 f"{descriptor.license.attribution}. {_PROCESSED}"
             )

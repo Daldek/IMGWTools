@@ -14,7 +14,7 @@ from imgwtools._jsonable import jsonable
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 
 if TYPE_CHECKING:
-    from imgwtools.datasets import ArchiveFile, License
+    from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
     from imgwtools.exceptions import ErrorCode
     from imgwtools.models import PMaXTPResult
 
@@ -115,6 +115,9 @@ class StoreInfo:
         ``observation``.
     problems : tuple of str
         Human-readable descriptions of detected problems.
+    providers : tuple of ProviderDescriptor, optional
+        Data providers the library knows (identifier, display name,
+        datasets, license and attribution).
     """
 
     root: Path
@@ -123,6 +126,7 @@ class StoreInfo:
     supported: bool
     contracts: Mapping[str, str]
     problems: tuple[str, ...]
+    providers: tuple[ProviderDescriptor, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -134,9 +138,11 @@ class VersionResult:
     ----------
     status : {"created", "unchanged", "relabeled", "reused"}
         ``"created"`` for new content, ``"unchanged"`` when identical
-        content and HTTP signal already exist, ``"relabeled"`` when
-        identical content was published with a new HTTP signal under a new
-        label, ``"reused"`` when an existing version is reused.
+        content and HTTP signal already exist (or, for a dataset with a
+        canonical form, other bytes carry the content of the current
+        version), ``"relabeled"`` when identical bytes were published with a
+        new HTTP signal under a new label, ``"reused"`` when an existing
+        version is reused.
     path : Path
         Path of the version's main file.
     sha256 : str
@@ -144,12 +150,22 @@ class VersionResult:
     label : str
         Version label (date ``YYYY-MM-DD``, optionally with a ``+<hex>``
         suffix).
+    observed_sha256 : str or None, optional
+        SHA-256 of the downloaded bytes when they differ from the version's
+        but carry the same canonical content (``content_unchanged``); None
+        otherwise.
+    observation : Path or None, optional
+        Observation recording the signal of those bytes (written now or the
+        slot's reference observation); None otherwise, also when the
+        reference signal is the current version's own.
     """
 
     status: Literal["created", "unchanged", "relabeled", "reused"]
     path: Path
     sha256: str
     label: str
+    observed_sha256: str | None = None
+    observation: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -163,11 +179,10 @@ class PlanItem:
         Archive the item refers to.
     status : {"current", "newer", "missing", "unverifiable", "check_failed"}
         ``"current"`` when the local version matches the remote signal,
-        ``"newer"`` when the remote ETag or Last-Modified differs,
-        ``"missing"`` for a published file without a local version,
-        ``"unverifiable"`` when no comparable signal exists (also for
-        unpublished or cancelled items), ``"check_failed"`` on an HTTP or
-        listing error.
+        ``"newer"`` when the remote signal differs, ``"missing"`` for a
+        published file without a local version, ``"unverifiable"`` when no
+        comparable signal exists (also for unpublished or cancelled items),
+        ``"check_failed"`` on an HTTP or listing error.
     local_path : Path or None
         Current local version of the slot, relative to the store root, or
         None when there is none.
@@ -178,9 +193,21 @@ class PlanItem:
     remote_last_modified : str or None
         Last-Modified header reported by the server, or None.
     content_length : int or None
-        Content-Length reported by the server (size estimate only), or None.
+        Size reported by the server (``Content-Length`` or the listing), or
+        None.
     error : str or None
         Reason for an unverifiable or failed check, e.g. ``"nieopublikowany"``.
+    station_code : str or None, optional
+        Station of a per-station file (ČHMÚ), None for country archives.
+    signal : {"head", "listing"}, optional
+        Source of the remote signal: a ``HEAD`` request (IMGW-PIB) or the
+        server listing of the directory (ČHMÚ).
+    remote_listed_at : str or None, optional
+        Modification time from the listing, ``YYYY-MM-DDTHH:MMZ``; None for
+        ``"head"`` items.
+    local_observation : Path or None, optional
+        Observation giving the slot's reference signal, relative to the
+        store root; None when the reference is the current version itself.
     """
 
     archive: ArchiveFile
@@ -191,6 +218,10 @@ class PlanItem:
     remote_last_modified: str | None
     content_length: int | None
     error: str | None
+    station_code: str | None = None
+    signal: Literal["head", "listing"] = "head"
+    remote_listed_at: str | None = None
+    local_observation: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -239,6 +270,10 @@ class StorePlan:
         Planned non-archive actions.
     cancelled : bool, optional
         Whether the check was cancelled and the plan is partial.
+    requests : Mapping of str to int or None, optional
+        Requests the check made (``"made"``) and the downloads of its
+        ``newer`` and ``missing`` items would make (``"planned"``, two per
+        item: HEAD and GET); None when not counted.
     """
 
     schema: Literal["imgw-plan/1"]
@@ -248,6 +283,7 @@ class StorePlan:
     series_state: Mapping[str, Literal["current", "outdated", "missing"]]
     actions: tuple[PlanAction, ...] = ()
     cancelled: bool = False
+    requests: Mapping[str, int] | None = None
 
     def _document(self) -> dict[str, Any]:
         """
@@ -255,10 +291,10 @@ class StorePlan:
 
         Archive descriptors are flattened into the items without their
         publication periods (`from_json` restores them from the registry)
-        and local archive paths become relative POSIX texts. ``root`` stays
-        a `Path` and ``checked_at`` a `datetime`, so `to_json` and the JSON
-        envelope converter (``imgwtools._jsonable``) render them by their
-        own rules.
+        and local archive and observation paths become relative POSIX texts.
+        ``root`` stays a `Path` and ``checked_at`` a `datetime`, so `to_json`
+        and the JSON envelope converter (``imgwtools._jsonable``) render them
+        by their own rules.
 
         Returns
         -------
@@ -279,13 +315,19 @@ class StorePlan:
                     "month": item.archive.month,
                     "param": item.archive.param,
                     "year_type": item.archive.year_type,
+                    "station_code": item.station_code,
                     "status": item.status,
+                    "signal": item.signal,
                     "local_path": item.local_path.as_posix()
                     if item.local_path
                     else None,
                     "local_sha256": item.local_sha256,
+                    "local_observation": item.local_observation.as_posix()
+                    if item.local_observation
+                    else None,
                     "remote_etag": item.remote_etag,
                     "remote_last_modified": item.remote_last_modified,
+                    "remote_listed_at": item.remote_listed_at,
                     "content_length": item.content_length,
                     "error": item.error,
                 }
@@ -293,6 +335,7 @@ class StorePlan:
             ],
             "series_state": dict(self.series_state),
             "actions": [asdict(action) for action in self.actions],
+            "requests": dict(self.requests) if self.requests is not None else None,
         }
 
     def to_json(self, path: PathArg, /) -> Path:
@@ -334,9 +377,11 @@ class StorePlan:
         """
         Read the known fields of an ``imgw-plan/1`` document.
 
-        Unknown additional fields are ignored. Archive descriptors are
-        recreated from the offline dataset registry, which also restores
-        their publication periods.
+        Unknown additional fields are ignored, and fields added after 3.0.0
+        (``station_code``, ``signal``, ``remote_listed_at``,
+        ``local_observation``, ``requests``) take their defaults when absent.
+        Archive descriptors are recreated from the offline dataset registry,
+        which also restores their publication periods.
 
         Parameters
         ----------
@@ -353,50 +398,43 @@ class StorePlan:
         IMGWDataError
             If the file cannot be read or parsed, has an unsupported schema,
             lacks required fields, refers to an archive unknown to the
-            dataset registry or gives an archive URL different from the
-            registry URL.
+            dataset registry, gives an archive URL different from the
+            registry URL, or has an invalid ``signal`` or ``requests``.
         """
-        from imgwtools.datasets import ArchiveFile, archive_files, station_source_files
+        from imgwtools.datasets import _archive_from_path
 
         def restore_archive(row: dict[str, Any]) -> ArchiveFile:
             """Recreate omitted publication dates from the offline dataset registry."""
-            if row["year"] is None:
-                candidates = station_source_files()
-            else:
-                candidates = archive_files(
-                    row["dataset"],
-                    years=(row["year"],),
-                    months=(row["month"],) if row["month"] is not None else None,
-                )
-            source = next(
-                (
-                    entry
-                    for entry in candidates
-                    if entry.server_path == row["server_path"]
-                ),
-                None,
-            )
+            source = _archive_from_path(row["dataset"], row["server_path"])
+            station = row.get("station_code")
             if (
                 source is None
-                or source.year_type != row["year_type"]
-                or source.param != row["param"]
+                or (source.year, source.month, source.param, source.year_type)
+                != (row["year"], row["month"], row["param"], row["year_type"])
+                or (station is not None and station != source.station_code)
             ):
                 raise ValueError(f"Nieznana ścieżka źródłowa: {row['server_path']}")
             if row["url"] != source.url:
                 raise ValueError(
                     f"Adres {row['url']} nie odpowiada rejestrowi zbiorów: {source.url}"
                 )
-            return ArchiveFile(
-                dataset=source.dataset,
-                server_path=source.server_path,
-                url=source.url,
-                year=source.year,
-                month=source.month,
-                param=source.param,
-                year_type=source.year_type,
-                period_start=source.period_start,
-                period_end=source.period_end,
-            )
+            return source
+
+        def restore_signal(row: dict[str, Any]) -> Literal["head", "listing"]:
+            signal = row.get("signal", "head")
+            if signal not in ("head", "listing"):
+                raise ValueError(f"Nieznany sygnał pozycji planu: {signal!r}")
+            return signal
+
+        def restore_requests(value: object) -> dict[str, int] | None:
+            if value is None:
+                return None
+            if not isinstance(value, dict) or not all(
+                isinstance(count, int) and not isinstance(count, bool) and count >= 0
+                for count in value.values()
+            ):
+                raise ValueError("Pole requests planu musi mapować nazwy na liczby ≥ 0")
+            return {str(name): count for name, count in value.items()}
 
         try:
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -414,6 +452,12 @@ class StorePlan:
                     remote_last_modified=row["remote_last_modified"],
                     content_length=row["content_length"],
                     error=row["error"],
+                    station_code=row.get("station_code"),
+                    signal=restore_signal(row),
+                    remote_listed_at=row.get("remote_listed_at"),
+                    local_observation=Path(row["local_observation"])
+                    if row.get("local_observation") is not None
+                    else None,
                 )
                 for row in payload["items"]
             )
@@ -432,6 +476,7 @@ class StorePlan:
                     for action in payload.get("actions", [])
                 ),
                 cancelled=payload["cancelled"],
+                requests=restore_requests(payload.get("requests")),
             )
         except (OSError, ValueError, TypeError, KeyError, IMGWValidationError) as exc:
             raise IMGWDataError(f"Nie można odczytać planu IMGW: {exc}") from exc
@@ -449,9 +494,11 @@ class OperationResult:
         ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; the project task
         name is kept separately in ``task``; None when the item has no slot
         (e.g. an error of a whole project task).
-    status : {"created", "relabeled", "unchanged", "reused", "failed", "stale_plan", "cancelled"}
+    status : {"created", "relabeled", "unchanged", "reused", "restored_by_content", "failed", "stale_plan", "cancelled"}
         Outcome of the operation; ``"stale_plan"`` means the remote signal
-        changed since the plan was made and the item was not downloaded.
+        changed since the plan was made and the item was not downloaded;
+        ``"restored_by_content"`` means a project pin was restored by an
+        equivalent version with the same canonical content (a success).
     version : Path or None
         Absolute path of the resulting version's main file, or None.
     error : str or None
@@ -468,6 +515,7 @@ class OperationResult:
         "relabeled",
         "unchanged",
         "reused",
+        "restored_by_content",
         "failed",
         "stale_plan",
         "cancelled",
@@ -537,20 +585,22 @@ class DownloadItem:
         Slot of the archive file (§13.7 grammar), e.g.
         ``archive:pl.imgw.hydro_daily:2023/codz_2023.zip``.
     url : str
-        Source URL on the IMGW server.
-    status : {"downloaded", "failed", "cancelled"}
-        Outcome of the download.
+        Source URL on the provider's server.
+    status : {"downloaded", "not_published", "failed", "cancelled"}
+        Outcome of the download; ``"not_published"`` (a success) means the
+        server answered 404 for a candidate file of a ČHMÚ dataset.
     path : Path or None
         Absolute path of the written file, or None when nothing was written.
     error : str or None
-        Error description (in Polish) of a failed item, or None.
+        Error description (in Polish) of a failed item (``"nieopublikowany"``
+        for an unpublished one), or None.
     error_code : ErrorCode or None
         Error code from ``ERROR_CODES`` of a failed item, or None.
     """
 
     slot: str
     url: str
-    status: Literal["downloaded", "failed", "cancelled"]
+    status: Literal["downloaded", "not_published", "failed", "cancelled"]
     path: Path | None
     error: str | None
     error_code: ErrorCode | None
@@ -579,7 +629,7 @@ class DownloadReport:
 @dataclass(frozen=True)
 class CatalogReport:
     """
-    Result of building the ``stations.geojson`` station catalog.
+    Result of building the ``stations.geojson`` station catalog of a provider.
 
     Attributes
     ----------
@@ -596,6 +646,8 @@ class CatalogReport:
         indexes (absent from the station lists, public APIs and static file).
     problems : tuple of str
         Human-readable descriptions of problems.
+    provider : str, optional
+        ``ProviderDescriptor.id`` of the catalog's provider.
     """
 
     status: Literal["created", "unchanged", "cancelled", "failed"]
@@ -604,6 +656,7 @@ class CatalogReport:
     without_location: int
     from_series: int
     problems: tuple[str, ...]
+    provider: str = "IMGW-PIB"
 
 
 @dataclass(frozen=True)
@@ -641,6 +694,10 @@ class Meta:
     content_form : str or None, optional
         Identifier of the canonical form behind ``content_sha256``, e.g.
         ``"chmi-json/1"``; present exactly when ``content_sha256`` is.
+    provider : str, optional
+        ``provider`` field of the sidecar, e.g. ``"IMGW-PIB"`` or ``"CHMI"``.
+    country : str, optional
+        ``country`` field of the sidecar, e.g. ``"PL"`` or ``"CZ"``.
     """
 
     schema: str
@@ -654,6 +711,8 @@ class Meta:
     extra: Mapping[str, object]
     content_sha256: str | None = None
     content_form: str | None = None
+    provider: str = "IMGW-PIB"
+    country: str = "PL"
 
 
 @dataclass(frozen=True)
@@ -730,6 +789,9 @@ class StoreEntry:
         Human-readable problem description (in Polish), or None.
     observation : Observation or None, optional
         Parsed observation of an ``"observation"`` entry, None otherwise.
+    provider : str or None, optional
+        ``ProviderDescriptor.id`` of the slot's dataset; None for a problem
+        without a slot.
     """
 
     kind: Literal["archive", "series", "catalog", "pmaxtp", "observation", "problem"]
@@ -739,6 +801,7 @@ class StoreEntry:
     problem_code: str | None
     problem: str | None
     observation: Observation | None = None
+    provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -749,17 +812,21 @@ class StationFeature:
     Attributes
     ----------
     station_code : str
-        Nine-digit station code.
+        Station code (``STATION_CODE_PATTERN``: nine IMGW-PIB digits or a
+        WIGOS identifier).
     geometry : tuple of (float, float) or None
         Location as ``(lon, lat)`` in WGS84, or None when unknown.
     properties : Mapping of str to str, int, float, bool or None
         Catalog properties of the station (kind, name, river, location
         source, activity, etc.).
+    provider : str, optional
+        ``ProviderDescriptor.id`` of the catalog the station comes from.
     """
 
     station_code: str
     geometry: tuple[float, float] | None
     properties: Mapping[str, str | int | float | bool | None]
+    provider: str = "IMGW-PIB"
 
 
 @dataclass(frozen=True)
@@ -770,7 +837,7 @@ class StationCoverage:
     Attributes
     ----------
     station_code : str
-        Nine-digit station code.
+        Station code (nine IMGW-PIB digits or a WIGOS identifier).
     variable : str
         Variable code, e.g. ``"Q"`` or ``"H_max"``.
     unit : str
@@ -818,12 +885,17 @@ class StationSeriesIndex:
     variables : Mapping of str to StationCoverage
         Coverage per variable, kept separate per half-year period (keys such
         as ``"Q_min@winter"``).
+    periods : tuple of tuple of (date, date) or None, optional
+        Known periods of the station (per-station archives, ADR-003 D10):
+        merged ranges of the station's own files; None for datasets whose
+        archives cover the whole country.
     """
 
     file: Path
     sha256: str
     rows: int
     variables: Mapping[str, StationCoverage]
+    periods: tuple[tuple[date, date], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -1153,8 +1225,10 @@ class ProjectReport:
 
     Attributes
     ----------
-    tasks : Mapping of str to {"unpinned", "current", "missing", "changed", "upgraded", "failed", "cancelled"}
-        State of each processed task, keyed by task name.
+    tasks : Mapping of str to {"unpinned", "current", "content_match", "missing", "changed", "upgraded", "failed", "cancelled"}
+        State of each processed task, keyed by task name; ``"content_match"``
+        means every pin is current or matched by an equivalent version with
+        the same canonical content (at least one), never silently current.
     files : tuple of OperationResult
         Per-file outcomes with the §13.7 slot of the pinned file (a station
         file of a series has the selector ``series:<key>:<station_code>``)
@@ -1169,6 +1243,7 @@ class ProjectReport:
         Literal[
             "unpinned",
             "current",
+            "content_match",
             "missing",
             "changed",
             "upgraded",
