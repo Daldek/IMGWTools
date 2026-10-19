@@ -1,7 +1,7 @@
 # Spec: wsparcie agentów AI w IMGWTools 3.0.0
 
 **Data:** 2026-10-19  
-**Status:** proponowana z ADR-004 (`docs/DECISIONS.md`); zakres i wydanie przesądziła decyzja właściciela przekazana 2026-10-19: przewodnik dla agentów (`AGENTS.md`, `llms.txt`), opisy angielskie katalogu, serwer MCP i porządek komunikatów legacy wchodzą do 3.0.0 razem z kodem dostawcy ČHMÚ (C02–C10)  
+**Status:** przyjęta z ADR-004 (`docs/DECISIONS.md`, 2026-10-19; wdrożona w A01–A06); zakres i wydanie przesądziła decyzja właściciela przekazana 2026-10-19: przewodnik dla agentów (`AGENTS.md`, `llms.txt`), opisy angielskie katalogu, serwer MCP i porządek komunikatów legacy wchodzą do 3.0.0 razem z kodem dostawcy ČHMÚ (C02–C10)  
 **ADR:** ADR-004 (D1–D12); ramy: ADR-002 (jeden katalog komend, koperta `imgw-result/1`, rejestr kodów błędów), ADR-003 (ČHMÚ; katalog 36 komend po C07)  
 **Plan:** §11 (A01–A06), start po C07
 

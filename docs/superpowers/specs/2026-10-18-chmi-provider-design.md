@@ -1,7 +1,7 @@
 # Spec: dostawca ČHMÚ w magazynie IMGW
 
 **Data:** 2026-10-18  
-**Status:** przyjęta z ADR-003 (2026-10-18, zatwierdzenie właściciela); kontrakt implementacji dostawcy ČHMÚ w 3.1.0 (C02–C10) oraz poprawki kontraktów `/1` przed tagiem v3.0.0 (C01)  
+**Status:** przyjęta z ADR-003 (2026-10-18, zatwierdzenie właściciela); kontrakt implementacji dostawcy ČHMÚ w wydaniu 3.0.0 (C02–C10; pierwotnie 3.1.0 — errata ADR-003 D16 z 2026-10-19) oraz poprawki kontraktów `/1` przed tagiem v3.0.0 (C01). „3.0.0” jako stan odniesienia („jak w 3.0.0”, „bajty 3.0.0”, „czytnik 3.0.0”) oznacza stan bazowy sprzed C02: spec 2026-10-17, ADR-001, ADR-002 i C01  
 **Decyzje:** `docs/DECISIONS.md` ADR-003  
 **Baza:** `2026-10-17-versioned-store-design.md` §1–§13 (ADR-001, ADR-002). Ten dokument opisuje wyłącznie zmiany i dodatki; czego nie zmienia, obowiązuje bez zmian.  
 **Wymagania:** `Archiwista/docs/wymagania-imgwtools.md` IMGW-15..IMGW-19 (sekcje 4.15–4.19), stan z commita Archiwisty `4435cf7` (2026-10-18; IMGW-15 i IMGW-16 po uwagach IMGWTools, wcześniej `a59c6bc`)  
@@ -205,13 +205,13 @@ Reguły (walidacja przed czymkolwiek; błąd `validation_error` z `details.optio
 - Katalog slotu archiwum zawiera katalogi wersji `<label>_<sha8>` i najwyżej jeden katalog `observations/` (rejestr obserwacji, §3.2). Nazwa `observations` nie pasuje do etykiety (etykiety zaczynają się cyfrą), więc nie koliduje z wersjami; slot szeregu, katalogu stacji i PMAXTP nie ma rejestru.
 - Zbiór slotu archiwum = zbiór z najdłuższym pasującym `server_dir` (reguła U05) — rozłączność `server_dir` pilnuje rejestr.
 - Pod `stations/versions/` katalog o nazwie `<label>_<sha8>` to wersja katalogu IMGW, a katalog o nazwie slugu zarejestrowanego katalogu dostawcy (`^[a-z][a-z0-9_]*$`; etykiety zaczynają się cyfrą) zawiera wersje tego dostawcy; inne nazwy → `unknown_entry`.
-- Czytnik 3.0.0 widzi wpisy ČHMÚ jako `unknown_entry` ze slotem `null`: nie zna `server_dir` ani slugu `chmi_hydro_daily`, a `chmi_stations` nie pasuje do `<label>_<sha8>` [I z reguły U05, §13.7 spec 2026-10-17]. Nie czyta ich błędnie.
+- Czytnik stanu bazowego sprzed C02 widzi wpisy ČHMÚ jako `unknown_entry` ze slotem `null`: nie zna `server_dir` ani slugu `chmi_hydro_daily`, a `chmi_stations` nie pasuje do `<label>_<sha8>` [I z reguły U05, §13.7 spec 2026-10-17]. Nie czyta ich błędnie.
 - `StoreEntry.provider` = dostawca zbioru slotu; problem bez slotu ma `None`.
 
 **Sidecar archiwum ČHMÚ** (nagłówki HTTP z [V CzHydro §7]; pozostałe wartości umowne):
 
 ```json
-{"schema":"imgw-meta/1","producer":"imgwtools","producer_version":"3.1.0","dataset":"cz.chmi.hydro_daily","country":"CZ","provider":"CHMI","request":{"server_path":"hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","year":2025,"month":null,"station_code":"0-203-1-001000","param":null},"license":{"id":"CC-BY-4.0","attribution":"Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, licencja CC BY 4.0","url":"https://creativecommons.org/licenses/by/4.0/","terms_url":"https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti"},"downloaded_at":"2026-10-18T18:00:00Z","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size_bytes":21647,"content_sha256":"1111111111111111111111111111111111111111111111111111111111111111","content_form":"chmi-json/1","extra":{"version":{"label":"2026-05-21","label_source":"last_modified"},"period":{"year":2025,"month":null,"param":null,"year_type":"calendar","start":"2025-01-01","end":"2025-12-31","station_code":"0-203-1-001000"},"http":{"url":"https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","etag":"\"6a0eea27-548f\"","last_modified":"Thu, 21 May 2026 11:19:03 GMT","content_length":21647}}}
+{"schema":"imgw-meta/1","producer":"imgwtools","producer_version":"3.0.0","dataset":"cz.chmi.hydro_daily","country":"CZ","provider":"CHMI","request":{"server_path":"hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","year":2025,"month":null,"station_code":"0-203-1-001000","param":null},"license":{"id":"CC-BY-4.0","attribution":"Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, licencja CC BY 4.0","url":"https://creativecommons.org/licenses/by/4.0/","terms_url":"https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti"},"downloaded_at":"2026-10-18T18:00:00Z","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size_bytes":21647,"content_sha256":"1111111111111111111111111111111111111111111111111111111111111111","content_form":"chmi-json/1","extra":{"version":{"label":"2026-05-21","label_source":"last_modified"},"period":{"year":2025,"month":null,"param":null,"year_type":"calendar","start":"2025-01-01","end":"2025-12-31","station_code":"0-203-1-001000"},"http":{"url":"https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","etag":"\"6a0eea27-548f\"","last_modified":"Thu, 21 May 2026 11:19:03 GMT","content_length":21647}}}
 ```
 
 - `request` = `server_path`, `year`, `month` oraz addytywnie `station_code` i `param`; `extra.period` jak w 3.0.0 plus `station_code`. Dla meteo `year`, `start` i `end` = `null`, `year_type` = `none`, `param` = element.
@@ -327,7 +327,7 @@ Przykład: `archives/versions/hydrology/historical/data/daily/H_0-203-1-001000_D
 Przykład (slot i bieżąca wersja z przykładu sidecara §3; sumy umowne):
 
 ```json
-{"schema":"imgw-observation/1","producer":"imgwtools","producer_version":"3.1.0","dataset":"cz.chmi.hydro_daily","seen_at":"2026-10-19T06:00:00Z","url":"https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","last_modified":"Mon, 19 Oct 2026 03:12:44 GMT","etag":"\"6ad58aac-54c6\"","size_bytes":21702,"sha256":"2222222222222222222222222222222222222222222222222222222222222222","content_sha256":"1111111111111111111111111111111111111111111111111111111111111111","content_form":"chmi-json/1","same_content_as":"2026-05-21_00000000"}
+{"schema":"imgw-observation/1","producer":"imgwtools","producer_version":"3.0.0","dataset":"cz.chmi.hydro_daily","seen_at":"2026-10-19T06:00:00Z","url":"https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2025.json","last_modified":"Mon, 19 Oct 2026 03:12:44 GMT","etag":"\"6ad58aac-54c6\"","size_bytes":21702,"sha256":"2222222222222222222222222222222222222222222222222222222222222222","content_sha256":"1111111111111111111111111111111111111111111111111111111111111111","content_form":"chmi-json/1","same_content_as":"2026-05-21_00000000"}
 ```
 
 - `seen_at` = czas zapisu obserwacji (UTC, sekundy, jak `downloaded_at`); `url`, `etag`, `last_modified` = odpowiedź GET dosłownie (jak `extra.http`); `size_bytes` i `sha256` = rozmiar i suma bajtów zobaczonych u źródła, których magazyn nie przechowuje.
@@ -656,7 +656,9 @@ Reguły uzupełniające (`validate_command`, publikowane w `command_schema` jako
 - `stations`, `years`, `months` i `params` według §2.3 i §4.2; kod stacji sprawdzany gramatyką dostawcy zbioru.
 - `data_commands(provider=…)`: wybory opcji `dataset`/`datasets`/`provider` zawężone do dostawcy; komendy bez żadnego zbioru dostawcy są pominięte (dla `CHMI`: `current …` i `pmaxtp …`). Bez argumentu — pełny katalog.
 - CLI i REST powstają z katalogu bez ręcznego kodu (§13.10); `stations` w query REST jako lista po przecinku.
-- Web GUI w 3.1 oferuje wyłącznie zbiory IMGW-PIB (`datasets(provider="IMGW-PIB")`); formularz bez pola stacji nie obsłuży zbiorów ČHMÚ. Obsługa ČHMÚ w web to osobna pozycja backlogu.
+- Web GUI w 3.0.0 oferuje wyłącznie zbiory IMGW-PIB (`datasets(provider="IMGW-PIB")`); formularz bez pola stacji nie obsłuży zbiorów ČHMÚ. Obsługa ČHMÚ w web to osobna pozycja backlogu.
+
+> [ADR-004] Katalog liczy 37 komend: `commands guide` (`agent_guide`, `GET /api/v1/commands/guide`) dochodzi z ADR-004 D4 jako ostatnia komenda grupy `commands`. Opcje `provider` i `stations`, komenda `datasets providers` i reguły tej sekcji mają teksty angielskie (`help_en`, `description_en`, `rules_en`), a każda komenda — metadane skutków `x-imgw.writes`, `x-imgw.network` i `x-imgw.operation_id` (`datasets providers`: `none`, bez sieci; `datasets download`: `replace`, sieć; `store check`: `none`, sieć, `plan` zapisuje plik; `store sync`, `store catalog`: `add`, sieć): `2026-10-19-agent-support-design.md` §3.2.
 
 ### 9.4 Typy (uzupełnienie §13.9)
 
@@ -805,7 +807,7 @@ Scenariusze nagrań: (1) pierwsza publikacja — `missing` → `created`; (2) ma
 | Zmiana układu katalogów (był już `recent/data/10min/`, którego nie ma [V CzHydro §1]; PDF klimatu opisuje inne nazwy niż serwer [V CzMeteo §1]) | listing bez pasujących nazw | `check_failed` z `data_error` zamiast cichego zera |
 | Listing nie wykrywa przepisania w tej samej minucie z tym samym rozmiarem | przegapiona zmiana do następnej publikacji | akceptowane; tożsamość i tak potwierdza SHA-256 przy pobraniu |
 | Opóźniona publikacja roczna (hydro 2025: 2026-05-21 zamiast „do końca kwietnia” [V CzLegal §5]) | rok nieopublikowany w planie | status `nieopublikowany`, bez błędu |
-| Czytnik 3.0.0 na magazynie z ČHMÚ | problemy `unknown_entry` | Archiwista v0.6 wymaga IMGWTools ≥ 3.1 |
+| Czytnik stanu bazowego sprzed C02 na magazynie z ČHMÚ | problemy `unknown_entry` | Archiwista v0.6 wymaga IMGWTools ≥ 3.0.0 z dostawcą ČHMÚ (pierwotnie ≥ 3.1; errata ADR-003 D16) |
 
 Pytania otwarte:
 
@@ -827,7 +829,7 @@ Pytania otwarte:
 | Fala | Taski (równolegle) | Zakres |
 |---|---|---|
 | C0 (3.0.0, po U14, przed U16 i tagiem) | C01 | otwarte dziedziny kontraktów `/1` |
-| C1 (3.1.0, po tagu v3.0.0) | C02, C03 | rejestr dostawców i typy; parsery i pliki syntetyczne |
+| C1 (3.0.0 po U16; w planie pierwotnym 3.1.0 po tagu v3.0.0 — errata ADR-003 D16) | C02, C03 | rejestr dostawców i typy; parsery i pliki syntetyczne |
 | C2 | C04, C06 | listing, aktualność i synchronizacja; katalog stacji i odczyt |
 | C3 | C05, C07 | szeregi, pokrycie i eksport; katalog komend, wyszukiwanie i web |
 | C4 | C08 | projekty i magazyn testowy PL + CZ |
@@ -904,7 +906,7 @@ Pytania otwarte:
 **Zależy od:** C01–C08.  
 **Test akceptacji:** każdy wiersz §14 jest testem na `complete_pl_cz` i nagraniach; parytet Python/CLI/REST z §14 (koperty równe po kanonicznym zrzucie, te same `sha256` przy zamrożonym zegarze); zero ruchu sieciowego poza nagraniami; pełna bramka raz bez błędów; `IMGW_LIVE=1 .venv/bin/python -m pytest tests/live/test_chmi_live.py` przechodzi na serwerach ČHMÚ i raportuje liczbę żądań; każde znalezisko na żywo naprawione z testem offline.
 
-**C10 — Dokumentacja wydania 3.1.0.**  
+**C10 — Dokumentacja wydania 3.0.0** (pierwotnie 3.1.0; errata ADR-003 D16).  
 **Pliki:** `docs/CHANGELOG.md`, `README.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/PROGRESS.md`, `docs/DECISIONS.md` (datowane erraty ADR-001 i ADR-002 według sekcji „Wpływ” ADR-003; status ADR-003 ustawiony 2026-10-18), `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (noty `[ADR-003]` w §13.2–§13.7).  
 **Zależy od:** C09.  
-**Test akceptacji:** CHANGELOG 3.1.0 w „Dodane” obejmuje każdą zmianę z §9 i §11; tabele komend w README i CLAUDE.md zgadzają się z wynikiem `imgw commands schema` (jednorazowy skrypt, bez trwałego testu); każdy przykład ČHMÚ z README uruchomiony raz offline na `complete_pl_cz` daje opisany wynik; historyczne wpisy ADR bez przeredagowania.
+**Test akceptacji:** CHANGELOG 3.0.0 w „Dodane” obejmuje każdą zmianę z §9 i §11; tabele komend w README i CLAUDE.md zgadzają się z wynikiem `imgw commands schema` (jednorazowy skrypt, bez trwałego testu); każdy przykład ČHMÚ z README uruchomiony raz offline na `complete_pl_cz` daje opisany wynik; historyczne wpisy ADR bez przeredagowania.

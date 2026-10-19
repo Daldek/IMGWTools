@@ -9,7 +9,7 @@ Każdy wpis zachowuje stan decyzji z dnia przyjęcia; późniejsze zmiany opisuj
 | [ADR-001](#adr-001-magazyn-wersjonowany-imgw) | Magazyn wersjonowany IMGW | 2026-10-17 | Przyjęta |
 | [ADR-002](#adr-002-jeden-katalog-komend-i-spójne-interfejsy) | Jeden katalog komend i spójne interfejsy | 2026-10-18 | Przyjęta |
 | [ADR-003](#adr-003-dostawca-čhmú-w-magazynie-imgw) | Dostawca ČHMÚ w magazynie IMGW | 2026-10-18 | Przyjęta |
-| [ADR-004](#adr-004-wsparcie-agentów-ai-w-wydaniu-300) | Wsparcie agentów AI w wydaniu 3.0.0 | 2026-10-19 | Proponowana |
+| [ADR-004](#adr-004-wsparcie-agentów-ai-w-wydaniu-300) | Wsparcie agentów AI w wydaniu 3.0.0 | 2026-10-19 | Przyjęta |
 
 ---
 
@@ -79,6 +79,8 @@ Konsekwencje: archiwa źródłowe zachowują bajty i pochodzenie; stacje bez po�
 
 **2026-10-18 — klucze zbiorów (IMGW-20).** Uzupełnienie D4: klucz zbioru ma postać `<kraj>.<przedrostek>.<zbiór>[_<wariant>]` (`DATASET_KEY_PATTERN`, `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`; test obejmuje cały rejestr i klucz katalogu `pl.imgw.stations`). Klucz opublikowany w wydaniu z magazynem się nie zmienia, a sidecary zachowują surowy `dataset` na zawsze (D1). Zmiana nazwy zbioru jest możliwa wyłącznie przez wpis stary → bieżący klucz w tabeli `DATASET_KEY_ALIASES` (`imgwtools.datasets`; pusta w 3.0.0), odnotowany w `docs/CHANGELOG.md`; tabela jest odrębna od wejściowych `legacy_alias` sprzed 3.0. `read_meta` podaje obok surowego `dataset` znormalizowany `Meta.dataset_key` (`resolve_dataset_key`): bieżący klucz dla klucza aktualnego lub z tabeli, `None` dla klucza poprawnego, lecz nieznanego IMGWTools — bez wyjątku i bez problemu `invalid_meta` w skanie (zgodność wprzód, IMGW-13); klucz niezgodny ze wzorem pozostaje `invalid_meta`. `get_dataset` i odczyty magazynu przyjmują klucze z tabeli. Tożsamość dostawcy wynika z pól `provider` i `country`, nie z części klucza. Treść D1–D11 bez zmian.
 
+**2026-10-19 — ADR-003 (dostawca ČHMÚ).** Według sekcji „Wpływ” ADR-003 (zatwierdzonej 2026-10-18; kod dostawcy wchodzi do wydania 3.0.0 według erraty ADR-003 D16): D4 — klucz zbioru ma postać `<kraj>.<dostawca>.<slug>` (`pl.imgw.*` dla IMGW-PIB, `cz.chmi.*` dla ČHMÚ), a rejestr liczy 17 deskryptorów: 13 IMGW-PIB i 4 ČHMÚ (`cz.chmi.hydro_daily`, `cz.chmi.meteo_daily`, `cz.chmi.hydro_stations`, `cz.chmi.meteo_stations`), z dostawcą opisanym przez `ProviderDescriptor` (ADR-003 D1); katalog stacji ČHMÚ ma własny katalog slotu `stations/versions/chmi_stations/<label>_<sha8>/` (ADR-003 D5). D1 i Q14 — tożsamością wersji pozostaje SHA-256 bajtów, a te same bajty pod nowym sygnałem nadal dają `relabeled` z kopią; dla zbiorów z formą kanoniczną (`content_form` `chmi-json/1`: archiwa hydro ČHMÚ i listy stacji ČHMÚ) inne bajty o tym samym `content_sha256` co bieżąca wersja dają jednak `unchanged` bez nowej wersji, z komunikatem `content_unchanged` (ADR-003 D6, D17), a nowy sygnał źródła trafia do rejestru obserwacji slotu `observations/` (ADR-003 D18). Zbiory bez formy (wszystkie IMGW-PIB i CSV meteo ČHMÚ) zachowują regułę D1 bez zmian. „Polityka wersji (IMGW-13)” — dochodzi kontrakt magazynu `imgw-observation/1` (`observations/<YYYY-MM-DD>_<sha8>.json` w slocie archiwum, `store_info().contracts["observation"]`) z własnym licznikiem `/N`. Treść D1–D11 i odpowiedzi Q1–Q15 bez zmian; szczegóły: spec 2026-10-18 §2, §3, §3.1–§3.2.
+
 ---
 
 ## ADR-002: Jeden katalog komend i spójne interfejsy
@@ -136,6 +138,12 @@ Pełna tabela stare → nowe: spec §13.11. Wobec 2.1.1:
 Wobec niewydanego stanu 3.0.0 sprzed tego ADR: `run_command`/`check_command` zwracają `CommandResult`; `IMGWPlanStaleError` usunięty; `store read` → `store export`; opcje `lat`/`lon`, `dataset` (lista) i `no_series` → `latitude`/`longitude`, `datasets`, `series`; `method` domyślnie `POT`; sloty według nowej gramatyki; `StationCoverage.station` i `ProjectFile.station` (`imgw-project.json`) → `station_code`; CSV użytkownika `station_code,latitude,longitude,source`; trasy REST magazynu według §13.3 (`/store/entries` → `/store/scan`, `/series/{station}` → `/series/read`, `/series/index` → `/series/summary`, `/pmaxtp/store/sync` → `/pmaxtp/sync`, `POST /series/export` i `POST /store/check` → `GET`); kody REST `store_not_configured|store_root_invalid|user_locations_invalid` → `store_unavailable`, `writes_disabled|write_token_missing|invalid_api_key` → `forbidden`, a 409 `stale_plan` → koperta `partial`.
 
 Bez zmian: `download_hydro_data`/`download_meteo_data` (argumenty 2.1.1, wynik `DownloadResult` z ADR-001 D7), wywołanie `fetch_pmaxtp(latitude, longitude, method=...)` i `PMaXTPResult`, układ katalogów magazynu oraz schematy `imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-pmaxtp/1`.
+
+### Erraty
+
+**2026-10-19 — ADR-003 (dostawca ČHMÚ).** Według sekcji „Wpływ” ADR-003 (zatwierdzonej 2026-10-18; kod w wydaniu 3.0.0 według erraty ADR-003 D16): D4 — na wyjściu pełny klucz `<kraj>.<dostawca>.<slug>` (`pl.imgw.*` albo `cz.chmi.*`), a rejestr liczy 17 deskryptorów (13 IMGW-PIB i 4 ČHMÚ, spec 2026-10-18 §2.2); kod stacji spełnia gramatykę dostawcy (`STATION_CODE_PATTERN`: 9 cyfr IMGW-PIB albo identyfikator WIGOS ČHMÚ), a sloty ČHMÚ mają tę samą gramatykę `<kind>:<klucz>[:<selektor>]` (np. `archive:cz.chmi.hydro_daily:H_0-203-1-001000_DQ_2025.json`, `catalog:cz.chmi.stations`). Katalog dostaje opcje `provider` i `stations` oraz komendę `datasets providers` (ADR-003 D13), rejestr kodów błędów pozostaje zamknięty, a tytuł `source_unavailable` brzmi „Źródło danych niedostępne” (`detail` nazywa dostawcę). Spec 2026-10-17 §13.2–§13.7 ma noty `[ADR-003]`. Treść D1–D14 bez zmian.
+
+**2026-10-19 — ADR-004 (wsparcie agentów AI).** Według sekcji „Wpływ” ADR-004: D1 — katalog liczy 37 komend: 35 z tego ADR, `datasets providers` (ADR-003 D13) i `commands guide` (ADR-004 D4); poza katalogiem są także `imgw mcp` (ADR-004 D6), `GET /llms.txt` i punkt `/mcp` serwera REST (ADR-004 D5, D9). D2 — tekst dla człowieka jest domyślnie polski; teksty katalogu i rejestrów (opisy komend i grup, pomoc opcji, reguły, tytuły błędów i zbiorów) mają wariant angielski wybierany jawnie (`lang`, `IMGW_LANG`, `Accept-Language`, `imgw mcp --lang`; ADR-004 D3), a `detail`, `Notice.text` i komunikaty postępu pozostają polskie. D14 — pozycje „poza zakresem” (AGENTS.md/llms.txt, opisy angielskie, serwer MCP, porządek komunikatów legacy) realizuje ADR-004 w tym samym wydaniu 3.0.0. Spec 2026-10-17 §13.1, §13.2, §13.3, §13.5, §13.9 i §13.10 ma noty `[ADR-004]`. Treść D1–D14 bez zmian.
 
 ---
 
@@ -223,6 +231,8 @@ Archiwista czyta ČHMÚ tym samym adapterem i kontraktami, a zachowanie IMGW si�
 
 **2026-10-19 — D14, stan `content_match` w sprawdzeniu i statusie projektu (C08).** `get_project_status` przyjmuje addytywny, wyłącznie nazwany `on_notice` (jak `verify_project`), żeby `project status` niósł komunikat `pin_restored_by_content` przy stanie `content_match`. W `check_project` stan zadania pozostaje statusem akcji planu `imgw-plan/1` (`current`, `newer`, `unverifiable` — wartości `content_match` plan nie zna): pin dopasowany treścią liczy się jako obecny, `detail` akcji podaje liczbę takich pinów, a komunikat `pin_restored_by_content` wymienia pary. Pozycje takich pinów w `project status|verify` i w kolejnym `project download` mają status `restored_by_content` z wersją równoważną. Treść D14 bez zmian; szczegóły: spec 2026-10-18 §16 (errata C08).
 
+**2026-10-19 — D13, liczba komend (ADR-004).** „Razem 36 komend” w D13 → 37: ADR-004 D4 dodaje komendę `commands guide` (`agent_guide`, `GET /api/v1/commands/guide`). Opcje `provider` i `stations` oraz komenda `datasets providers` mają też teksty angielskie i metadane skutków (ADR-004 D2–D3). Spec 2026-10-18 §9.3 ma notę `[ADR-004]`. Treść D13 bez zmian.
+
 ---
 
 ## ADR-004: Wsparcie agentów AI w wydaniu 3.0.0
@@ -265,7 +275,7 @@ Agent poznaje IMGWTools z jednego źródła zgodnego z kodem (`AGENTS.md`, `llms
 
 ### Pytania otwarte
 
-- **Do właściciela:** (1) zatwierdzenie D1–D12; (2) czy publiczny serwer ma włączyć `/mcp` (`IMGW_MCP_ENABLED`).
+- **Do właściciela:** (1) zatwierdzenie D1–D12 — rozstrzygnięte 2026-10-19 (status „Przyjęta”); (2) czy publiczny serwer ma włączyć `/mcp` (`IMGW_MCP_ENABLED`).
 - **Po 3.0.0:** (3) tłumaczenie treści wykonania (`detail`, `Notice.text`); (4) filtr narzędzi MCP według grup albo dostawcy (`data_commands(provider=…)`, ADR-003 D13); (5) limit wywołań sieciowych serwera stdio; (6) zapis przez MCP po HTTP z autoryzacją.
 
 ### Erraty
