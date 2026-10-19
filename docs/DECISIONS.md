@@ -221,6 +221,8 @@ Archiwista czyta ČHMÚ tym samym adapterem i kontraktami, a zachowanie IMGW si�
 
 **2026-10-19 — D11, progi i typ `StationFeature` (C06).** Właściwość `thresholds` katalogu ČHMÚ jest obiektem (spec 2026-10-18 §7.3–§7.4), więc `StationFeature.properties` ma typ `Mapping[str, str | int | float | bool | Mapping[str, object] | None]`: wartość obiektowa wyłącznie dla `thresholds` stacji hydro ČHMÚ, pozostałe właściwości są proste jak w 3.0.0, a `read_catalog` przyjmuje ten obiekt. Źródłami progów są tylko `hydrology/now/metadata/meta1.json` i archiwum `cz.chmi.hydro_stations` (1 → 3): `meta3.json` daje wyłącznie nazwę, rzekę, `HLGP4` i położenie (§5.3), stąd `thresholds.source` ∈ {`chmi_hydro_now`, `chmi_hydro_stations`} (§7.4); „progi 1 → 2 → 3” w §7.2 jest nieścisłe. Treść D11 bez zmian; szczegóły: spec 2026-10-18 §16 (errata C06).
 
+**2026-10-19 — D14, stan `content_match` w sprawdzeniu i statusie projektu (C08).** `get_project_status` przyjmuje addytywny, wyłącznie nazwany `on_notice` (jak `verify_project`), żeby `project status` niósł komunikat `pin_restored_by_content` przy stanie `content_match`. W `check_project` stan zadania pozostaje statusem akcji planu `imgw-plan/1` (`current`, `newer`, `unverifiable` — wartości `content_match` plan nie zna): pin dopasowany treścią liczy się jako obecny, `detail` akcji podaje liczbę takich pinów, a komunikat `pin_restored_by_content` wymienia pary. Pozycje takich pinów w `project status|verify` i w kolejnym `project download` mają status `restored_by_content` z wersją równoważną. Treść D14 bez zmian; szczegóły: spec 2026-10-18 §16 (errata C08).
+
 ---
 
 ## ADR-004: Wsparcie agentów AI w wydaniu 3.0.0

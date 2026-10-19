@@ -5,8 +5,8 @@ Every :class:`IMGWError` carries a machine-readable ``code`` from
 :data:`ERROR_CODES`, a Polish human-readable ``detail`` and JSON-compatible
 ``details``. Each class has a default code; a raise site may pass another
 registered code with ``code=``. The registry maps every code to its Polish
-title, CLI exit code and HTTP status (spec §13.5), so the CLI, REST and web
-adapters report the same error the same way.
+and English title, CLI exit code and HTTP status (spec §13.5), so the CLI,
+REST and web adapters report the same error the same way.
 """
 
 from __future__ import annotations
@@ -50,30 +50,82 @@ class ErrorSpec:
         CLI exit code, or ``None`` when the CLI never reports this code.
     http_status : int or None
         HTTP status, or ``None`` when REST never reports this code.
+    title_en : str
+        Short English title, chosen instead of ``title`` for English
+        (``Accept-Language`` of REST, ``command_schema(lang="en")``).
     """
 
     code: ErrorCode
     title: str
     exit_code: int | None
     http_status: int | None
+    title_en: str
 
 
 ERROR_CODES: Mapping[ErrorCode, ErrorSpec] = MappingProxyType(
     {
         spec.code: spec
         for spec in (
-            ErrorSpec("validation_error", "Nieprawidłowe dane wejściowe", 2, 400),
-            ErrorSpec("not_found", "Nie znaleziono", 3, 404),
-            ErrorSpec("conflict", "Konflikt stanu", 4, 409),
-            ErrorSpec("source_unavailable", "Źródło danych niedostępne", 5, 502),
-            ErrorSpec("missing_dependency", "Brak opcjonalnej zależności", 6, 503),
-            ErrorSpec("data_error", "Niepoprawne dane", 7, 500),
-            ErrorSpec("store_unavailable", "Magazyn niedostępny", 8, 503),
-            ErrorSpec("io_error", "Błąd systemu plików", 9, 500),
-            ErrorSpec("cancelled", "Operację anulowano", 130, None),
-            ErrorSpec("forbidden", "Brak uprawnień do zapisu", None, 403),
-            ErrorSpec("method_not_allowed", "Niedozwolona metoda HTTP", None, 405),
-            ErrorSpec("internal_error", "Błąd wewnętrzny", 1, 500),
+            ErrorSpec(
+                "validation_error",
+                "Nieprawidłowe dane wejściowe",
+                2,
+                400,
+                title_en="Invalid input",
+            ),
+            ErrorSpec("not_found", "Nie znaleziono", 3, 404, title_en="Not found"),
+            ErrorSpec("conflict", "Konflikt stanu", 4, 409, title_en="State conflict"),
+            ErrorSpec(
+                "source_unavailable",
+                "Źródło danych niedostępne",
+                5,
+                502,
+                title_en="Data source unavailable",
+            ),
+            ErrorSpec(
+                "missing_dependency",
+                "Brak opcjonalnej zależności",
+                6,
+                503,
+                title_en="Missing optional dependency",
+            ),
+            ErrorSpec(
+                "data_error", "Niepoprawne dane", 7, 500, title_en="Invalid data"
+            ),
+            ErrorSpec(
+                "store_unavailable",
+                "Magazyn niedostępny",
+                8,
+                503,
+                title_en="Store unavailable",
+            ),
+            ErrorSpec(
+                "io_error", "Błąd systemu plików", 9, 500, title_en="File system error"
+            ),
+            ErrorSpec(
+                "cancelled",
+                "Operację anulowano",
+                130,
+                None,
+                title_en="Operation cancelled",
+            ),
+            ErrorSpec(
+                "forbidden",
+                "Brak uprawnień do zapisu",
+                None,
+                403,
+                title_en="Write not permitted",
+            ),
+            ErrorSpec(
+                "method_not_allowed",
+                "Niedozwolona metoda HTTP",
+                None,
+                405,
+                title_en="HTTP method not allowed",
+            ),
+            ErrorSpec(
+                "internal_error", "Błąd wewnętrzny", 1, 500, title_en="Internal error"
+            ),
         )
     }
 )

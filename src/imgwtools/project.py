@@ -34,13 +34,16 @@ from typing import Any, Literal
 from imgwtools import commands
 from imgwtools._version import __version__
 from imgwtools.datasets import (
+    _CATALOG_DATASETS,
     CATALOG_DATASET,
     STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
+    _archive_from_path,
     archive_files,
-    datasets,
     get_dataset,
+    get_provider,
+    providers,
 )
 from imgwtools.exceptions import (
     ErrorCode,
@@ -66,7 +69,8 @@ from imgwtools.store import (
     sync_store,
     write_archive,
 )
-from imgwtools.store.catalog import CATALOG_FILE, _Border
+from imgwtools.store.catalog import _NESTED_CATALOGS, CATALOG_FILE, _Border
+from imgwtools.store.content import CONTENT_FORMS, content_sha256
 from imgwtools.store.pmaxtp import CELL_FILE
 from imgwtools.store.reader import (
     _CELL,
@@ -120,12 +124,28 @@ LOCK_TIMEOUT_S = 5.0
 LOCK_RETRY_S = 0.05
 
 TaskStatus = Literal[
-    "unpinned", "current", "missing", "changed", "upgraded", "failed", "cancelled"
+    "unpinned",
+    "current",
+    "content_match",
+    "missing",
+    "changed",
+    "upgraded",
+    "failed",
+    "cancelled",
 ]
-PinState = Literal["current", "missing", "changed"]
+# content_match: the pinned path is gone, but the current version of its slot carries
+# the pinned content (ADR-003 D14) — never reported silently as current.
+PinState = Literal["current", "content_match", "missing", "changed"]
 Hooks = Mapping[str, Any]
 _ResultStatus = Literal[
-    "created", "relabeled", "unchanged", "reused", "failed", "stale_plan", "cancelled"
+    "created",
+    "relabeled",
+    "unchanged",
+    "reused",
+    "restored_by_content",
+    "failed",
+    "stale_plan",
+    "cancelled",
 ]
 _PlanStatus = Literal["current", "newer", "missing", "unverifiable", "check_failed"]
 
@@ -145,7 +165,7 @@ _FILE_KEYS = (
 _SHA = re.compile(r"[0-9a-f]{64}")
 _STATION = re.compile(STATION_CODE_PATTERN)
 _DRIVE = re.compile(r"[A-Za-z]:")
-_YEAR = re.compile(r"(?<![0-9])[0-9]{4}(?![0-9])")
+_MATCHED = "pin_restored_by_content"
 _DONE = ("created", "relabeled", "unchanged", "reused")
 _SERIES_UNITS = ("day", "month", "half_year")
 _SEVERITY = {"current": 0, "outdated": 1, "missing": 2}
@@ -237,12 +257,14 @@ def _pin_slot(path: Path, station_code: str | None) -> str | None:
         ):
             return f"series:{descriptor.key}:{station_code}"
         return None
-    if (
-        kind == "stations"
-        and len(parts) == 4
-        and parts[1:4:2] == ["versions", CATALOG_FILE]
-    ):
-        return f"catalog:{CATALOG_DATASET}"
+    if kind == "stations" and parts[1:2] == ["versions"] and parts[-1] == CATALOG_FILE:
+        # The IMGW-PIB catalog keeps the 3.0.0 layout; another provider's catalog
+        # lies in its slug directory (``stations/versions/chmi_stations/…``).
+        if len(parts) == 4 and parts[2] not in _NESTED_CATALOGS:
+            return f"catalog:{CATALOG_DATASET}"
+        if len(parts) == 5 and parts[2] in _NESTED_CATALOGS:
+            return f"catalog:{_CATALOG_DATASETS[_NESTED_CATALOGS[parts[2]]]}"
+        return None
     if (
         kind == "pmaxtp"
         and len(parts) == 6
@@ -923,10 +945,12 @@ def set_project_store(
     Point the project at a different store, keeping every pin unchanged.
 
     The full SHA-256 of every pinned file (including the ``catalog`` pins of
-    unpinned tasks) is verified in the new store before the manifest is updated.
+    unpinned tasks) is verified in the new store before the manifest is updated;
+    an equivalent version matched only by content is not identical.
     A new, empty store (missing or empty directory, or an initialised store
     without any version) is accepted without pinned files, so that
-    `download_project` restores them: archives only with identical SHA-256,
+    `download_project` restores them: archives only with identical SHA-256
+    (or, for a dataset with a canonical form, the same canonical content),
     series only from exactly the pinned inputs, otherwise an explicit task
     error. A ``pins_not_in_store`` warning then lists what must be restored.
 
@@ -963,10 +987,10 @@ def set_project_store(
     _check_store(root, directory)
     pins = [(task, pin) for task in before.project.tasks for pin in task.files]
     problems = [
-        f"{task.name}: {pin.path.as_posix()}: {error}"
+        f"{task.name}: {pin.path.as_posix()}: {_mismatch(check)}"
         for task, pin in pins
-        for state, error, _ in (_inspect(root, pin, full=True),)
-        if state != "current"
+        for check in (_inspect(root, pin, full=True),)
+        if check.state != "current"
     ]
     if problems and not _empty_store(root):
         shown = "; ".join(problems[:5]) + (" …" if len(problems) > 5 else "")
@@ -995,13 +1019,22 @@ def set_project_store(
                 if pin.role == "catalog" or pin.path.parts[0] == "pmaxtp"
             }
         )
+        sources = _sources(pin for _, pin in pins)
+        origin = f"z {sources}" if sources else "ze źródła"
         _notice(
             on_notice,
             "warning",
             "pins_not_in_store",
             f"Nowy magazyn {root} jest pusty: brak {len(problems)} przypiętych plików. "
-            "project download odtworzy je z IMGW wyłącznie z identyczną sumą SHA-256 "
-            "(szeregi z dokładnie przypiętych wejść), inaczej zgłosi błąd zadania"
+            f"project download odtworzy je {origin} "
+            "wyłącznie z identyczną sumą SHA-256"
+            + (
+                " albo, dla zbiorów z formą kanoniczną, z tą samą treścią "
+                "(restored_by_content)"
+                if any(pin.content_sha256 is not None for _, pin in pins)
+                else ""
+            )
+            + " (szeregi z dokładnie przypiętych wejść), inaczej zgłosi błąd zadania"
             + (
                 f"; katalogu stacji i komórek PMAXTP nie odtwarza (zadania: {', '.join(lost)}), "
                 f"{_UPGRADE}"
@@ -1010,6 +1043,28 @@ def set_project_store(
             ),
         )
     return project
+
+
+def _mismatch(check: _PinCheck) -> str:
+    """Why a pin is not identical in a store (``set_project_store``)."""
+    if check.state == "content_match" and check.version is not None:
+        return (
+            f"brak przypiętego pliku; wersja {check.version.as_posix()} ma tę samą "
+            f"treść, ale nie jest identyczna ({_UPGRADE})"
+        )
+    return check.error or check.state
+
+
+def _sources(pins: Iterable[ProjectFile]) -> str:
+    """Display names of the providers of pinned archives and series, in registry order."""
+    owners: set[str] = set()
+    for pin in pins:
+        kind, _, rest = (_pin_slot(pin.path, pin.station_code) or "").partition(":")
+        if kind in ("archive", "series"):
+            owners.add(get_dataset(rest.partition(":")[0]).provider)
+    return " i ".join(
+        provider.short_name for provider in providers() if provider.id in owners
+    )
 
 
 def _area(data: bytes, name: str) -> _Border:
@@ -1088,18 +1143,24 @@ def _area(data: bytes, name: str) -> _Border:
 def _area_stations(
     root: Path, descriptor: DatasetDescriptor, area: _Border
 ) -> tuple[ProjectFile, list[str]]:
-    """Stacje rodziny zbioru z położeniem w obszarze, z bieżącej wersji katalogu (przypinanej)."""
-    entry = current_version(root, slot="catalog:pl.imgw.stations")
+    """
+    Stations of the dataset's kind located in ``area``, from its provider's catalog.
+
+    The current catalog version of the dataset's provider (ADR-003 D14) is
+    read and returned as the ``catalog`` pin of the selection.
+    """
+    provider = get_provider(descriptor.provider)
+    entry = current_version(
+        root, slot=f"catalog:{_CATALOG_DATASETS[descriptor.provider]}"
+    )
     if entry is None or entry.version is None or entry.meta is None:
+        option = "" if provider.id == "IMGW-PIB" else f" --provider {provider.id}"
         raise IMGWStoreError(
-            f"Brak katalogu stacji w magazynie {root}; najpierw imgw store catalog",
+            f"Brak katalogu stacji {provider.short_name} w magazynie {root}; "
+            f"najpierw imgw store catalog{option}",
             code="not_found",
         )
-    family = (
-        "hydro"
-        if (descriptor.server_dir or "").startswith("dane_hydrologiczne")
-        else "meteo"
-    )
+    family = descriptor.kind
     codes = [
         feature.station_code
         for feature in read_catalog(entry.version)
@@ -1300,25 +1361,63 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+@dataclass(frozen=True)
+class _PinCheck:
+    """
+    State of one pinned file in the store.
+
+    Attributes
+    ----------
+    state : {"current", "content_match", "missing", "changed"}
+        ``content_match`` when the pinned path is missing but the current
+        version of its slot carries the pinned content (ADR-003 D14).
+    error : str or None
+        Polish description of a mismatch.
+    code : ErrorCode or None
+        §13.5 code of a mismatch: ``not_found`` (missing file),
+        ``data_error`` (other content), ``io_error`` (unreadable file) or the
+        code of a reading error.
+    version : Path or None
+        Store-relative path of the equivalent version file (``content_match``,
+        or an equivalent whose bytes contradict its records: ``changed``).
+    sha256 : str or None
+        SHA-256 of that equivalent file.
+    """
+
+    state: PinState
+    error: str | None = None
+    code: ErrorCode | None = None
+    version: Path | None = None
+    sha256: str | None = None
+
+
 def _inspect(
     root: Path,
     pin: ProjectFile,
     *,
     full: bool,
     indexes: dict[Path, SeriesIndex] | None = None,
-) -> tuple[PinState, str | None, ErrorCode | None]:
-    """Stan pliku offline: istnienie i rozmiar wg sidecara; ``full`` — pełne SHA i spis szeregu.
+) -> _PinCheck:
+    """
+    Offline state of a pinned file.
 
-    Trzeci element to kod błędu §13.5 rozbieżności: ``not_found`` (brak pliku),
-    ``data_error`` (inna treść), ``io_error`` (nieczytelny plik) albo kod wyjątku odczytu.
+    Without ``full`` the existence and the size and SHA-256 recorded in the
+    sidecar are checked (a station file: existence); ``full`` hashes the file
+    and checks a station file against the ``series.json`` index of its
+    version. A missing file of a dataset with a canonical form may be
+    matched by an equivalent version (`_equivalent`).
     """
     path = root.joinpath(*pin.path.parts)
     if path.is_symlink():
-        return "changed", "dowiązanie symboliczne zamiast pliku wersji", "data_error"
+        return _PinCheck(
+            "changed", "dowiązanie symboliczne zamiast pliku wersji", "data_error"
+        )
     if not path.exists():
-        return "missing", "brak przypiętego pliku w magazynie", "not_found"
+        return _equivalent(root, pin, full=full, indexes=indexes) or _PinCheck(
+            "missing", "brak przypiętego pliku w magazynie", "not_found"
+        )
     if not path.is_file():
-        return "changed", "przypięta ścieżka nie jest plikiem", "data_error"
+        return _PinCheck("changed", "przypięta ścieżka nie jest plikiem", "data_error")
     try:
         if pin.role == "station_series":
             if full:
@@ -1332,7 +1431,7 @@ def _inspect(
                     or version / entry.file != path
                     or entry.sha256 != pin.sha256
                 ):
-                    return (
+                    return _PinCheck(
                         "changed",
                         "spis series.json wersji nie potwierdza przypiętego pliku stacji",
                         "data_error",
@@ -1341,13 +1440,13 @@ def _inspect(
             meta = read_meta(path)
             size = path.stat().st_size
             if meta.size_bytes != size:
-                return (
+                return _PinCheck(
                     "changed",
                     f"rozmiar {size} B różni się od sidecara ({meta.size_bytes} B)",
                     "data_error",
                 )
             if meta.sha256 != pin.sha256:
-                return (
+                return _PinCheck(
                     "changed",
                     "sidecar wskazuje inną sumę SHA-256 niż przypięta",
                     "data_error",
@@ -1355,16 +1454,161 @@ def _inspect(
         if full:
             actual = _sha256(path)
             if actual != pin.sha256:
-                return (
+                return _PinCheck(
                     "changed",
                     f"suma SHA-256 pliku ({actual}) różni się od przypiętej ({pin.sha256})",
                     "data_error",
                 )
     except IMGWError as exc:
-        return "changed", str(exc), exc.code
+        return _PinCheck("changed", str(exc), exc.code)
     except OSError as exc:
-        return "changed", str(exc), "io_error"
-    return "current", None, None
+        return _PinCheck("changed", str(exc), "io_error")
+    return _PinCheck("current")
+
+
+def _content_of(data: bytes, form: str | None) -> str | None:
+    """Canonical content SHA-256 of bytes in a released form, or None."""
+    if form is None or form not in CONTENT_FORMS:
+        return None
+    try:
+        return content_sha256(data, form=form)
+    except IMGWDataError:
+        return None
+
+
+def _by_content(pin: ProjectFile) -> bool:
+    """
+    Whether an equivalent version may stand in for the pin (ADR-003 D14).
+
+    True for an archive pin with ``content_sha256`` and for a series or
+    station file pin of a dataset with a canonical form.
+    """
+    kind, _, rest = (_pin_slot(pin.path, pin.station_code) or "").partition(":")
+    if kind == "archive":
+        return pin.content_sha256 is not None
+    return (
+        kind == "series"
+        and get_dataset(rest.partition(":")[0]).content_form is not None
+    )
+
+
+def _equivalent(
+    root: Path,
+    pin: ProjectFile,
+    *,
+    full: bool,
+    indexes: dict[Path, SeriesIndex] | None = None,
+) -> _PinCheck | None:
+    """
+    Equivalent of a missing pin in the current version of its slot (ADR-003 D14).
+
+    Only files of datasets with a canonical form have one: an archive pin
+    with ``content_sha256`` is matched by the current version of its slot
+    with the same bytes or the same canonical content in the pin's form, a
+    ``series.json`` or station file pin by the file of the current series
+    version with the pinned SHA-256. Without ``full`` the sidecar and the
+    series index are trusted; ``full`` recomputes the sums from the bytes.
+
+    Returns
+    -------
+    _PinCheck or None
+        ``content_match`` naming the equivalent version, ``changed`` for an
+        equivalent whose bytes contradict its records, or None when the slot
+        offers none (also when it cannot be read).
+    """
+    slot = _pin_slot(pin.path, pin.station_code)
+    if slot is None or not _by_content(pin):
+        return None
+    kind, _, rest = slot.partition(":")
+    key, _, station = rest.partition(":")
+    try:
+        if kind == "archive":
+            return _equivalent_archive(root, pin, slot, full=full)
+        return _equivalent_series(root, pin, key, station, full=full, indexes=indexes)
+    except (IMGWError, OSError):
+        return None
+
+
+def _equivalent_archive(
+    root: Path, pin: ProjectFile, slot: str, *, full: bool
+) -> _PinCheck | None:
+    """Current archive version with the pinned bytes or canonical content."""
+    entry = current_version(root, slot=slot)
+    if entry is None or entry.version is None or entry.meta is None:
+        return None
+    meta = entry.meta
+    relative = Path(_store_path(root, entry.version))
+    # A form this version of the library does not know compares by bytes only.
+    known = pin.content_form in CONTENT_FORMS
+    claimed = meta.sha256 == pin.sha256 or (
+        known
+        and meta.content_form == pin.content_form
+        and meta.content_sha256 == pin.content_sha256
+    )
+    if not full:
+        return (
+            _PinCheck("content_match", version=relative, sha256=meta.sha256)
+            if claimed
+            else None
+        )
+    data = entry.version.read_bytes()
+    actual = hashlib.sha256(data).hexdigest()
+    if actual == meta.sha256 and (
+        actual == pin.sha256
+        or (known and _content_of(data, pin.content_form) == pin.content_sha256)
+    ):
+        return _PinCheck("content_match", version=relative, sha256=actual)
+    if not claimed:
+        return None
+    return _PinCheck(
+        "changed",
+        f"wersja równoważna {relative.as_posix()} nie potwierdza treści pinu "
+        f"(SHA-256 pliku {actual}, w sidecarze {meta.sha256})",
+        "data_error",
+        relative,
+        actual,
+    )
+
+
+def _equivalent_series(
+    root: Path,
+    pin: ProjectFile,
+    key: str,
+    station: str,
+    *,
+    full: bool,
+    indexes: dict[Path, SeriesIndex] | None,
+) -> _PinCheck | None:
+    """File of the current series version with the pinned SHA-256."""
+    entry = current_version(root, slot=f"series:{key}")
+    if entry is None or entry.version is None or entry.meta is None:
+        return None
+    target, recorded = entry.version, entry.meta.sha256
+    if station:
+        version = entry.version.parent
+        index = (indexes or {}).get(version) or read_series_index(version)
+        if indexes is not None:
+            indexes[version] = index
+        found = index.stations.get(station)
+        if found is None:
+            return None
+        target, recorded = version / found.file, found.sha256
+        if target.is_symlink() or not target.is_file():
+            return None
+    if recorded != pin.sha256:
+        return None
+    relative = Path(_store_path(root, target))
+    actual = _sha256(target) if full else recorded
+    if actual != recorded:
+        return _PinCheck(
+            "changed",
+            f"wersja równoważna {relative.as_posix()}: suma SHA-256 pliku ({actual}) "
+            f"różni się od przypiętej ({pin.sha256})",
+            "data_error",
+            relative,
+            actual,
+        )
+    return _PinCheck("content_match", version=relative, sha256=recorded)
 
 
 def _pin_result(
@@ -1374,12 +1618,19 @@ def _pin_result(
     status: _ResultStatus,
     error: str | None,
     code: ErrorCode | None = None,
+    *,
+    version: Path | None = None,
 ) -> OperationResult:
-    """Wynik pliku zadania: slot §13.7 przypiętej wersji, nazwa zadania w ``task``."""
+    """
+    Result of a pinned file: §13.7 slot of the pin, task name in ``task``.
+
+    ``version`` (store-relative) replaces the pinned path for a pin matched
+    by an equivalent version (``restored_by_content``).
+    """
     return OperationResult(
         _pin_slot(pin.path, pin.station_code),
         status,
-        root.joinpath(*pin.path.parts),
+        root.joinpath(*(version or pin.path).parts),
         error,
         task.name,
         code if status == "failed" else None,
@@ -1399,22 +1650,78 @@ def _task_result(
 
 
 def _state(task: ProjectTask, states: Iterable[str]) -> TaskStatus:
+    """Task status from pin states: changed, missing, content_match, then current."""
     found = set(states)
     if task.pinned_at is None:
         return "unpinned"
     if "changed" in found:
         return "changed"
-    return "missing" if "missing" in found else "current"
+    if "missing" in found:
+        return "missing"
+    return "content_match" if "content_match" in found else "current"
+
+
+def _check_result(
+    task: ProjectTask, root: Path, pin: ProjectFile, check: _PinCheck
+) -> OperationResult:
+    """Status or verification result of a pin; a content match names its equivalent."""
+    if check.state == "content_match":
+        return _pin_result(
+            task, root, pin, "restored_by_content", None, version=check.version
+        )
+    return _pin_result(
+        task,
+        root,
+        pin,
+        "unchanged" if check.state == "current" else "failed",
+        check.error,
+        check.code,
+    )
+
+
+def _matched_notice(
+    hook: NoticeHook | None,
+    task: ProjectTask,
+    pairs: Iterable[tuple[ProjectFile, _PinCheck]],
+) -> None:
+    """Warning ``pin_restored_by_content`` listing every pin with its equivalent."""
+    described = [
+        f"{pin.path.as_posix()} (SHA-256 {pin.sha256}) → "
+        f"{check.version.as_posix() if check.version else '?'} (SHA-256 {check.sha256}), "
+        + (
+            f"wspólne content_sha256 {pin.content_sha256}"
+            if pin.content_sha256 is not None
+            else "ta sama suma SHA-256"
+        )
+        for pin, check in pairs
+    ]
+    if described:
+        _notice(
+            hook,
+            "warning",
+            _MATCHED,
+            f"Zadanie {task.name}: przypięte pliki odtworzone treścią "
+            f"({len(described)}): {'; '.join(described)}; przypięcia bez zmian, "
+            f"{_UPGRADE}",
+        )
 
 
 def get_project_status(
-    project_dir: PathArg, /, *, tasks: Iterable[str] | None = None
+    project_dir: PathArg,
+    /,
+    *,
+    tasks: Iterable[str] | None = None,
+    on_notice: NoticeHook | None = None,
 ) -> ProjectReport:
     """
     Report the state of pinned files offline, without hashing.
 
     Each pinned file is checked for existence and for the size and SHA-256 stored
-    in its sidecar; station Parquet files are checked for existence only.
+    in its sidecar; station Parquet files are checked for existence only. A
+    missing file of a dataset with a canonical form whose slot's current
+    version carries the pinned content (archive: ``content_sha256`` in the
+    sidecar; series and station file: the same SHA-256) is ``content_match``,
+    never silently ``current`` (ADR-003 D14).
 
     Parameters
     ----------
@@ -1422,14 +1729,19 @@ def get_project_status(
         Project directory holding the manifest.
     tasks : Iterable[str] or None, optional
         Names of the tasks to check; ``None`` means all tasks.
+    on_notice : NoticeHook or None, optional
+        Receives one ``warning`` notice ``pin_restored_by_content`` per task
+        with content matches, naming each pin and its equivalent version.
 
     Returns
     -------
     ProjectReport
-        Status per task (``unpinned``, ``current``, ``missing`` or ``changed``;
-        ``changed`` takes precedence over ``missing``) and one result per pinned
-        file (``unchanged`` or ``failed`` with an error and ``error_code``
-        ``not_found``, ``data_error`` or ``io_error``).
+        Status per task (``unpinned``, ``current``, ``content_match``,
+        ``missing`` or ``changed``; ``changed`` takes precedence over
+        ``missing``, both over ``content_match``) and one result per pinned
+        file (``unchanged``, ``restored_by_content`` with the equivalent
+        version in ``version``, or ``failed`` with an error and
+        ``error_code`` ``not_found``, ``data_error`` or ``io_error``).
 
     Raises
     ------
@@ -1440,24 +1752,18 @@ def get_project_status(
         (``not_found``).
     """
     project = open_project(project_dir)
+    root = project.store_dir
     statuses: dict[str, TaskStatus] = {}
     results: list[OperationResult] = []
     for task in _selected(project, tasks):
-        states: list[str] = []
-        for pin in task.files:
-            state, error, code = _inspect(project.store_dir, pin, full=False)
-            states.append(state)
-            results.append(
-                _pin_result(
-                    task,
-                    project.store_dir,
-                    pin,
-                    "unchanged" if state == "current" else "failed",
-                    error,
-                    code,
-                )
-            )
-        statuses[task.name] = _state(task, states)
+        checks = [(pin, _inspect(root, pin, full=False)) for pin in task.files]
+        results.extend(_check_result(task, root, pin, check) for pin, check in checks)
+        statuses[task.name] = _state(task, (check.state for _, check in checks))
+        _matched_notice(
+            on_notice,
+            task,
+            [(pin, check) for pin, check in checks if check.state == "content_match"],
+        )
     return ProjectReport(statuses, tuple(results), False)
 
 
@@ -1475,7 +1781,9 @@ def verify_project(
 
     In addition to `get_project_status`, the full SHA-256 of every pinned file,
     the consistency of its sidecar and, for station files, the ``series.json``
-    index of the series version are checked.
+    index of the series version are checked. For a ``content_match`` the
+    SHA-256 and the canonical content of the equivalent version are
+    recomputed from its bytes.
 
     Parameters
     ----------
@@ -1487,7 +1795,8 @@ def verify_project(
         Called after each verified file with ``Progress(unit="file")``.
     on_notice : NoticeHook or None, optional
         Receives an ``error`` notice with code ``pin_mismatch`` for each file
-        that does not match its pin.
+        that does not match its pin and one ``warning`` notice
+        ``pin_restored_by_content`` per task with content matches.
     cancel : Cancel or None, optional
         Checked before each file; once it returns true the remaining files are
         reported as ``cancelled``.
@@ -1495,9 +1804,10 @@ def verify_project(
     Returns
     -------
     ProjectReport
-        Status per task (``unpinned``, ``current``, ``missing``, ``changed`` or
-        ``cancelled``) and one result per pinned file (``unchanged``, ``failed``
-        or ``cancelled``); ``cancelled`` is true when verification was stopped.
+        Status per task (``unpinned``, ``current``, ``content_match``,
+        ``missing``, ``changed`` or ``cancelled``) and one result per pinned
+        file (``unchanged``, ``restored_by_content``, ``failed`` or
+        ``cancelled``); ``cancelled`` is true when verification was stopped.
 
     Raises
     ------
@@ -1517,39 +1827,37 @@ def verify_project(
     done = 0
     stopped = False
     for task in selected:
-        states: list[str] = []
+        checks: list[tuple[ProjectFile, _PinCheck]] = []
         for pin in task.files:
             stopped = stopped or (cancel is not None and cancel())
             if stopped:
                 results.append(_pin_result(task, root, pin, "cancelled", CANCELLED))
                 continue
-            state, error, code = _inspect(root, pin, full=True, indexes=indexes)
-            states.append(state)
-            results.append(
-                _pin_result(
-                    task,
-                    root,
-                    pin,
-                    "unchanged" if state == "current" else "failed",
-                    error,
-                    code,
-                )
-            )
-            if state != "current":
+            check = _inspect(root, pin, full=True, indexes=indexes)
+            checks.append((pin, check))
+            results.append(_check_result(task, root, pin, check))
+            if check.state not in ("current", "content_match"):
                 _notice(
                     on_notice,
                     "error",
                     "pin_mismatch",
-                    f"{task.name}: {pin.path.as_posix()}: {error}",
+                    f"{task.name}: {pin.path.as_posix()}: {check.error}",
                 )
             done += 1
             if on_progress is not None:
-                on_progress(Progress(done, total, "file", state, pin.path.as_posix()))
+                on_progress(
+                    Progress(done, total, "file", check.state, pin.path.as_posix())
+                )
         stopped = stopped or (not task.files and cancel is not None and cancel())
         statuses[task.name] = (
             "cancelled"
-            if stopped and len(states) < max(len(task.files), 1)
-            else _state(task, states)
+            if stopped and len(checks) < max(len(task.files), 1)
+            else _state(task, (check.state for _, check in checks))
+        )
+        _matched_notice(
+            on_notice,
+            task,
+            [(pin, check) for pin, check in checks if check.state == "content_match"],
         )
     return ProjectReport(statuses, tuple(results), stopped)
 
@@ -1583,31 +1891,70 @@ def _command_options(task: ProjectTask, directory: Path, root: Path) -> dict[str
 
 
 def _archive_years(options: Mapping[str, Any]) -> tuple[int, ...]:
-    """Roczniki archiwów pokrywające wybrane lata (inna numeracja ZIP = także rocznik sąsiedni)."""
+    """
+    Archive years covering the selected years.
+
+    Archives numbered by the other kind of year add the neighbouring year
+    (a hydrological year spans two calendar years and vice versa), unless it
+    precedes the dataset's first archive.
+    """
     descriptor = get_dataset(options["dataset"])
     years = set(options["years"])
+    # Per-station files (ČHMÚ) are enumerated for the stations of the task.
+    stations = (
+        {}
+        if descriptor.archive_scope == "country"
+        else {"stations": options["stations"]}
+    )
     if options["year_type"] != descriptor.year_type:
         shift = 1 if descriptor.year_type == "hydrological" else -1
         for year in options["years"]:
             with suppress(
                 IMGWValidationError
             ):  # rocznik sprzed pierwszego archiwum zbioru
-                archive_files(descriptor.key, years=(year + shift,))
+                archive_files(descriptor.key, years=(year + shift,), **stations)
                 years.add(year + shift)
     return tuple(sorted(years))
+
+
+def _store_selectors(options: Mapping[str, Any]) -> dict[str, Any]:
+    """
+    Selectors of `check_store` and `sync_store` covering a selection's archives.
+
+    Country archives (IMGW-PIB) are chosen by years; per-station files (ČHMÚ)
+    by the stations of the task, station × year files also by years, whole
+    history element files without them.
+    """
+    descriptor = get_dataset(options["dataset"])
+    if descriptor.archive_scope == "country":
+        return {"years": _archive_years(options)}
+    selectors: dict[str, Any] = {"stations": tuple(options["stations"])}
+    if descriptor.archive_scope == "station_year":
+        selectors["years"] = _archive_years(options)
+    return selectors
 
 
 def _check_task(
     root: Path, directory: Path, task: ProjectTask, hooks: Hooks
 ) -> tuple[_PlanStatus, str, StorePlan | None]:
-    states = [_inspect(root, pin, full=False) for pin in task.files]
+    checks = [_inspect(root, pin, full=False) for pin in task.files]
+    if task.pinned_at is not None:
+        _matched_notice(
+            hooks["on_notice"],
+            task,
+            [
+                (pin, check)
+                for pin, check in zip(task.files, checks, strict=True)
+                if check.state == "content_match"
+            ],
+        )
     try:
         if task.command == _SELECT:
             options = _select_options(task, root)
             plan = check_store(
                 root,
                 datasets=(options["dataset"],),
-                years=_archive_years(options),
+                **_store_selectors(options),
                 **hooks,
             )
         else:
@@ -1628,11 +1975,16 @@ def _check_task(
         if status == "check_failed"
     ]
     changed = [
-        f"{pin.path.as_posix()}: {error}"
-        for pin, (state, error, _) in zip(task.files, states, strict=True)
-        if state == "changed"
+        f"{pin.path.as_posix()}: {check.error}"
+        for pin, check in zip(task.files, checks, strict=True)
+        if check.state == "changed"
     ]
-    missing = sum(state == "missing" for state, _, _ in states)
+    missing = [
+        pin
+        for pin, check in zip(task.files, checks, strict=True)
+        if check.state == "missing"
+    ]
+    matched = sum(check.state == "content_match" for check in checks)
     if plan.cancelled:
         return "unverifiable", CANCELLED, plan
     if failed:
@@ -1653,8 +2005,13 @@ def _check_task(
         return (
             "missing",
             (
-                f"brak {missing} przypiętych plików; project download odtworzy je wyłącznie "
-                "przy identycznym SHA-256"
+                f"brak {len(missing)} przypiętych plików; project download odtworzy je "
+                "wyłącznie przy identycznym SHA-256"
+                + (
+                    " albo tej samej treści (content_sha256)"
+                    if any(_by_content(pin) for pin in missing)
+                    else ""
+                )
             ),
             plan,
         )
@@ -1670,6 +2027,13 @@ def _check_task(
         return (
             "unverifiable",
             "brak porównywalnego sygnału aktualności części danych",
+            plan,
+        )
+    if matched:
+        return (
+            "current",
+            f"przypięte pliki obecne albo odtworzone treścią (content_match: {matched}), "
+            f"dane aktualne; piny zmieni wyłącznie {_UPGRADE}",
             plan,
         )
     return "current", "przypięte pliki obecne, dane aktualne", plan
@@ -1696,12 +2060,15 @@ def check_project(
     Plan the project tasks as ``imgw-plan/1`` without writing or downloading.
 
     Only listings, HEAD requests and the state of pins are used. A ``series
-    select`` task is checked with `check_store` over the archive years covering
-    its selection; other tasks with `check_command`. Each task adds one
-    ``project download`` action with status ``check_failed`` (check error or
-    changed pin), ``missing`` (unpinned task, missing pins or missing store),
-    ``newer`` (newer or missing data, applied only by an upgrade),
-    ``unverifiable`` or ``current``.
+    select`` task is checked with `check_store` over the archives covering
+    its selection (IMGW-PIB yearbooks; ČHMÚ files of the task's stations);
+    other tasks with `check_command`. Each task adds one ``project download``
+    action with status ``check_failed`` (check error or changed pin),
+    ``missing`` (unpinned task, missing pins or missing store), ``newer``
+    (newer or missing data, applied only by an upgrade), ``unverifiable`` or
+    ``current``. A pin matched by an equivalent version (``content_match``,
+    ADR-003 D14) counts as present: the action detail names the matches and
+    a ``pin_restored_by_content`` warning lists them.
 
     Parameters
     ----------
@@ -1832,15 +2199,43 @@ def _series_pins(
         sources = meta.extra["source_files"]
         if not isinstance(sources, Iterable):
             raise TypeError(f"source_files nie jest listą: {sources!r}")
-        pins.extend(
-            ProjectFile("input", Path(str(source["file"])), str(source["sha256"]))
-            for source in sources
-        )
+        pins.extend(_input_pin(source) for source in sources)
     except (KeyError, TypeError) as exc:
         raise IMGWDataError(
             f"Sidecar szeregu {version} nie wymienia poprawnie plików wejściowych"
         ) from exc
     return pins
+
+
+def _input_pin(source: object) -> ProjectFile:
+    """
+    ``input`` pin of an ``extra.source_files`` entry of a series sidecar.
+
+    Inputs of a dataset with a canonical form carry ``content_sha256`` and
+    ``content_form`` (ADR-003 D17); the pin keeps them, so it can be
+    restored by content.
+    """
+    if not isinstance(source, Mapping):
+        raise TypeError(f"wpis source_files nie jest obiektem: {source!r}")
+    content, form = source.get("content_sha256"), source.get("content_form")
+    if (content is None) != (form is None) or (
+        content is not None
+        and not (
+            isinstance(content, str)
+            and _SHA.fullmatch(content)
+            and isinstance(form, str)
+            and form
+        )
+    ):
+        raise TypeError(f"niepoprawna para content_sha256 i content_form: {source!r}")
+    return ProjectFile(
+        "input",
+        Path(str(source["file"])),
+        str(source["sha256"]),
+        None,
+        content,
+        form,
+    )
 
 
 def _add_sync(
@@ -1855,8 +2250,16 @@ def _add_sync(
             path = _store_path(root, item.version)
             produced.statuses[path] = item.status
             if pin:
+                meta = read_meta(item.version)
                 produced.pins.append(
-                    ProjectFile("input", Path(path), read_meta(item.version).sha256)
+                    ProjectFile(
+                        "input",
+                        Path(path),
+                        meta.sha256,
+                        None,
+                        meta.content_sha256,
+                        meta.content_form,
+                    )
                 )
 
 
@@ -1936,18 +2339,24 @@ def _subplan(plan: StorePlan, archives: Iterable[ArchiveFile]) -> StorePlan:
 def _produce_select(
     root: Path, task: ProjectTask, plan: StorePlan | None, hooks: Hooks
 ) -> _Produced:
-    """Komenda ``series select``: synchronizacja roczników zadania, budowa szeregu zbioru, walidowany wybór."""
+    """
+    Run a ``series select`` task: sync, build the series, validate the selection.
+
+    The archives covering the selection are synchronized (IMGW-PIB yearbooks;
+    ČHMÚ files of the task's stations), the dataset's series is built and
+    the selection is validated against it.
+    """
     options = _select_options(task, root)
     dataset = options["dataset"]
-    years = _archive_years(options)
+    selectors = _store_selectors(options)
     if plan is None:
         report = sync_store(
-            root, datasets=(dataset,), years=years, series=False, **hooks
+            root, datasets=(dataset,), series=False, **selectors, **hooks
         )
     else:
         report = sync_store(
             root,
-            plan=_subplan(plan, archive_files(dataset, years=years)),
+            plan=_subplan(plan, archive_files(dataset, **selectors)),
             series=False,
             **hooks,
         )
@@ -2079,28 +2488,31 @@ def _pin(
 
 
 def _archive_of(path: Path) -> ArchiveFile:
-    """Archiwum rejestru dla ścieżki wersji ``archives/versions/<katalog>/<stem>/<wersja>/<plik>``."""
+    """
+    Registry archive of a pinned version file.
+
+    ``archives/versions/<server dir>/<stem>/<version>/<file>`` maps through
+    its store slot to the `ArchiveFile` of a measurement series dataset of
+    any provider (IMGW-PIB yearbook or ČHMÚ station file).
+    """
     parts = path.parts
     server_path = "/".join((*parts[2:-3], parts[-1]))
-    for descriptor in datasets():
-        if (
-            not descriptor.in_store
-            or descriptor.time_unit not in _SERIES_UNITS
-            or not server_path.startswith(f"{descriptor.server_dir}/")
-        ):
-            continue
-        for year in sorted({int(text) for text in _YEAR.findall(server_path)}):
-            try:
-                candidates = archive_files(descriptor.key, years=(year,))
-            except IMGWValidationError:
-                continue
-            for candidate in candidates:
-                if candidate.server_path == server_path:
-                    return candidate
-    raise IMGWProjectError(
-        f"Przypięty plik {path.as_posix()} nie odpowiada archiwum rejestru IMGW",
-        code="not_found",
+    slot = _archive_slot(server_path)
+    descriptor = None if slot is None else get_dataset(slot.split(":")[1])
+    archive = (
+        _archive_from_path(descriptor.key, server_path)
+        if descriptor is not None
+        and descriptor.in_store
+        and descriptor.time_unit in _SERIES_UNITS
+        else None
     )
+    if archive is None:
+        raise IMGWProjectError(
+            f"Przypięty plik {path.as_posix()} nie odpowiada archiwum zbioru szeregów "
+            "z rejestru",
+            code="not_found",
+        )
+    return archive
 
 
 # Błąd odtworzenia pliku: komunikat i kod §13.5 (``None`` przy anulowaniu).
@@ -2108,7 +2520,14 @@ _Failure = tuple[str, ErrorCode | None]
 
 
 def _recreate_archive(root: Path, pin: ProjectFile, hooks: Hooks) -> _Failure | None:
-    """GET archiwum i publikacja wersji; sukces tylko przy identycznym SHA pod przypiętą ścieżką."""
+    """
+    Download a missing pinned archive again and publish it as a version.
+
+    Success: the identical SHA-256 under the pinned path, or for a pin with
+    ``content_sha256`` a current version of its slot with the pinned bytes or
+    canonical content (ADR-003 D14). Other content is an error naming the
+    provider; the pins never change.
+    """
     key = pin.path.as_posix()
     try:
         archive = _archive_of(pin.path)
@@ -2121,48 +2540,103 @@ def _recreate_archive(root: Path, pin: ProjectFile, hooks: Hooks) -> _Failure | 
         )
     except IMGWError as exc:
         return f"Nie odtworzono {key}: {exc}", exc.code
-    if written.sha256 != pin.sha256:
-        return (
-            f"IMGW udostępnia inną treść {archive.server_path} (SHA-256 {written.sha256}) niż przypięta "
-            f"({pin.sha256}); przypięcia bez zmian, {_UPGRADE}",
-            "not_found",
-        )
     written_path = _store_path(root, written.path)
-    if written_path != key:
+    if written.sha256 == pin.sha256 and written_path == key:
+        return None
+    equivalent = _equivalent(root, pin, full=True)
+    if equivalent is not None:
+        if equivalent.state == "content_match":
+            return None
+        return equivalent.error or f"Nie odtworzono {key}", equivalent.code
+    # Bytes seen at the source: other bytes of the same content leave the
+    # current version in place (``unchanged``, ADR-003 D17).
+    served = written.observed_sha256 or written.sha256
+    if served != pin.sha256:
+        provider = get_provider(get_dataset(archive.dataset).provider)
         return (
-            f"Identyczne bajty zapisano jako {written_path}; przypięta wersja {key} pozostaje "
-            f"niedostępna, {_UPGRADE}",
+            f"{provider.short_name} udostępnia inną treść {archive.server_path} "
+            f"(SHA-256 {served}) niż przypięta ({pin.sha256}); przypięcia bez zmian, "
+            f"{_UPGRADE}",
             "not_found",
         )
-    return None
+    return (
+        f"Identyczne bajty zapisano jako {written_path}; przypięta wersja {key} pozostaje "
+        f"niedostępna, {_UPGRADE}",
+        "not_found",
+    )
+
+
+def _inputs_match(
+    root: Path,
+    descriptor: DatasetDescriptor,
+    inputs: Iterable[ProjectFile],
+    current: Iterable[tuple[Path, str | None]],
+) -> bool:
+    """
+    Whether the current inputs of a series are exactly its pinned inputs.
+
+    The same versions (path and SHA-256); for a dataset with a canonical
+    form the same slots, each with the pinned bytes or the pinned canonical
+    content in its sidecar (ADR-003 D14).
+    """
+    pins = list(inputs)
+    present = list(current)
+    if descriptor.content_form is None:
+        return {(pin.path.as_posix(), pin.sha256) for pin in pins} == {
+            (path.as_posix(), sha) for path, sha in present
+        }
+    pinned = {pin.path.parent.parent: pin for pin in pins}
+    stored = {path.parent.parent: (path, sha) for path, sha in present}
+    if len(pinned) != len(pins) or pinned.keys() != stored.keys():
+        return False
+    for slot, pin in pinned.items():
+        path, sha = stored[slot]
+        if sha == pin.sha256:
+            continue
+        meta = read_meta(root / path)
+        if pin.content_sha256 is None or (meta.content_form, meta.content_sha256) != (
+            pin.content_form,
+            pin.content_sha256,
+        ):
+            return False
+    return True
 
 
 def _recreate_series(
     root: Path, task: ProjectTask, slug: str, hooks: Hooks
 ) -> _Failure | None:
-    """Szereg odtwarza się wyłącznie, gdy bieżące wersje archiwów zbioru = przypięte wejścia."""
+    """
+    Rebuild a missing pinned series from exactly the pinned inputs.
+
+    The current versions of the dataset's archive slots must be the pinned
+    inputs (`_inputs_match`). A series of a dataset with a canonical form
+    rebuilt with another SHA-256 than the pinned ``series.json`` is a
+    ``data_error``; the same SHA-256 under another label is restored by
+    content.
+    """
     descriptor = _series_datasets().get(slug)
     if descriptor is None:
         return f"Nieznany zbiór szeregu {slug}", "not_found"
     prefix = f"archives/versions/{descriptor.server_dir}/"
-    pinned = {
-        (pin.path.as_posix(), pin.sha256)
+    inputs = [
+        pin
         for pin in task.files
         if pin.role == "input" and pin.path.as_posix().startswith(prefix)
-    }
+    ]
     try:
-        current = {
-            (item.local_path.as_posix(), item.local_sha256)
+        current = [
+            (item.local_path, item.local_sha256)
             for item in check_series(root, dataset=descriptor.key).items
             if item.local_path is not None
-        }
-        if not pinned or current != pinned:
+        ]
+        if not inputs or not _inputs_match(root, descriptor, inputs, current):
             return (
                 f"Bieżące wersje archiwów zbioru {descriptor.key} różnią się od przypiętych wejść szeregu; "
                 f"identycznej wersji nie można zbudować, {_UPGRADE}",
                 "not_found",
             )
         report = build_series(root, dataset=descriptor.key, **hooks)
+        built = read_meta(report.version).sha256 if report.version is not None else None
     except IMGWError as exc:
         return f"Nie odtworzono szeregu {slug}: {exc}", exc.code
     if report.status == "cancelled":
@@ -2170,6 +2644,26 @@ def _recreate_series(
     if report.status == "failed":
         return (
             "; ".join(report.problems) or "budowa szeregu nie powiodła się",
+            "data_error",
+        )
+    pinned = next(
+        (
+            pin
+            for pin in task.files
+            if pin.role == "series" and pin.path.parts[2] == slug
+        ),
+        None,
+    )
+    if (
+        descriptor.content_form is not None
+        and pinned is not None
+        and report.version is not None
+        and built != pinned.sha256
+    ):
+        return (
+            f"Szereg {descriptor.key} zbudowany z przypiętych wejść "
+            f"({_store_path(root, report.version)}) ma inną sumę SHA-256 ({built}) "
+            f"niż przypięta ({pinned.sha256}); przypięcia bez zmian, {_UPGRADE}",
             "data_error",
         )
     return None
@@ -2212,46 +2706,50 @@ def _recreate(
 
 
 def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
-    """Tryb ``pinned`` dla przypiętego zadania: piny bez zmian, brakujące pliki tylko identyczne."""
-    states = {pin: _inspect(root, pin, full=False) for pin in task.files}
-    missing = {pin for pin in task.files if states[pin][0] == "missing"}
-    ordered = [pin for pin in task.files if pin in missing]
+    """
+    ``pinned`` mode for a pinned task: the pins never change.
+
+    Missing files are recreated (archives downloaded again, series rebuilt
+    from exactly the pinned inputs) and count only when identical, or, for a
+    dataset with a canonical form, when the current version of their slot
+    carries the pinned content (``restored_by_content``, ADR-003 D14). Pins
+    already matched by such a version need no request. A task with content
+    matches is ``content_match`` and gets one ``pin_restored_by_content``
+    warning.
+    """
+    checks = {pin: _inspect(root, pin, full=False) for pin in task.files}
+    missing = [pin for pin in task.files if checks[pin].state == "missing"]
     errors, cancelled = (
-        _recreate(root, task, ordered, hooks) if ordered else ({}, False)
+        _recreate(root, task, missing, hooks) if missing else ({}, False)
     )
     results: list[OperationResult] = []
+    matched: list[tuple[ProjectFile, _PinCheck]] = []
     failed = changed = False
     for pin in task.files:
-        if pin in missing:
-            state, error, code = _inspect(root, pin, full=True)
-            if state == "current":
+        check = checks[pin]
+        if check.state == "missing":
+            check = _inspect(root, pin, full=True)
+            if check.state == "current":
                 results.append(_pin_result(task, root, pin, "created", None))
                 continue
-            error, code = errors.get(pin) or (error, code)
-            failed = True
-            results.append(
-                _pin_result(
-                    task,
-                    root,
-                    pin,
-                    "cancelled" if error == CANCELLED else "failed",
-                    error,
-                    code,
+            if check.state != "content_match":
+                error, code = errors.get(pin) or (check.error, check.code)
+                failed = True
+                results.append(
+                    _pin_result(
+                        task,
+                        root,
+                        pin,
+                        "cancelled" if error == CANCELLED else "failed",
+                        error,
+                        code,
+                    )
                 )
-            )
-        else:
-            state, error, code = states[pin]
-            changed = changed or state == "changed"
-            results.append(
-                _pin_result(
-                    task,
-                    root,
-                    pin,
-                    "unchanged" if state == "current" else "failed",
-                    error,
-                    code,
-                )
-            )
+                continue
+        if check.state == "content_match":
+            matched.append((pin, check))
+        changed = changed or check.state == "changed"
+        results.append(_check_result(task, root, pin, check))
     status: TaskStatus = (
         "cancelled"
         if cancelled
@@ -2259,6 +2757,8 @@ def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
         if failed
         else "changed"
         if changed
+        else "content_match"
+        if matched
         else "current"
     )
     if status in ("failed", "changed"):
@@ -2273,6 +2773,7 @@ def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
             "task_failed",
             f"Zadanie {task.name}: {reasons}; przypięcia bez zmian",
         )
+    _matched_notice(hooks["on_notice"], task, matched)
     return _Outcome(status, tuple(results))
 
 
@@ -2298,16 +2799,21 @@ def download_project(
     Download the data of project tasks and pin the resulting store versions.
 
     Unpinned tasks, and every task with ``update="upgrade"``, are produced and
-    pinned: ``series select`` synchronizes the archive years covering the
-    selection, builds the dataset series and pins ``series.json``, the selected
-    station files and the input archives; other commands run through
+    pinned: ``series select`` synchronizes the archives covering the selection
+    (IMGW-PIB yearbooks; ČHMÚ files of the task's stations), builds the
+    dataset series and pins ``series.json``, the selected station files and
+    the input archives (inputs of a dataset with a canonical form with
+    ``content_sha256`` and ``content_form``); other commands run through
     `run_command` with ``root=store_dir`` and pin the versions named in their
     result. New pins replace the whole task only after full success. With
     ``update="pinned"`` an already pinned task keeps its pins: missing archives
     are downloaded again and missing series rebuilt only when the result is
-    identical to the pin; catalog and PMAXTP versions are not recreated. Each
-    task result is merged into the current manifest under the lock; a task
-    changed meanwhile by another process fails with ``project_conflict``.
+    identical to the pin, or for a dataset with a canonical form when the
+    current version of the slot carries the pinned content
+    (``restored_by_content``, ADR-003 D14; such pins need no request in later
+    runs); catalog and PMAXTP versions are not recreated. Each task result is
+    merged into the current manifest under the lock; a task changed meanwhile
+    by another process fails with ``project_conflict``.
 
     Parameters
     ----------
@@ -2326,7 +2832,9 @@ def download_project(
         the underlying operations.
     on_notice : NoticeHook or None, optional
         Receives ``error`` notices with codes ``task_failed`` and
-        ``project_conflict`` and the notices of the underlying operations.
+        ``project_conflict``, one ``warning`` ``pin_restored_by_content`` per
+        task with content matches and the notices of the underlying
+        operations.
     cancel : Cancel or None, optional
         Checked before each task and by the underlying operations; the
         remaining tasks are reported as ``cancelled``.
@@ -2334,11 +2842,13 @@ def download_project(
     Returns
     -------
     ProjectReport
-        Status per task (``current``, ``upgraded``, ``changed``, ``failed`` or
-        ``cancelled``) and the per-file results with §13.7 slots, the task name
-        in ``task`` and ``error_code`` of failed items; an error of a whole
-        task (e.g. a ``conflict`` while merging) has ``slot=None``.
-        ``cancelled`` is true when the run was stopped.
+        Status per task (``current``, ``content_match``, ``upgraded``,
+        ``changed``, ``failed`` or ``cancelled``) and the per-file results
+        (``restored_by_content`` with the equivalent version in ``version``)
+        with §13.7 slots, the task name in ``task`` and ``error_code`` of
+        failed items; an error of a whole task (e.g. a ``conflict`` while
+        merging) has ``slot=None``. ``cancelled`` is true when the run was
+        stopped.
 
     Raises
     ------

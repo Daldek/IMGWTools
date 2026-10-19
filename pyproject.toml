@@ -63,9 +63,15 @@ pandas = [
     "pandas>=2.0",
 ]
 
+# MCP server for AI agents (imgw mcp; official SDK v2, low-level Server)
+mcp = [
+    "imgwtools[cli]",
+    "mcp>=2.3,<3",
+]
+
 # Full installation with all features
 full = [
-    "imgwtools[api,cli,pandas,store]",
+    "imgwtools[api,cli,mcp,pandas,store]",
 ]
 
 # Development dependencies

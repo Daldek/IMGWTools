@@ -8,9 +8,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from imgwtools.cli._dispatch import ImgwCommand, ImgwSubgroup
 from imgwtools.config import settings
 
-app = typer.Typer(help="Administracja kluczy API")
+app = typer.Typer(help="Administracja kluczy API", cls=ImgwSubgroup)
 console = Console()
 
 
@@ -31,7 +32,7 @@ def save_api_keys(data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-@app.command("keys")
+@app.command("keys", cls=ImgwCommand)
 def list_keys():
     """Lista kluczy API."""
     data = load_api_keys()
@@ -58,7 +59,7 @@ def list_keys():
     console.print(table)
 
 
-@app.command("create")
+@app.command("create", cls=ImgwCommand)
 def create_key(
     name: str = typer.Option(
         ...,
@@ -107,7 +108,7 @@ def create_key(
     )
 
 
-@app.command("revoke")
+@app.command("revoke", cls=ImgwCommand)
 def revoke_key(
     key_id: str = typer.Argument(
         ...,
@@ -137,7 +138,7 @@ def revoke_key(
     save_api_keys(data)
 
 
-@app.command("delete")
+@app.command("delete", cls=ImgwCommand)
 def delete_key(
     key_id: str = typer.Argument(
         ...,
@@ -179,7 +180,7 @@ def delete_key(
     console.print(f"[green]Klucz {key_to_delete['name']} zostal usuniety[/green]")
 
 
-@app.command("stats")
+@app.command("stats", cls=ImgwCommand)
 def key_stats(
     key_id: str | None = typer.Argument(
         None,

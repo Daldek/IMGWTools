@@ -8,7 +8,9 @@ validation (400 ``validation_error``), unknown routes (404 ``not_found``),
 wrong methods (405 ``method_not_allowed``), file-system errors (``io_error``)
 and program errors (``internal_error``). Code, title and HTTP status come from
 the error registry `ERROR_CODES`, so REST reports an error exactly as the CLI
-and the web GUI do. Texts and details never contain absolute server paths
+and the web GUI do. The title is in the language of ``Accept-Language``
+(`accept_language`, Polish by default) while ``detail`` stays Polish (spec
+2026-10-19 §4.2). Texts and details never contain absolute server paths
 (rule T21): `hide_server_paths` writes them relative to the server directory
 that contains them.
 """
@@ -25,6 +27,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from imgwtools._jsonable import jsonable
+from imgwtools.commands import LANGS, Lang
 from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
 
@@ -33,6 +36,7 @@ __all__ = [
     "PROBLEM_MEDIA_TYPE",
     "PROBLEM_RESPONSES",
     "PROBLEM_SCHEMA",
+    "accept_language",
     "hide_server_paths",
     "problem_response",
 ]
@@ -86,6 +90,50 @@ _HTTP_CODES: dict[int, ErrorCode] = {
 }
 _VALIDATION_DETAIL = "Niepoprawne parametry lub ciało żądania"
 _INTERNAL_DETAIL = "Nieoczekiwany błąd serwera IMGWTools; szczegóły w dzienniku serwera"
+
+
+def _weight(parameters: list[str]) -> float | None:
+    """``q`` of an ``Accept-Language`` item: 1 without it, None when malformed."""
+    for parameter in parameters:
+        name, _, value = parameter.partition("=")
+        if name.strip().lower() == "q":
+            try:
+                weight = float(value.strip())
+            except ValueError:
+                return None
+            return weight if 0.0 <= weight <= 1.0 else None
+    return 1.0
+
+
+def accept_language(header: str | None, /) -> Lang:
+    """
+    Choose the catalog language of an ``Accept-Language`` header.
+
+    Items are separated by commas and weighted by ``q`` (1 without it,
+    RFC 9110 §12.5.4); a language range matches by its first subtag
+    (``en-GB`` → ``en``). The highest positive weight among ``pl`` and ``en``
+    wins, the item listed first on a tie. The header is only a hint: no
+    header, no matching item and malformed items give Polish, never an error.
+
+    Parameters
+    ----------
+    header : str or None
+        Value of the ``Accept-Language`` request header, or None.
+
+    Returns
+    -------
+    {"pl", "en"}
+        Language of the texts of the answer.
+    """
+    chosen: Lang = "pl"
+    best = 0.0
+    for item in (header or "").split(","):
+        tag, *parameters = item.split(";")
+        primary = tag.strip().lower().split("-", 1)[0]
+        weight = _weight(parameters) if primary in LANGS else None
+        if weight is not None and weight > best:
+            chosen, best = cast(Lang, primary), weight
+    return chosen
 
 
 def _working_directory() -> Path | None:
@@ -167,28 +215,35 @@ def problem_response(
     Returns
     -------
     JSONResponse
-        Problem document with the registry status, title and ``type``
+        Problem document with the registry status, title (English when
+        `accept_language` of the request chooses ``en``) and ``type``
         ``urn:imgwtools:error:<code>``; texts without absolute server paths.
+        ``Content-Language`` names the language of the title and ``Vary``
+        includes ``Accept-Language``.
     """
     spec = ERROR_CODES[code]
     if spec.http_status is None:
         spec = ERROR_CODES["internal_error"]
     status = cast(int, spec.http_status)
+    language = accept_language(request.headers.get("accept-language"))
     body = {
         "type": f"urn:imgwtools:error:{spec.code}",
-        "title": spec.title,
+        "title": spec.title_en if language == "en" else spec.title,
         "status": status,
         "detail": cast(str, hide_server_paths(detail)) or spec.title,
         "instance": request.url.path,
         "code": spec.code,
         "details": hide_server_paths(dict(details or {})),
     }
-    return JSONResponse(
+    response = JSONResponse(
         body,
         status_code=status,
         media_type=PROBLEM_MEDIA_TYPE,
         headers=dict(headers) if headers else None,
     )
+    response.headers["Content-Language"] = language
+    response.headers.add_vary_header("Accept-Language")
+    return response
 
 
 def _option(location: tuple[int | str, ...]) -> str:

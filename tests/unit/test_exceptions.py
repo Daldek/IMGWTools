@@ -139,6 +139,12 @@ def test_registry_matches_the_spec_table():
         assert (spec.exit_code, spec.http_status, spec.title) == SPEC_TABLE[code]
 
 
+def test_registry_has_a_distinct_english_title_for_every_code():
+    # REST answers title_en for Accept-Language: en (spec 2026-10-19 §4.2).
+    titles = [spec.title_en for spec in ERROR_CODES.values()]
+    assert len(set(titles)) == len(titles)
+
+
 def test_error_exit_codes_are_distinct_and_apart_from_envelope_codes():
     exit_codes = [s.exit_code for s in ERROR_CODES.values() if s.exit_code is not None]
 
