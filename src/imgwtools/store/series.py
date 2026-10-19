@@ -56,12 +56,12 @@ from imgwtools.store.types import (
     StorePlan,
 )
 from imgwtools.store.writer import (
-    _atomic_publish,
     _canonical,
     _check_kartograf,
     _cleanup,
     _fsync_dir,
     _is_register,
+    _publish_dir,
     _utc,
     _validate_slot,
     _write_json,
@@ -148,7 +148,9 @@ def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
     """
     Read every sidecar of an archive slot; a broken version is an explicit error.
 
-    The slot's observation register ``observations/`` is not a version.
+    The slot's observation register ``observations/`` is not a version, and
+    neither is a version directory without the sidecar (an interrupted
+    publication).
     """
     directory = _validate_slot(root, slot)
     if not directory.exists():
@@ -159,6 +161,13 @@ def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
             continue
         meta_path = version_dir / f"{name}.meta.json"
         main = version_dir / name
+        if (
+            version_dir.is_dir()
+            and not version_dir.is_symlink()
+            and not meta_path.exists()
+            and not meta_path.is_symlink()
+        ):
+            continue
         try:
             if (
                 version_dir.is_symlink()
@@ -1142,7 +1151,7 @@ def build_series(
                 _write_json(meta_path, sidecar(candidate))
                 _fsync_dir(staging)
                 try:
-                    _atomic_publish(staging, target)
+                    _publish_dir(staging, target, "series.json.meta.json")
                 except FileExistsError:
                     winner = _current_series(_series_versions(path, descriptor))
                     if (

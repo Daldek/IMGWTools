@@ -258,6 +258,8 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 - [ ] Pytania do ČHMÚ (chmi@chmi.cz; ADR-003, pytania 5–10): strefa czasu znaczników `historical` i definicja doby HD/QD, oficjalny rok hydrologiczny, czy regeneracje zachowują bajty i czy istnieje rejestr korekt, ciągłość `historical_csv`, znaczenie `WGS_ELE`, `RICKM`, `HA`, `QA`, `CEVT`, `PRF_ID`, pełny słownik `FLAG`. Priorytet: średni.
 - [ ] Potwierdzenia Archiwisty (ADR-003, pytania 11–15): `stations[<kod>].periods` w etykietach pokrycia, rozróżnienie `relabeled`/`unchanged` treścią w IMGW-16, `restored_by_content`/`content_match` w IMGW-19, brak pól treści jako `null`, wpisy `kind="observation"` tylko do odczytu. Priorytet: średni.
 - [ ] Obserwator — przyszła zmiana nazwy (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem); dostawcę ČHMÚ opisuje ADR-003 (pozycja wyżej). Priorytet: niski.
+- [x] **Zapis do magazynu na macOS i Windows** — publikacja wersji według modelu Kartografa (dowiązania twarde, sidecar zatwierdza wersję; ADR-001, errata 2026-10-19) zamiast `renameat2` dostępnego tylko na Linuksie; `fsync` katalogu pomijany na Windows (zrobione 2026-10-19; sprawdzone na Linuksie, Windows zasymulowany odmową `os.open` katalogu).
+- [ ] CI z macierzą ubuntu/macos/windows dla `tests/unit` i `tests/contract` — zapis na macOS i Windows nie był uruchomiony na prawdziwym systemie. Priorytet: wysoki.
 
 ### Infrastruktura i jakość kodu
 

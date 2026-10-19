@@ -309,7 +309,7 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **2208 testów** (2026-10-19, `pytest --collect-only`; 2129 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
+Stan faktyczny: **2209 testów** (2026-10-19, `pytest --collect-only`; 2130 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
 pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
 — bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
 
