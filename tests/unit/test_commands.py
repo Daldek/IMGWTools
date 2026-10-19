@@ -357,7 +357,9 @@ REJECTED = [
     for options, option in cases
 ]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
-# Pins of download_project for the scenario below, recorded before ADR-002 U08.
+# Pins of download_project for the scenario below, recorded before ADR-002 U08; the
+# catalog bytes carry meteo_kind of the fixture's meteo stations (ADR-001 errata
+# 2026-10-19).
 PINS_BEFORE = {
     "raba": [
         ("series", "series/versions/hydro_daily/2026-10-19_9a64f921/series.json"),
@@ -372,7 +374,7 @@ PINS_BEFORE = {
         ),
     ],
     "cell": [("input", "pmaxtp/versions/POT/751_317/2026-10-20_2c009f3c/cell.json")],
-    "catalog": [("catalog", "stations/versions/2026-10-20_305afaae/stations.geojson")],
+    "catalog": [("catalog", "stations/versions/2026-10-20_daea7dd5/stations.geojson")],
 }
 PINS_BEFORE["sync"] = PINS_BEFORE["build"] = [
     *PINS_BEFORE["raba"][:2],
