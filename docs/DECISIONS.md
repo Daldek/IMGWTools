@@ -219,12 +219,14 @@ Archiwista czyta ČHMÚ tym samym adapterem i kontraktami, a zachowanie IMGW si�
 
 **2026-10-19 — D16, wydanie (decyzja właściciela).** Kod dostawcy ČHMÚ (C02–C10) wchodzi do wydania 3.0.0, nie 3.1.0. Odwołania do „3.1.0” w spec 2026-10-18 i w C10 czytać jako 3.0.0; CHANGELOG opisuje ČHMÚ w sekcji 3.0.0. Treść D16 bez zmian.
 
+**2026-10-19 — D11, progi i typ `StationFeature` (C06).** Właściwość `thresholds` katalogu ČHMÚ jest obiektem (spec 2026-10-18 §7.3–§7.4), więc `StationFeature.properties` ma typ `Mapping[str, str | int | float | bool | Mapping[str, object] | None]`: wartość obiektowa wyłącznie dla `thresholds` stacji hydro ČHMÚ, pozostałe właściwości są proste jak w 3.0.0, a `read_catalog` przyjmuje ten obiekt. Źródłami progów są tylko `hydrology/now/metadata/meta1.json` i archiwum `cz.chmi.hydro_stations` (1 → 3): `meta3.json` daje wyłącznie nazwę, rzekę, `HLGP4` i położenie (§5.3), stąd `thresholds.source` ∈ {`chmi_hydro_now`, `chmi_hydro_stations`} (§7.4); „progi 1 → 2 → 3” w §7.2 jest nieścisłe. Treść D11 bez zmian; szczegóły: spec 2026-10-18 §16 (errata C06).
+
 ---
 
 ## ADR-004: Wsparcie agentów AI w wydaniu 3.0.0
 
 **Data:** 2026-10-19  
-**Status:** Przyjęta (2026-10-19; zakres i wydanie 3.0.0 przesądził właściciel, decyzje D1–D12 przyjął koordynator wdrożenia w ramach udzielonej mu odpowiedzialności za architekturę)
+**Status:** Przyjęta (2026-10-19; zakres i wydanie 3.0.0 przesądził właściciel, decyzje D1–D12 przyjął koordynator wdrożenia w ramach udzielonej mu odpowiedzialności za architekturę)  
 **Spec:** `docs/superpowers/specs/2026-10-19-agent-support-design.md` (plan A01–A06 w §11)  
 **Źródło:** ADR-002 D14 (poza zakresem 3.0.0 zostały: AGENTS.md/llms.txt, opisy angielskie, serwer MCP, porządkowanie komunikatów legacy); decyzja właściciela przekazana 2026-10-19 (te cztery pozycje oraz kod dostawcy ČHMÚ, C02–C10, wchodzą do 3.0.0); specyfikacja MCP 2026-07-28 (*Tools*), SDK `mcp` 2.3.0 (PyPI, 2026-10-02), llms.txt v2 (llmstxt.org), agents.md; potrzeby Retmana (`Retman/docs/ARCHITECTURE.md` 3.2–4.3, 8.1) i Archiwisty (`Archiwista/docs/SPEC.md` 5.2, 7, 12.7). Fakty o kodzie z commita `d8cb11c` (2026-10-19), pomiary z tego dnia.
 

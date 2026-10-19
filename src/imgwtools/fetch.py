@@ -19,12 +19,14 @@ from zipfile import BadZipFile, ZipFile
 import httpx
 from pydantic import ValidationError
 
+from imgwtools._version import __version__
 from imgwtools.datasets import (
     ArchiveFile,
     MonthsArg,
     YearsArg,
     archive_files,
     get_dataset,
+    get_provider,
 )
 from imgwtools.exceptions import (
     IMGWConnectionError,
@@ -60,6 +62,14 @@ POLAND_LON_MAX = 24.5
 DEFAULT_TIMEOUT = 30.0
 DOWNLOAD_TIMEOUT = 120.0
 
+UNPUBLISHED = "nieopublikowany"
+"""Error text of a candidate file the provider does not publish (HTTP 404/410)."""
+
+# Requests for per-station files (ČHMÚ) identify the library (spec 2026-10-18
+# §4.5); IMGW-PIB archive traffic keeps the default headers of 3.0.0.
+_IDENTIFY = {"User-Agent": f"imgwtools/{__version__}"}
+_NOT_PUBLISHED = (404, 410)
+
 
 @dataclass(frozen=True)
 class DownloadResult:
@@ -72,14 +82,17 @@ class DownloadResult:
     content_length: int | None
 
 
-def _download_result(response: httpx.Response) -> DownloadResult:
+def _download_result(
+    response: httpx.Response, *, zipped: bool = True
+) -> DownloadResult:
     data = response.content
-    try:
-        ZipFile(BytesIO(data)).close()
-    except BadZipFile as exc:
-        raise IMGWDataError(
-            f"Niepoprawne archiwum ZIP z adresu {response.url}"
-        ) from exc
+    if zipped:
+        try:
+            ZipFile(BytesIO(data)).close()
+        except BadZipFile as exc:
+            raise IMGWDataError(
+                f"Niepoprawne archiwum ZIP z adresu {response.url}"
+            ) from exc
     length = response.headers.get("Content-Length")
     try:
         content_length = int(length) if length is not None else None
@@ -101,9 +114,11 @@ def _json_payload(response: httpx.Response) -> Any:
         raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {response.url}") from exc
 
 
-def _source_error(exc: httpx.HTTPError, url: str) -> IMGWConnectionError:
+def _source_error(
+    exc: httpx.HTTPError, url: str, *, source: str = "IMGW"
+) -> IMGWConnectionError:
     """
-    Map a failed request to an IMGW server to ``source_unavailable``.
+    Map a failed request to a provider's server to ``source_unavailable``.
 
     Parameters
     ----------
@@ -111,6 +126,8 @@ def _source_error(exc: httpx.HTTPError, url: str) -> IMGWConnectionError:
         Timeout, network error or HTTP 4xx/5xx status of the request.
     url : str
         Requested URL, reported in ``details["url"]``.
+    source : str, optional
+        Name of the provider in the message, e.g. ``"ČHMÚ"``.
 
     Returns
     -------
@@ -120,17 +137,17 @@ def _source_error(exc: httpx.HTTPError, url: str) -> IMGWConnectionError:
     """
     if isinstance(exc, httpx.TimeoutException):
         return IMGWConnectionError(
-            f"Przekroczono czas oczekiwania na serwer IMGW: {url}",
+            f"Przekroczono czas oczekiwania na serwer {source}: {url}",
             details={"url": url, "reason": "timeout"},
         )
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return IMGWConnectionError(
-            f"Serwer IMGW zwrócił HTTP {status}: {url}",
+            f"Serwer {source} zwrócił HTTP {status}: {url}",
             details={"url": url, "reason": "http_status", "status": status},
         )
     return IMGWConnectionError(
-        f"Błąd połączenia z serwerem IMGW ({exc}): {url}",
+        f"Błąd połączenia z serwerem {source} ({exc}): {url}",
         details={"url": url, "reason": "network"},
     )
 
@@ -735,14 +752,44 @@ def _meteo_archive(
     return _single_archive(files, option="month")
 
 
-def _archive_response(client: httpx.Client, url: str) -> DownloadResult:
-    """GET one archive; HTTP failures become ``source_unavailable``."""
+def _archive_response(
+    client: httpx.Client, url: str, *, source: str = "IMGW", zipped: bool = True
+) -> DownloadResult:
+    """
+    GET one source file; HTTP failures become ``source_unavailable``.
+
+    Parameters
+    ----------
+    client : httpx.Client
+        Client of the download.
+    url : str
+        URL of the file.
+    source : str, optional
+        Name of the provider in error messages.
+    zipped : bool, optional
+        Whether the bytes must form a ZIP archive (IMGW-PIB); per-station
+        ČHMÚ files (JSON, CSV) are taken as they are.
+
+    Returns
+    -------
+    DownloadResult
+        Original bytes and response headers.
+
+    Raises
+    ------
+    IMGWConnectionError
+        If the request fails (``details`` ``url``, ``reason`` and, for an
+        HTTP error, ``status``).
+    IMGWDataError
+        If ``zipped`` bytes are no ZIP archive or ``Content-Length`` is
+        invalid.
+    """
     try:
         response = client.get(url)
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise _source_error(exc, url) from exc
-    return _download_result(response)
+        raise _source_error(exc, url, source=source) from exc
+    return _download_result(response, zipped=zipped)
 
 
 async def _archive_response_async(
@@ -927,9 +974,10 @@ def download_archives(
     dataset: str,
     /,
     *,
-    years: YearsArg,
+    years: YearsArg | None = None,
     months: MonthsArg | None = None,
     params: Iterable[Literal["H", "Q", "T"]] | None = None,
+    stations: Iterable[str] | None = None,
     output: PathArg = "data/downloaded",
     timeout: float = DOWNLOAD_TIMEOUT,
     on_progress: ProgressHook | None = None,
@@ -942,28 +990,37 @@ def download_archives(
     Every file of `archive_files` is saved as ``<output>/<server_path>``
     through a unique ``.part`` file replaced atomically, so an interrupted
     download never leaves an incomplete archive. A failed file becomes a
-    ``failed`` item and the remaining files are still downloaded.
+    ``failed`` item and the remaining files are still downloaded. ČHMÚ files
+    are candidates that are fetched without a listing (spec 2026-10-18 §4.4):
+    a candidate the server answers with HTTP 404 or 410 is a successful
+    ``not_published`` item.
 
     Parameters
     ----------
     dataset : str
-        Key, slug or legacy alias of one of the ten archive datasets.
-    years : YearsArg
+        Key, slug or legacy alias of one of the twelve archive datasets.
+    years : YearsArg or None, optional
         Archive years: a number, a range ``"a-b"``, a list ``"a,b"`` or an
-        iterable of these.
+        iterable of these. Required except for ``cz.chmi.meteo_daily``, which
+        rejects it.
     months : MonthsArg or None, optional
         Months 1-12 of physically monthly files; None selects all months.
+        Rejected for ČHMÚ datasets.
     params : iterable of {"H", "Q", "T"} or None, optional
         Parameters of ``pl.imgw.hydro_semiannual``; None selects all three.
+    stations : iterable of str or None, optional
+        ČHMÚ station codes (WIGOS identifiers); required for ČHMÚ datasets
+        and rejected for IMGW-PIB datasets.
     output : str or os.PathLike, optional
         Target directory, created when missing.
     timeout : float, optional
         Request timeout in seconds, per file.
     on_progress : ProgressHook or None, optional
-        Called after every file with status ``downloaded`` or ``failed``.
+        Called after every file with status ``downloaded``,
+        ``not_published`` or ``failed``.
     on_notice : NoticeHook or None, optional
-        Receives the ``license_terms`` notice once, after the first
-        downloaded file.
+        Receives the ``license_terms`` notice of the provider once, after the
+        first downloaded file.
     cancel : Cancel or None, optional
         Polled before every file; returning ``True`` stops the download and
         reports the remaining files as ``cancelled``.
@@ -974,12 +1031,14 @@ def download_archives(
         Absolute ``output`` and one item per file in download order, with the
         §13.7 slot, URL, status, written path and, for a failed file, the
         error text and code (``source_unavailable``, ``data_error`` or
-        ``io_error``).
+        ``io_error``); a ``not_published`` item has no path, the error
+        ``"nieopublikowany"`` and no code.
 
     Raises
     ------
     IMGWValidationError
-        If the dataset, years, months or params are invalid.
+        If the dataset, years, months, params or stations are invalid
+        (``details["option"]``).
     OSError
         If the output directory cannot be created.
 
@@ -992,12 +1051,23 @@ def download_archives(
     # store.types is imported lazily: the imgwtools.store package imports this module.
     from imgwtools.store.types import DownloadItem, DownloadReport, Notice, Progress
 
-    files = archive_files(dataset, years=years, months=months, params=params)
+    files = archive_files(
+        dataset, years=years, months=months, params=params, stations=stations
+    )
+    descriptor = get_dataset(dataset)
+    provider = get_provider(descriptor.provider)
+    # Per-station files (ČHMÚ) are JSON or CSV and may be unpublished candidates.
+    per_station = descriptor.archive_scope != "country"
+    source = provider.short_name if per_station else "IMGW"
     target = Path(os.fspath(output)).expanduser().absolute()
     target.mkdir(parents=True, exist_ok=True)
     items: list[DownloadItem] = []
     licensed = False
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=_IDENTIFY if per_station else None,
+    ) as client:
         for index, archive in enumerate(files):
             if cancel is not None and cancel():
                 items.extend(
@@ -1009,12 +1079,19 @@ def download_archives(
                 break
             slot = _archive_slot(archive)
             try:
-                data = _archive_response(client, archive.url).data
+                data = _archive_response(
+                    client, archive.url, source=source, zipped=not per_station
+                ).data
                 path = _save(target.joinpath(*archive.server_path.split("/")), data)
             except IMGWError as exc:
-                item = DownloadItem(
-                    slot, archive.url, "failed", None, exc.detail, exc.code
-                )
+                if per_station and exc.details.get("status") in _NOT_PUBLISHED:
+                    item = DownloadItem(
+                        slot, archive.url, "not_published", None, UNPUBLISHED, None
+                    )
+                else:
+                    item = DownloadItem(
+                        slot, archive.url, "failed", None, exc.detail, exc.code
+                    )
             except OSError as exc:
                 item = DownloadItem(
                     slot,
@@ -1045,9 +1122,7 @@ def download_archives(
                     Notice(
                         "info",
                         "license_terms",
-                        f"{get_dataset(archive.dataset).license.attribution}. Do użytku "
-                        "prywatnego i badawczego; inne zastosowania wymagają sprawdzenia "
-                        "warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                        f"{provider.license.attribution}. {provider.notice}",
                     )
                 )
     cancelled = any(item.status == "cancelled" for item in items)

@@ -13,9 +13,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
 
 from imgwtools._parsing import normalize_archive
+from imgwtools._parsing.chmi import iter_stations
 from imgwtools._parsing.stations import parse_stations_csv
 from imgwtools.datasets import (
-    CATALOG_DATASET,
+    _CATALOG_DATASETS,
     DATASET_KEY_PATTERN,
     STATION_CODE_PATTERN,
     ArchiveFile,
@@ -27,6 +28,7 @@ from imgwtools.datasets import (
     get_dataset,
     get_provider,
     parse_years,
+    providers,
     resolve_dataset_key,
     station_source_files,
 )
@@ -38,8 +40,9 @@ from imgwtools.exceptions import (
 )
 from imgwtools.models import Measurement, NormalizedRecord, StationListEntry
 from imgwtools.store.catalog import (
+    _CATALOG_DIRS,
+    _NESTED_CATALOGS,
     CATALOG_FILE,
-    CATALOG_SLOT,
     RootArg,
     _newest_downloaded,
     _signal_time,
@@ -50,7 +53,6 @@ from imgwtools.store.series import (
     _FLAGS,
     SERIES_SCHEMA,
     _pyarrow,
-    _restore_archive,
     _series_descriptor,
 )
 from imgwtools.store.types import (
@@ -138,7 +140,10 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
     def unusable(
         code: str, text: str, *, schema: str | None = None
     ) -> tuple[StoreInfo, str]:
-        return StoreInfo(path, path.exists(), schema, False, contracts, (text,)), code
+        info = StoreInfo(
+            path, path.exists(), schema, False, contracts, (text,), providers()
+        )
+        return info, code
 
     if not path.exists():
         return unusable("missing_store", f"Katalog magazynu nie istnieje: {path}")
@@ -168,7 +173,7 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
             f"Znacznik {marker} nie ma poprawnego pola created_by",
             schema=schema,
         )
-    return StoreInfo(path, True, schema, True, contracts, ()), None
+    return StoreInfo(path, True, schema, True, contracts, (), providers()), None
 
 
 def store_info(root: PathArg, /) -> StoreInfo:
@@ -188,7 +193,8 @@ def store_info(root: PathArg, /) -> StoreInfo:
     -------
     StoreInfo
         Existence of the root, marker schema, support flag, the contract
-        versions supported by this library and the detected problems.
+        versions supported by this library, the detected problems and the
+        data providers the library knows (``providers()``, registry order).
 
     Raises
     ------
@@ -501,8 +507,17 @@ def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def _slot_provider(slot: str | None) -> str | None:
+    """Provider of the dataset named by a slot; None without a slot or a known key."""
+    key = (slot or "").partition(":")[2].partition(":")[0]
+    origin = _registry_origin(key) if key else None
+    return None if origin is None else origin[1]
+
+
 def _problem(slot: str | None, path: Path, code: str, text: str) -> StoreEntry:
-    return StoreEntry("problem", slot, path, None, code, text)
+    return StoreEntry(
+        "problem", slot, path, None, code, text, provider=_slot_provider(slot)
+    )
 
 
 def _unknown(root: Path, path: Path) -> StoreEntry:
@@ -541,6 +556,11 @@ def _entry(
                 "invalid_meta",
                 "request.server_path w sidecarze nie odpowiada ścieżce wersji",
             )
+        if kind == "catalog" and meta.dataset_key != slot.split(":")[1]:
+            raise _Invalid(
+                "invalid_meta",
+                f"zbiór {meta.dataset} sidecara nie odpowiada slotowi {slot}",
+            )
         if kind == "series":
             series_schema = meta.extra.get("series_schema")
             if not isinstance(series_schema, str):
@@ -563,7 +583,7 @@ def _entry(
         return _problem(
             slot, directory, "unreadable", f"Wersja {_relative(root, directory)}: {exc}"
         )
-    return StoreEntry(kind, slot, main, meta, None, None)
+    return StoreEntry(kind, slot, main, meta, None, None, provider=_slot_provider(slot))
 
 
 # --------------------------------------------------------------------------
@@ -735,7 +755,14 @@ def _scan_register(
                 yield _problem(slot, child, exc.code, f"Obserwacja {relative}: {exc}")
             else:
                 yield StoreEntry(
-                    "observation", slot, child, None, None, None, observation
+                    "observation",
+                    slot,
+                    child,
+                    None,
+                    None,
+                    None,
+                    observation,
+                    provider=_slot_provider(slot),
                 )
 
 
@@ -744,7 +771,8 @@ def _scan_register(
 # --------------------------------------------------------------------------
 
 _SLOT_GRAMMAR = (
-    "archive:<klucz>:<ścieżka>, series:<klucz>, catalog:pl.imgw.stations "
+    "archive:<klucz>:<ścieżka>, series:<klucz>, catalog:<klucz katalogu> "
+    f"({', '.join(_CATALOG_DATASETS.values())}) "
     "albo pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>"
 )
 _PMAXTP_KEY = "pl.imgw.pmaxtp"
@@ -915,6 +943,36 @@ def _derived_entry(
     return _entry(root, kind, slot, version, name, **options)
 
 
+def _scan_catalogs(root: Path, versions: Path) -> Iterator[StoreEntry]:
+    """
+    Station catalog versions and problems below ``stations/versions/``.
+
+    A directory named ``<label>_<sha8>`` (or holding files) is a version of the
+    IMGW-PIB catalog; a directory named after the slug of another provider's
+    catalog holds the versions of that catalog (ADR-003 D5); any other
+    directory is an unknown element.
+    """
+    for child in _directories(root, versions):
+        if isinstance(child, StoreEntry):
+            yield child
+        elif child.name in _NESTED_CATALOGS:
+            slot = f"catalog:{_CATALOG_DATASETS[_NESTED_CATALOGS[child.name]]}"
+            for version in _directories(root, child):
+                yield _derived_entry(root, version, "catalog", slot, CATALOG_FILE)
+        elif _VERSION_DIR.match(child.name) or any(
+            not item.is_dir() or item.is_symlink() for item in child.iterdir()
+        ):
+            yield _derived_entry(
+                root,
+                child,
+                "catalog",
+                f"catalog:{_CATALOG_DATASETS['IMGW-PIB']}",
+                CATALOG_FILE,
+            )
+        else:
+            yield _unknown(root, child)
+
+
 def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
     for versions in _versions_dir(root, top):
         if isinstance(versions, StoreEntry):
@@ -922,10 +980,7 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
         elif top.name == "archives":
             yield from _scan_archives(root, versions, versions)
         elif top.name == "stations":
-            for version in _directories(root, versions):
-                yield _derived_entry(
-                    root, version, "catalog", f"catalog:{CATALOG_DATASET}", CATALOG_FILE
-                )
+            yield from _scan_catalogs(root, versions)
         elif top.name == "series":
             series = _series_datasets()
             for slug in _directories(root, versions):
@@ -1006,7 +1061,9 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
             yield _unknown(root, child)
 
 
-def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEntry]:
+def iter_store(
+    root: RootArg, /, *, kind: str | None = None, provider: str | None = None
+) -> Iterator[StoreEntry]:
     """
     Scan every published version, observation and problem offline, without writing.
 
@@ -1018,7 +1075,9 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
     the scan (only their size is compared with ``size_bytes``). Each valid
     file of the observation register ``observations/`` of an archive slot
     is a ``StoreEntry(kind="observation")`` (never a version); a broken one
-    is a problem with the slot.
+    is a problem with the slot. Every entry names the provider of its
+    slot's dataset in ``StoreEntry.provider`` (None for a problem without a
+    slot).
 
     Parameters
     ----------
@@ -1026,6 +1085,10 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
         Store root directory or an open store handle.
     kind : {"archive", "series", "catalog", "pmaxtp", "observation", "problem"} or None, optional
         Return only entries of this kind; ``None`` returns all entries.
+    provider : str or None, optional
+        Return only the entries of this provider (``ProviderDescriptor.id`` or
+        key prefix) and the problems without a slot; ``None`` returns the
+        entries of all providers.
 
     Returns
     -------
@@ -1035,7 +1098,8 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
     Raises
     ------
     IMGWValidationError
-        If ``kind`` is not a known entry kind or the root path contains ``..``.
+        If ``kind`` is not a known entry kind, ``provider`` names no provider
+        or the root path contains ``..``.
     IMGWStoreError
         If a component of the root path is a symbolic link.
     """
@@ -1043,8 +1107,14 @@ def iter_store(root: RootArg, /, *, kind: str | None = None) -> Iterator[StoreEn
         raise IMGWValidationError(
             f"Nieznany rodzaj wpisu magazynu: {kind!r}; dozwolone {', '.join(_KINDS)}"
         )
+    owner = None if provider is None else get_provider(provider).id
     path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
-    return (entry for entry in _scan(path) if kind is None or entry.kind == kind)
+    return (
+        entry
+        for entry in _scan(path)
+        if (kind is None or entry.kind == kind)
+        and (owner is None or entry.provider in (owner, None))
+    )
 
 
 def _invalid_slot(slot: object, reason: str) -> IMGWValidationError:
@@ -1096,8 +1166,12 @@ def _slot_location(
             SERIES_FILE,
             {"subdirs": ("stations",)},
         )
-    if kind == "catalog" and key == CATALOG_DATASET:
-        return "catalog", _validate_slot(root, CATALOG_SLOT), CATALOG_FILE, {}
+    owner = next(
+        (owner for owner, catalog in _CATALOG_DATASETS.items() if catalog == key),
+        None,
+    )
+    if kind == "catalog" and owner is not None:
+        return "catalog", _validate_slot(root, _CATALOG_DIRS[owner]), CATALOG_FILE, {}
     raise _invalid_slot(slot, "nieznany rodzaj lub klucz")
 
 
@@ -1119,7 +1193,8 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
         Slot in the §13.7 grammar: ``archive:<key>:<server path without the
         dataset server directory>`` (e.g.
         ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``),
-        ``series:<key>``, ``catalog:pl.imgw.stations`` or
+        ``series:<key>``, ``catalog:<catalog key>`` (``catalog:pl.imgw.stations``,
+        ``catalog:cz.chmi.stations``) or
         ``pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>``. Station selectors
         of series slots exist only in project pins and are rejected here.
 
@@ -1151,8 +1226,13 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
         return None
     versions: list[tuple[Path, dict[str, Any]]] = []
     entries: dict[Path, StoreEntry] = {}
+    # Catalogs of other providers lie in named directories of the IMGW-PIB slot.
+    imgw_catalog = slot == f"catalog:{_CATALOG_DATASETS['IMGW-PIB']}"
+    nested = _NESTED_CATALOGS if imgw_catalog else {}
     for version in sorted(directory.iterdir()):
-        if kind == "archive" and _is_register(version):
+        if (kind == "archive" and _is_register(version)) or (
+            version.name in nested and version.is_dir() and not version.is_symlink()
+        ):
             continue
         entry = (
             _entry(path, kind, slot, version, name, strict=True, **options)
@@ -1348,38 +1428,21 @@ def _number(value: object) -> float:
     return float(value)
 
 
-def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
-    """
-    Every station of a catalog version, including stations without geometry.
+def _plain(value: object, *, depth: int = 0) -> bool:
+    """Whether a property is a scalar or, ``depth`` levels deep, an object of such values."""
+    if isinstance(value, _SCALARS):
+        return True
+    return (
+        depth > 0
+        and isinstance(value, dict)
+        and all(_plain(item, depth=depth - 1) for item in value.values())
+    )
 
-    The ``stations.geojson`` bytes are verified against the SHA-256 and size
-    recorded in the sidecar.
 
-    Parameters
-    ----------
-    version : str or os.PathLike
-        Catalog version directory or its ``stations.geojson`` file.
-
-    Returns
-    -------
-    tuple of StationFeature
-        Stations in file order; ``geometry`` is ``None`` for stations without
-        a location.
-
-    Raises
-    ------
-    IMGWValidationError
-        If ``version`` points to neither a version directory nor
-        ``stations.geojson``.
-    IMGWStoreError
-        If the catalog file or its sidecar does not exist.
-    IMGWDataError
-        If the file is a symbolic link, does not match its sidecar, or is
-        not a valid station FeatureCollection; with code ``io_error``
-        (``details.path``) if the system cannot read it.
-    """
-    path = _main_file(version, CATALOG_FILE)
+def _catalog_features(path: Path) -> tuple[StationFeature, ...]:
+    """Stations of one catalog version, with the provider of its sidecar."""
     document = _json(path)
+    provider = read_meta(path).provider
     result: list[StationFeature] = []
     try:
         if (
@@ -1399,11 +1462,14 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
             ):
                 raise ValueError(f"nieprawidłowy obiekt stacji {code!r}")
             properties = feature["properties"]
+            # ČHMÚ hydro stations carry the SPA thresholds as an object (§7.4).
             if not isinstance(properties, dict) or not all(
-                isinstance(value, _SCALARS) for value in properties.values()
+                _plain(value, depth=2 if key == "thresholds" else 0)
+                for key, value in properties.items()
             ):
                 raise ValueError(
-                    f"właściwości stacji {code} muszą być wartościami prostymi"
+                    f"właściwości stacji {code} muszą być wartościami prostymi "
+                    "(thresholds: obiektem progów)"
                 )
             if properties.get("station_code", code) != code:
                 raise ValueError(f"station_code stacji {code} różni się od id")
@@ -1420,9 +1486,91 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
                         f"geometria stacji {code} musi być punktem [lon, lat]"
                     )
                 point = (_number(coordinates[0]), _number(coordinates[1]))
-            result.append(StationFeature(code, point, properties))
+            result.append(StationFeature(code, point, properties, provider))
     except (KeyError, TypeError, ValueError) as exc:
         raise IMGWDataError(f"Nieprawidłowy katalog stacji {path}: {exc}") from exc
+    return tuple(result)
+
+
+def read_catalog(
+    version: PathArg | None = None,
+    /,
+    *,
+    root: RootArg | None = None,
+    provider: str | None = None,
+) -> tuple[StationFeature, ...]:
+    """
+    Every station of a catalog version or of the current catalogs of a store.
+
+    Stations without geometry are included. The ``stations.geojson`` bytes are
+    verified against the SHA-256 and size recorded in the sidecar, and
+    ``StationFeature.provider`` comes from the sidecar. ČHMÚ hydro stations
+    carry their SPA thresholds as the object ``properties["thresholds"]``.
+
+    Parameters
+    ----------
+    version : str, os.PathLike or None, optional
+        Catalog version directory or its ``stations.geojson`` file.
+    root : str, os.PathLike, StoreHandle or None, optional
+        Store whose current catalog of every provider is read, in registry
+        order; exactly one of ``version`` and ``root`` is required.
+    provider : str or None, optional
+        With ``root``: read only the current catalog of this provider
+        (``ProviderDescriptor.id`` or key prefix); None reads the catalog of
+        every provider and skips providers without one.
+
+    Returns
+    -------
+    tuple of StationFeature
+        With ``version``: stations in file order. With ``root``: the stations
+        of each provider's catalog in registry order, each catalog sorted by
+        ``station_code``. ``geometry`` is ``None`` for stations without a
+        location.
+
+    Raises
+    ------
+    IMGWValidationError
+        If not exactly one of ``version`` and ``root`` is given, ``provider``
+        is given with ``version`` or names no provider, or ``version`` points
+        to neither a version directory nor ``stations.geojson``.
+    IMGWStoreError
+        If the catalog file or its sidecar does not exist, the root is not a
+        supported store (code ``store_unavailable``), or the store holds no
+        catalog of an explicitly given ``provider`` (code ``not_found``).
+    IMGWDataError
+        If a catalog version is broken, the file is a symbolic link, does not
+        match its sidecar, or is not a valid station FeatureCollection; with
+        code ``io_error`` (``details.path``) if the system cannot read it.
+    """
+    if version is not None and root is None:
+        if provider is not None:
+            raise IMGWValidationError(
+                "Opcja provider wybiera bieżący katalog magazynu i wymaga root "
+                "zamiast version",
+                details={"option": "provider", "value": provider},
+            )
+        return _catalog_features(_main_file(version, CATALOG_FILE))
+    if root is None or version is not None:
+        raise IMGWValidationError(
+            "Podaj dokładnie jedno z: version (wersja katalogu) albo root "
+            "(bieżące katalogi stacji magazynu)",
+            details={"option": "version" if root is None else "root"},
+        )
+    owners = providers() if provider is None else (get_provider(provider),)
+    result: list[StationFeature] = []
+    for owner in owners:
+        key = _CATALOG_DATASETS[owner.id]
+        entry = current_version(root, slot=f"catalog:{key}")
+        if entry is None or entry.version is None:
+            if provider is not None:
+                raise IMGWStoreError(
+                    f"Magazyn nie zawiera katalogu stacji {owner.short_name} ({key}); "
+                    f"buduje go imgw store catalog --provider {owner.id}",
+                    code="not_found",
+                )
+            continue
+        stations = _catalog_features(entry.version)
+        result.extend(sorted(stations, key=lambda station: station.station_code))
     return tuple(result)
 
 
@@ -1431,22 +1579,31 @@ def read_catalog(version: PathArg, /) -> tuple[StationFeature, ...]:
 # --------------------------------------------------------------------------
 
 
-def _station_lists() -> dict[str, ArchiveFile]:
-    """Station list source of each kind, keyed ``"hydro"`` / ``"meteo"``."""
-    return dict(zip(("hydro", "meteo"), station_source_files(), strict=True))
+def _station_lists(provider: str = "IMGW-PIB") -> dict[str, ArchiveFile]:
+    """Station list source of each kind of a provider, keyed ``"hydro"`` / ``"meteo"``."""
+    return dict(
+        zip(("hydro", "meteo"), station_source_files(provider=provider), strict=True)
+    )
 
 
 def read_station_list(
-    root: RootArg, /, *, kind: Literal["hydro", "meteo"]
+    root: RootArg,
+    /,
+    *,
+    kind: Literal["hydro", "meteo"],
+    provider: str = "IMGW-PIB",
 ) -> tuple[StationListEntry, ...]:
     """
     Stations of the current stored station list of one family (offline).
 
-    Reads the current version of dataset ``pl.imgw.hydro_stations``
-    (``kind="hydro"``) or ``pl.imgw.meteo_stations`` (``kind="meteo"``),
-    verifies its bytes against the SHA-256 and size of the sidecar and parses
-    it with :func:`imgwtools.parsers.parse_stations_csv`. Lists are stored
-    by :func:`build_catalog` (``imgw store catalog``).
+    Reads the current version of the provider's list dataset
+    (``pl.imgw.hydro_stations``/``pl.imgw.meteo_stations`` for IMGW-PIB,
+    ``cz.chmi.hydro_stations``/``cz.chmi.meteo_stations`` — the historical
+    ``meta1.json`` — for ČHMÚ), verifies its bytes against the SHA-256 and
+    size of the sidecar and parses it with
+    :func:`imgwtools.parsers.parse_stations_csv` or
+    :func:`imgwtools.parsers.parse_chmi_stations`. Lists are stored by
+    :func:`build_catalog` (``imgw store catalog``).
 
     Parameters
     ----------
@@ -1454,27 +1611,34 @@ def read_station_list(
         Store root directory or an open store handle.
     kind : {"hydro", "meteo"}
         Station family of the list.
+    provider : str, optional
+        Provider of the list (``ProviderDescriptor.id`` or key prefix),
+        ``"IMGW-PIB"`` by default.
 
     Returns
     -------
     tuple of StationListEntry
-        Stations in file order, each with ``kind`` set; hydro-only fields
-        are ``None`` for meteorological stations. A code listed twice by
-        IMGW (e.g. a meteo station with two short codes) is returned twice;
-        `build_catalog` reports such codes in its ``problems``.
+        Stations in file order, each with ``kind`` and ``provider`` set;
+        hydro-only fields are ``None`` for meteorological stations. A code
+        listed twice by IMGW (e.g. a meteo station with two short codes) is
+        returned twice; `build_catalog` reports such codes in its
+        ``problems``. A ČHMÚ list gives one entry per code (meteo: the
+        location period with the latest ``BEGIN_DATE``).
 
     Raises
     ------
     IMGWValidationError
-        If ``kind`` is neither ``"hydro"`` nor ``"meteo"``.
+        If ``kind`` is neither ``"hydro"`` nor ``"meteo"``, or ``provider``
+        names no provider.
     IMGWStoreError
         If the root is not a supported store (code ``store_unavailable``) or
         the store holds no version of the list (code ``not_found``).
     IMGWDataError
         If a version of the list is broken, or the current list does not
-        match its sidecar.
+        match its sidecar or cannot be parsed.
     """
-    lists = _station_lists()
+    owner = get_provider(provider)
+    lists = _station_lists(owner.id)
     if kind not in lists:
         raise IMGWValidationError(
             f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo",
@@ -1483,9 +1647,15 @@ def read_station_list(
     source = lists[kind]
     entry = current_version(root, slot=str(_archive_slot(source.server_path)))
     if entry is None or entry.version is None or entry.meta is None:
+        hint = (
+            "build_catalog, imgw store catalog"
+            if owner.id == "IMGW-PIB"
+            else f"build_catalog(root, provider={owner.id!r}), imgw store catalog "
+            f"--provider {owner.id}"
+        )
         raise IMGWStoreError(
             f"Magazyn nie zawiera listy stacji {source.dataset}; zapisuje ją "
-            "budowa katalogu stacji (build_catalog, imgw store catalog)",
+            f"budowa katalogu stacji ({hint})",
             code="not_found",
         )
     if entry.meta.dataset_key != source.dataset:
@@ -1493,7 +1663,10 @@ def read_station_list(
             f"Wersja {entry.version} należy do zbioru {entry.meta.dataset}, "
             f"a nie {source.dataset}"
         )
-    return tuple(parse_stations_csv(_verified(entry.version), kind=kind))
+    data = _verified(entry.version)
+    if get_dataset(source.dataset).parser == "parse_chmi_stations":
+        return tuple(iter_stations(data, kind=kind, filename=str(entry.version)))
+    return tuple(parse_stations_csv(data, kind=kind))
 
 
 def _archive_main(version: PathArg) -> Path:
@@ -1555,25 +1728,48 @@ def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
     descriptor = next((d for d in datasets() if d.key == meta.dataset_key), None)
     if not isinstance(server_path, str) or descriptor is None:
         raise IMGWValidationError(
-            f"{main} nie jest wersją archiwum IMGW (zbiór {meta.dataset}); szeregi "
+            f"{main} nie jest wersją archiwum (zbiór {meta.dataset}); szeregi "
             "czyta read_series, katalog read_catalog, komórki PMAXTP read_pmaxtp"
         )
     if descriptor.time_unit == "station_list":
         kind = next(
-            k for k, a in _station_lists().items() if a.dataset == descriptor.key
+            k
+            for k, a in _station_lists(descriptor.provider).items()
+            if a.dataset == descriptor.key
+        )
+        option = (
+            ""
+            if descriptor.provider == "IMGW-PIB"
+            else f", provider={descriptor.provider!r}"
         )
         raise IMGWValidationError(
             f"{main} jest wersją listy stacji {meta.dataset}; listy stacji czyta "
-            f"read_station_list(root, kind={kind!r})"
+            f"read_station_list(root, kind={kind!r}{option})"
         )
     if PurePosixPath(server_path).name != main.name:
         raise IMGWDataError(
             f"Plik {main.name} nie odpowiada request.server_path {server_path} sidecara"
         )
-    try:
-        archive = _restore_archive(descriptor.key, {"request": meta.request})
-    except (KeyError, TypeError, ValueError, IMGWValidationError) as exc:
-        raise IMGWDataError(f"Sidecar {main} nie opisuje archiwum: {exc}") from exc
+    archive = _archive_from_path(descriptor.key, server_path)
+    mismatch = (
+        None
+        if archive is None
+        else next(
+            (
+                key
+                for key in ("year", "month", "station_code", "param")
+                if key in meta.request and meta.request[key] != getattr(archive, key)
+            ),
+            None,
+        )
+    )
+    if archive is None or mismatch is not None:
+        reason = (
+            f"ścieżka {server_path} nie należy do zbioru {descriptor.key}"
+            if archive is None
+            else f"request.{mismatch} nie odpowiada ścieżce {server_path}"
+        )
+        raise IMGWDataError(f"Sidecar {main} nie opisuje archiwum: {reason}")
     return normalize_archive(archive, data=_verified(main))
 
 

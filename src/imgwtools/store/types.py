@@ -816,16 +816,19 @@ class StationFeature:
         WIGOS identifier).
     geometry : tuple of (float, float) or None
         Location as ``(lon, lat)`` in WGS84, or None when unknown.
-    properties : Mapping of str to str, int, float, bool or None
+    properties : Mapping of str to str, int, float, bool, Mapping or None
         Catalog properties of the station (kind, name, river, location
-        source, activity, etc.).
+        source, activity, etc.); simple values, except the SPA thresholds of
+        a ČHMÚ hydro station, ``"thresholds"``: an object (``source``,
+        ``type``, ``H`` and ``Q`` with ``unit``, ``drought``, ``spa1``,
+        ``spa2``, ``spa3`` and ``q50``) or None.
     provider : str, optional
         ``ProviderDescriptor.id`` of the catalog the station comes from.
     """
 
     station_code: str
     geometry: tuple[float, float] | None
-    properties: Mapping[str, str | int | float | bool | None]
+    properties: Mapping[str, str | int | float | bool | Mapping[str, object] | None]
     provider: str = "IMGW-PIB"
 
 

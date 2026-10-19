@@ -1161,11 +1161,13 @@ def test_registers_change_no_version_choice_of_series_or_catalog(tmp_path):
             catalog_sources(router)
             build_catalog(root)
             if name == "observed":
+                # Observations of no current version are history, never the
+                # reference signal of check_catalog (spec 2026-10-18 §3.2).
                 for sidecar in list(root.glob("archives/versions/**/*.meta.json")):
-                    register = sidecar.parent.parent / "observations"
-                    register.mkdir(exist_ok=True)
-                    (register / "2026-10-19_00000000.json").write_text(
-                        "{}", encoding="utf-8"
+                    observe(
+                        sidecar.with_name(sidecar.name.removesuffix(".meta.json")),
+                        same_content_as="2000-01-01_00000000",
+                        **CONTENT,
                     )
             plan = check_catalog(root)
             catalog = build_catalog(root)
