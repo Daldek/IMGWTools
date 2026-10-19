@@ -264,7 +264,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for method, operation in operations.items()
     }
 
-    assert len(expected) == 26
+    assert len(expected) == 27
     assert served.keys() == expected.keys()
     assert [
         (route["method"], route["path"])

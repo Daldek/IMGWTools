@@ -71,13 +71,13 @@ def create_key(
         100,
         "--limit",
         "-l",
-        help="Limit zapytan na godzine",
+        help="Limit zapytań na godzinę",
     ),
 ):
     """
-    Utworz nowy klucz API.
+    Utwórz nowy klucz API.
 
-    Przyklad:
+    Przykład:
         imgw admin create --name "User1" --limit 100
     """
     data = load_api_keys()
@@ -101,10 +101,10 @@ def create_key(
     console.print()
     console.print(f"[bold]Nazwa:[/bold] {name}")
     console.print(f"[bold]Klucz:[/bold] {key_id}")
-    console.print(f"[bold]Limit:[/bold] {rate_limit} req/h")
+    console.print(f"[bold]Limit:[/bold] {rate_limit} zapytań/h")
     console.print()
     console.print(
-        "[yellow]Zapisz ten klucz - nie bedzie mozna go odczytac ponownie![/yellow]"
+        "[yellow]Zapisz ten klucz – nie będzie można go odczytać ponownie![/yellow]"
     )
 
 
@@ -112,13 +112,13 @@ def create_key(
 def revoke_key(
     key_id: str = typer.Argument(
         ...,
-        help="ID klucza do uniewaznienia (wystarczy poczatek)",
+        help="Identyfikator klucza do unieważnienia (wystarczy początek)",
     ),
 ):
     """
-    Uniewazni klucz API.
+    Unieważnij klucz API.
 
-    Przyklad:
+    Przykład:
         imgw admin revoke abc123
     """
     data = load_api_keys()
@@ -128,7 +128,7 @@ def revoke_key(
         if key["id"].startswith(key_id):
             key["active"] = False
             found = True
-            console.print(f"[green]Klucz {key['name']} zostal uniewazniony[/green]")
+            console.print(f"[green]Klucz {key['name']} został unieważniony[/green]")
             break
 
     if not found:
@@ -142,19 +142,19 @@ def revoke_key(
 def delete_key(
     key_id: str = typer.Argument(
         ...,
-        help="ID klucza do usuniecia (wystarczy poczatek)",
+        help="Identyfikator klucza do usunięcia (wystarczy początek)",
     ),
     force: bool = typer.Option(
         False,
         "--force",
         "-f",
-        help="Usun bez potwierdzenia",
+        help="Usuń bez potwierdzenia",
     ),
 ):
     """
-    Usun klucz API.
+    Usuń klucz API.
 
-    Przyklad:
+    Przykład:
         imgw admin delete abc123 --force
     """
     data = load_api_keys()
@@ -170,27 +170,27 @@ def delete_key(
         raise typer.Exit(1)
 
     if not force:
-        confirm = typer.confirm(f"Usunac klucz {key_to_delete['name']}?")
+        confirm = typer.confirm(f"Usunąć klucz {key_to_delete['name']}?")
         if not confirm:
             raise typer.Abort()
 
     data["keys"].remove(key_to_delete)
     save_api_keys(data)
 
-    console.print(f"[green]Klucz {key_to_delete['name']} zostal usuniety[/green]")
+    console.print(f"[green]Klucz {key_to_delete['name']} został usunięty[/green]")
 
 
 @app.command("stats", cls=ImgwCommand)
 def key_stats(
     key_id: str | None = typer.Argument(
         None,
-        help="ID klucza (opcjonalne)",
+        help="Identyfikator klucza (opcjonalnie)",
     ),
 ):
     """
-    Statystyki uzycia kluczy API.
+    Statystyki użycia kluczy API.
 
-    Przyklad:
+    Przykład:
         imgw admin stats
         imgw admin stats abc123
     """
@@ -204,7 +204,7 @@ def key_stats(
     table = Table(title="Statystyki kluczy API")
     table.add_column("Nazwa", style="green")
     table.add_column("Limit", style="cyan")
-    table.add_column("Zapytan", style="blue")
+    table.add_column("Zapytania", style="blue")
     table.add_column("Status", style="yellow")
 
     for key in keys:

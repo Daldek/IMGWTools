@@ -1,4 +1,4 @@
-"""Command catalog (spec §13.3, §13.6): 36 commands, validation, envelope, paging, checks."""
+"""Command catalog (spec §13.3, §13.6): 37 commands, validation, envelope, paging, checks."""
 
 import functools
 import importlib
@@ -91,6 +91,7 @@ SPEC_COMMANDS = [
     "project status",
     "project verify",
     "commands schema",
+    "commands guide",
 ]
 PUBLIC_MODULES = (
     "imgwtools.datasets",
@@ -100,6 +101,7 @@ PUBLIC_MODULES = (
     "imgwtools.store",
     "imgwtools.project",
     "imgwtools.commands",
+    "imgwtools.agent_guide",
 )
 # Valid options of every command in their JSON form (keys, numbers, arrays).
 VALID = {
@@ -238,6 +240,7 @@ VALID = {
     "project status": [{"project_dir": "/tmp/proj"}],
     "project verify": [{"project_dir": "/tmp/proj", "tasks": ["a"]}],
     "commands schema": [{}, {"command": "stations find"}],
+    "commands guide": [{}, {"format": "llms", "lang": "en", "path": "/tmp/llms.txt"}],
 }
 SAMPLES = [(command, options) for command, cases in VALID.items() for options in cases]
 # Invalid options rejected by validate_command and command_schema alike, with the
@@ -346,6 +349,7 @@ INVALID = {
     "project status": [({"project_dir": "/p", "plan": "/tmp/x"}, "plan")],
     "project verify": [({}, "project_dir")],
     "commands schema": [({"command": "store delete"}, "command")],
+    "commands guide": [({"format": "html"}, "format"), ({"lang": "de"}, "lang")],
 }
 REJECTED = [
     (command, options, option)
@@ -1065,6 +1069,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
         "project status": {"project_dir": project},
         "project verify": {"project_dir": project},
         "commands schema": {"command": "store sync"},
+        "commands guide": {"format": "llms", "path": tmp_path / "llms.txt"},
     }
     assert list(options) == SPEC_COMMANDS
     untouched = stamps(tmp_path)

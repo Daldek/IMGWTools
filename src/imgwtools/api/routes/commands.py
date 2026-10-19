@@ -9,7 +9,7 @@ comma-separated text), POST from a JSON body checked by a model built with
 list, object). Values are normalized only by `validate_command`; the answer is
 the ``imgw-result/1`` envelope of `run_command` (on POST with ``?check=true``
 of `check_command`) with the store root written as ``"."``, or a text stream
-for ``store export`` and ``series export``.
+for ``store export``, ``series export`` and ``commands guide``.
 
 Server rules: the store root comes only from ``IMGW_STORE_ROOT`` (503
 ``store_unavailable`` when it is missing, relative or unsupported; ``store
@@ -99,7 +99,14 @@ _API_KEY = APIKeyHeader(
 _VERSION_DIRS = {"store": "archives", "series": "series", "pmaxtp": "pmaxtp"}
 # Commands answering diagnostically also for an unsupported store root.
 _DIAGNOSTIC = ("store info", "store scan")
-_MEDIA_TYPES = {"csv": "text/csv; charset=utf-8", "jsonl": "application/x-ndjson"}
+_MEDIA_TYPES = {
+    "csv": "text/csv; charset=utf-8",
+    "jsonl": "application/x-ndjson",
+    "agents": "text/markdown; charset=utf-8",
+    "llms": "text/markdown; charset=utf-8",
+}
+# File names of the guide streams of commands guide (spec 2026-10-19 §3.4).
+_GUIDE_FILES = {"agents": "AGENTS.md", "llms": "llms.txt"}
 # Option given in REST as an imgw-plan/1 object instead of a file (spec §13.2).
 _PLAN = "plan"
 # Option chosen by Accept-Language when the request omits it (spec 2026-10-19 §4.2).
@@ -494,14 +501,23 @@ def _paged(options: dict[str, object]) -> None:
         )
 
 
+def _stream_format(route: _Route, options: Mapping[str, object]) -> str:
+    """Format of a stream: the given option or its catalog default."""
+    default = next(o.default for o in route.spec.options if o.name == "format")
+    return cast(str, options.get("format", default))
+
+
 def _attachment(route: _Route, options: Mapping[str, object]) -> str:
-    """File name of an exported stream."""
+    """File name of an exported stream or of a guide."""
+    format_ = _stream_format(route, options)
+    if format_ in _GUIDE_FILES:
+        return _GUIDE_FILES[format_]
     if route.spec.name == "series export":
         return f"{options['station']}.csv"
     version = cast(Path, options["version"])
     name = version.name.removesuffix(".meta.json")
     stem = version.parent.name if version.is_dir() else PurePosixPath(name).stem
-    return f"{stem}.{options.get('format', 'csv')}"
+    return f"{stem}.{format_}"
 
 
 def _stream(
@@ -514,7 +530,7 @@ def _stream(
     notices = hide_server_paths(jsonable(envelope.notices, root=root, server=True))
     return StreamingResponse(
         (line.encode("utf-8") for line in lines),
-        media_type=_MEDIA_TYPES[cast(str, options.get("format", "csv"))],
+        media_type=_MEDIA_TYPES[_stream_format(route, options)],
         headers={
             "Content-Disposition": f'attachment; filename="{_attachment(route, options)}"',
             "X-IMGW-Status": envelope.status,
