@@ -352,6 +352,55 @@ def test_code_only_in_series_index_is_kept_as_historical_station(
     assert again.from_series == 1
 
 
+def put_meteo(store, dataset):
+    """Store the January 2001 archive of a daily meteo dataset and build its series."""
+    (archive,) = archive_files(dataset, years=[2001], months=[1])
+    content = (FIXTURES / "archives" / archive.server_path).read_bytes()
+    response = DownloadResult(
+        content, archive.url, '"m1"', "Sat, 17 Oct 2026 12:00:00 GMT", len(content)
+    )
+    write_archive(store, archive=archive, response=response)
+    report = build_series(store, dataset=dataset)
+    assert report.status == "created", report.problems
+
+
+def test_meteo_kind_comes_from_the_climate_and_precipitation_series(store):
+    meteo_csv = METEO_CSV + cp1250('"250180460","ADAMOWICE","95414"')
+    with respx.mock(assert_all_called=False) as router:
+        mock_sources(router, meteo_csv=meteo_csv)
+        before = build_catalog(store)
+        put_meteo(store, "pl.imgw.meteo_precip_daily")  # 123750000, 123760000
+        assert series_action(check_catalog(store)) == "newer"
+        precipitation = build_catalog(store)
+        assert series_action(check_catalog(store)) == "current"
+        put_meteo(store, "pl.imgw.meteo_climate_daily")  # 123750000
+        assert series_action(check_catalog(store)) == "newer"
+        climate = build_catalog(store)
+
+    def kinds(report, kind):
+        return {
+            code: feature["properties"]["meteo_kind"]
+            for code, feature in features(report).items()
+            if feature["properties"]["kind"] == kind
+        }
+
+    assert kinds(before, "meteo") == dict.fromkeys(
+        ("123750000", "123760000", "250180460")
+    )
+    assert kinds(precipitation, "meteo") == {
+        "123750000": "precipitation",
+        "123760000": "precipitation",
+        "250180460": None,
+    }
+    # A station in both series is a climate station; without a series it stays null.
+    assert kinds(climate, "meteo") == {
+        "123750000": "climate",
+        "123760000": "precipitation",
+        "250180460": None,
+    }
+    assert set(kinds(climate, "hydro").values()) == {None}
+
+
 def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_data_dir):
     hydro_csv = HYDRO_CSV + cp1250(
         '"150000020","STACJA API","Rzeka (1)","00010"',

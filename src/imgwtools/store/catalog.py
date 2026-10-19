@@ -147,6 +147,15 @@ _CHMI_METEO_NOW_FILE = re.compile(r"^meta1-[0-9]{8}\.json$")
 _THRESHOLD_UNITS: Mapping[str, str] = MappingProxyType({"CM": "cm", "M3_S": "m3/s"})
 
 MissingReason = Literal["none", "zero", "outside_country"]
+MeteoKind = Literal["climate", "precipitation"]
+# ``meteo_kind`` of an IMGW-PIB station measured in the current series of a dataset;
+# a station in both series is a climate station (its programme includes precipitation).
+_METEO_KINDS: Mapping[str, MeteoKind] = MappingProxyType(
+    {
+        "pl.imgw.meteo_climate_daily": "climate",
+        "pl.imgw.meteo_precip_daily": "precipitation",
+    }
+)
 # Location candidate ``(source, longitude, latitude)`` as published.
 _Candidate = tuple[str, object, object]
 
@@ -698,15 +707,17 @@ def _optional_int(value: object) -> int | None:
 
 def _series_codes(
     root: Path, problems: list[str], *, provider: ProviderDescriptor
-) -> tuple[dict[str, set[str]], list[dict[str, Any]]]:
+) -> tuple[dict[str, set[str]], list[dict[str, Any]], dict[str, MeteoKind]]:
     """Station codes of the current series version of each provider dataset, by family.
 
     Offline: reads only the ``series.json`` index of the newest verified version
     of each series dataset of ``provider``; the index carries no station names
-    or rivers. Also returns one ``series`` sidecar entry per index read.
+    or rivers. Also returns one ``series`` sidecar entry per index read and the
+    ``meteo_kind`` of every station in a series of ``_METEO_KINDS``.
     """
     pattern = re.compile(provider.station_code_pattern)
     codes: dict[str, set[str]] = {"hydro": set(), "meteo": set()}
+    kinds: dict[str, MeteoKind] = {}
     sources: list[dict[str, Any]] = []
     for descriptor in datasets(provider=provider.id):
         if (
@@ -729,9 +740,12 @@ def _series_codes(
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
+        meteo_kind = _METEO_KINDS.get(descriptor.key)
         for code in stations:
             if pattern.fullmatch(code):
                 codes[descriptor.kind].add(code)
+                if meteo_kind is not None and kinds.get(code) != "climate":
+                    kinds[code] = meteo_kind
             else:
                 problems.append(
                     f"Indeks szeregu {relative}: pominięto niepoprawny kod stacji '{code}'"
@@ -747,7 +761,7 @@ def _series_codes(
                 "sha256": current.meta["sha256"],
             }
         )
-    return codes, sources
+    return codes, sources, kinds
 
 
 # --------------------------------------------------------------------------
@@ -771,6 +785,7 @@ def _feature(
     code: str,
     *,
     kind: Literal["hydro", "meteo"],
+    meteo_kind: MeteoKind | None,
     listed: StationListEntry | None,
     api: Mapping[str, Any] | None,
     candidates: list[_Candidate],
@@ -783,7 +798,7 @@ def _feature(
     properties: dict[str, Any] = {
         "station_code": code,
         "kind": kind,
-        "meteo_kind": None,
+        "meteo_kind": meteo_kind,
         "name": (listed.name if listed else None)
         or str(api_row.get("stacja") or api_row.get("nazwa_stacji") or ""),
         "river": str(river) if river else None,
@@ -843,6 +858,7 @@ def _catalog_bytes(
     lists: Mapping[str, Mapping[str, StationListEntry]],
     apis: Mapping[str, Mapping[str, Mapping[str, Any]]],
     series: Mapping[str, set[str]],
+    meteo_kinds: Mapping[str, MeteoKind],
     static: Mapping[str, tuple[str, str, str | None]],
     user: Mapping[str, tuple[str, str, str | None]],
     problems: list[str],
@@ -904,6 +920,7 @@ def _catalog_bytes(
         feature, source = _feature(
             code,
             kind=kind,
+            meteo_kind=meteo_kinds.get(code) if kind == "meteo" else None,
             listed=lists[kind].get(code),
             api=api,
             candidates=candidates,
@@ -1350,13 +1367,16 @@ def _current_catalog(
     return _newest_downloaded(_existing(slot, CATALOG_FILE, skip=_skip(provider)))
 
 
-def _catalog_codes(path: Path, meta: Mapping[str, Any]) -> set[str]:
-    """Station codes of a stored catalog version, verified against its sidecar."""
+def _catalog_meteo_kinds(path: Path, meta: Mapping[str, Any]) -> dict[str, object]:
+    """``meteo_kind`` by station code of a stored catalog version, verified by SHA-256."""
     try:
         data = path.read_bytes()
         if hashlib.sha256(data).hexdigest() != meta["sha256"]:
             raise ValueError("SHA-256 niezgodne z sidecarem")
-        return {feature["id"] for feature in json.loads(data)["features"]}
+        return {
+            feature["id"]: feature["properties"]["meteo_kind"]
+            for feature in json.loads(data)["features"]
+        }
     except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         raise IMGWStoreConflictError(
             f"Uszkodzona wersja katalogu stacji {path}: {exc}"
@@ -1426,8 +1446,9 @@ def check_catalog(
     the public station APIs; ČHMÚ: the ``now`` metadata files, whose envelope
     is regenerated hourly or daily). Location files are compared by SHA-256
     with the entries recorded in the provider's current catalog sidecar; the
-    station codes of the provider's current series indexes are compared with
-    the codes of its current catalog. Nothing is downloaded or written.
+    station codes of the provider's current series indexes and the
+    ``meteo_kind`` they give are compared with its current catalog. Nothing
+    is downloaded or written.
 
     Parameters
     ----------
@@ -1460,10 +1481,10 @@ def check_catalog(
         (``current``, or ``newer`` when the file appeared, disappeared or
         changed; ``missing`` without a catalog; the IMGW-PIB static file is
         always checked), one for the series indexes (``current``, ``newer``
-        when a series station code is absent from the catalog, ``missing``
-        without a catalog) and a final catalog action that is ``missing``
-        without a catalog, ``newer`` when any source changed, otherwise
-        ``unverifiable``.
+        when a series station code is absent from the catalog or a station's
+        ``meteo_kind`` differs, ``missing`` without a catalog) and a final
+        catalog action that is ``missing`` without a catalog, ``newer`` when
+        any source changed, otherwise ``unverifiable``.
 
     Raises
     ------
@@ -1601,19 +1622,26 @@ def check_catalog(
         actions.append(
             PlanAction("store catalog", file_status, f"plik położeń {source}: {detail}")
         )
-    series, _ = _series_codes(handle.root, [], provider=owner)
+    series, _, meteo_kinds = _series_codes(handle.root, [], provider=owner)
     series_codes = series["hydro"] | series["meteo"]
     if catalog is None:
         series_status: Literal["current", "newer", "missing"] = "missing"
         series_detail = f"{len(series_codes)} kodów stacji"
     else:
-        absent = sorted(series_codes - _catalog_codes(*catalog))
-        series_status = "newer" if absent else "current"
-        series_detail = (
-            f"{len(absent)} kodów spoza katalogu (np. {absent[0]})"
-            if absent
-            else f"{len(series_codes)} kodów stacji w katalogu"
+        stored = _catalog_meteo_kinds(*catalog)
+        absent = sorted(series_codes - stored.keys())
+        changed = sorted(
+            code for code, kind in stored.items() if kind != meteo_kinds.get(code)
         )
+        series_status = "newer" if absent or changed else "current"
+        if absent:
+            series_detail = f"{len(absent)} kodów spoza katalogu (np. {absent[0]})"
+        elif changed:
+            series_detail = (
+                f"{len(changed)} stacji z innym meteo_kind (np. {changed[0]})"
+            )
+        else:
+            series_detail = f"{len(series_codes)} kodów stacji w katalogu"
     actions.append(
         PlanAction("store catalog", series_status, f"indeksy szeregów: {series_detail}")
     )
@@ -1873,7 +1901,11 @@ def build_catalog(
     Location precedence: API, then the local static file
     ``station_code,latitude,longitude`` (``settings.data_dir``), then the user
     CSV. A missing static file is not an error: it is reported in ``problems``
-    and recorded in the sidecar as ``available: false``.
+    and recorded in the sidecar as ``available: false``. ``meteo_kind`` of a
+    meteorological station is ``"climate"`` when the current
+    ``pl.imgw.meteo_climate_daily`` series holds it, otherwise
+    ``"precipitation"`` when the current ``pl.imgw.meteo_precip_daily`` series
+    does, and null without such a series (also for every ČHMÚ station).
 
     ČHMÚ (``stations/versions/chmi_stations/<label>_<sha8>/``, spec
     2026-10-18 §7): sources in precedence order of location, name, river and
@@ -2044,12 +2076,15 @@ def _build_imgw(build: _Build) -> CatalogReport:
                 user[1], source="user", file=user[0].name, count=len(user_rows)
             )
         )
-    series, series_sources = _series_codes(handle.root, problems, provider=owner)
+    series, series_sources, meteo_kinds = _series_codes(
+        handle.root, problems, provider=owner
+    )
     sources.extend(series_sources)
     data, count, without, used, series_only = _catalog_bytes(
         lists=parsed_lists,
         apis={"hydro": apis[0], "meteo": apis[1]},
         series=series,
+        meteo_kinds=meteo_kinds,
         static=static,
         user=user_rows,
         problems=problems,
@@ -2161,7 +2196,8 @@ def _build_chmi(build: _Build) -> CatalogReport:
             )
             | {"available": True}
         )
-    series, series_sources = _series_codes(handle.root, problems, provider=owner)
+    # ČHMÚ publishes no station class: meteo_kind stays null (spec 2026-10-18 §7.3).
+    series, series_sources, _ = _series_codes(handle.root, problems, provider=owner)
     records.extend(series_sources)
     data, count, without, used, series_only, conflicts = _chmi_catalog_bytes(
         families=families,
