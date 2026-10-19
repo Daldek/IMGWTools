@@ -59,6 +59,39 @@ def test_meteo_monthly_slot_and_path_follow_the_folder(respx_mock, tmp_path):
     )
 
 
+def test_daily_and_term_archives_of_one_name_never_collide(respx_mock, tmp_path):
+    # dobowe/klimat and terminowe/klimat both publish 2001_01_k.zip (other bytes).
+    daily, terms = "pl.imgw.meteo_climate_daily", "pl.imgw.meteo_climate_terms"
+    climate = ARCHIVES / "dane_meteorologiczne" / "dobowe" / "klimat"
+    bodies = {
+        daily: (climate / "2001" / "2001_01_k.zip").read_bytes(),
+        terms: (climate / "2004" / "2004_02_k.zip").read_bytes(),
+    }
+    for dataset, body in bodies.items():
+        (archive,) = archive_files(dataset, years=2001, months=1)
+        respx_mock.get(archive.url).respond(content=body)
+    items = [
+        item
+        for dataset in bodies
+        for item in download_archives(
+            dataset, years=2001, months=1, output=tmp_path
+        ).items
+    ]
+    assert [item.slot for item in items] == [
+        f"archive:{daily}:2001/2001_01_k.zip",
+        f"archive:{terms}:2001/2001_01_k.zip",
+    ]
+    assert [item.path.relative_to(tmp_path).as_posix() for item in items] == [
+        "dane_meteorologiczne/dobowe/klimat/2001/2001_01_k.zip",
+        "dane_meteorologiczne/terminowe/klimat/2001/2001_01_k.zip",
+    ]
+    assert [item.path.read_bytes() for item in items] == [bodies[daily], bodies[terms]]
+    assert [name for name in _tree(tmp_path) if Path(name).suffix] == [
+        "dane_meteorologiczne/dobowe/klimat/2001/2001_01_k.zip",
+        "dane_meteorologiczne/terminowe/klimat/2001/2001_01_k.zip",
+    ]
+
+
 def test_http_error_fails_one_item_and_others_download(respx_mock, tmp_path):
     _record(respx_mock, failing="Q")
     report = download_archives(SEMIANNUAL, years=2024, output=tmp_path)
