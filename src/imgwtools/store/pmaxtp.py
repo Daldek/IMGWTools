@@ -5,13 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
-from imgwtools.datasets import get_dataset
+from imgwtools.datasets import _license_document, get_dataset
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWStoreError,
@@ -157,7 +156,7 @@ def _result(
 
 
 def _license() -> dict[str, str]:
-    license_ = asdict(get_dataset(PMAXTP_DATASET).license)
+    license_ = _license_document(get_dataset(PMAXTP_DATASET).license)
     license_["attribution"] = f"{license_['attribution']}. {PROCESSED_ATTRIBUTION}"
     return license_
 

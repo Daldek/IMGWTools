@@ -891,17 +891,27 @@ def test_scan_enforces_content_pair_and_registry_origin_of_known_datasets(
 
 
 def test_valid_sidecar_of_an_unknown_dataset_is_an_unknown_entry(root, offline):
-    stem = "H_0-203-1-900001_DQ_2025"
+    # A provider IMGWTools does not know (since C02 ČHMÚ is a registered one).
+    stem = "H_0-703-1-900001_DQ_2025"
+    server_path = f"hydrologia/denne/{stem}.json"
     version = (
         root
-        / "archives/versions/hydrology/historical/data/daily"
+        / "archives/versions/hydrologia/denne"
         / stem
         / f"2026-05-21_{CHMI_META['sha256'][:8]}"
     )
     version.mkdir(parents=True)
     (version / f"{stem}.json").write_bytes(b"{}")
+    unknown = {
+        **CHMI_META,
+        **CONTENT,
+        "dataset": "sk.shmu.hydro_daily",
+        "country": "SK",
+        "provider": "SHMU",
+        "request": {**CHMI_META["request"], "server_path": server_path},
+    }
     (version / f"{stem}.json.meta.json").write_text(
-        json.dumps({**CHMI_META, **CONTENT}), encoding="utf-8"
+        json.dumps(unknown), encoding="utf-8"
     )
     assert read_meta(version / f"{stem}.json").content_form == "chmi-json/1"
     assert [(e.kind, e.slot, e.problem_code, e.version) for e in iter_store(root)] == [

@@ -12,7 +12,6 @@ import shutil
 import socket
 import uuid
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
@@ -28,6 +27,7 @@ from imgwtools._version import __version__
 from imgwtools.datasets import (
     CATALOG_DATASET,
     ArchiveFile,
+    _license_document,
     datasets,
     get_dataset,
     station_source_files,
@@ -1321,7 +1321,7 @@ def build_catalog(
         "country": "PL",
         "provider": "IMGW-PIB",
         "request": {"user_locations": user[0].name if user else None},
-        "license": asdict(get_dataset("pl.imgw.hydro_stations").license),
+        "license": _license_document(get_dataset("pl.imgw.hydro_stations").license),
         "downloaded_at": _utc(now),
         "sha256": sha,
         "size_bytes": len(data),
