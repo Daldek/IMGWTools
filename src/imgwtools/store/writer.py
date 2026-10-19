@@ -381,9 +381,11 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     """
     Create a new store marker only in an empty, non-conflicting directory.
 
-    The marker ``imgw-store.json`` is published atomically and never replaces
-    a competing marker. If the root already holds a marker (including one
-    created concurrently), the existing store is opened instead.
+    The marker ``imgw-store.json`` is published atomically by a hard link and
+    never replaces a competing marker; like every write to the store (and
+    Kartograf's store), this needs a file system with hard links. If the root
+    already holds a marker (including one created concurrently), the existing
+    store is opened instead.
 
     Parameters
     ----------
@@ -410,7 +412,8 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
         If the directory is not empty and has no marker, it is nested in or
         contains another IMGW store, it overlaps a Kartograf store, or the
         file system cannot create the hard link used to publish the marker
-        atomically (e.g. SMB, FAT); code ``conflict``.
+        (e.g. FAT, exFAT, some NAS or FUSE file systems, the macOS SMB
+        client; ``details.reason`` ``not_atomic``); code ``conflict``.
     """
     path = _safe_root(root)
     _check_kartograf(path)
