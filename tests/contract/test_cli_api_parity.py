@@ -16,6 +16,8 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+
 from imgwtools import (
     ERROR_CODES,
     add_project_task,
@@ -213,6 +215,7 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
     assert (line["code"], line["details"]["option"]) == ("validation_error", "years")
 
 
+@pytest.mark.usefixtures("publication")
 def test_two_imgw_processes_building_one_series_publish_it_once(tmp_path, fixture_root):
     root = tmp_path / "store"
     shutil.copytree(fixture_root, root)

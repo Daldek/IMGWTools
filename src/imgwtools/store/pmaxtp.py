@@ -335,7 +335,7 @@ def sync_pmaxtp(
         or the store overlaps a Kartograf store.
     IMGWStoreConflictError
         If a stored version is corrupted, the version directory collides with
-        different content, or the file system cannot publish atomically.
+        different content, or the system refuses to publish the version.
     """
     handle = _handle(root)
     method = _validate_method(method)

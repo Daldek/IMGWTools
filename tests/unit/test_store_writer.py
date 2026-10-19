@@ -1,9 +1,12 @@
 """Offline behavioral tests for immutable store publication."""
 
+import ctypes
 import errno
 import hashlib
 import json
 import os
+import shutil
+import stat
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -51,6 +54,7 @@ def response(*, etag='"hydro-v1"', modified="Sat, 17 Oct 2026 12:00:00 GMT", dat
     return DownloadResult(data, ARCHIVE.url, etag, modified, len(data))
 
 
+@pytest.mark.usefixtures("publication")
 def test_archive_provenance_relabel_and_unchanged(tmp_path):
     handle = init_store(
         tmp_path / "store", created_at=datetime(2026, 10, 17, tzinfo=UTC)
@@ -93,6 +97,7 @@ def test_archive_provenance_relabel_and_unchanged(tmp_path):
     )
 
 
+@pytest.mark.usefixtures("publication")
 def test_same_day_distinct_signals_and_concurrent_writers(tmp_path):
     root = init_store(tmp_path / "store")
     one = write_archive(root, archive=ARCHIVE, response=response())
@@ -111,6 +116,7 @@ def test_same_day_distinct_signals_and_concurrent_writers(tmp_path):
     assert len({one.path, two.path, outcomes[0].path}) == 3
 
 
+@pytest.mark.usefixtures("publication")
 def test_existing_empty_target_never_replaced(tmp_path):
     root = init_store(tmp_path / "store")
     expected = hashlib.sha256(DATA).hexdigest()[:8]
@@ -127,14 +133,105 @@ def test_existing_empty_target_never_replaced(tmp_path):
     assert list(target.iterdir()) == []
 
 
-def test_no_atomic_rename_is_explicit(tmp_path, monkeypatch):
+def test_renameat2_without_noreplace_on_the_file_system_publishes_portably(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    def renameat2(*args):  # a file system without RENAME_NOREPLACE, e.g. NFS
+        calls.append(args)
+        ctypes.set_errno(errno.EINVAL)
+        return -1
+
+    monkeypatch.setattr(writer, "_libc_renameat2", lambda: renameat2)
     root = init_store(tmp_path / "store")
-    monkeypatch.setattr(writer.sys, "platform", "unsupported")
-    with pytest.raises(IMGWStoreConflictError, match="atomowego"):
+    first = write_archive(root, archive=ARCHIVE, response=response())
+    second = write_archive(root, archive=ARCHIVE, response=response(etag='"v2"'))
+    assert calls and (first.status, second.status) == ("created", "relabeled")
+    assert first.path.read_bytes() == second.path.read_bytes() == DATA
+    assert not list((root.root / ".incoming").iterdir())
+
+
+def test_portable_publication_never_replaces_a_version_published_meanwhile(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(writer, "_libc_renameat2", lambda: None)
+    rename = os.rename
+
+    def raced(source, target):
+        # Another writer publishes the same version between the check and the rename.
+        rival = Path(source).with_name("rival")
+        shutil.copytree(source, rival)
+        rename(rival, target)
+        raise OSError(code, os.strerror(code), str(target))
+
+    monkeypatch.setattr(writer.os, "rename", raced)
+    # A rename onto an existing directory fails with ENOTEMPTY or EEXIST (POSIX)
+    # or e.g. EACCES (SMB server); the existing version always stays.
+    for code in (errno.ENOTEMPTY, errno.EEXIST, errno.EACCES):
+        root = init_store(tmp_path / errno.errorcode[code])
+        result = write_archive(root, archive=ARCHIVE, response=response())
+        assert result.status == "unchanged" and result.path.read_bytes() == DATA
+        assert [path.name for path in result.path.parent.parent.iterdir()] == [
+            result.path.parent.name
+        ]
+        assert not list((root.root / ".incoming").iterdir())
+
+    def refused(source, target):
+        raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(target))
+
+    monkeypatch.setattr(writer.os, "rename", refused)
+    root = init_store(tmp_path / "refused")
+    with pytest.raises(IMGWStoreConflictError, match="Nie można atomowo opublikować"):
         write_archive(root, archive=ARCHIVE, response=response())
     assert not list((root.root / "archives").rglob("*.zip"))
+    assert not list((root.root / ".incoming").iterdir())
 
 
+def test_windows_publication_renames_without_replacing_or_flushing_directories(
+    tmp_path, monkeypatch
+):
+    rename, fsync = os.rename, os.fsync
+    flushed = []
+
+    def move_file_ex(source, target):  # os.rename on Windows never replaces
+        if os.path.lexists(target):
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(target))
+        rename(source, target)
+
+    def record(descriptor):
+        flushed.append(stat.S_ISDIR(os.fstat(descriptor).st_mode))
+        return fsync(descriptor)
+
+    monkeypatch.setattr(writer, "_WINDOWS", True)
+    monkeypatch.setattr(writer, "_libc_renameat2", lambda: None)
+    monkeypatch.setattr(writer.os, "rename", move_file_ex)
+    monkeypatch.setattr(writer.os, "fsync", record)
+    root = init_store(tmp_path / "store")
+    first = write_archive(root, archive=ARCHIVE, response=response())
+    second = write_archive(root, archive=ARCHIVE, response=response(etag='"v2"'))
+    assert (first.status, second.status) == ("created", "relabeled")
+    (root.root / CHMI_SLOT).mkdir(parents=True)
+    observation = Observation(
+        **{
+            key: value
+            for key, value in OBSERVATION.items()
+            if key not in ("schema", "producer", "producer_version")
+        }
+    )
+    path = writer._publish_observation(
+        root.root, slot=CHMI_SLOT, observation=observation
+    )
+    written = path.read_bytes()
+    later = replace(observation, seen_at="2026-10-19T18:30:00Z")
+    assert writer._publish_observation(
+        root.root, slot=CHMI_SLOT, observation=later
+    ) == (path)
+    assert path.read_bytes() == written
+    assert flushed and not any(flushed)  # files only: Windows cannot open directories
+
+
+@pytest.mark.usefixtures("publication")
 def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
     root = init_store(tmp_path / "store")
     incoming = root.root / ".incoming"
@@ -163,6 +260,7 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
     )  # marker, archive, sidecar, stage directory, published parent
 
 
+@pytest.mark.usefixtures("publication")
 def test_sidecar_failure_cannot_publish_half_version(tmp_path, monkeypatch):
     root = init_store(tmp_path / "store")
     original = writer._write_json
@@ -321,19 +419,53 @@ def test_kartograf_versions_inside_store_still_detected(tmp_path):
         write_archive(root, archive=ARCHIVE, response=response())
 
 
-def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):
+def test_marker_is_created_exclusively_without_hard_links(tmp_path, monkeypatch):
     def refuse(source, target):
         raise PermissionError(errno.EPERM, "Operation not permitted")
 
-    monkeypatch.setattr(writer.os, "link", refuse)
+    monkeypatch.setattr(writer.os, "link", refuse)  # e.g. SMB, FAT
     path = tmp_path / "store"
-    with pytest.raises(IMGWStoreError, match="dowiązanie twarde") as error:
+    handle = init_store(path, created_at=datetime(2026, 10, 19, tzinfo=UTC))
+    marker = path / "imgw-store.json"
+    assert [item.name for item in path.iterdir()] == ["imgw-store.json"]
+    assert json.loads(marker.read_text(encoding="utf-8")) == {
+        "schema": "imgw-store/1",
+        "created_by": f"imgwtools {__version__}",
+        "created_at": "2026-10-19T00:00:00Z",
+    }
+    written = marker.read_bytes()
+    assert init_store(path) == handle and marker.read_bytes() == written
+
+    def fail(descriptor):
+        raise OSError(errno.EIO, "Input/output error")
+
+    interrupted = tmp_path / "interrupted"
+    with monkeypatch.context() as patch:
+        patch.setattr(writer.os, "fsync", fail)
+        with pytest.raises(OSError, match="Input/output error"):
+            init_store(interrupted)
+    assert list(interrupted.iterdir()) == []  # no incomplete marker remains
+    assert init_store(interrupted).root == interrupted
+
+
+def test_init_waits_briefly_for_a_marker_being_written(tmp_path, monkeypatch):
+    path = tmp_path / "store"
+    path.mkdir()
+    marker = path / "imgw-store.json"
+    marker.touch()  # just created exclusively by a concurrent init_store
+
+    def written_meanwhile(seconds):
+        marker.write_text('{"schema":"imgw-store/1"}', encoding="utf-8")
+
+    monkeypatch.setattr(writer.time, "sleep", written_meanwhile)
+    assert init_store(path) == open_store(path)
+    marker.write_bytes(b"")  # e.g. left by a crash between creating and writing
+    monkeypatch.setattr(writer, "_MARKER_WAIT", 0.0)
+    with pytest.raises(IMGWStoreError, match="Nieczytelny znacznik"):
         init_store(path)
-    assert error.value.code == "conflict"
-    assert not (path / "imgw-store.json").exists()
-    assert not list(path.glob(".imgw-store.json.*.tmp"))
 
 
+@pytest.mark.usefixtures("publication")
 def test_publish_observation_writes_the_spec_example_once_without_traces(tmp_path):
     root = init_store(tmp_path / "store").root
     (root / CHMI_SLOT).mkdir(parents=True)

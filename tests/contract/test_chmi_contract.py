@@ -469,6 +469,7 @@ def test_imgw_16_k2_a_version_only_for_new_content(pl_cz, tmp_path, chmi, frozen
     ] == []
 
 
+@pytest.mark.usefixtures("publication")
 @pytest.mark.parametrize("after_download", [0, 1], ids=["before-staging", "staged"])
 @pytest.mark.parametrize("change", ["observation", "version"])
 def test_imgw_16_k2_cancelling_a_write_leaves_no_version_and_no_observation(

@@ -914,7 +914,7 @@ def build_series(
     IMGWStoreDependencyError
         If ``pyarrow>=15`` is not installed.
     IMGWStoreConflictError
-        If the version cannot be published atomically or its directory collides
+        If the system refuses to publish the version or its directory collides
         with a different version.
     """
     path = _root(root)

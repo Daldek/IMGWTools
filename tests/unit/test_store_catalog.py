@@ -773,6 +773,7 @@ def test_code_listed_twice_is_reported_and_kept_once(store):
     assert rows == [("250199990", "4611"), ("250199990", "94660")]
 
 
+@pytest.mark.usefixtures("publication")
 def test_cancel_leaves_no_catalog_version(store):
     calls = iter([False, False, False, False, True])
     with respx.mock(assert_all_called=False) as router:

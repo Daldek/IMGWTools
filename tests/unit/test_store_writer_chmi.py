@@ -197,6 +197,7 @@ def test_chmi_sidecar_with_another_origin_is_invalid(root):
     ]
 
 
+@pytest.mark.usefixtures("publication")
 def test_same_canonical_content_records_one_observation_per_signal(root, frozen):
     first = write_archive(
         root, archive=HYDRO, response=response(HYDRO, FIRST, PUBLISHED)
@@ -450,6 +451,7 @@ def test_bytes_violating_the_form_are_a_data_error_without_traces(root, data):
     assert leftovers(root) == []
 
 
+@pytest.mark.usefixtures("publication")
 def test_cancel_before_the_observation_is_published_leaves_no_trace(root):
     first = write_archive(
         root, archive=HYDRO, response=response(HYDRO, FIRST, PUBLISHED)

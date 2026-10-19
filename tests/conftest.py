@@ -2,7 +2,64 @@
 Shared pytest fixtures for IMGWTools tests.
 """
 
+import errno
+import os
+
 import pytest
+
+# Imported as ``sitecustomize`` by every subprocess (e.g. the installed ``imgw``) of a
+# test whose ``publication`` has no renameat2; ``{links}`` keeps or refuses hard links.
+_PORTABLE_SITE = '''\
+"""Store publication without renameat2 in a test subprocess (tests/conftest.py)."""
+
+import errno
+import os
+
+from imgwtools.store import writer
+
+
+def _refuse_hard_links(*args, **kwargs):
+    raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+
+
+writer._libc_renameat2 = lambda: None
+if not {links}:
+    os.link = _refuse_hard_links
+'''
+
+
+def refuse_hard_links(*args, **kwargs):
+    """``os.link`` on a file system without hard links (e.g. SMB, FAT)."""
+    raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+
+
+@pytest.fixture(params=["renameat2", "no_renameat2", "no_renameat2_no_links"])
+def publication(request, monkeypatch, tmp_path_factory):
+    """Publish store versions in each way of ``store/writer.py:_atomic_publish``.
+
+    ``renameat2``: Linux ``renameat2(RENAME_NOREPLACE)``. ``no_renameat2``: a
+    system whose C library or file system lacks it (macOS, NFS), i.e. the portable
+    publication with hard links. ``no_renameat2_no_links``: the same on a file system
+    without hard links (e.g. SMB, FAT). Without renameat2 the simulation also holds
+    in every subprocess of the test (``sitecustomize`` on ``PYTHONPATH``).
+    """
+    from imgwtools.store import writer
+
+    if request.param == "renameat2":
+        if writer._libc_renameat2() is None:
+            pytest.skip("biblioteka C nie ma renameat2")
+        return request.param
+    links = request.param == "no_renameat2"
+    monkeypatch.setattr(writer, "_libc_renameat2", lambda: None)
+    if not links:
+        monkeypatch.setattr(writer.os, "link", refuse_hard_links)
+    site = tmp_path_factory.mktemp("site")
+    (site / "sitecustomize.py").write_text(
+        _PORTABLE_SITE.format(links=links), encoding="utf-8"
+    )
+    paths = (str(site), os.environ.get("PYTHONPATH", ""))
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(path for path in paths if path))
+    return request.param
 
 
 @pytest.fixture(autouse=True)
