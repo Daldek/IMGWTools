@@ -83,7 +83,7 @@ def test_cli_admin_create_writes_key_file_and_prints_stored_key(keys_file):
     assert key["request_count"] == 0
     assert len(key["id"]) >= 40
     assert f"Klucz: {key['id']}" in result.output
-    assert "Limit: 100 req/h" in result.output
+    assert "Limit: 100 zapytań/h" in result.output
     assert "Zapisz ten klucz" in result.output
 
 
@@ -92,7 +92,7 @@ def test_cli_admin_create_limit_option_is_stored(keys_file):
 
     assert result.exit_code == 0, result.output
     assert stored_keys(keys_file)[0]["rate_limit"] == 250
-    assert "Limit: 250 req/h" in result.output
+    assert "Limit: 250 zapytań/h" in result.output
 
 
 def test_cli_admin_create_rejects_non_integer_limit(keys_file):
@@ -134,7 +134,7 @@ def test_cli_admin_revoke_by_prefix_deactivates_only_matching_key(seeded_keys):
     result = RUNNER.invoke(app, ["admin", "revoke", "betaKEY"])
 
     assert result.exit_code == 0, result.output
-    assert "Klucz SAN ESCOBAR zostal uniewazniony" in result.output
+    assert "Klucz SAN ESCOBAR został unieważniony" in result.output
     alpha, beta = stored_keys(seeded_keys)
     assert alpha["active"] is True
     assert beta["active"] is False
@@ -166,7 +166,7 @@ def test_cli_admin_delete_force_removes_only_matching_key(seeded_keys):
     result = RUNNER.invoke(app, ["admin", "delete", "alpha", "--force"])
 
     assert result.exit_code == 0, result.output
-    assert "Klucz Raba Górna zostal usuniety" in result.output
+    assert "Klucz Raba Górna został usunięty" in result.output
     assert [key["id"] for key in stored_keys(seeded_keys)] == [BETA_ID]
 
 
@@ -174,7 +174,7 @@ def test_cli_admin_delete_confirmed_removes_key(seeded_keys):
     result = RUNNER.invoke(app, ["admin", "delete", "beta"], input="y\n")
 
     assert result.exit_code == 0, result.output
-    assert "Usunac klucz SAN ESCOBAR?" in result.output
+    assert "Usunąć klucz SAN ESCOBAR?" in result.output
     assert [key["id"] for key in stored_keys(seeded_keys)] == [ALPHA_ID]
 
 
@@ -184,7 +184,7 @@ def test_cli_admin_delete_declined_aborts_and_keeps_key(seeded_keys):
     result = RUNNER.invoke(app, ["admin", "delete", "beta"], input="n\n")
 
     assert result.exit_code == 1
-    assert "Aborted" in result.output
+    assert "Przerwano." in result.output
     assert seeded_keys.read_text(encoding="utf-8") == before
 
 
@@ -193,7 +193,7 @@ def test_cli_admin_delete_unknown_key_exits_1_without_prompt(seeded_keys):
 
     assert result.exit_code == 1
     assert "Nie znaleziono klucza: brak" in result.output
-    assert "Usunac" not in result.output
+    assert "Usunąć" not in result.output
     assert len(stored_keys(seeded_keys)) == 2
 
 

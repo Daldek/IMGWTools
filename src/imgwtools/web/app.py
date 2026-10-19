@@ -43,7 +43,8 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["version"] = __version__
 
-router = APIRouter()
+# HTML pages are not part of the API: they stay out of the OpenAPI document.
+router = APIRouter(include_in_schema=False)
 
 _KIND_TITLES = {"hydro": "Dane hydrologiczne", "meteo": "Dane meteorologiczne"}
 # The only provider of the GUI (spec 2026-10-18 §9.3).

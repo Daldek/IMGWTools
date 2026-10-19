@@ -23,6 +23,13 @@ shows up as a difference. Live errors — coordinates outside Poland, a point
 outside the PMAXTP grid, missing versions and an unsupported root — must give
 the same code, exit code and HTTP status in every interface.
 
+The MCP leg (spec 2026-10-19 §9) starts ``imgw mcp`` once, as an MCP client
+does, in the working directory of the CLI and calls the tool of every read
+command that asks the live sources (``x-imgw``: ``writes`` none, ``network``)
+with the options of Python, ``root`` included: the structured content must be
+the Python envelope ``to_json(root)`` and the text content its JSON. Run it
+alone with ``-k imgw_mcp``.
+
 Tolerated differences, because live sources change between the calls:
 
 - ``checked_at`` of plans: the moment of the check;
@@ -115,6 +122,12 @@ CALL_TIMEOUT = 900.0
 # its answers cannot be compared, so the whole run is repeated, at most twice.
 PAUSES = (20.0, 60.0)
 _SOURCE = ERROR_CODES["source_unavailable"]
+# Read commands asking the live sources: the commands of the MCP leg.
+MCP_READS = [
+    name for name, spec in SPECS.items() if spec["writes"] == "none" and spec["network"]
+]
+# Default page of an MCP list tool (spec 2026-10-19 §6.4 p. 5).
+MCP_PAGE = 50
 # Commands that write; every other command must leave its directories intact.
 WRITES = {
     "datasets download",
@@ -206,6 +219,15 @@ class PythonAnswer:
     error: BaseException | None
 
 
+@dataclass(frozen=True)
+class McpAnswer:
+    """A tool result of ``imgw mcp``: structured content, text and the error flag."""
+
+    document: dict[str, Any]
+    text: str
+    error: bool
+
+
 @dataclass
 class Round:
     """One run of a case in every interface."""
@@ -237,6 +259,7 @@ CASES: dict[str, list[Case]] = {
             clean=("pobrane",),
         )
     ],
+    "datasets providers": [Case({"limit": 1, "offset": 1})],
     "stations find": [
         Case({"kind": "hydro", "query": "kłodzko", "limit": 3}),
         Case({"source": "store", "query": "kłodzko", "limit": 3}, "full"),
@@ -333,6 +356,7 @@ CASES: dict[str, list[Case]] = {
     "project status": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
     "project verify": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
     "commands schema": [Case({"command": "store sync"})],
+    "commands guide": [Case({}), Case({"format": "llms", "lang": "en"})],
 }
 
 _MONTH_DIR = f"dane_hydrologiczne/dobowe/{YEAR}/codz_{YEAR}_{MONTH:02d}"
@@ -410,6 +434,21 @@ def tolerance(case: Case, path: str, left: object, right: object) -> str | None:
     return None
 
 
+def alike(
+    case: Case, expected: object, document: object
+) -> tuple[list[str], list[str]]:
+    """Problems and tolerated differences of an envelope against the expected one."""
+    problems = envelope_errors(document)
+    tolerated = []
+    for path, left, right in differences(expected, document):
+        reason = tolerance(case, path, left, right)
+        if reason is None:
+            problems.append(f"{path}: {_short(left)} ≠ {_short(right)}")
+        else:
+            tolerated.append(f"{path}: {reason}")
+    return problems, tolerated
+
+
 def _short(value: object) -> str:
     text = canonical(value)
     return text if len(text) <= 120 else text[:117] + "..."
@@ -477,6 +516,10 @@ def unavailable(answers: Iterable[Any]) -> bool:
             if answer.returncode == _SOURCE.exit_code:
                 return True
             document = _document(answer.stdout)
+        elif isinstance(answer, McpAnswer):
+            if answer.error and answer.document.get("code") == _SOURCE.code:
+                return True
+            document = answer.document
         else:
             if answer.status_code == _SOURCE.http_status:
                 return True
@@ -726,6 +769,8 @@ class Live:
             return error.code if isinstance(error, IMGWError) else type(error).__name__
         if isinstance(answer, subprocess.CompletedProcess):
             return f"exit {answer.returncode}"
+        if isinstance(answer, McpAnswer):
+            return str(answer.document.get("code" if answer.error else "status"))
         return f"HTTP {answer.status_code}"
 
     def record(
@@ -810,6 +855,68 @@ class Live:
         )
         return {name: lines for name, lines in problems.items() if lines}
 
+    def run_mcp_case(
+        self, command: str, index: int, case: Case, mcp: McpServer
+    ) -> dict[str, list[str]]:
+        """Run one case in Python and through the tool of ``imgw mcp``; problems."""
+        options = self.resolve(case.options)
+        assert isinstance(options, dict)
+        rooted = case.store is not None and command in ROOTED
+        local = {"root": str(self.root), **options} if rooted else dict(options)
+        if SPECS[command]["result"] == "list" and "limit" not in local:
+            local["limit"] = MCP_PAGE  # the page a tool takes without limit
+        root = self.root if rooted else None
+        self.restore(case)
+        before = self.trees(case)
+
+        def run() -> Round:
+            ran = Round()
+            for interface in ("python", "mcp"):
+                self.restore(case)
+                started = time.monotonic()
+                ran.answers[interface] = (
+                    self.call("python", command, local)
+                    if interface == "python"
+                    else mcp.call(SPECS[command]["operation_id"], local)
+                )
+                ran.seconds[interface] = time.monotonic() - started
+                ran.trees[interface] = self.trees(case)
+            return ran
+
+        attempts, ran = _repeated(run)
+        problems: dict[str, list[str]] = {"python": [], "mcp": []}
+        tolerated: dict[str, list[str]] = {"python": [], "mcp": []}
+        python: PythonAnswer = ran.answers["python"]
+        answer: McpAnswer = ran.answers["mcp"]
+        if python.envelope is None:
+            problems["python"].append(f"wyjątek: {python.error!r}")
+        elif answer.error:
+            problems["mcp"].append(f"błąd narzędzia: {_short(answer.document)}")
+        else:
+            if python.envelope.status != "ok":
+                problems["python"].append(f"status {python.envelope.status}")
+            if json.loads(answer.text) != answer.document:
+                problems["mcp"].append("tekst inny niż structuredContent")
+            found, accepted = alike(
+                case, python.envelope.to_json(root=root), answer.document
+            )
+            problems["mcp"] += found
+            tolerated["mcp"] += accepted
+        for interface, tree in ran.trees.items():
+            if tree != before:
+                problems[interface].append("komenda odczytu zmieniła katalogi")
+        self.record(
+            "mcp",
+            command,
+            index,
+            attempts=attempts,
+            outcomes={name: self.outcome(item) for name, item in ran.answers.items()},
+            seconds=ran.seconds,
+            problems=problems,
+            tolerated=tolerated,
+        )
+        return {name: lines for name, lines in problems.items() if lines}
+
     def unresolved(self, answer: PythonAnswer, root: Path | None) -> list[str]:
         """Slots of a Python answer without a version in the store it left (§13.7)."""
         if answer.envelope is None or answer.data is not None:
@@ -848,14 +955,10 @@ class Live:
         served = envelope.to_json(root=root, server=True)
         problems["python"] += envelope_errors(local)
 
-        def alike(name: str, expected: object, document: object) -> None:
-            problems[name].extend(envelope_errors(document))
-            for path, left, right in differences(expected, document):
-                reason = tolerance(case, path, left, right)
-                if reason is None:
-                    problems[name].append(f"{path}: {_short(left)} ≠ {_short(right)}")
-                else:
-                    tolerated[name].append(f"{path}: {reason}")
+        def same(name: str, expected: object, document: object) -> None:
+            found, accepted = alike(case, expected, document)
+            problems[name] += found
+            tolerated[name] += accepted
 
         printed: subprocess.CompletedProcess[bytes] = answers["cli"]
         if printed.returncode != EXIT_CODES[envelope.status]:
@@ -868,7 +971,7 @@ class Live:
             except ValueError:
                 problems["cli"].append(f"stdout to nie JSON: {printed.stdout[:200]!r}")
             else:
-                alike("cli", local, document)
+                same("cli", local, document)
         answered: httpx.Response | None = answers.get("rest")
         if answered is None:
             return
@@ -879,7 +982,7 @@ class Live:
             return
         if answered.headers["content-type"] != "application/json":
             problems["rest"].append(f"typ treści {answered.headers['content-type']}")
-        alike("rest", served, answered.json())
+        same("rest", served, answered.json())
         if str(self.base) in answered.text:
             problems["rest"].append("odpowiedź pokazuje katalog serwera")
 
@@ -1030,6 +1133,19 @@ class Live:
         )
 
 
+class McpServer:
+    """``imgw mcp`` of the live run, called through the SDK client from sync tests."""
+
+    def __init__(self, portal: Any, client: Any) -> None:
+        self.portal = portal
+        self.client = client
+
+    def call(self, tool: str, arguments: Mapping[str, object]) -> McpAnswer:
+        result = self.portal.call(self.client.call_tool, tool, dict(arguments))
+        text = result.content[0].text if result.content else ""
+        return McpAnswer(result.structured_content or {}, text, bool(result.is_error))
+
+
 @pytest.fixture(scope="module")
 def live(tmp_path_factory) -> Iterator[Live]:
     """Fresh temporary store, ``imgw server`` on it and the seeded snapshots."""
@@ -1057,6 +1173,28 @@ def live(tmp_path_factory) -> Iterator[Live]:
         session.report(started, path)
 
 
+@pytest.fixture(scope="module")
+def mcp_server(live: Live) -> Iterator[McpServer]:
+    """``imgw mcp`` started once as an MCP client starts it, in the CLI's directory."""
+    pytest.importorskip("mcp")
+    from anyio.from_thread import start_blocking_portal
+    from mcp import Client
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    command, *prefix = imgw_executable()
+    server = StdioServerParameters(
+        command=command, args=[*prefix, "mcp"], env=live.env, cwd=live.work
+    )
+    with (
+        (live.base / "imgw-mcp.log").open("w", encoding="utf-8") as log,
+        start_blocking_portal() as portal,
+        portal.wrap_async_context_manager(
+            Client(stdio_client(server, errlog=log), read_timeout_seconds=CALL_TIMEOUT)
+        ) as client,
+    ):
+        yield McpServer(portal, client)
+
+
 # --------------------------------------------------------------------------
 # Tests
 # --------------------------------------------------------------------------
@@ -1081,3 +1219,15 @@ def test_every_command_answers_alike_live_in_python_imgw_and_rest(command, live)
 @pytest.mark.parametrize("name", list(FAILURES))
 def test_live_errors_have_the_same_code_exit_code_and_http_status(name, live):
     assert live.run_failure(name, FAILURES[name]) == {}
+
+
+@pytest.mark.parametrize("command", MCP_READS)
+def test_live_reads_answer_alike_in_python_and_imgw_mcp(command, live, mcp_server):
+    found = {
+        f"{index}:{interface}": lines
+        for index, case in enumerate(CASES[command])
+        for interface, lines in live.run_mcp_case(
+            command, index, case, mcp_server
+        ).items()
+    }
+    assert found == {}

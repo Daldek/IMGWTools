@@ -65,12 +65,14 @@ def create_key(
         ...,
         "--name",
         "-n",
+        metavar="TEKST",
         help="Nazwa klucza",
     ),
     rate_limit: int = typer.Option(
         100,
         "--limit",
         "-l",
+        metavar="LICZBA",
         help="Limit zapytań na godzinę",
     ),
 ):
@@ -112,6 +114,7 @@ def create_key(
 def revoke_key(
     key_id: str = typer.Argument(
         ...,
+        metavar="IDENTYFIKATOR",
         help="Identyfikator klucza do unieważnienia (wystarczy początek)",
     ),
 ):
@@ -142,6 +145,7 @@ def revoke_key(
 def delete_key(
     key_id: str = typer.Argument(
         ...,
+        metavar="IDENTYFIKATOR",
         help="Identyfikator klucza do usunięcia (wystarczy początek)",
     ),
     force: bool = typer.Option(
@@ -184,6 +188,7 @@ def delete_key(
 def key_stats(
     key_id: str | None = typer.Argument(
         None,
+        metavar="IDENTYFIKATOR",
         help="Identyfikator klucza (opcjonalnie)",
     ),
 ):

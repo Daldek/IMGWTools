@@ -317,9 +317,10 @@ def test_cli_catalog_schema_flag_prints_the_commands_schema_envelope(spec):
 def test_cli_help_of_every_command_is_polish_by_default():
     for path, _ in tree(typer.main.get_command(app)):
         text = shown(invoke(*path[1:], "--help").output)
-        assert f"Użycie: {' '.join(path)}" in text, path
+        assert f"Użycie: {' '.join(path)} [OPCJE]" in text, path
         assert "Pokaż pomoc i zakończ." in text, path
-        assert "Usage:" not in text and "Show this message" not in text, path
+        for english in ("Usage:", "Show this message", "[OPTIONS]", "COMMAND", "ARGS"):
+            assert english not in text, path
     store_sync = shown(invoke("store", "sync", "--help").output)
     for element in (
         "Opcje wymagane",
@@ -328,7 +329,9 @@ def test_cli_help_of_every_command_is_polish_by_default():
         "ŚCIEŻKA",
     ):
         assert element in store_sync
-    assert "─ Komendy ─" in shown(invoke("--help").output)
+    listed = shown(invoke("--help").output)
+    assert "─ Komendy ─" in listed
+    assert "Użycie: imgw [OPCJE] KOMENDA [ARGUMENTY]..." in listed
     assert "─ Argumenty ─" in shown(invoke("admin", "delete", "--help").output)
 
 
@@ -346,7 +349,7 @@ def test_cli_help_follows_imgw_lang_en():
     for option in spec.options:
         assert option.help_en in text, option.name
     for element in (
-        "Usage: imgw store sync",
+        "Usage: imgw store sync [OPTIONS]",
         "─ Options ─",
         "─ Required options ─",
         "Show this message and exit.",
@@ -358,6 +361,7 @@ def test_cli_help_follows_imgw_lang_en():
         assert word not in text
     roots = shown(listed.stdout)
     assert "─ Commands ─" in roots
+    assert "Usage: imgw [OPTIONS] COMMAND [ARGS]..." in roots
     for group, description in command_schema(lang="en")["groups"].items():
         assert f"{group} {description}" in roots
 

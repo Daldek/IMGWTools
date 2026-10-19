@@ -1,4 +1,4 @@
-"""Top-level ``imgw`` commands: version, server and the console entry point."""
+"""Top-level ``imgw`` commands: version, server, mcp and the console entry point."""
 
 import json
 import sys
@@ -68,6 +68,20 @@ def test_cli_main_server_rejects_non_numeric_port_with_the_json_error_line(
     assert (error["code"], error["details"]["option"]) == ("validation_error", "port")
     assert error["detail"].startswith("Nieprawidłowa wartość opcji --port")
     assert uvicorn_calls == []
+
+
+def test_cli_main_mcp_without_the_extra_ends_with_missing_dependency(monkeypatch):
+    monkeypatch.setitem(sys.modules, "mcp", None)  # imgwtools[mcp] is not installed
+    for name in [name for name in sys.modules if name.startswith("imgwtools.mcp.")]:
+        monkeypatch.delitem(sys.modules, name)
+
+    result = RUNNER.invoke(cli_main.app, ["mcp"])
+
+    assert result.exit_code == 6
+    assert result.stdout == ""
+    error = json.loads(result.stderr.splitlines()[-1])
+    assert (error["code"], error["details"]) == ("missing_dependency", {})
+    assert "pip install imgwtools[mcp]" in error["detail"]
 
 
 def test_cli_main_entry_point_runs_command_from_argv(monkeypatch, capsys):
