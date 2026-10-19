@@ -21,13 +21,21 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.fetch import DownloadResult
-from imgwtools.store import init_store, open_store, write_archive, writer
+from imgwtools.store import (
+    current_version,
+    init_store,
+    iter_store,
+    open_store,
+    write_archive,
+    writer,
+)
 from imgwtools.store.types import Observation
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 ARCHIVE = archive_files("pl.imgw.hydro_daily", years=[2024])[0]
 DATA = (FIXTURES / "archives" / ARCHIVE.server_path).read_bytes()
 CHANGED = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
+DAILY_2024 = "archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
 # Observation example of spec 2026-10-18 §3.2 (arbitrary sums).
 OBSERVATION = {
     "schema": "imgw-observation/1",
@@ -111,28 +119,55 @@ def test_same_day_distinct_signals_and_concurrent_writers(tmp_path):
     assert len({one.path, two.path, outcomes[0].path}) == 3
 
 
-def test_existing_empty_target_never_replaced(tmp_path):
-    root = init_store(tmp_path / "store")
-    expected = hashlib.sha256(DATA).hexdigest()[:8]
-    target = (
+def _version_dir(root):
+    sha8 = hashlib.sha256(DATA).hexdigest()[:8]
+    return (
         root.root
         / "archives/versions"
         / Path(ARCHIVE.server_path).parent
         / "codz_2024"
-        / f"2026-10-17_{expected}"
+        / f"2026-10-17_{sha8}"
     )
-    target.mkdir(parents=True)
-    with pytest.raises(IMGWStoreConflictError):
-        write_archive(root, archive=ARCHIVE, response=response())
-    assert list(target.iterdir()) == []
 
 
-def test_no_atomic_rename_is_explicit(tmp_path, monkeypatch):
+def test_interrupted_publication_is_no_version_and_is_completed(tmp_path):
     root = init_store(tmp_path / "store")
-    monkeypatch.setattr(writer.sys, "platform", "unsupported")
-    with pytest.raises(IMGWStoreConflictError, match="atomowego"):
+    target = _version_dir(root)
+    target.mkdir(parents=True)
+    (target / "codz_2024.zip").write_bytes(DATA)  # data linked, sidecar never was
+    assert current_version(root, slot=DAILY_2024) is None
+    assert [e.problem_code for e in iter_store(root, kind="problem")] == [
+        "missing_sidecar"
+    ]
+    written = write_archive(root, archive=ARCHIVE, response=response())
+    assert (written.status, written.path) == ("created", target / "codz_2024.zip")
+    assert list(iter_store(root, kind="problem")) == []
+    assert current_version(root, slot=DAILY_2024).version == written.path
+
+
+def test_interrupted_publication_with_other_bytes_is_never_replaced(tmp_path):
+    root = init_store(tmp_path / "store")
+    target = _version_dir(root)
+    target.mkdir(parents=True)
+    (target / "codz_2024.zip").write_bytes(CHANGED)
+    with pytest.raises(IMGWStoreConflictError, match="Kolizja"):
         write_archive(root, archive=ARCHIVE, response=response())
+    assert [p.name for p in target.iterdir()] == ["codz_2024.zip"]
+    assert (target / "codz_2024.zip").read_bytes() == CHANGED
+
+
+def test_file_system_without_hard_links_is_explicit(tmp_path, monkeypatch):
+    root = init_store(tmp_path / "store")
+
+    def no_links(source, target):
+        raise OSError(errno.EXDEV, os.strerror(errno.EXDEV))
+
+    monkeypatch.setattr(writer.os, "link", no_links)
+    with pytest.raises(IMGWStoreConflictError, match="dowiązaniami") as error:
+        write_archive(root, archive=ARCHIVE, response=response())
+    assert error.value.details == {"reason": "not_atomic"}
     assert not list((root.root / "archives").rglob("*.zip"))
+    assert not list((root.root / ".incoming").iterdir())
 
 
 def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):

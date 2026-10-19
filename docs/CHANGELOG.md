@@ -4,6 +4,30 @@ Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.1.0/), wersj
 zgodne z [SemVer](https://semver.org/lang/pl/). Każda zmiana publicznego API i schematów
 magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
 
+## [Unreleased]
+
+### Naprawione
+
+- Zapis do magazynu działa na macOS i Windows, nie tylko na Linuksie. Wersje są
+  publikowane według modelu Kartografa: pliki trafiają z `.incoming/` do katalogu
+  `<label>_<sha8>` dowiązaniami twardymi (`os.link`, nigdy nie zastępują celu), a
+  sidecar pliku głównego, dowiązywany ostatni, zatwierdza wersję; obserwacje
+  (`observations/`) publikuje to samo `os.link`. Dotąd `store sync`, `series build`,
+  `store catalog`, `pmaxtp sync` i `project download` poza Linuksem kończyły się błędem
+  `conflict` (brak `renameat2`), a na Windows także `store init`, zapis manifestu
+  projektu i eksport z `--path` (błąd `fsync` katalogu). `fsync` katalogu jest teraz
+  pomijany na Windows i na systemach plików, które go nie obsługują (ADR-001, errata
+  2026-10-19).
+
+### Zmienione
+
+- Katalog wersji bez sidecara pliku głównego to przerwana publikacja, nie wersja:
+  `current_version` i zapis go pomijają (dotąd: `IMGWDataError` / `conflict` dla całego
+  slotu), `iter_store` nadal zgłasza go jako `missing_sidecar` (także gdy brakuje
+  pliku głównego), a następny zapis tej samej treści go uzupełnia.
+- System plików bez dowiązań twardych (FAT, exFAT, część FUSE) przy zapisie wersji:
+  `IMGWStoreConflictError` z `details.reason="not_atomic"`, jak dotąd w `init_store`.
+
 ## [3.0.0] — 2026-10-19
 
 Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite (ADR-001), a Python,

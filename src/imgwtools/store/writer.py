@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import ctypes
+import contextlib
 import errno
 import hashlib
 import json
@@ -10,7 +10,6 @@ import os
 import re
 import shutil
 import socket
-import sys
 import time
 import uuid
 from collections.abc import Callable, Collection, Mapping
@@ -82,44 +81,171 @@ def _write_json(path: Path, value: object) -> None:
         os.fsync(stream.fileno())
 
 
+# os.link failures meaning "this file system cannot hard link" (as Kartograf D22).
+_NO_HARDLINK = frozenset(
+    {
+        errno.EPERM,
+        errno.EOPNOTSUPP,
+        getattr(errno, "ENOTSUP", errno.EOPNOTSUPP),
+        errno.EXDEV,
+        errno.EMLINK,
+    }
+)
+
+
 def _fsync_dir(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    """
+    ``fsync`` a directory entry where the system supports it.
+
+    Windows cannot open a directory for ``fsync`` (NTFS journals its
+    metadata) and some file systems refuse the call; both are skipped, as in
+    Kartograf.
+    """
+    if os.name == "nt":
+        return
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return
     try:
         os.fsync(descriptor)
+    except OSError as exc:
+        if exc.errno not in (
+            errno.EINVAL,
+            errno.ENOTSUP,
+            errno.EOPNOTSUPP,
+            errno.EBADF,
+        ):
+            raise
     finally:
         os.close(descriptor)
 
 
-def _atomic_publish(staged_dir: Path, target_dir: Path) -> None:
-    """Rename a staged directory or file without replacing an existing target."""
-    if not sys.platform.startswith("linux"):
-        raise IMGWStoreConflictError(
-            "System plików nie zapewnia atomowego zapisu bez zastąpienia celu"
-        )
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _link(source: Path, target: Path) -> None:
+    """
+    Publish ``source`` under ``target`` by a hard link, never replacing an entry.
+
+    Raises
+    ------
+    FileExistsError
+        If ``target`` exists.
+    IMGWStoreConflictError
+        If the file system has no hard links (``details.reason`` ``not_atomic``).
+    """
     try:
-        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
-    except AttributeError as exc:
-        raise IMGWStoreConflictError(
-            "Brak atomowego renameat2 bez zastępowania wersji"
-        ) from exc
-    renameat2.argtypes = (
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
+        os.link(source, target)
+    except FileExistsError:
+        raise
+    except (OSError, NotImplementedError) as exc:
+        if isinstance(exc, NotImplementedError) or exc.errno in _NO_HARDLINK:
+            raise IMGWStoreConflictError(
+                "Magazyn wymaga systemu plików z dowiązaniami twardymi "
+                f"(wyłączna publikacja bez zastąpienia): {target}",
+                details={"reason": "not_atomic"},
+            ) from exc
+        raise
+
+
+def _make_dir(path: Path, made: list[Path]) -> None:
+    """Create ``path`` or accept an existing real directory; record what was created."""
+    try:
+        path.mkdir()
+    except FileExistsError:
+        if path.is_symlink() or not path.is_dir():
+            raise FileExistsError(
+                errno.EEXIST, os.strerror(errno.EEXIST), str(path)
+            ) from None
+    else:
+        made.append(path)
+
+
+def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
+    """
+    Publish a staged version into ``target`` by hard links, the sidecar last.
+
+    Every staged file other than ``sidecar`` is linked first (``stations/``
+    included); then ``sidecar``, the main file's ``*.meta.json``, commits the
+    version: a version directory without it is not a version but an
+    interrupted publication (the scan reports it as ``missing_sidecar``).
+    ``os.link`` never replaces an entry, so concurrent writers of the same
+    content end in one version, and a file already present with the same
+    bytes is kept, which completes an interrupted publication. This is the
+    publication model of Kartograf (its D18, D21, D22): it needs hard links
+    only (ext4, APFS, NTFS, SMB), not an OS-specific no-replace rename.
+
+    Parameters
+    ----------
+    staging : pathlib.Path
+        Private staging directory with every file of the version, flushed and
+        fsynced.
+    target : pathlib.Path
+        Version directory ``<slot>/<label>_<sha8>``.
+    sidecar : str
+        Name of the main file's sidecar inside ``staging``.
+
+    Raises
+    ------
+    FileExistsError
+        If ``target`` is not a directory, already holds a committed sidecar,
+        or holds other bytes under a staged name; the caller decides between
+        an unchanged version and a collision.
+    IMGWStoreConflictError
+        If the file system has no hard links (``details.reason`` ``not_atomic``).
+    """
+    data = sorted(
+        path.relative_to(staging).as_posix()
+        for path in staging.rglob("*")
+        if path.is_file() and path.relative_to(staging).as_posix() != sidecar
     )
-    renameat2.restype = ctypes.c_int
-    source = os.fsencode(staged_dir)
-    destination = os.fsencode(target_dir)
-    if renameat2(-100, source, -100, destination, 1) != 0:  # RENAME_NOREPLACE
-        code = ctypes.get_errno()
-        if code == errno.EEXIST:
-            raise FileExistsError(code, os.strerror(code), str(target_dir))
-        raise IMGWStoreConflictError(
-            f"Nie można atomowo opublikować wersji: {os.strerror(code)}"
-        )
-    _fsync_dir(target_dir.parent)
+    directories = sorted({(target / name).parent for name in data} | {target})
+    committed = target / sidecar
+    made: list[Path] = []
+    linked: list[Path] = []
+    try:
+        if committed.exists() or committed.is_symlink():
+            # A committed version is never extended (e.g. by a newer attachment).
+            raise FileExistsError(
+                errno.EEXIST, os.strerror(errno.EEXIST), str(committed)
+            )
+        for directory in directories:
+            _make_dir(directory, made)
+        for name in data:
+            source, destination = staging / name, target / name
+            try:
+                _link(source, destination)
+            except FileExistsError:
+                if (
+                    destination.is_symlink()
+                    or not destination.is_file()
+                    or _sha256_file(destination) != _sha256_file(source)
+                ):
+                    raise
+                continue
+            linked.append(destination)
+        for directory in directories:
+            _fsync_dir(directory)
+        _link(staging / sidecar, committed)
+    except FileExistsError:
+        # Another writer owns these entries; nothing created here is removed.
+        raise
+    except BaseException:
+        for path in reversed(linked):
+            with contextlib.suppress(OSError):
+                path.unlink()
+        for directory in reversed(made):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+        raise
+    _fsync_dir(target)
+    _fsync_dir(target.parent)
 
 
 def _safe_root(root: PathArg) -> Path:
@@ -429,7 +555,10 @@ def _existing(
     slot: Path, name: str, *, archive: bool = False, skip: Collection[str] = ()
 ) -> list[tuple[Path, dict[str, Any]]]:
     """
-    Every version of a slot with its sidecar, verified by SHA-256.
+    Every committed version of a slot with its sidecar, verified by SHA-256.
+
+    A version directory without the main file's sidecar is an interrupted
+    publication, not a version (`_publish_dir`), and is skipped.
 
     Parameters
     ----------
@@ -452,7 +581,8 @@ def _existing(
     Raises
     ------
     IMGWStoreConflictError
-        If an element of the slot is not a readable, consistent version.
+        If an element of the slot is neither a readable, consistent version
+        nor an interrupted publication.
     """
     if not slot.exists():
         return []
@@ -465,6 +595,8 @@ def _existing(
         if directory.is_symlink() or not directory.is_dir():
             raise IMGWStoreConflictError(f"Nieprawidłowa wersja archiwum: {directory}")
         meta_path = directory / f"{name}.meta.json"
+        if not meta_path.exists() and not meta_path.is_symlink():
+            continue
         try:
             source = directory / name
             if source.is_symlink() or meta_path.is_symlink():
@@ -578,9 +710,10 @@ def _publish_observation(
     Publish an observation into ``<slot>/observations/`` without replacing a file.
 
     The canonical ``imgw-observation/1`` document is staged in a unique
-    ``.incoming`` directory and moved by a single no-replace rename; the
-    register directory is created when needed. A file of the same name (the
-    same signal seen on the same day) is kept unchanged and returned.
+    ``.incoming`` directory and published by a hard link, which never
+    replaces a file; the register directory is created when needed. A file
+    of the same name (the same signal seen on the same day) is kept
+    unchanged and returned.
 
     Parameters
     ----------
@@ -609,7 +742,8 @@ def _publish_observation(
         If a path component is a symbolic link (code ``validation_error``).
     IMGWStoreConflictError
         If ``observations`` or the target name is not a regular entry of its
-        kind, or the file system cannot rename without replacement.
+        kind, or the file system has no hard links (``details.reason``
+        ``not_atomic``).
     IMGWCancelledError
         If ``cancel`` returns ``True`` before publication.
     """
@@ -647,13 +781,15 @@ def _publish_observation(
         else:
             _fsync_dir(register.parent)
         try:
-            _atomic_publish(staging / name, target)
+            _link(staging / name, target)
         except FileExistsError:
             # The same signal on the same day is already recorded; keep that file.
             if target.is_symlink() or not target.is_file():
                 raise IMGWStoreConflictError(
                     f"Kolizja pliku obserwacji: {target}"
                 ) from None
+        else:
+            _fsync_dir(register)
         return target
     finally:
         if staging.exists():
@@ -833,12 +969,13 @@ def write_archive(
     Commit an archive and provenance together, without replacing existing versions.
 
     The original bytes and their ``*.meta.json`` sidecar are staged in
-    ``.incoming`` and published as a whole version directory
-    ``<label>_<sha8>`` by a single no-replace rename. The label is the UTC
-    date of ``Last-Modified`` (or of the download when absent); identical
-    bytes with a different HTTP signal on the same day get a stable
-    ``+<8 hex>`` suffix. Country, provider and license of the sidecar come
-    from the provider registry.
+    ``.incoming`` and published into the version directory
+    ``<label>_<sha8>`` by hard links, the sidecar last (`_publish_dir`):
+    nothing is ever replaced, and a version is complete once its sidecar
+    exists. The label is the UTC date of ``Last-Modified`` (or of the
+    download when absent); identical bytes with a different HTTP signal on
+    the same day get a stable ``+<8 hex>`` suffix. Country, provider and
+    license of the sidecar come from the provider registry.
 
     For a dataset with a canonical form (``DatasetDescriptor.content_form``,
     ADR-003 D17) the sidecar also records ``content_sha256`` and
@@ -897,8 +1034,8 @@ def write_archive(
         If the store overlaps another IMGW or a Kartograf store, an existing
         version in the slot is corrupted (including a sidecar without
         ``extra.http``), the version directory collides with different
-        content, or the file system cannot publish atomically without
-        replacement.
+        content, or the file system has no hard links (``details.reason``
+        ``not_atomic``).
     IMGWCancelledError
         If ``cancel`` returns ``True`` before publication.
     """
@@ -1042,7 +1179,7 @@ def write_archive(
         _validate_slot(path, f"{slot_dir}/{label}_{sha[:8]}")
         target = slot / f"{label}_{sha[:8]}"
         try:
-            _atomic_publish(staging, target)
+            _publish_dir(staging, target, f"{filename}.meta.json")
         except FileExistsError as exc:
             for old_file, old_meta in _existing(slot, filename, archive=True):
                 if old_file.parent == target and old_meta["sha256"] == sha:

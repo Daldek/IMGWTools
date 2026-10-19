@@ -71,12 +71,12 @@ from imgwtools.store.types import (
     StorePlan,
 )
 from imgwtools.store.writer import (
-    _atomic_publish,
     _canonical,
     _check_kartograf,
     _cleanup,
     _existing,
     _fsync_dir,
+    _publish_dir,
     _utc,
     _validate_slot,
     _write_json,
@@ -184,10 +184,11 @@ def _publish_version(
 ) -> tuple[Path, bool]:
     """Stage ``name`` + sidecar and publish ``<slot>/<label>_<sha8>`` without replacement.
 
-    Returns the main file path and ``True`` when a new version was created; an identical
+    Files are published by hard links, the sidecar last (``_publish_dir``). Returns the
+    main file path and ``True`` when a new version was created; an identical
     concurrently published version yields ``False``. ``on_notice`` receives a
     ``leftover_incoming`` warning for every removed staging directory older than 24 h.
-    ``attachments`` are extra files (name → bytes) published in the same rename; the
+    ``attachments`` are extra files (name → bytes) published before the sidecar; the
     caller documents them in ``meta``. ``skip`` names child directories of the slot
     that are not its versions (catalogs of other providers).
     """
@@ -209,7 +210,7 @@ def _publish_version(
         _fsync_dir(staging)
         slot_dir.mkdir(parents=True, exist_ok=True)
         try:
-            _atomic_publish(staging, target)
+            _publish_dir(staging, target, f"{name}.meta.json")
         except FileExistsError as exc:
             for old_file, old_meta in _existing(slot_dir, name, skip=skip):
                 if old_file.parent == target and old_meta["sha256"] == sha:

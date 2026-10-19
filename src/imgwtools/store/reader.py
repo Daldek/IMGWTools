@@ -444,15 +444,19 @@ def _check_version(
                 )
         else:
             files.add(child.name)
-    if name not in files and name + _SIDECAR in files:
+    if name + _SIDECAR not in files:
+        # The sidecar is published last and commits the version (Kartograf D18).
+        raise _Invalid(
+            "missing_sidecar",
+            f"brak sidecara {name}{_SIDECAR} (niedokończona publikacja wersji)",
+        )
+    if name not in files:
         raise _Invalid("missing_file", f"brak pliku głównego {name}")
     unexpected = sorted(files - {name, name + _SIDECAR, *attachments})
     if unexpected:
         raise _Invalid(
             "unknown_entry", f"nieznane pliki w wersji: {', '.join(unexpected)}"
         )
-    if name not in files:
-        raise _Invalid("missing_file", f"brak pliku głównego {name}")
     main = directory / name
     meta = _load_meta(directory / (name + _SIDECAR))
     label = cast("Mapping[str, Any]", meta.extra["version"])["label"]
@@ -1179,6 +1183,11 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
     """
     Current published version of a slot; a broken version in the slot is an error.
 
+    A version directory without the main file's sidecar is an interrupted
+    publication, not a version: it is skipped here (``iter_store`` reports it
+    as ``missing_sidecar``), and the next write of the same content
+    completes it.
+
     Archive versions are ordered by ``Last-Modified``, then ``downloaded_at``,
     then path; derived versions (series, catalog, PMAXTP) by
     ``downloaded_at``, then path. Staging directories are never returned, and
@@ -1239,6 +1248,8 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
             if version.is_dir()
             else _unknown(path, version)
         )
+        if entry.kind == "problem" and entry.problem_code == "missing_sidecar":
+            continue
         if entry.kind == "problem" or entry.meta is None or entry.version is None:
             raise IMGWDataError(f"Uszkodzona wersja w slocie {slot}: {entry.problem}")
         meta = entry.meta

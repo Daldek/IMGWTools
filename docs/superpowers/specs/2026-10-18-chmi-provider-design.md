@@ -298,6 +298,8 @@ Przykład: `archives/versions/hydrology/historical/data/daily/H_0-203-1-001000_D
 
 **Zapis** — reguły publikacji wersji (§3 spec 2026-10-17): plik powstaje w unikalnym `.incoming/<host>_<pid>_<token>/` na tym samym systemie plików, z `flush`/`fsync` pliku i katalogu stagingu; `observations/` powstaje w razie potrzeby (z `fsync` katalogu slotu); publikacja to pojedyncze `renameat2(RENAME_NOREPLACE)` pliku do `observations/`, potem `fsync` `observations/` i usunięcie stagingu. Istniejący cel (ten sam sygnał tego samego dnia, np. dwie równoległe synchronizacje) → zapis pominięty bez błędu, a `VersionResult.observation` wskazuje plik istniejący. Plik nigdy nie jest nadpisywany ani usuwany; anulowanie przed rename nie zostawia obserwacji.
 
+> [Errata 2026-10-19, ADR-001] Zamiast `renameat2(RENAME_NOREPLACE)` plik obserwacji jest publikowany dowiązaniem twardym `os.link` (nie zastępuje istniejącego celu) — ten sam model co publikacja wersji (spec 2026-10-17 §3, errata 2026-10-19); działa na Linuksie, macOS i Windows.
+
 **Schemat `imgw-observation/1`** (nowy plik kontraktu w `contract_schemas.json`, addytywny; licznik `/N` według polityki IMGW-13, czytnik toleruje dodatkowe pola):
 
 ```json
