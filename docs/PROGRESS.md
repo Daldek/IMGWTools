@@ -4,9 +4,9 @@
 
 | Pole | Wartość |
 |------|---------|
-| **Wersja** | 2.2.0 |
-| **Data** | 2026-08-22 |
-| **Gałąź robocza** | slave (20 commitów przed master, oczekuje scalenia) |
+| **Wersja** | 3.0.0 |
+| **Data** | 2026-10-18 |
+| **Gałąź robocza** | `feature/versioned-store` (magazyn wersjonowany ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
 | **Python** | >=3.12 |
 
 ---
@@ -15,6 +15,7 @@
 
 | Wersja | Data | Zakres |
 |--------|------|--------|
+| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, rejestr 13 zbiorów, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, projekty `imgw-project/1`; **jeden katalog 35 komend** (ADR-002): koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, CLI i REST generowane z katalogu, problem+json; dziedziny `/1` otwarte dla kolejnych dostawców (ADR-003 C01); **breaking:** `imgw fetch`/`imgw list` → grupy katalogu, nowe trasy REST, `station_id` → `station`/`station_code`, `download_*` → `DownloadResult`, usunięcie cache SQLite i `core/url_builder`. Szczegóły: `docs/CHANGELOG.md` |
 | v2.2.0 | 2026-08 | Licencja (rok, PEP 639), ręczny proces CLA, moduł danych referencyjnych IMGW-PIB (`reference_data.py`), usunięcie danych IMGW z repo, **usunięcie legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` usunięty) |
 | v2.1.1 | 2026-07 | Parsery: auto-detekcja separatora/kodowania (UTF-8 BOM)/cudzysłowów; URL-e meteo zgodne z serwerem IMGW; zgodność z pyright; audyt dokumentacji |
 | v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
@@ -23,6 +24,32 @@
 | v1.0.0 | 2025-xx | Pierwsze stabilne wydanie |
 
 ---
+
+## v3.0.0 — szczegóły wydania (2026-10-18)
+
+Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/superpowers/plans/2026-10-17-versioned-store.md` (zadania T01–T24) i kontraktu `docs/superpowers/specs/2026-10-17-versioned-store-design.md`. Pełna lista zmian: `docs/CHANGELOG.md`.
+
+- **Fala 0 (T01–T06):** rejestr `datasets.py` (`pl.imgw.*`, `archive_files`, `station_source_files`), `DownloadResult` w `download_*`, parsery w `_parsing/` (hydro przeniesione z `db/`, nowe meteo `k_d`/`o_d` z flagami), poprawki `stations.py` (`river_order`, `hydrographic_code`, pole `rzeka`), syntetyczne archiwa i nagrania w `tests/fixtures/store/`, typy i wyjątki magazynu.
+- **Fala 1 (T07–T10):** writer z atomową publikacją bez zastępowania i sidecarem `imgw-meta/1`, `summarize_coverage`, `imgw fetch` odwzorowujące ścieżki serwera, URL-e REST z rejestru.
+- **Fala 2 (T11–T14):** katalog `stations.geojson` (obrys Polski Natural Earth, bez GIS w runtime), `check_store`/`sync_store` z planem `imgw-plan/1`, szeregi Parquet `imgw-series/1`, PMAXTP per komórka.
+- **Fala 3 (T15–T16):** publiczne API odczytu (read-only, problemy raportowane) i `imgwtools.testing.build_fixture_store`.
+- **Fala 4–5 (T17–T19):** eksport CSV z atrybucją IMGW-PIB, katalog komend `commands.py`, projekty `imgw-project/1`.
+- **Fala 6 (T20–T21):** CLI `imgw store|series|pmaxtp|project` generowane z katalogu, REST magazynu za `IMGW_STORE_ROOT` i tokenem zapisu.
+- **Fala 7 (T22–T24):** usunięcie cache SQLite bez shimów (pakiet `db/`, komenda CLI, `/api/v1/hydro/data`, ustawienia, dodatek), jedna lista eksportów `imgwtools.__all__`, dodatek `[store]`, wersja 3.0.0, `docs/CHANGELOG.md` i aktualizacja dokumentacji.
+
+**Decyzja właściciela (2026-10-17):** magazyn wersjonowany wchodzi teraz, jako 3.0.0; dawna wizja „Obserwator 3.0” (`docs/OBSERWATOR_SPEC.md`) pozostaje przyszłym rozszerzeniem (zmiana nazwy, providery) i nie obejmuje już cache SQLite v2.
+
+**Stan po ADR-001 (T25, 2026-10-18):** 998 passed (w tym kontrakt T25 w `tests/contract/`), pokrycie 93% (`pytest --cov=imgwtools`), `ruff check` czysto, `pyright` 0 błędów.
+
+**ADR-002 — jeden katalog komend i spójne interfejsy** (plan `docs/superpowers/plans/2026-10-17-versioned-store.md`, zadania U01–U16; spec §13):
+
+- **Fale 10–11 (U01–U04):** rejestr kodów błędów `ERROR_CODES` (`code`, `details`, `IMGWCancelledError`), typy koperty `CommandResult`/`Page` i jeden konwerter JSON; rejestr 13 zbiorów z aliasami i `YearsArg`/`MonthsArg`; funkcje na żywo ze `station`/`station_code`, `find_stations`, `fetch_meteo_current`, `fetch_hydro_states`.
+- **Fale 12–13 (U05–U08):** jedna gramatyka slotów, `select_series`, `summarize_series`, `download_archives`, PMAXTP z `method="POT"`, `export_archive`/`export_series` (plik albo strumień linii), katalog 35 komend z `command_schema` i stronicowaniem.
+- **Fale 14–15 (U09–U12):** CLI i REST generowane z katalogu (koperta na stdout, JSON błędu na stderr, kody wyjścia, problem+json, `?check=true`), projekt w konwencjach ADR-002, web wyłącznie na publicznym API.
+- **Fala 16 (U13–U14):** usunięcie starych builderów URL, `core/` i tras legacy; `imgwtools.__all__` zgodne z §13.12; kontrakt międzyinterfejsowy Python = CLI = REST (`tests/contract/test_interface_contract.py`).
+- **C01 (ADR-003, przed tagiem):** otwarte dziedziny kontraktów `/1` (klucz zbioru, kraj, dostawca, licencja, kod WIGOS, `location_source`), `content_sha256`/`content_form`, rejestr obserwacji `imgw-observation/1`.
+- **Fala 17 (U15):** dokumentacja wydania (CHANGELOG z tabelami migracji §13.11, README, CLAUDE.md, ARCHITECTURE, standardy); przykłady README uruchomione raz (Python i CLI na żywo na świeżym magazynie, odczyt na `build_fixture_store`, REST przez `imgw server`); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy).
+- **Fala 17 (U16) — bramka końcowa i regresja na żywo:** nowy `tests/live/test_interfaces_live.py` (pomijany bez `IMGW_LIVE=1`, raport JSON przez `IMGW_LIVE_REPORT`). Przebieg 2026-10-18T21:09:34Z (178,4 s, świeży magazyn w tmpfs, `imgw server` na localhost, żądania sekwencyjne): **42 passed** — każda z 35 komend przez Python, zainstalowany `imgw` i REST zgodna (status, klucze, sloty, ścieżki, strumienie bajt w bajt, drzewa magazynu; komendy lokalne w REST → 404 `not_found`), 6 błędów na żywo zgodnych (`validation_error` 2/400, `not_found` 3/404, `store_unavailable` 8/503). Naprawa z przebiegu: względne ścieżki przypięć projektu w JSON koperty nie zależą już od katalogu roboczego (`_jsonable`). Przebiegi przerwane awarią po stronie IMGW zgłaszały ją jednakowo (`source_unavailable`, exit 5 / HTTP 502); test powtarza taki przebieg po 20 s i 60 s. Bramka: `pytest` 1377 passed, 42 skipped (live); `ruff check` i `ruff format --check` czysto; `pyright` 0 błędów. Razem 1419 testów (`pytest --collect-only`).
 
 ## v2.2.0 — szczegóły wydania (2026-08-22)
 
@@ -180,26 +207,53 @@ Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 ---
 
-## Funkcjonalności
+## Backlog
 
-### Zaimplementowane
+**Jedyne źródło prawdy dla rzeczy do zrobienia** (konsolidacja 2026-08-02: dawne sekcje "Planowane"/"Zaimplementowane" oraz sekcja 11 z `PRD.md`). Nowe zadania dopisuj wyłącznie tutaj.
 
-- ✅ CLI (`imgw` command)
-- ✅ REST API (FastAPI)
-- ✅ Web GUI (HTMX + Jinja2)
-- ✅ PMAXTP data
-- ✅ Current hydro/meteo/synop data
-- ✅ Archive data download
-- ✅ Warnings
-- ✅ SQLite cache (optional)
+### Funkcjonalności
 
-### Planowane
+- [ ] API key enforcement — middleware walidujące nagłówek `X-API-Key`. CLAUDE.md odnotowuje, że klucze są zarządzane przez CLI (`imgw admin`), ale nieegzekwowane w żądaniach API — to brakująca warstwa bezpieczeństwa, nie nowa funkcja. Priorytet: wysoki.
+- [ ] Per-key rate limiting — śledzenie i limitowanie żądań per klucz API. Zależne od API key enforcement. Priorytet: średni.
+- [ ] GeoJSON w REST/GUI — wersjonowany katalog `stations.geojson` istnieje od 3.0.0 (`build_catalog`, `read_catalog`); brakuje komendy katalogu odczytującej go (a więc trasy REST) i warstwy na mapie Web GUI. Priorytet: średni.
+- [ ] Data charts — wizualizacja szeregów czasowych. Możliwy wzorzec: podejście repo hydro-dane — agregaty min/avg/max z walidacją pełnego roku hydrologicznego i eksport do kompaktowych statycznych JSON-ów. Priorytet: niski.
+- [ ] Eksport CSV w REST/GUI dla danych bez magazynu — od 3.0.0 `export_series`/`imgw series export`/`GET /api/v1/series/export` eksportują szeregi z magazynu; brak eksportu „na żądanie” bez magazynu. Priorytet: niski.
+- [ ] Request logging — śledzenie użycia API do analityki. Priorytet: niski.
+- [ ] Redis caching layer — cache dla często pobieranych danych. Priorytet: niski.
 
-- 📋 API key enforcement
-- 📋 Per-key rate limiting
-- 📋 GeoJSON export
-- 📋 Data charts
-- 📋 **Lepsze nazewnictwo KS/SG/RB w PMaXTPData** (patrz sekcja poniżej)
+- [ ] Lepsze nazewnictwo KS/SG/RB w `PMaXTPData` — aliasy właściwości i metoda `get_design_precipitation()`; szczegóły w sekcji "TODO: Poprawa czytelności PMaXTPData" poniżej. Priorytet: średni.
+- [ ] Natywna siatka PMAXTP w `fetch_pmaxtp` — od 3.0.0 magazyn PMAXTP (`sync_pmaxtp`/`read_pmaxtp`) kluczuje komórki indeksami `indX/indY` z odpowiedzi i zapisuje środek komórki w `cell.json`, ale `PMaXTPResult` z `fetch_pmaxtp` nadal nie ma pól `point`, brak funkcji konwersji/iteracji komórek, a docstringi podają zakres 7×6 zamiast 16×27; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
+
+### Magazyn wersjonowany (po 3.0.0)
+
+- [x] T25 — końcowy zestaw kontraktowy (`tests/contract/`): offline state machine HEAD→plan→sync→series→catalog→CSV→projekt→verify/restore, parytet ścieżek/SHA CLI = API (zrobione 2026-10-18).
+- [ ] Lokalny, odbudowywalny indeks magazynu (ADR-001 D2: poza wydaniem 3.0.0; nigdy jako źródło prawdy). Priorytet: niski.
+- [ ] Wniosek do IMGW-PIB o oficjalny wykaz współrzędnych stacji (ADR-001 Q6) oraz potwierdzenie znaczenia kodu hydrograficznego i kolejności `river_order` (Q4, Q5) — do tego czasu bez interpretacji. Priorytet: średni.
+- [ ] Rozszerzenie magazynu o kolejne zbiory (meteo miesięczne/terminowe, synop) — D6 ogranicza 3.0.0 do pięciu zbiorów Archiwisty i PMAXTP. Priorytet: niski.
+- [x] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`), opcjonalne pola treści kanonicznej `content_sha256` i `content_form` w `imgw-meta/1` i w `files[]` `imgw-project/1` oraz rejestr obserwacji `imgw-observation/1` (katalog `observations/` w slocie archiwum, wpisy `kind="observation"` w skanie, wewnętrzna publikacja obserwacji) — bez zmiany zachowania i bajtów IMGW (zrobione 2026-10-18, commit `889d705`; wywołanie zapisu obserwacji w `write_archive` należy do C02).
+- [ ] Dostawca ČHMÚ (Czechy, opendata.chmi.cz) — ADR-003 (przyjęta 2026-10-18) i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10 w §16). Zakres: `cz.chmi.hydro_daily` (H, Q, T; plik na stację i rok), `cz.chmi.meteo_daily` (opad, Tmean, Tmax, Tmin z `historical_csv` — CSV potwierdzone pomiarem 2026-10-18: 4,36 GB wobec 25,36 GB JSON), listy stacji i katalog `cz.chmi.stations` z progami SPA, inwentarz i aktualność z listingu katalogów, licencja CC BY 4.0; treść kanoniczna (`content_sha256`, forma `chmi-json/1` bez koperty `zaznamID`/`datumVytvoreni`): inne bajty o tej samej treści nie tworzą wersji, nowy sygnał trafia do rejestru obserwacji (kolejne sprawdzenie `current` bez pobierania), a przypięcia odtwarza się treścią ze statusem `restored_by_content`; poza zakresem dane bieżące (`now`, `recent`), CAP i PMAXTP. Spełnia wymagania Archiwisty IMGW-15..19 (P3, v0.6 „PL + CZ”). Zależność: zakończony ADR-002 (U01–U16) i wydanie 3.0.0; wydanie 3.1.0. Otwarte: pytania do ČHMÚ i Archiwisty (spec §15). Priorytet: wysoki (blokuje MVP Archiwisty).
+- [ ] Obserwator — przyszła zmiana nazwy (`docs/OBSERWATOR_SPEC.md`), już bez cache SQLite (zastąpiony magazynem); dostawcę ČHMÚ opisuje ADR-003 (pozycja wyżej). Priorytet: niski.
+
+### Infrastruktura i jakość kodu
+
+- [x] ~~Fallbackowe listy stacji zaszyte w kodzie (`api/routes/hydro.py`, `api/routes/meteo.py`)~~ — trasy usunięte w 3.0.0 (ADR-002); listy stacji daje `find_stations` z CSV IMGW.
+
+### Zrobione (archiwum)
+
+- [x] CLI (`imgw` command)
+- [x] REST API (FastAPI)
+- [x] Web GUI (HTMX + Jinja2)
+- [x] PMAXTP data
+- [x] Current hydro/meteo/synop data
+- [x] Archive data download
+- [x] Warnings
+- [x] ~~SQLite cache (optional)~~ — usunięty w 3.0.0 (ADR-001 D5), zastąpiony magazynem wersjonowanym
+- [x] Wersjonowany magazyn danych: archiwa 1:1 z sidecarami, plan aktualności, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, eksport CSV, projekty, CLI i REST (v3.0.0)
+- [x] Jeden katalog komend dla Pythona, CLI i REST: koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, `command_schema`, CLI i REST generowane z katalogu, kontrakt międzyinterfejsowy (ADR-002, v3.0.0)
+- [x] Parsery meteo dobowych `k_d`/`o_d` z flagami braków (v3.0.0)
+- [x] Publiczny budowniczy magazynu testowego `imgwtools.testing` dla Archiwisty i Retmana (v3.0.0)
+- [x] Podniesienie Pythona do `>=3.12` dla spójności z innymi projektami (rekomendacja cross-project, v2.1.0)
+- [x] DEVELOPMENT_STANDARDS.md w formacie z Hydrolog (rekomendacja cross-project, v2.1.0)
 
 ---
 
@@ -263,21 +317,67 @@ def get_design_precipitation(
 
 ---
 
+## TODO: Natywna siatka PMAXTP
+
+**Kontekst:** rozpoznanie z Hydrografa (2026-09-28, ~60 zapytań do `https://powietrze.imgw.pl/tpmax-api/point/P/KS/{lat}/{lon}`). Endpoint punktowy przypisuje zapytanie do najbliższego środka komórki regularnej siatki i zwraca jej parametry, których IMGWTools obecnie nie udostępnia. Bez nich klient nie wie, którą komórkę pobrał — gęste próbkowanie odpytuje wielokrotnie tę samą komórkę, rzadkie pomija komórki (siatka Hydrografa co 2 km pomijała ~80% komórek).
+
+### Surowa odpowiedź
+
+```json
+{
+  "point": {"lon": "21.0100", "lat": "52.2300", "name": "", "method": "POT",
+            "dataLon": 21.007098333333, "dataLat": 52.234416666667,
+            "indX": 751, "indY": 317, "recalcualted": true},
+  "data": {"ks": {...}, "rb": {...}, "sg": {...}}
+}
+```
+
+- `dataLon`/`dataLat` — środek komórki (WGS84), `indX`/`indY` — indeksy komórki.
+- `recalcualted` (literówka po stronie IMGW) — znaczenie nieznane; brak tego pola w odpowiedzi poza zasięgiem danych.
+- Poza Polską: indeksy i środek wracają, ale `data: {}` oraz dodatkowy klucz `error`.
+
+### Parametry siatki (zmierzone)
+
+| Parametr | Wartość |
+|---|---|
+| Układ | regularna siatka w stopniach WGS84 (EPSG:4326) |
+| Krok | Δlon = 0.01001°, Δlat = 0.01° (~680 m × 1110 m na 52°N, ~0,75 km²) |
+| Środek komórki | `lon = 13.489588333 + 0.01001 · indX`, `lat = 55.404416667 − 0.01 · indY` (indY rośnie na południe) |
+| Przypisanie punktu | do najbliższego środka komórki (sprawdzone na granicach komórek) |
+
+Zweryfikowane na punktach (52.23, 21.01) → (751, 317), (50.0, 19.0) → (550, 540), (54.0, 15.0) → (151, 140), (49.3, 14.2) → (71, 610, poza zasięgiem danych). Kroki i początek zgodne we wszystkich czterech.
+
+### Zakres danych
+
+Odpowiedź zawiera **16 czasów trwania × 27 prawdopodobieństw** dla każdej z tablic `ks`/`sg`/`rb`:
+- czasy [min]: 5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440, 2160, 2880, 4320,
+- prawdopodobieństwa [%]: 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 98.5, 99, 99.5, 99.9.
+
+Docstring `fetch_pmaxtp()` (`fetch.py`) i `PMaXTPData` podają nieaktualnie 7 czasów × 6 prawdopodobieństw.
+
+### Propozycje zmian
+
+1. `PMaXTPResult` — dodać pola z bloku `point`: `cell_lat`, `cell_lon`, `ind_x`, `ind_y` (oraz `has_data: bool` na podstawie `error`/pustego `data`); zachować surową odpowiedź (np. `raw: dict`) do archiwizacji po stronie klienta.
+2. Stałe siatki i funkcje konwersji: `pmaxtp_cell_for(lat, lon) -> (ind_x, ind_y)`, `pmaxtp_cell_center(ind_x, ind_y) -> (lat, lon)`, `pmaxtp_cells_in_bbox(bbox) -> Iterator[(ind_x, ind_y)]` — pobieranie „jedna komórka = jedno zapytanie o jej środek”.
+3. Poprawić dokumentację zakresu (16×27) w docstringach i README.
+4. `get_precipitation(duration_minutes, probability_percent: int)` — typ `int` nie pasuje do prawdopodobieństw ułamkowych (0.01, 98.5); klucz budowany przez `str()` wymaga, by float nie był przekazywany jako np. `1.0` (→ `"1.0"`, brak dopasowania). Rozważyć normalizację klucza.
+5. Test kontraktowy na zapisanej odpowiedzi (fixture) — weryfikacja kroków i początku siatki.
+
+---
+
 ## Komendy
 
 ```bash
-# Aktywacja środowiska
-source .venv/bin/activate
+# Testy (zawsze przez venv projektu)
+.venv/bin/python -m pytest
+.venv/bin/python -m pytest --cov=imgwtools
 
-# Testy
-pytest tests/ -v
-
-# Linting
-ruff check src/imgwtools/
-ruff format src/imgwtools/
+# Linting i formatowanie
+.venv/bin/ruff check src/ tests/
+.venv/bin/ruff format --check src/ tests/
 
 # Type checking (config: [tool.pyright] w pyproject.toml)
-npx pyright src/imgwtools/
+npx -y pyright src/imgwtools/
 ```
 
 ---
@@ -285,8 +385,9 @@ npx pyright src/imgwtools/
 ## Git workflow
 
 - **master** - główna gałąź (stabilna)
-- **slave** - gałąź rozwojowa (v2.2.0 przygotowane, oczekuje scalenia do master)
+- **slave** - gałąź rozwojowa (v2.2.0)
+- **feature/versioned-store** - magazyn wersjonowany, wydanie 3.0.0
 
 ---
 
-**Ostatnia aktualizacja:** 2026-08-22
+**Ostatnia aktualizacja:** 2026-10-18

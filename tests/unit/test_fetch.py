@@ -1,363 +1,199 @@
 """
-Unit tests for imgwtools.fetch module.
+Unit tests for the archive downloads of imgwtools.fetch (respx-mocked HTTP).
+
+Live reads are covered by test_fetch_live.py, ``download_archives`` by
+test_download_archives.py.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import io
+import zipfile
 
+import httpx
 import pytest
 
 from imgwtools.exceptions import (
     IMGWConnectionError,
+    IMGWDataError,
     IMGWValidationError,
 )
 from imgwtools.fetch import (
+    DownloadResult,
     download_hydro_data,
+    download_hydro_data_async,
     download_meteo_data,
-    fetch_hydro_current,
-    fetch_pmaxtp,
-    fetch_pmaxtp_async,
-    fetch_synop,
-    fetch_warnings,
+    download_meteo_data_async,
 )
-from imgwtools.models import HydroCurrentData, PMaXTPResult, SynopData, WarningData
-
 
-class TestFetchPmaxtp:
-    """Tests for fetch_pmaxtp function."""
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_successful_fetch(self, mock_client, pmaxtp_api_response):
-        """Test successful PMAXTP data fetch."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = pmaxtp_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_pmaxtp(latitude=52.23, longitude=21.01, method="POT")
-
-        assert isinstance(result, PMaXTPResult)
-        assert result.method == "POT"
-        assert result.latitude == 52.23
-        assert result.longitude == 21.01
-        assert result.data.get_precipitation(15, 50) == 5.1
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_amp_method(self, mock_client, pmaxtp_api_response):
-        """Test fetch with AMP method."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = pmaxtp_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_pmaxtp(latitude=52.23, longitude=21.01, method="AMP")
-
-        assert result.method == "AMP"
-
-    def test_invalid_latitude(self):
-        """Test validation error for invalid latitude."""
-        with pytest.raises(IMGWValidationError) as exc_info:
-            fetch_pmaxtp(latitude=100.0, longitude=21.01)
-
-        assert "latitude" in str(exc_info.value).lower()
-
-    def test_invalid_longitude(self):
-        """Test validation error for invalid longitude."""
-        with pytest.raises(IMGWValidationError) as exc_info:
-            fetch_pmaxtp(latitude=52.23, longitude=200.0)
-
-        assert "longitude" in str(exc_info.value).lower()
-
-    def test_coordinates_outside_poland(self):
-        """Test validation error for coordinates outside Poland."""
-        with pytest.raises(IMGWValidationError) as exc_info:
-            fetch_pmaxtp(latitude=40.0, longitude=21.01)
-
-        assert "Poland" in str(exc_info.value) or "Polska" in str(exc_info.value)
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_timeout_error(self, mock_client):
-        """Test handling of timeout error."""
-        import httpx
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.side_effect = httpx.TimeoutException("timeout")
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        with pytest.raises(IMGWConnectionError):
-            fetch_pmaxtp(latitude=52.23, longitude=21.01)
-
-
-class TestFetchPmaxtpAsync:
-    """Tests for async fetch_pmaxtp_async function."""
-
-    @pytest.mark.asyncio
-    @patch("imgwtools.fetch.httpx.AsyncClient")
-    async def test_successful_async_fetch(self, mock_client, pmaxtp_api_response):
-        """Test successful async PMAXTP data fetch."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = pmaxtp_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__aenter__.return_value = mock_client_instance
-        mock_client_instance.__aexit__.return_value = False
-        mock_client.return_value = mock_client_instance
-
-        result = await fetch_pmaxtp_async(latitude=52.23, longitude=21.01)
-
-        assert isinstance(result, PMaXTPResult)
-        assert result.latitude == 52.23
-
-
-class TestFetchHydroCurrent:
-    """Tests for fetch_hydro_current function."""
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_fetch_all_stations(self, mock_client, hydro_current_api_response):
-        """Test fetching all hydro stations."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = hydro_current_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_hydro_current()
-
-        assert len(result) == 2
-        assert all(isinstance(s, HydroCurrentData) for s in result)
-        assert result[0].station_id == "150160180"
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_fetch_single_station(self, mock_client, hydro_current_api_response):
-        """Test fetching single station by ID."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = [hydro_current_api_response[0]]
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_hydro_current(station_id="150160180")
-
-        assert len(result) == 1
-        assert result[0].station_name == "Kłodzko"
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_single_dict_response(self, mock_client, hydro_current_api_response):
-        """Test handling single dict response (not list)."""
-        mock_response = MagicMock()
-        # API sometimes returns single object instead of list
-        mock_response.json.return_value = hydro_current_api_response[0]
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_hydro_current(station_id="150160180")
-
-        assert len(result) == 1
-
-
-class TestFetchSynop:
-    """Tests for fetch_synop function."""
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_fetch_all_stations(self, mock_client, synop_api_response):
-        """Test fetching all synop stations."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = synop_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_synop()
-
-        assert len(result) == 2
-        assert all(isinstance(s, SynopData) for s in result)
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_filter_by_station_name(self, mock_client, synop_api_response):
-        """Test filtering by station name."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = synop_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_synop(station_name="Warszawa")
-
-        assert len(result) == 1
-        assert result[0].station_name == "Warszawa"
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_filter_case_insensitive(self, mock_client, synop_api_response):
-        """Test case-insensitive station name filtering."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = synop_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_synop(station_name="warszawa")
-
-        assert len(result) == 1
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_filter_partial_match(self, mock_client, synop_api_response):
-        """Test partial station name matching."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = synop_api_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_synop(station_name="Biały")
-
-        assert len(result) == 1
-        assert "Białystok" in result[0].station_name
-
-
-class TestFetchWarnings:
-    """Tests for fetch_warnings function."""
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_fetch_hydro_warnings(self, mock_client):
-        """Test fetching hydro warnings."""
-        warnings_response = [
-            {
-                "id": "123",
-                "typ": "hydro",
-                "poziom": "2",
-                "region": "dolnośląskie",
-            }
-        ]
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = warnings_response
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_warnings(warning_type="hydro")
-
-        assert len(result) == 1
-        assert isinstance(result[0], WarningData)
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_fetch_meteo_warnings(self, mock_client):
-        """Test fetching meteo warnings."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = []
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_warnings(warning_type="meteo")
-
-        assert result == []
-
-
-class TestDownloadHydroData:
-    """Tests for download_hydro_data function."""
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_download_daily_data(self, mock_client):
-        """Test downloading daily hydro data."""
-        mock_response = MagicMock()
-        mock_response.content = b"ZIP_CONTENT"
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = download_hydro_data("dobowe", 2023)
-
-        assert result == b"ZIP_CONTENT"
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_download_with_month(self, mock_client):
-        """Test downloading with month parameter."""
-        mock_response = MagicMock()
-        mock_response.content = b"ZIP_CONTENT"
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = download_hydro_data("dobowe", 2022, month=6)
-
-        assert result == b"ZIP_CONTENT"
-
-
-class TestDownloadMeteoData:
-    """Tests for download_meteo_data function."""
-
-    @patch("imgwtools.fetch.httpx.Client")
-    def test_download_monthly_synop(self, mock_client):
-        """Test downloading monthly synop data."""
-        mock_response = MagicMock()
-        mock_response.content = b"ZIP_CONTENT"
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client_instance = MagicMock()
-        mock_client_instance.get.return_value = mock_response
-        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-        mock_client_instance.__exit__ = MagicMock(return_value=False)
-        mock_client.return_value = mock_client_instance
-
-        result = download_meteo_data("miesieczne", "synop", 2023)
-
-        assert result == b"ZIP_CONTENT"
+ARCHIVE = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
+HYDRO = f"{ARCHIVE}/dane_hydrologiczne"
+METEO = f"{ARCHIVE}/dane_meteorologiczne"
+HYDRO_DAILY = f"{HYDRO}/dobowe/2020/codz_2020_03.zip"
+METEO_MONTHLY = f"{METEO}/miesieczne/klimat/2023/2023_m_k.zip"
+
+
+def _zip_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("dane.csv", "149190310,SAN ESCOBAR\n")
+    return buffer.getvalue()
+
+
+# Golden URLs recorded from build_hydro_url/build_meteo_url before the registry cutover.
+GOLDEN = [
+    ("hydro", ("dobowe", 2023, 13), f"{HYDRO}/dobowe/2023/zjaw_2023.zip"),
+    ("hydro", ("dobowe", 2022, 3), f"{HYDRO}/dobowe/2022/codz_2022_03.zip"),
+    ("hydro", ("dobowe", 2024), f"{HYDRO}/dobowe/2024/codz_2024.zip"),
+    ("hydro", ("miesieczne", 2024), f"{HYDRO}/miesieczne/2024/mies_2024.zip"),
+    (
+        "hydro",
+        ("polroczne_i_roczne", 2020, None, "Q"),
+        f"{HYDRO}/polroczne_i_roczne/2020/polr_Q_2020.zip",
+    ),
+    (
+        "meteo",
+        ("miesieczne", "synop", 1995),
+        f"{METEO}/miesieczne/synop/1991_1995/1991_1995_m_s.zip",
+    ),
+    ("meteo", ("miesieczne", "klimat", 2023), METEO_MONTHLY),
+    (
+        "meteo",
+        ("terminowe", "klimat", 2001, 1),
+        f"{METEO}/terminowe/klimat/2001/2001_01_k.zip",
+    ),
+    ("meteo", ("dobowe", "opad", 1995), f"{METEO}/dobowe/opad/1991_1995/1995_o.zip"),
+]
+
+
+def _download(family, arguments):
+    return (download_hydro_data if family == "hydro" else download_meteo_data)(
+        *arguments
+    )
+
+
+def _download_async(family, arguments):
+    function = (
+        download_hydro_data_async if family == "hydro" else download_meteo_data_async
+    )
+    return function(*arguments)
+
+
+@pytest.mark.parametrize("family, arguments, url", GOLDEN)
+async def test_legacy_arguments_hit_the_same_urls_sync_and_async(
+    respx_mock, family, arguments, url
+):
+    payload = _zip_bytes()
+    headers = {"ETag": '"e"', "Last-Modified": "Sat, 17 Oct 2026 12:00:00 GMT"}
+    route = respx_mock.get(url).respond(content=payload, headers=headers)
+    expected = DownloadResult(
+        payload, url, '"e"', headers["Last-Modified"], len(payload)
+    )
+    assert _download(family, arguments) == expected
+    assert await _download_async(family, arguments) == expected
+    assert route.call_count == 2
+
+
+def test_missing_headers_remain_none(respx_mock):
+    respx_mock.get(HYDRO_DAILY).mock(
+        return_value=httpx.Response(200, stream=httpx.ByteStream(_zip_bytes()))
+    )
+    result = download_hydro_data("dobowe", 2020, 3)
+    assert (result.etag, result.last_modified, result.content_length) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_redirect_is_followed_and_final_url_reported(respx_mock):
+    final = "https://mirror.example/codz_2020_03.zip"
+    respx_mock.get(HYDRO_DAILY).respond(302, headers={"Location": final})
+    respx_mock.get(final).respond(content=_zip_bytes())
+    assert download_hydro_data("dobowe", 2020, 3).url == final
+
+
+@pytest.mark.parametrize(
+    "function, arguments, option",
+    [
+        (download_hydro_data, ("dobowe", 2020), "month"),
+        (download_hydro_data, ("polroczne_i_roczne", 2020), "param"),
+        (download_meteo_data, ("dobowe", "klimat", 2001), "month"),
+        (download_meteo_data, ("terminowe", "klimat", 2004), "month"),
+        (download_hydro_data, ("dobowe", "2020", 3), "year"),
+    ],
+)
+def test_ambiguous_legacy_arguments_are_validation_errors(
+    respx_mock, function, arguments, option
+):
+    with pytest.raises(IMGWValidationError) as error:
+        function(*arguments)
+    assert error.value.code == "validation_error"
+    assert error.value.details["option"] == option
+    assert not respx_mock.calls
+
+
+@pytest.mark.parametrize(
+    "arguments, reason",
+    [
+        (("terminowe", "opad", 2023, 1), "not_published"),
+        (("dobowe", "synop", 2023, 1), "per_station"),
+        (("terminowe", "synop", 2023, 1), "per_station"),
+    ],
+)
+async def test_unpublished_meteo_combinations_fail_before_request(
+    respx_mock, arguments, reason
+):
+    with pytest.raises(IMGWValidationError) as error:
+        download_meteo_data(*arguments)
+    assert error.value.details["reason"] == reason
+    with pytest.raises(IMGWValidationError):
+        await download_meteo_data_async(*arguments)
+    assert not respx_mock.calls
+
+
+def test_unknown_interval_lists_registry_keys(respx_mock):
+    with pytest.raises(IMGWValidationError) as error:
+        download_hydro_data("roczne", 2020)  # type: ignore[arg-type]
+    assert "pl.imgw.hydro_daily" in error.value.details["allowed"]
+
+
+@pytest.mark.parametrize(
+    "mock, reason, status",
+    [
+        ({"side_effect": httpx.ReadTimeout}, "timeout", None),
+        ({"side_effect": httpx.ConnectError}, "network", None),
+        ({"return_value": httpx.Response(404)}, "http_status", 404),
+    ],
+    ids=["timeout", "network", "http_status"],
+)
+async def test_download_failure_is_source_unavailable(respx_mock, mock, reason, status):
+    respx_mock.get(METEO_MONTHLY).mock(**mock)
+    with pytest.raises(IMGWConnectionError) as sync_error:
+        download_meteo_data("miesieczne", "klimat", 2023)
+    with pytest.raises(IMGWConnectionError) as async_error:
+        await download_meteo_data_async("miesieczne", "klimat", 2023)
+    for error in (sync_error.value, async_error.value):
+        assert error.code == "source_unavailable"
+        assert error.details["url"] == METEO_MONTHLY
+        assert error.details["reason"] == reason
+        assert error.details.get("status") == status
+
+
+@pytest.mark.parametrize(
+    "response, message",
+    [
+        (httpx.Response(200, content=b"<html>"), "Niepoprawne archiwum ZIP"),
+        (
+            httpx.Response(
+                200,
+                stream=httpx.ByteStream(_zip_bytes()),
+                headers={"Content-Length": "duzo"},
+            ),
+            "Niepoprawny nagłówek Content-Length",
+        ),
+    ],
+)
+def test_corrupt_download_is_data_error(respx_mock, response, message):
+    respx_mock.get(HYDRO_DAILY).mock(return_value=response)
+    with pytest.raises(IMGWDataError, match=message) as error:
+        download_hydro_data("dobowe", 2020, 3)
+    assert error.value.code == "data_error"

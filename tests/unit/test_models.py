@@ -2,8 +2,16 @@
 Unit tests for imgwtools.models module.
 """
 
+from dataclasses import FrozenInstanceError
+from datetime import date
+
+import pytest
+
 from imgwtools.models import (
     HydroCurrentData,
+    Measurement,
+    MeteoCurrentData,
+    NormalizedRecord,
     PMaXTPData,
     PMaXTPResult,
     SynopData,
@@ -107,121 +115,201 @@ class TestPMaXTPResult:
 class TestHydroCurrentData:
     """Tests for HydroCurrentData model."""
 
-    def test_from_api_response(self, hydro_current_api_response):
-        """Test parsing hydro current API response."""
-        raw = hydro_current_api_response[0]
-        data = HydroCurrentData.from_api_response(raw)
+    def test_reads_station_code_and_coordinates(self):
+        data = HydroCurrentData.from_api_response(
+            {
+                "id_stacji": "149190310",
+                "stacja": "SAN ESCOBAR",
+                "rzeka": "Raba",
+                "wojewodztwo": "małopolskie",
+                "lat": "49.6100",
+                "lon": "20.0500",
+                "stan_wody": "212",
+                "przeplyw": "12.3",
+                "przeplyw_data": "2026-10-18 06:10:00",
+            }
+        )
 
-        assert data.station_id == "150160180"
-        assert data.station_name == "Kłodzko"
-        assert data.river == "Nysa Kłodzka"
-        assert data.province == "dolnośląskie"
-        assert data.water_level_cm == 106.0
-        assert data.flow_m3s == 5.2
-        assert data.water_temp_c == 4.5
+        assert (data.station_code, data.station_name, data.river) == (
+            "149190310",
+            "SAN ESCOBAR",
+            "Raba",
+        )
+        assert (data.latitude, data.longitude) == (49.61, 20.05)
+        assert (data.water_level_cm, data.flow_m3s, data.flow_date) == (
+            212.0,
+            12.3,
+            "2026-10-18 06:10:00",
+        )
 
-    def test_from_api_response_with_nulls(self, hydro_current_api_response):
-        """Test parsing response with null values."""
-        raw = hydro_current_api_response[1]
-        data = HydroCurrentData.from_api_response(raw)
+    def test_invalid_or_missing_values_are_none(self):
+        data = HydroCurrentData.from_api_response(
+            {"id_stacji": "149190311", "stacja": "SAN ESCOBAR", "stan_wody": "brak"}
+        )
 
-        assert data.station_id == "151140030"
-        assert data.water_level_cm == 230.0
-        assert data.flow_m3s is None
-        assert data.water_temp_c is None
+        assert data.station_code == "149190311"
+        assert (data.latitude, data.longitude, data.water_level_cm) == (
+            None,
+            None,
+            None,
+        )
 
-    def test_from_api_response_invalid_values(self):
-        """Test handling invalid values in response."""
-        raw = {
-            "id_stacji": "123",
-            "stacja": "Test",
-            "stan_wody": "invalid",
-            "przeplyw": "not_a_number",
+
+class TestMeteoCurrentData:
+    """Tests for MeteoCurrentData model."""
+
+    def test_maps_api_keys(self):
+        data = MeteoCurrentData.from_api_response(
+            {
+                "kod_stacji": "249190310",
+                "nazwa_stacji": "SAN ESCOBAR",
+                "lat": "49.995556",
+                "lon": "18.919167",
+                "temperatura_powietrza": "10.4",
+                "temperatura_powietrza_data": "2026-10-18 16:10:00",
+                "wiatr_srednia_predkosc": "3.2",
+                "wilgotnosc_wzgledna": "81.5",
+                "opad_10min": "0.2",
+            }
+        )
+
+        assert data.model_dump() == {
+            "station_code": "249190310",
+            "station_name": "SAN ESCOBAR",
+            "latitude": 49.995556,
+            "longitude": 18.919167,
+            "air_temp_c": 10.4,
+            "air_temp_date": "2026-10-18 16:10:00",
+            "wind_speed_ms": 3.2,
+            "humidity_percent": 81.5,
+            "precipitation_10min_mm": 0.2,
         }
-        data = HydroCurrentData.from_api_response(raw)
 
-        assert data.station_id == "123"
-        assert data.water_level_cm is None
-        assert data.flow_m3s is None
+    def test_missing_or_null_values_are_none(self):
+        data = MeteoCurrentData.from_api_response(
+            {
+                "kod_stacji": "249190311",
+                "nazwa_stacji": "RABA GÓRNA",
+                "temperatura_powietrza": None,
+                "opad_10min": "0",
+            }
+        )
+
+        assert (
+            data.latitude,
+            data.air_temp_c,
+            data.air_temp_date,
+            data.wind_speed_ms,
+            data.humidity_percent,
+            data.precipitation_10min_mm,
+        ) == (None, None, None, None, None, 0.0)
 
 
 class TestSynopData:
     """Tests for SynopData model."""
 
-    def test_from_api_response(self, synop_api_response):
-        """Test parsing synop API response."""
-        raw = synop_api_response[0]
-        data = SynopData.from_api_response(raw)
+    def test_reads_station_code_and_values(self):
+        data = SynopData.from_api_response(
+            {
+                "id_stacji": "12999",
+                "stacja": "SAN ESCOBAR",
+                "godzina_pomiaru": "12",
+                "temperatura": "-5.0",
+                "predkosc_wiatru": "3",
+                "cisnienie": "1015.2",
+            }
+        )
 
-        assert data.station_id == "12375"
-        assert data.station_name == "Warszawa"
-        assert data.temperature_c == 2.5
-        assert data.wind_speed_ms == 3.0
-        assert data.wind_direction == 180
-        assert data.humidity_percent == 75.5
-        assert data.precipitation_mm == 0.0
-        assert data.pressure_hpa == 1015.2
-
-    def test_from_api_response_negative_temp(self, synop_api_response):
-        """Test parsing response with negative temperature."""
-        raw = synop_api_response[1]
-        data = SynopData.from_api_response(raw)
-
-        assert data.station_name == "Białystok"
-        assert data.temperature_c == -5.0
-
-    def test_from_api_response_missing_fields(self):
-        """Test handling missing fields in response."""
-        raw = {
-            "id_stacji": "12345",
-            "stacja": "Test",
-        }
-        data = SynopData.from_api_response(raw)
-
-        assert data.station_id == "12345"
-        assert data.station_name == "Test"
-        assert data.temperature_c is None
-        assert data.pressure_hpa is None
+        assert (data.station_code, data.station_name) == ("12999", "SAN ESCOBAR")
+        assert (data.measurement_hour, data.temperature_c, data.wind_speed_ms) == (
+            12,
+            -5.0,
+            3.0,
+        )
+        assert (data.pressure_hpa, data.humidity_percent) == (1015.2, None)
 
 
 class TestWarningData:
     """Tests for WarningData model."""
 
-    def test_from_api_response(self):
-        """Test parsing warning API response."""
-        raw = {
-            "id": "123",
-            "typ": "hydro",
-            "poziom": "2",
-            "region": "dolnośląskie",
-            "opis": "Ostrzeżenie o wzroście stanu wody",
-            "wazne_od": "2024-01-15 12:00:00",
-            "wazne_do": "2024-01-16 12:00:00",
-            "prawdopodobienstwo": "80",
+    def test_meteo_record(self):
+        data = WarningData.from_api_response(
+            {
+                "id": "77",
+                "nazwa_zdarzenia": "Silny wiatr",
+                "stopien": "2",
+                "prawdopodobienstwo": "80",
+                "obowiazuje_od": "2026-10-18 06:00:00",
+                "obowiazuje_do": "2026-10-19 06:00:00",
+                "tresc": "Porywy do 90 km/h",
+                "teryt": ["1261", "1262"],
+            },
+            kind="meteo",
+        )
+
+        assert data.model_dump() == {
+            "id": "77",
+            "kind": "meteo",
+            "event": "Silny wiatr",
+            "level": 2,
+            "region": "1261, 1262",
+            "description": "Porywy do 90 km/h",
+            "valid_from": "2026-10-18 06:00:00",
+            "valid_to": "2026-10-19 06:00:00",
+            "probability": 80,
         }
-        data = WarningData.from_api_response(raw)
 
-        assert data.id == "123"
-        assert data.warning_type == "hydro"
-        assert data.level == 2
-        assert data.region == "dolnośląskie"
-        assert data.probability == 80
+    def test_hydro_record(self):
+        data = WarningData.from_api_response(
+            {
+                "numer": "21",
+                "zdarzenie": "Wezbranie z przekroczeniem stanów ostrzegawczych",
+                "stopień": "1",
+                "data_od": "2026-10-18 08:00:00",
+                "data_do": "2026-10-20 08:00:00",
+                "prawdopodobienstwo": "90",
+                "przebieg": "Wzrost stanów wody na Rabie",
+                "obszary": [
+                    {"wojewodztwo": "małopolskie", "opis": "Raba"},
+                    {"wojewodztwo": "małopolskie", "opis": "Skawa"},
+                    {"wojewodztwo": "śląskie", "opis": "Soła"},
+                ],
+            },
+            kind="hydro",
+        )
 
-    def test_from_api_response_alternative_keys(self):
-        """Test parsing with alternative key names."""
-        raw = {
-            "id": "456",
-            "nazwa": "meteo",
-            "stopien": "3",
-            "obszar": "mazowieckie",
-            "tresc": "Burze z gradem",
-            "od": "2024-01-15",
-            "do": "2024-01-16",
-        }
-        data = WarningData.from_api_response(raw)
+        assert (data.id, data.kind, data.event, data.level) == (
+            "21",
+            "hydro",
+            "Wezbranie z przekroczeniem stanów ostrzegawczych",
+            1,
+        )
+        assert (data.region, data.description) == (
+            "małopolskie, śląskie",
+            "Wzrost stanów wody na Rabie",
+        )
+        assert (data.valid_from, data.valid_to, data.probability) == (
+            "2026-10-18 08:00:00",
+            "2026-10-20 08:00:00",
+            90,
+        )
 
-        assert data.id == "456"
-        assert data.warning_type == "meteo"
-        assert data.level == 3
-        assert data.region == "mazowieckie"
-        assert data.description == "Burze z gradem"
+
+def test_normalized_measurement_flag_and_record_are_frozen():
+    record = NormalizedRecord(
+        station_code="123456789",
+        dataset="pl.imgw.hydro_daily",
+        date=date(2024, 2, 29),
+        hydro_year=2024,
+        period=None,
+        measurements={
+            "Q": Measurement(None, "missing"),
+            "H": Measurement(12.0, "value"),
+        },
+    )
+    assert record.measurements["Q"].value is None
+    assert record.measurements["H"].value == 12.0
+    with pytest.raises(FrozenInstanceError):
+        record.hydro_year = 2025
+    with pytest.raises(FrozenInstanceError):
+        record.measurements["Q"].flag = "value"

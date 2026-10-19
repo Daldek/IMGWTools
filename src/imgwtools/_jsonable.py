@@ -1,0 +1,159 @@
+"""
+Single JSON conversion of public results for the CLI, REST and ``CommandResult``.
+
+Rules (spec §13.1 p. 4): dates as ``YYYY-MM-DD``, instants as ISO 8601 UTC with
+``Z``, tuples, lists and sets as arrays, dataclasses and pydantic models as
+objects of their fields (a ``StorePlan`` as its ``imgw-plan/1`` document, spec
+§11.5 and §13.6), absolute paths inside the store as POSIX paths relative to the
+root, other absolute paths as they are, relative paths (relative to a base the
+result names, e.g. a project pin to the project's store) as POSIX text. The root
+itself is absolute, or ``"."`` in server mode, where the root prefix is also
+removed from free text.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass
+from datetime import UTC, date, datetime
+from enum import Enum
+from functools import cache
+from os import PathLike
+from pathlib import Path, PurePath
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from imgwtools.store.types import StorePlan
+
+__all__ = ["jsonable"]
+
+
+def jsonable(
+    value: object,
+    *,
+    root: str | PathLike[str] | None = None,
+    server: bool = False,
+) -> object:
+    """
+    Convert a public value to plain JSON-compatible values.
+
+    Parameters
+    ----------
+    value : object
+        Result, dataclass, pydantic model, mapping, sequence or scalar; a
+        ``StorePlan`` is written as its ``imgw-plan/1`` document (flat items
+        readable by ``StorePlan.from_json``).
+    root : str or os.PathLike or None, optional
+        Store root; absolute paths below it become POSIX paths relative to it,
+        other absolute paths stay absolute. A relative path is relative to a
+        base named by the result (a project pin to the project's store, a
+        Parquet file to its series version) and stays a relative POSIX path in
+        every working directory.
+    server : bool, optional
+        REST mode: the root itself is written as ``"."`` and the root prefix is
+        removed from every text (``<root>/x`` → ``x``, bare ``<root>`` → ``.``);
+        the root inside a URL or a longer path is not a path and stays.
+
+    Returns
+    -------
+    object
+        Value built only from ``dict``, ``list``, ``str``, ``int``, ``float``,
+        ``bool`` and ``None``.
+
+    Raises
+    ------
+    TypeError
+        If the value contains an object without a JSON representation.
+    """
+    base = None if root is None else Path(root).absolute()
+    roots = () if base is None else tuple(dict.fromkeys((base, base.resolve())))
+    pattern = _prefix_pattern(roots) if server else None
+    return _convert(value, roots, server, pattern)
+
+
+def _prefix_pattern(roots: tuple[Path, ...]) -> re.Pattern[str] | None:
+    prefixes = sorted(
+        {str(path) for path in roots if path.parent != path}, key=len, reverse=True
+    )
+    if not prefixes:
+        return None
+    alternatives = "|".join(re.escape(prefix) for prefix in prefixes)
+    # A path starts a token: the root inside a URL or another path is kept.
+    return re.compile(rf"(?<![\w.~/-])(?:{alternatives})(?:[/\\]|(?![^\s'\"),:;]))")
+
+
+@cache
+def _plan_type() -> type[StorePlan]:
+    """`StorePlan`, imported lazily: ``imgwtools.store.types`` imports this module."""
+    from imgwtools.store.types import StorePlan
+
+    return StorePlan
+
+
+def _convert(
+    value: object,
+    roots: tuple[Path, ...],
+    server: bool,
+    pattern: re.Pattern[str] | None,
+) -> object:
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, str):
+        if pattern is None:
+            return value
+        return pattern.sub(lambda m: "" if m.group()[-1] in "/\\" else ".", value)
+    if isinstance(value, Enum):
+        return _convert(value.value, roots, server, pattern)
+    if isinstance(value, PurePath):
+        return _path(Path(value), roots, server)
+    if isinstance(value, datetime):
+        moment = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, BaseModel):
+        return _convert(dict(value), roots, server, pattern)
+    if isinstance(value, _plan_type()):
+        return _convert(value._document(), roots, server, pattern)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            item.name: _convert(getattr(value, item.name), roots, server, pattern)
+            for item in fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {
+            _key(key, roots, server, pattern): _convert(item, roots, server, pattern)
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple | list):
+        return [_convert(item, roots, server, pattern) for item in value]
+    if isinstance(value, set | frozenset):
+        items = [_convert(item, roots, server, pattern) for item in value]
+        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
+    raise TypeError(f"Wartości typu {type(value).__name__} nie można zapisać w JSON")
+
+
+def _key(
+    key: object,
+    roots: tuple[Path, ...],
+    server: bool,
+    pattern: re.Pattern[str] | None,
+) -> str:
+    converted = _convert(key, roots, server, pattern)
+    return converted if isinstance(converted, str) else json.dumps(converted)
+
+
+def _path(path: Path, roots: tuple[Path, ...], server: bool) -> str:
+    if not path.is_absolute():
+        # Never resolved against the working directory of the printing process.
+        return path.as_posix()
+    for root in roots:
+        if path == root:
+            return "." if server else str(path)
+        if path.is_relative_to(root):
+            return path.relative_to(root).as_posix()
+    return str(path)

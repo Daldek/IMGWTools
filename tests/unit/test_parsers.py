@@ -15,15 +15,23 @@ The parsers must yield identical records regardless of format.
 
 import io
 import zipfile
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 
-from imgwtools.db.parsers import (
-    _decode_content,
-    _detect_delimiter,
+from imgwtools._parsing.common import _decode_content, _detect_delimiter
+from imgwtools.datasets import ArchiveFile
+from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.models import StationListEntry
+from imgwtools.parsers import (
+    normalize_archive,
     parse_daily_csv,
+    parse_meteo_climate_daily,
+    parse_meteo_precip_daily,
     parse_monthly_csv,
     parse_semi_annual_csv,
+    parse_stations_csv,
     parse_zip_file,
 )
 
@@ -396,3 +404,399 @@ def test_parse_zip_file_monthly_wrapped_2024():
     _, record = records[0]
     assert record.hydro_year == 2024
     assert record.water_level_cm == 107
+
+
+def _archive(dataset, path, year, month=None):
+    return ArchiveFile(
+        dataset,
+        path,
+        "https://imgw.example/" + path,
+        year,
+        month,
+        None,
+        "calendar" if "meteo" in dataset else "hydrological",
+        None,
+        None,
+    )
+
+
+def test_normalized_hydro_leap_day_missing_q_and_year_boundary():
+    rows = (
+        "123456789;SAN ESCOBAR;Ławica;2024;01;01;120;99999.999;5.5;11\n"
+        "123456789;SAN ESCOBAR;Ławica;2024;04;29;9999;45.6;99.9;2\n"
+    )
+    archive = _archive("pl.imgw.hydro_daily", "dobowe/codz_2024.zip", 2024)
+    records = list(normalize_archive(archive, data=_make_zip("codz_2024.csv", rows)))
+    assert [r.date.isoformat() for r in records] == ["2023-11-01", "2024-02-29"]
+    assert [r.hydro_year for r in records] == [2024, 2024]
+    assert records[0].measurements["H"].value == 120
+    assert records[0].measurements["Q"].flag == "missing"
+    assert records[1].measurements["H"].flag == "missing"
+    assert records[1].measurements["Q"].value == 45.6
+
+
+def test_normalized_monthly_aggregates_extrema_without_losing_missing():
+    rows = "".join(
+        f"123456789;SAN ESCOBAR;Ławica;2024;04;{index};{level};99999.999;99.9;2\n"
+        for index, level in ((1, "100"), (2, "120"), (3, "150"))
+    )
+    archive = _archive("pl.imgw.hydro_monthly", "miesieczne/mies_2024.zip", 2024)
+    (record,) = list(normalize_archive(archive, data=_make_zip("mies_2024.csv", rows)))
+    assert record.date.isoformat() == "2024-02-01"
+    assert set(record.measurements) == {
+        "H_min",
+        "H_mean",
+        "H_max",
+        "Q_min",
+        "Q_mean",
+        "Q_max",
+        "T_min",
+        "T_mean",
+        "T_max",
+    }
+    assert record.measurements["H_max"].value == 150
+    assert record.measurements["Q_min"].flag == "missing"
+
+
+def test_normalized_semiannual_retains_parameter_period_and_dates():
+    rows = "123456789;SAN ESCOBAR;Ławica;2024;13;Q;3;123.456;2024;2;29;12;30;2024;2;29;13;00\n"
+    archive = _archive("pl.imgw.hydro_semiannual", "polroczne/polr_Q_2024.zip", 2024)
+    (record,) = list(
+        normalize_archive(archive, data=_make_zip("polr_Q_2024.csv", rows))
+    )
+    assert record.period == "winter"
+    assert record.date.isoformat() == "2023-11-01"
+    assert set(record.measurements) == {"Q_max"}
+    assert record.extrema_dates["Q_max"][0].isoformat() == "2024-02-29T12:30:00"
+
+
+def test_meteo_climate_status_and_attributes():
+    row = "123456789;Łódź;2024;2;29;4.1;0;-2;8;1;0;0;9;0;9;S;10;0\n"
+    records = list(
+        parse_meteo_climate_daily(row.encode("cp1250"), filename="k_d_2024.csv")
+    )
+    day = next(record for record in records if record.date.isoformat() == "2024-02-29")
+    assert day.measurements["Tmin"].flag == "missing"
+    assert day.measurements["Tground"].flag == "no_phenomenon"
+    assert day.measurements["P"].value == 0
+    assert day.attributes["precip_type"] == "S"
+    assert day.hydro_year == 2024
+
+
+def test_meteo_precip_missing_days_accumulation_and_absent_month():
+    rows = (
+        "123456789;Opad;2001;1;1;;8;W;0;9;0;9;S;0;L;0\n"
+        "123456789;Opad;2001;1;2;10;0;W;4;0;2;0;S;0;L;0\n"
+    )
+    archive = _archive("pl.imgw.meteo_precip_daily", "2001/2001_01_o.zip", 2001, 1)
+    data = _make_zip("o_d_2001_01.csv", rows)
+    records = list(normalize_archive(archive, data=data))
+    assert len(records) == 31
+    assert [r.measurements["P"].flag for r in records[:3]] == [
+        "missing",
+        "accumulated",
+        "no_phenomenon",
+    ]
+    assert records[1].measurements["P"].value == 10
+    assert records[1].attributes["snow_species"] == "S"
+    assert records[1].attributes["snow_cover_type"] == "L"
+    annual = _archive("pl.imgw.meteo_precip_daily", "2001/2001_o.zip", 2001)
+    annual_records = list(normalize_archive(annual, data=data))
+    assert (
+        next(r for r in annual_records if r.date.isoformat() == "2001-02-01")
+        .measurements["P"]
+        .flag
+        == "missing"
+    )
+    assert len(list(parse_meteo_precip_daily(rows, filename="o_d_2001_01.csv"))) == 31
+    annual_direct = list(parse_meteo_precip_daily(rows, filename="o_d_2001.csv"))
+    assert len(annual_direct) == 365
+
+
+def test_meteo_archive_selects_only_daily_csv_and_reports_line():
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as zf:
+        zf.writestr("k_m_2001.csv", "garbage")
+        zf.writestr(
+            "k_d_2001.csv", "123456789;Klimat;2001;11;1;2;0;0;0;1;0;0;0;0;9;S;0;9"
+        )
+    archive = _archive("pl.imgw.meteo_climate_daily", "2001/2001_11_k.zip", 2001, 11)
+    records = list(normalize_archive(archive, data=data.getvalue()))
+    assert records[0].hydro_year == 2002
+    broken = _make_zip(
+        "k_d_2001.csv", "123456789;Klimat;2001;2;30;2;0;0;0;1;0;0;0;0;9;S;0;9"
+    )
+    with pytest.raises(IMGWDataError, match=r"k_d_2001.csv, wiersz 1"):
+        list(normalize_archive(archive, data=broken))
+
+
+def test_recorded_daily_archives_cover_annual_monthly_and_leap_day():
+    root = Path(__file__).parents[1] / "fixtures/store/archives"
+    scenarios = (
+        (
+            "pl.imgw.hydro_daily",
+            "dane_hydrologiczne/dobowe/2023/codz_2023.zip",
+            2023,
+            None,
+            "2022-11-01",
+        ),
+        (
+            "pl.imgw.hydro_daily",
+            "dane_hydrologiczne/dobowe/2024/codz_2024.zip",
+            2024,
+            None,
+            "2024-02-29",
+        ),
+        (
+            "pl.imgw.meteo_climate_daily",
+            "dane_meteorologiczne/dobowe/klimat/1991_1995/1995_k.zip",
+            1995,
+            None,
+            "1995-01-01",
+        ),
+        (
+            "pl.imgw.meteo_precip_daily",
+            "dane_meteorologiczne/dobowe/opad/2004/2004_02_o.zip",
+            2004,
+            2,
+            "2004-02-29",
+        ),
+    )
+    for dataset, filename, year, month, expected_date in scenarios:
+        records = list(
+            normalize_archive(
+                _archive(dataset, filename, year, month),
+                data=(root / filename).read_bytes(),
+            )
+        )
+        assert any(record.date.isoformat() == expected_date for record in records)
+
+
+def test_normalized_hydro_bad_measurement_reports_member_and_line():
+    archive = _archive("pl.imgw.hydro_daily", "dobowe/codz_2024.zip", 2024)
+    csv = "123456789;SAN ESCOBAR;Ławica;2024;04;29;abc;45.6;5.5;2\n"
+    with pytest.raises(IMGWDataError, match=r"codz_2024\.zip/codz_2024\.csv, wiersz 1"):
+        list(normalize_archive(archive, data=_make_zip("codz_2024.csv", csv)))
+
+
+def test_semiannual_generic_missing_sentinel():
+    archive = _archive("pl.imgw.hydro_semiannual", "polr_H_2024.zip", 2024)
+    row = "123456789;SAN ESCOBAR;Ławica;2024;15;H;2;99999.999\n"
+    (record,) = list(normalize_archive(archive, data=_make_zip("polr_H_2024.csv", row)))
+    assert record.measurements["H_mean"].flag == "missing"
+
+
+# ---------------------------------------------------------------------------
+# Semi-annual layouts of real IMGW years (fictional station, real column shapes)
+# ---------------------------------------------------------------------------
+
+# 1951-2022: Y,M,D,HH without minutes; an empty hour, day or month cuts the date.
+SEMI_16 = (
+    '" 123456789","SAN ESCOBAR","Ławica (1)","1951","13","H","3",140.000,'
+    '"1951","03","19","07","1951","03","19","24"\n'
+    '" 123456789","SAN ESCOBAR","Ławica (1)","1951","13","H","2",80.000,'
+    '"","","","","","","",""\n'
+    '" 123456789","SAN ESCOBAR","Ławica (1)","1951","14","H","1",42.000,'
+    '"1951","09","29","","1951","09","31",""\n'
+    '" 123456789","SAN ESCOBAR","Ławica (1)","1951","15","H","1",40.000,'
+    '"1951","01","","","1951","02","",""\n'
+)
+# 1997: 17 columns, the hydrological year repeated before both dates.
+SEMI_1997 = (
+    '"123456789",SAN ESCOBAR,Ławica (1),"1997","13",H,"3",394.000,"1997",'
+    '"1996","11","15","05","1996","11","15","07"\n'
+    '"123456789",SAN ESCOBAR,Ławica (1),"1997","13",H,"2",191.000,"1997",,,,,,,,\n'
+)
+# 2023 H: 20 columns, an undocumented field (empty or "1") after each date.
+SEMI_2023_H = (
+    "123456789;SAN ESCOBAR;Ławica (1);2023;13;H;3;270.000;"
+    "2022;12;24;11;30;;2022;12;24;11;50;\n"
+    "123456789;SAN ESCOBAR;Ławica (1);2023;13;H;1;137.000;"
+    "2022;12;24;14;;1;2022;12;24;14;;1\n"
+    "123456789;SAN ESCOBAR;Ławica (1);2023;13;H;2;127.000;;;;;;;;;;;;\n"
+)
+# 2023 Q: 19 columns, the trailing undocumented field dropped.
+SEMI_2023_Q = (
+    "123456789;SAN ESCOBAR;Ławica (1);2023;14;Q;3;161.000;"
+    "2023;05;17;20;10;;2023;05;17;20;40\n"
+)
+# 2023 T: 17 columns, the end date cut after the day.
+SEMI_2023_T = (
+    "123456789;SAN ESCOBAR;Ławica (1);2023;13;T;1;.400;2022;12;19;;;;2022;12;19\n"
+    "123456789;SAN ESCOBAR;Ławica (1);2023;13;T;2;5.800;;;;;;;;;\n"
+)
+
+
+@pytest.mark.parametrize(
+    "content, expected",
+    [
+        pytest.param(
+            SEMI_16,
+            [
+                ("winter", "H", "max", "1951-03-19 07:00", "1951-03-20 00:00"),
+                ("winter", "H", "mean", None, None),
+                ("summer", "H", "min", "1951-09-29", "1951-09-30"),
+                ("annual", "H", "min", "1951-01-01", "1951-02-01"),
+            ],
+            id="16-columns-1951-2022",
+        ),
+        pytest.param(
+            SEMI_1997,
+            [
+                ("winter", "H", "max", "1996-11-15 05:00", "1996-11-15 07:00"),
+                ("winter", "H", "mean", None, None),
+            ],
+            id="17-columns-1997",
+        ),
+        pytest.param(
+            SEMI_2023_H,
+            [
+                ("winter", "H", "max", "2022-12-24 11:30", "2022-12-24 11:50"),
+                ("winter", "H", "min", "2022-12-24 14:00", "2022-12-24 14:00"),
+                ("winter", "H", "mean", None, None),
+            ],
+            id="20-columns-2023-H",
+        ),
+        pytest.param(
+            SEMI_2023_Q,
+            [("summer", "Q", "max", "2023-05-17 20:10", "2023-05-17 20:40")],
+            id="19-columns-2023-Q",
+        ),
+        pytest.param(
+            SEMI_2023_T,
+            [
+                ("winter", "T", "min", "2022-12-19", "2022-12-19"),
+                ("winter", "T", "mean", None, None),
+            ],
+            id="17-columns-2023-T",
+        ),
+    ],
+)
+def test_semi_annual_layouts_keep_start_and_end_dates(content, expected):
+    records = [record for _, record in parse_semi_annual_csv(content)]
+    assert [
+        (
+            record.period,
+            record.param,
+            record.extremum,
+            record.extremum_start_date,
+            record.extremum_end_date,
+        )
+        for record in records
+    ] == expected
+
+
+def test_normalized_semiannual_old_layout_gives_start_and_end_datetimes():
+    archive = _archive("pl.imgw.hydro_semiannual", "1951/polr_H_1951.zip", 1951)
+    records = list(
+        normalize_archive(archive, data=_make_zip("polr_H_1951.csv", SEMI_16))
+    )
+    dates = {
+        (record.period, column): record.extrema_dates[column]
+        for record in records
+        for column in record.measurements
+    }
+    assert dates == {
+        ("winter", "H_max"): (datetime(1951, 3, 19, 7), datetime(1951, 3, 20)),
+        ("winter", "H_mean"): (None, None),
+        ("summer", "H_min"): (datetime(1951, 9, 29), datetime(1951, 9, 30)),
+        ("annual", "H_min"): (datetime(1951, 1, 1), datetime(1951, 2, 1)),
+    }
+
+
+def test_semiannual_unknown_or_mixed_column_layout_is_an_error():
+    archive = _archive("pl.imgw.hydro_semiannual", "2024/polr_H_2024.zip", 2024)
+    fifteen = "123456789;SAN ESCOBAR;Ławica;2024;15;H;2;100.0;;;;;;;\n"
+    with pytest.raises(IMGWDataError, match=r"15 kolumn\) w .*polr_H_2024\.csv"):
+        list(normalize_archive(archive, data=_make_zip("polr_H_2024.csv", fifteen)))
+    mixed = SEMI_2023_T + SEMI_2023_Q
+    with pytest.raises(IMGWDataError, match=r"Niejednolita liczba kolumn \(17, 19\)"):
+        list(parse_semi_annual_csv(mixed))
+
+
+def test_normalized_semiannual_merges_repeated_extremum_rows():
+    rows = (
+        "123456789;SAN ESCOBAR;Ławica;2024;13;H;3;278.000;"
+        "2023;12;25;08;40;2023;12;25;08;40\n"
+        "123456789;SAN ESCOBAR;Ławica;2024;13;H;3;278.000;"
+        "2023;12;25;06;00;2023;12;25;08;20\n"
+        "123456789;SAN ESCOBAR;Ławica;2024;13;H;3;278.000;"
+        "2023;12;25;08;40;2023;12;25;08;40\n"
+        "123456789;SAN ESCOBAR;Ławica;2024;13;H;2;160.000;;;;;;;;;;\n"
+    )
+    archive = _archive("pl.imgw.hydro_semiannual", "2024/polr_H_2024.zip", 2024)
+    records = list(normalize_archive(archive, data=_make_zip("polr_H_2024.csv", rows)))
+    by_column = {column: record for record in records for column in record.measurements}
+    assert len(records) == 2 and set(by_column) == {"H_max", "H_mean"}
+    maximum = by_column["H_max"]
+    assert maximum.measurements["H_max"].value == 278
+    assert maximum.extrema_dates["H_max"] == (
+        datetime(2023, 12, 25, 6, 0),
+        datetime(2023, 12, 25, 8, 40),
+    )
+    assert maximum.extrema_occurrences == {"H_max": 3}
+    assert by_column["H_mean"].extrema_occurrences == {"H_mean": 1}
+    conflicting = rows + (
+        "123456789;SAN ESCOBAR;Ławica;2024;13;H;3;279.000;"
+        "2023;12;26;01;00;2023;12;26;01;00\n"
+    )
+    with pytest.raises(
+        IMGWDataError, match="Sprzeczne wartości H_max stacji 123456789"
+    ):
+        list(normalize_archive(archive, data=_make_zip("polr_H_2024.csv", conflicting)))
+
+
+def test_meteo_climate_archive_ignores_k_d_t_member():
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as zf:
+        zf.writestr(
+            "k_d_t_01_2001.csv", "123456789,Klimat,2001,01,01,-5.7,,82,,2,,8,\n"
+        )
+        zf.writestr(
+            "k_d_01_2001.csv", "123456789,Klimat,2001,01,01,2,0,0,0,1,0,0,0,0,9,S,0,9\n"
+        )
+    archive = _archive("pl.imgw.meteo_climate_daily", "2001/2001_01_k.zip", 2001, 1)
+    records = list(normalize_archive(archive, data=data.getvalue()))
+    assert len(records) == 31
+    assert records[0].measurements["Tmax"].value == 2
+
+
+def test_meteo_precip_skips_only_a_leading_header_row():
+    header = (
+        '"kansp","kapost","dorok","domc","dodz","dosmdb","dowsmdb","doroop",'
+        '"dopksn","dowpksn","dohss","dowhss","dogats","dowgats","dorpsn","dowrpsn"\n'
+    )
+    row = '"123456789",OPADOWO,"2025","08","01",0.8,,W,,"9",,"8",,"8",,"8"\n'
+    archive = _archive("pl.imgw.meteo_precip_daily", "2025/2025_08_o.zip", 2025, 8)
+    records = list(
+        normalize_archive(archive, data=_make_zip("o_d_08_2025.csv", header + row))
+    )
+    assert len(records) == 31
+    assert records[0].measurements["P"].value == 0.8
+    with pytest.raises(IMGWDataError, match=r"o_d_08_2025\.csv, wiersz 2"):
+        list(
+            normalize_archive(archive, data=_make_zip("o_d_08_2025.csv", row + header))
+        )
+
+
+def test_station_list_parser_keeps_hydrographic_fields():
+    (station,) = list(
+        parse_stations_csv("149190310,Raba,Raba (02138),1\n", kind="hydro")
+    )
+    assert station == StationListEntry(
+        "hydro", "149190310", "Raba", "Raba", "02138", 1, None
+    )
+
+
+def test_station_list_parser_reads_meteo_columns_without_river_fields():
+    content = '"123750000","Warszawa"," 375"\n"123760000","Bez Numeru",""\n'
+    stations = list(parse_stations_csv(content.encode("cp1250"), kind="meteo"))
+    assert stations == [
+        StationListEntry("meteo", "123750000", "Warszawa", short_code="375"),
+        StationListEntry("meteo", "123760000", "Bez Numeru"),
+    ]
+
+
+def test_station_list_parser_rejects_unknown_kind():
+    with pytest.raises(IMGWValidationError):
+        list(parse_stations_csv("1,A\n", kind="synop"))  # type: ignore[arg-type]

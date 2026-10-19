@@ -1,26 +1,13 @@
-{% if errors %}
-<article class="error">
-    <header>Wystąpiły błędy</header>
-    <ul>
-        {% for error in errors %}
-        <li>{{ error }}</li>
-        {% endfor %}
-    </ul>
-</article>
-{% endif %}
-
-{% if urls %}
-{# Check if any item has month or param #}
-{% set has_month = urls | selectattr('month', 'defined') | selectattr('month') | list | length > 0 %}
-{% set has_param = urls | selectattr('param', 'defined') | selectattr('param') | list | length > 0 %}
+{% set has_month = files | selectattr('month') | list | length > 0 %}
+{% set has_param = files | selectattr('param') | list | length > 0 %}
 
 <article>
     <header>
-        <h3>Wygenerowane linki ({{ count }})</h3>
+        <h3>Wygenerowane linki ({{ files | length }})</h3>
     </header>
 
     <p>
-        <small>Kliknij w link, aby pobrać plik bezpośrednio z serwera IMGW.</small>
+        <small>Zbiór <code>{{ files[0].dataset }}</code>. Kliknij w link, aby pobrać plik bezpośrednio z serwera IMGW.</small>
     </p>
 
     <div class="download-actions">
@@ -42,25 +29,27 @@
                 {% if has_param %}
                 <th>Parametr</th>
                 {% endif %}
+                <th>Okres</th>
                 <th>Plik</th>
                 <th>Akcja</th>
             </tr>
         </thead>
         <tbody>
-            {% for item in urls %}
+            {% for file in files %}
             <tr>
-                <td>{{ item.year }}</td>
+                <td>{{ file.year }}</td>
                 {% if has_month %}
-                <td>{{ item.month if item.month else '-' }}</td>
+                <td>{{ file.month or '-' }}</td>
                 {% endif %}
                 {% if has_param %}
-                <td>{{ item.param if item.param else '-' }}</td>
+                <td>{{ file.param or '-' }}</td>
                 {% endif %}
+                <td>{{ file.period_start }} – {{ file.period_end }}</td>
                 <td>
-                    <code>{{ item.filename }}</code>
+                    <code>{{ file.server_path.rsplit('/', 1)[-1] }}</code>
                 </td>
                 <td>
-                    <a href="{{ item.url }}" target="_blank" role="button" class="outline">
+                    <a href="{{ file.url }}" target="_blank" role="button" class="outline">
                         Pobierz
                     </a>
                 </td>
@@ -69,14 +58,14 @@
         </tbody>
     </table>
 
-    <textarea id="all-links" style="display: none;">{% for item in urls %}{{ item.url }}
+    <textarea id="all-links" style="display: none;">{% for file in files %}{{ file.url }}
 {% endfor %}</textarea>
 
     <script>
         function copyAllLinks() {
             const textarea = document.getElementById('all-links');
             navigator.clipboard.writeText(textarea.value).then(() => {
-                alert('Skopiowano ' + {{ count }} + ' linków do schowka!');
+                alert('Skopiowano {{ files | length }} linków do schowka!');
             });
         }
 
@@ -96,10 +85,3 @@
         }
     </script>
 </article>
-{% else %}
-{% if not errors %}
-<article>
-    <p>Brak wyników dla wybranych parametrów.</p>
-</article>
-{% endif %}
-{% endif %}
