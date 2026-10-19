@@ -25,7 +25,12 @@ DATASET_KEY_PATTERN = r"^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$"
 """Dataset key ``<country>.<key prefix>.<name>[_<variant>]`` of any provider (IMGW-20)."""
 
 CATALOG_DATASET = "pl.imgw.stations"
-"""Derived dataset key of the station catalog ``stations.geojson`` (no descriptor)."""
+"""Derived dataset key of the IMGW-PIB station catalog ``stations.geojson`` (no descriptor)."""
+
+# Derived dataset key of each provider's station catalog, by provider id (ADR-003 D5).
+_CATALOG_DATASETS: Mapping[str, str] = MappingProxyType(
+    {"IMGW-PIB": CATALOG_DATASET, "CHMI": "cz.chmi.stations"}
+)
 
 DATASET_KEY_ALIASES: Mapping[str, str] = MappingProxyType({})
 """
@@ -827,13 +832,14 @@ def resolve_dataset_key(dataset: str, /) -> str | None:
     Returns
     -------
     str or None
-        The key itself if it is current (a registry key or
-        ``CATALOG_DATASET``), the current key of a renamed key from
+        The key itself if it is current (a registry key or the station
+        catalog key of a provider, e.g. ``CATALOG_DATASET`` or
+        ``"cz.chmi.stations"``), the current key of a renamed key from
         ``DATASET_KEY_ALIASES``, None for a key IMGWTools does not know
         (slugs and legacy aliases are not keys and give None too).
     """
     key = DATASET_KEY_ALIASES.get(dataset, dataset)
-    if key == CATALOG_DATASET or any(item.key == key for item in _DATASETS):
+    if key in _CATALOG_DATASETS.values() or any(item.key == key for item in _DATASETS):
         return key
     return None
 
