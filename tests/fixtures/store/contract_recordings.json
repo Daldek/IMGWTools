@@ -1,0 +1,165 @@
+{
+  "recorded_at": "2026-10-17T12:00:00Z",
+  "description": "Odpowiedzi API danych bieżących IMGW (stan wody stacji, synop, ostrzeżenia, mapa stanów wody) dla kontraktu interfejsów Python, CLI i REST; dane syntetyczne, stacje fikcyjne fixtur magazynu.",
+  "interactions": [
+    {
+      "case": "hydro_current_station",
+      "method": "GET",
+      "url": "https://danepubliczne.imgw.pl/api/data/hydro/id/149190310",
+      "status": 200,
+      "json": {
+        "id_stacji": "149190310",
+        "stacja": "Raba Górna",
+        "rzeka": "Raba",
+        "województwo": "małopolskie",
+        "lat": 49.7,
+        "lon": 20.1,
+        "stan_wody": "182",
+        "stan_wody_data_pomiaru": "2026-10-17 11:00:00",
+        "przeplyw": "3.41",
+        "przeplyw_data": "2026-10-17 11:00:00",
+        "temperatura_wody": "9.8",
+        "temperatura_wody_data_pomiaru": "2026-10-17 06:00:00",
+        "zjawisko_lodowe": "0",
+        "zjawisko_zarastania": "0"
+      }
+    },
+    {
+      "case": "hydro_current_outage",
+      "method": "GET",
+      "url": "https://danepubliczne.imgw.pl/api/data/hydro",
+      "status": 503,
+      "json": {
+        "message": "Service Unavailable"
+      }
+    },
+    {
+      "case": "synop_current",
+      "method": "GET",
+      "url": "https://danepubliczne.imgw.pl/api/data/synop",
+      "status": 200,
+      "json": [
+        {
+          "id_stacji": "12375",
+          "stacja": "Warszawa",
+          "data_pomiaru": "2026-10-17",
+          "godzina_pomiaru": "11",
+          "temperatura": "12.4",
+          "predkosc_wiatru": "4",
+          "kierunek_wiatru": "250",
+          "wilgotnosc_wzgledna": "68.2",
+          "suma_opadu": "0",
+          "cisnienie": "1016.3"
+        },
+        {
+          "id_stacji": "12999",
+          "stacja": "Raba Górna",
+          "data_pomiaru": "2026-10-17",
+          "godzina_pomiaru": "11",
+          "temperatura": "7.5",
+          "predkosc_wiatru": "2",
+          "kierunek_wiatru": "180",
+          "wilgotnosc_wzgledna": "81.0",
+          "suma_opadu": "0.4",
+          "cisnienie": null
+        }
+      ]
+    },
+    {
+      "case": "warnings_hydro",
+      "method": "GET",
+      "url": "https://danepubliczne.imgw.pl/api/data/warningshydro",
+      "status": 200,
+      "json": [
+        {
+          "numer": "17",
+          "zdarzenie": "Wezbranie z przekroczeniem stanów ostrzegawczych",
+          "stopień": "1",
+          "data_od": "2026-10-17 12:00:00",
+          "data_do": "2026-10-19 12:00:00",
+          "prawdopodobienstwo": "80",
+          "przebieg": "W zlewni Raby prognozuje się wzrost stanów wody powyżej stanów ostrzegawczych.",
+          "obszary": [
+            {
+              "wojewodztwo": "małopolskie",
+              "opis": "zlewnia Raby"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "warnings_meteo",
+      "method": "GET",
+      "url": "https://danepubliczne.imgw.pl/api/data/warningsmeteo",
+      "status": 200,
+      "json": [
+        {
+          "id": "77",
+          "nazwa_zdarzenia": "Silny wiatr",
+          "stopien": "2",
+          "prawdopodobienstwo": "90",
+          "obowiazuje_od": "2026-10-18 06:00:00",
+          "obowiazuje_do": "2026-10-18 20:00:00",
+          "tresc": "Porywy wiatru do 90 km/h.",
+          "teryt": [
+            "1201",
+            "1261"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "hydro_states",
+      "method": "GET",
+      "url": "https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=false",
+      "status": 200,
+      "json": {
+        "stations": [
+          {
+            "id": "149190310",
+            "n": "RABA GÓRNA",
+            "rzeka": "Raba",
+            "la": 49.7,
+            "lo": 20.1,
+            "s": "medium"
+          },
+          {
+            "id": "149190311",
+            "n": "STACJA BEZ Q",
+            "rzeka": "Raba",
+            "la": 49.65,
+            "lo": 20.12,
+            "s": "low"
+          },
+          {
+            "id": "149190312",
+            "n": "STACJA BEZ MIEJSCA",
+            "rzeka": "Raba",
+            "la": null,
+            "lo": null,
+            "s": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "hydro_states_main",
+      "method": "GET",
+      "url": "https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=true",
+      "status": 200,
+      "json": {
+        "stations": [
+          {
+            "id": "149190310",
+            "n": "RABA GÓRNA",
+            "rzeka": "Raba",
+            "la": 49.7,
+            "lo": 20.1,
+            "s": "medium"
+          }
+        ]
+      }
+    }
+  ]
+}

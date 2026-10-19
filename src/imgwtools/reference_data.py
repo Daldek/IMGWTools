@@ -4,10 +4,11 @@ After installing the package (``pip install -e .``), run it with no arguments:
 
     python -m imgwtools.reference_data
 
-The module reuses the ``imgwtools.stations`` functions (it does not duplicate
-IMGW URLs, parsing, or encoding). Output is written to ``settings.data_dir``
-(defaults to ``./data``; override with the ``IMGW_DATA_DIR`` environment
-variable).
+The module reuses ``imgwtools.stations.fetch_hydro_states`` (it does not
+duplicate IMGW URLs, parsing, or encoding) and writes only
+``hydro_stations_locations.csv`` and the format descriptions (``desc/``).
+Output goes to ``settings.data_dir`` (defaults to ``./data``; override with the
+``IMGW_DATA_DIR`` environment variable).
 
 All fetched data comes from IMGW-PIB and is subject to IMGW-PIB's terms of use.
 Regulations and the exact attribution wording:
@@ -25,11 +26,7 @@ import httpx
 
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWError
-from imgwtools.stations import (
-    get_hydro_stations_with_coords,
-    list_hydro_stations,
-    list_meteo_stations,
-)
+from imgwtools.stations import fetch_hydro_states
 
 # Format-description files are not covered by imgwtools.stations, so their URLs
 # are defined here (new resources, not a duplicate of the station-listing logic).
@@ -69,24 +66,14 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 
 def fetch_stations(data_dir: Path) -> None:
-    """Fetch station lists and coordinates via the library (no duplication)."""
-    print("List of stations and coordinates:")
-    _write_csv(
-        data_dir / "hydro_stations_names.csv",
-        ["id", "name", "river"],
-        ([s.station_id, s.name, s.river or ""] for s in list_hydro_stations()),
-    )
-    _write_csv(
-        data_dir / "meteo_stations_names.csv",
-        ["id", "name"],
-        ([s.station_id, s.name] for s in list_meteo_stations()),
-    )
+    """Fetch hydrological station coordinates via the library (no duplication)."""
+    print("Hydrological station coordinates:")
     _write_csv(
         data_dir / "hydro_stations_locations.csv",
-        ["id", "X", "Y"],
+        ["station_code", "latitude", "longitude"],
         (
-            [s.station_id, s.longitude, s.latitude]
-            for s in get_hydro_stations_with_coords()
+            [s.station_code, s.latitude, s.longitude]
+            for s in fetch_hydro_states()
             if s.longitude is not None and s.latitude is not None
         ),
     )

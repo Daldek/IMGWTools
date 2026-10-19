@@ -1,49 +1,48 @@
 <article>
     <header>
         <h3>
-            {% if data_type == 'hydro' %}Stacje hydrologiczne{% else %}Stacje meteorologiczne{% endif %}
-            <small>({{ count }} wyników)</small>
+            {% if kind == 'hydro' %}Stacje hydrologiczne{% elif kind == 'meteo' %}Stacje meteorologiczne{% else %}Stacje hydrologiczne i meteorologiczne{% endif %}
+            <small>({% if page.items %}{{ first }}–{{ last }} z {{ page.total }}{% else %}0 z {{ page.total }}{% endif %})</small>
         </h3>
     </header>
 
-    {% if stations %}
+    {% if page.items %}
     <figure>
         <table role="grid">
             <thead>
                 <tr>
-                    <th>ID stacji</th>
+                    <th>Kod stacji</th>
                     <th>Nazwa</th>
-                    {% if data_type == 'hydro' %}
+                    {% if not kind %}
+                    <th>Rodzaj</th>
+                    {% endif %}
+                    {% if kind != 'meteo' %}
                     <th>Rzeka</th>
-                    <th>ID cieku</th>
+                    <th>Kod hydrograficzny</th>
                     {% endif %}
                     <th>Akcje</th>
                 </tr>
             </thead>
             <tbody>
-                {% for station in stations %}
+                {% for station in page.items %}
                 <tr>
-                    <td><code>{{ station.id }}</code></td>
+                    <td><code>{{ station.station_code }}</code></td>
                     <td>{{ station.name }}</td>
-                    {% if data_type == 'hydro' %}
+                    {% if not kind %}
+                    <td>{{ 'hydrologiczna' if station.kind == 'hydro' else 'meteorologiczna' }}</td>
+                    {% endif %}
+                    {% if kind != 'meteo' %}
                     <td>{{ station.river or '-' }}</td>
-                    <td><code>{{ station.river_id or '-' }}</code></td>
+                    <td><code>{{ station.hydrographic_code or '-' }}</code></td>
                     {% endif %}
                     <td>
-                        <button class="outline secondary" onclick="copyStationId('{{ station.id }}')">
-                            Kopiuj ID
+                        <button class="outline secondary" onclick="copyStationId('{{ station.station_code }}')">
+                            Kopiuj kod
                         </button>
-                        {% if data_type == 'meteo' %}
-                        <a href="https://hydro.imgw.pl/#/station/meteo/{{ station.id }}"
+                        <a href="https://hydro.imgw.pl/#/station/{{ station.kind }}/{{ station.station_code }}"
                            class="outline secondary" role="button" target="_blank">
                             Stacja IMGW
                         </a>
-                        {% elif data_type == 'hydro' %}
-                        <a href="https://hydro.imgw.pl/#/station/hydro/{{ station.id }}"
-                           class="outline secondary" role="button" target="_blank">
-                            Stacja IMGW
-                        </a>
-                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -53,12 +52,27 @@
     {% else %}
     <p>Brak stacji spełniających kryteria wyszukiwania.</p>
     {% endif %}
+
+    {% if previous_url or next_url %}
+    <footer class="pager">
+        {% if previous_url %}
+        <button class="secondary outline" hx-get="{{ previous_url }}" hx-target="#stations-results">
+            « Poprzednie
+        </button>
+        {% endif %}
+        {% if next_url %}
+        <button class="secondary outline" hx-get="{{ next_url }}" hx-target="#stations-results">
+            Następne »
+        </button>
+        {% endif %}
+    </footer>
+    {% endif %}
 </article>
 
 <script>
     function copyStationId(id) {
         navigator.clipboard.writeText(id).then(() => {
-            alert('Skopiowano ID stacji: ' + id);
+            alert('Skopiowano kod stacji: ' + id);
         });
     }
 </script>

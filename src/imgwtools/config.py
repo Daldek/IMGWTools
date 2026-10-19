@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,9 +33,19 @@ class Settings(BaseSettings):
     # Data directory
     data_dir: Path = Path("./data")
 
-    # Database settings (SQLite cache for hydro data)
-    db_enabled: bool = False
-    db_path: Path = Path("./data/imgw_hydro.db")
+    # Catalog REST routes of commands with a store root (spec §13.10). Unset
+    # root: those routes answer 503 store_unavailable. Writes (POST without
+    # ?check=true) need both flags below and the X-API-Key header; the token is
+    # compared in constant time.
+    store_root: Path | None = None
+    store_writes_enabled: bool = False
+    store_write_token: SecretStr | None = None
+    # Server directory with user station-location CSVs offered to the catalog
+    # route by file name only; unset disables the option (503).
+    user_locations_dir: Path | None = None
+
+    # Default and maximum page size of REST list commands (IMGW_API_MAX_LIMIT).
+    api_max_limit: int = Field(default=1000, ge=1)
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -43,16 +54,6 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.env == "production"
-
-    @property
-    def hydro_stations_file(self) -> Path:
-        """Path to hydrological stations CSV."""
-        return self.data_dir / "hydro_stations_names.csv"
-
-    @property
-    def meteo_stations_file(self) -> Path:
-        """Path to meteorological stations CSV."""
-        return self.data_dir / "meteo_stations_names.csv"
 
 
 # Global settings instance

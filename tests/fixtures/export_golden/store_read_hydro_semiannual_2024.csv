@@ -1,0 +1,10 @@
+station_code,dataset,date,hydro_year,period,H_min [cm],H_min_flag,H_min_start,H_min_end,H_min_occurrences,H_mean [cm],H_mean_flag,H_mean_start,H_mean_end,H_mean_occurrences,H_max [cm],H_max_flag,H_max_start,H_max_end,H_max_occurrences,Q_min [m3/s],Q_min_flag,Q_min_start,Q_min_end,Q_min_occurrences,Q_mean [m3/s],Q_mean_flag,Q_mean_start,Q_mean_end,Q_mean_occurrences,Q_max [m3/s],Q_max_flag,Q_max_start,Q_max_end,Q_max_occurrences,T_min [degC],T_min_flag,T_min_start,T_min_end,T_min_occurrences,T_mean [degC],T_mean_flag,T_mean_start,T_mean_end,T_mean_occurrences,T_max [degC],T_max_flag,T_max_start,T_max_end,T_max_occurrences
+149190310,pl.imgw.hydro_semiannual,2023-11-01,2024,winter,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2023-11-01,2024,winter,,,,,,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2023-11-01,2024,winter,,,,,,,,,,,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2024-05-01,2024,summer,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2024-05-01,2024,summer,,,,,,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2024-05-01,2024,summer,,,,,,,,,,,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2023-11-01,2024,annual,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2023-11-01,2024,annual,,,,,,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+149190310,pl.imgw.hydro_semiannual,2023-11-01,2024,annual,,,,,,,,,,,152.0,value,2024-02-29T08:30:00,2024-02-29T09:30:00,1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,

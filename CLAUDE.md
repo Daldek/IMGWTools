@@ -7,14 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 IMGWTools is a Python library and tools for downloading public data from IMGW (Polish Institute of Meteorology and Water Management). It provides four interfaces:
 - **Python Library** - `pip install imgwtools` for integration with other projects
 - **CLI** - Command-line tool for local data downloading
-- **REST API** - FastAPI-based API for generating download URLs
+- **REST API** - FastAPI-based API (URL generation, live data, optional server-side store)
 - **Web GUI** - HTMX + Jinja2 web interface
+
+Since 3.0.0 (ADR-002) Python, CLI and REST share **one command catalog** of 35 commands (`imgwtools.commands`, `imgw commands schema`): one option name per parameter, one validation, one result envelope `imgw-result/1` and one closed error-code registry `ERROR_CODES`. CLI groups and REST routes are generated from the catalog; the web GUI calls public functions only.
 
 **Key principle:** Data is NEVER stored on the server by default. The service generates direct links to IMGW servers, and users download data directly from IMGW.
 
-**Optional feature:** SQLite database caching for hydrological data. When enabled (`IMGW_DB_ENABLED=true`), data is cached locally using lazy loading for efficient repeated queries.
+**Optional feature:** versioned data store (ADR-001). An explicitly chosen directory (`--root`, `IMGW_STORE_ROOT`) keeps immutable, append-only versions of IMGW archives with SHA-256 sidecars, Parquet station series, a `stations.geojson` catalog and PMAXTP cells. There is no default location and no database.
 
-**Version:** 2.2.0
+**Version:** 3.0.0
 
 ## Installation
 
@@ -28,13 +30,10 @@ pip install imgwtools[cli]
 # With REST API server
 pip install imgwtools[api]
 
-# With SQLite cache for hydro data
-pip install imgwtools[db]
+# With the versioned store's Parquet series (pyarrow)
+pip install imgwtools[store]
 
-# With DataFrame export (PMaXTPData.to_dataframe)
-pip install imgwtools[pandas]
-
-# Full installation
+# Full installation (api, cli, pandas, store)
 pip install imgwtools[full]
 
 # For development
@@ -50,77 +49,72 @@ pip install -e ".[dev]"
 # Run API server
 imgw server --reload
 
-# Run tests
-pytest
+# Run tests / lint (always through the project venv)
+.venv/bin/python -m pytest
+.venv/bin/ruff check src/ tests/
 
-# Lint code
-ruff check src/
-
-# CLI examples
-imgw version                                    # Show version
-imgw server --host 0.0.0.0 --port 8000         # Run API server
-imgw fetch hydro -i dobowe -y 2023 -m 1        # Download daily hydro data
-imgw fetch meteo -i miesieczne -s synop -y 2023 # Download monthly meteo data
-imgw fetch current hydro                        # Get current hydro data from API
-imgw fetch pmaxtp --lat 52.23 --lon 21.01      # Get PMAXTP data
-imgw fetch warnings --type hydro               # Get hydro warnings
-imgw list stations --type hydro                # List hydro stations
-imgw list datasets                             # List available datasets
-imgw list intervals                            # List available intervals
-imgw admin keys                                # List API keys
-imgw admin create --name "User1"               # Create API key
-imgw admin revoke <key_id>                     # Revoke API key
-imgw admin delete <key_id>                     # Delete API key
-imgw admin stats                               # Show API key statistics
-
-# Database commands (requires IMGW_DB_ENABLED=true)
-imgw db init                                   # Initialize database
-imgw db status                                 # Show database status
-imgw db stations --refresh                     # Fetch stations from IMGW
-imgw db cache --years 2020-2023 -i dobowe      # Pre-cache daily data
-imgw db query -s 149180020 -y 2023 -i dobowe   # Query cached data
-imgw db clear                                  # Clear all cached data
-imgw db vacuum                                 # Optimize database
+# CLI examples (stdout = one-line JSON envelope imgw-result/1)
+imgw version                                         # Show version
+imgw server --host 0.0.0.0 --port 8000               # Run API server
+imgw datasets list -k hydro                          # Dataset registry
+imgw datasets files -d hydro/dobowe -y 2023 -m 1     # Archive URLs (no download)
+imgw datasets download -d hydro/dobowe -y 2023 -m 1 -o dane   # Download archives
+imgw stations find -k hydro -q wisla --limit 20      # Search station lists
+imgw current hydro -s 150160180                      # Current hydro data
+imgw current warnings -k meteo                       # Warnings
+imgw pmaxtp fetch --lat 52.23 --lon 21.01            # PMAXTP data (method POT)
+imgw store init --root /dane/imgw                    # Versioned store
+imgw store sync --root /dane/imgw -d pl.imgw.hydro_daily -y 2024 --check   # Plan only
+imgw series summary --root /dane/imgw -d hydro/dobowe -s 149180020
+imgw commands schema --command "store sync"          # JSON Schema of a command
+imgw store sync --schema                             # Same, via the command itself
+imgw admin keys                                      # List API keys
+imgw admin create --name "User1"                     # Create API key
+imgw admin revoke <key_id>                           # Revoke API key
+imgw admin delete <key_id>                           # Delete API key
+imgw admin stats                                     # Show API key statistics
 ```
 
 ## Architecture
 
 ```
 src/imgwtools/
-├── __init__.py           # PUBLIC API - main entry point with exports
-├── _version.py           # Version: 2.2.0
-├── fetch.py              # PUBLIC: Data fetching (fetch_pmaxtp, fetch_hydro_current, etc.)
-├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, etc.)
-├── stations.py           # PUBLIC: Station functions (list_hydro_stations, etc.)
-├── exceptions.py         # PUBLIC: Exceptions (IMGWError, IMGWConnectionError, etc.)
-├── urls.py               # PUBLIC: Re-exports from core/url_builder.py
-├── parsers.py            # PUBLIC: Re-exports from db/parsers.py
-├── reference_data.py     # Fetch IMGW-PIB reference data into data/
-├── config.py             # Settings (pydantic-settings)
-│
+├── __init__.py           # PUBLIC API - single __all__ (spec §13.12)
+├── _version.py           # Version: 3.0.0
+├── fetch.py              # PUBLIC: live data (fetch_*), PMAXTP, download_archives, download_*_data
+├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, NormalizedRecord, ...)
+├── stations.py           # PUBLIC: find_stations (live lists or store)
+├── datasets.py           # PUBLIC: Dataset registry (13 descriptors), archive_files, YearsArg/MonthsArg
+├── commands.py           # PUBLIC: Command catalog (35 commands), run_command, command_schema
+├── coverage.py           # PUBLIC: summarize_coverage
+├── project.py            # PUBLIC: imgw-project/1 manifests
+├── exceptions.py         # PUBLIC: IMGWError hierarchy + ERROR_CODES registry
+├── urls.py               # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
+├── parsers.py            # PUBLIC: Parser re-exports (hydro, meteo, station lists)
+├── testing.py            # PUBLIC: build_fixture_store, fixture_files (offline fixtures)
+├── _jsonable.py          # Single JSON converter (envelope, relative store paths)
+├── reference_data.py     # python -m imgwtools.reference_data (data/ reference files)
+├── config.py             # Settings (pydantic-settings, IMGW_*)
+├── _data/                # Poland border (Natural Earth) + packaged fixtures/recordings/contract schemas
+├── _parsing/             # common.py, hydro.py, meteo.py, stations.py
+├── store/                # Versioned store [Parquet: imgwtools[store]]
+│   ├── types.py          # Dataclasses: StorePlan, CommandResult, Page, StoreEntry, ...
+│   ├── writer.py         # init_store, write_archive (atomic, append-only)
+│   ├── sync.py           # check_store, sync_store (listing + HEAD, imgw-plan/1)
+│   ├── series.py         # check_series, build_series (Parquet)
+│   ├── catalog.py        # check_catalog, build_catalog (stations.geojson)
+│   ├── pmaxtp.py         # check_pmaxtp, sync_pmaxtp, read_pmaxtp
+│   ├── reader.py         # store_info, iter_store, current_version, read_*, select/summarize_series
+│   └── export.py         # export_archive, export_series (CSV/JSONL, file or line iterator)
 ├── api/                  # FastAPI REST API [optional: imgwtools[api]]
-│   ├── main.py           # App entry point
-│   ├── routes/           # Endpoint handlers
-│   │   ├── hydro.py      # Hydrological data
-│   │   ├── meteo.py      # Meteorological data
-│   │   ├── download.py   # Unified URL generation
-│   │   └── pmaxtp.py     # Max precipitation
-│   └── schemas.py        # Pydantic models
-├── cli/                  # Typer CLI [optional: imgwtools[cli]]
-│   ├── main.py           # Entry point (imgw command)
-│   ├── fetch.py          # Download commands
-│   ├── list_cmd.py       # Listing commands
-│   ├── admin.py          # API key management
-│   └── db.py             # Database management
-├── db/                   # SQLite cache [optional: imgwtools[db]]
-│   ├── connection.py     # SQLite connection manager
-│   ├── schema.py         # DDL and migrations
-│   ├── models.py         # Pydantic models for records
-│   ├── repository.py     # Data access layer
-│   ├── cache_manager.py  # Lazy loading logic
-│   └── parsers.py        # CSV parsing from ZIP files
-├── core/                 # Internal core logic
-│   └── url_builder.py    # URL generation (key module!)
+│   ├── main.py           # App entry point (/health, /api/v1, web router, static)
+│   ├── routes/commands.py# Routes generated from command_schema() (x-imgw.rest)
+│   ├── errors.py         # application/problem+json handlers, hide_server_paths
+│   └── schemas.py        # HealthCheck
+├── cli/                  # Typer/Click CLI [optional: imgwtools[cli]]
+│   ├── main.py           # Entry point (imgw command): version, server, admin + catalog groups
+│   ├── _dispatch.py      # ImgwGroup + register_catalog: the only CLI adapter of the catalog
+│   └── admin.py          # API key management
 └── web/                  # Web GUI (HTMX + Jinja2)
     ├── app.py            # Web routes
     ├── templates/        # Jinja2 templates
@@ -129,70 +123,102 @@ src/imgwtools/
 
 ### Public Library API
 
-The public API is exposed via `from imgwtools import ...`:
+The public API is exposed via `from imgwtools import ...` (one `__all__`, also re-exported from the defining modules). The first object argument may be positional; every further argument is keyword-only. Station codes are always `str` (`station_code`).
 
-**Data Fetching Functions:**
-| Function | Description |
-|----------|-------------|
-| `fetch_pmaxtp(lat, lon, method)` | Get PMAXTP precipitation data |
-| `fetch_pmaxtp_async(...)` | Async version |
-| `fetch_hydro_current(station_id)` | Get current hydro data |
-| `fetch_synop(station_id, station_name)` | Get current synop data |
-| `fetch_warnings(warning_type)` | Get weather/hydro warnings |
-| `download_hydro_data(interval, year, month)` | Download archive ZIP as bytes |
-| `download_meteo_data(interval, subtype, year)` | Download meteo archive |
+**Live Data and Downloads:**
+|Function|Description|
+|---|---|
+|`fetch_pmaxtp(latitude, longitude, *, method="POT")`|Get PMAXTP precipitation data (`PMaXTPResult`)|
+|`fetch_hydro_current(*, station=None)`|Current hydro data (`HydroCurrentData`)|
+|`fetch_meteo_current(*, station=None)`|Current meteo data (`MeteoCurrentData`)|
+|`fetch_synop(*, station=None, station_name=None)`|Current synop data (`SynopData`)|
+|`fetch_warnings(*, kind=None)`|Hydro/meteo warnings (`WarningData`; `None` = both)|
+|`fetch_hydro_states(*, main_only=False)`|Hydro stations with coordinates and water state (`HydroState`)|
+|`find_stations(*, kind, query, source="live", root=None)`|Search IMGW station lists (`StationListEntry`)|
+|`download_archives(dataset, /, *, years, months, params, output)`|Download archives into a server-path tree (`DownloadReport`)|
+|`download_hydro_data(interval, year, month, param)`|One hydro archive as `DownloadResult` (bytes in `.data`)|
+|`download_meteo_data(interval, subtype, year, month)`|One meteo archive as `DownloadResult`|
 
-**Station Functions:**
-| Function | Description |
-|----------|-------------|
-| `list_hydro_stations()` | List stations from IMGW CSV |
-| `get_hydro_stations_with_coords()` | Get stations with lat/lon from hydro-back.imgw.pl |
-| `list_meteo_stations()` | List meteo stations |
+Every live function has an `*_async` twin with identical arguments.
+
+**Registry and URLs:**
+|Function|Description|
+|---|---|
+|`datasets(*, kind=None)`|Dataset descriptors (`DatasetDescriptor`)|
+|`get_dataset(dataset)`|Descriptor by key, slug or legacy alias|
+|`archive_files(dataset, /, *, years, months=None, params=None)`|Archive files with URLs (`ArchiveFile`)|
+|`build_pmaxtp_url(latitude, longitude, *, method="POT")`|PMAXTP API URL|
+|`build_api_url(endpoint, /, *, station, station_name)`|IMGW real-time API URL|
+
+**Versioned Store** (also in `imgwtools.store`):
+|Function|Description|
+|---|---|
+|`init_store`, `open_store`, `store_info`, `iter_store`|Create/open/describe/scan a store|
+|`check_store`, `sync_store`|Freshness plan (listing + HEAD) and download of new/missing archives|
+|`check_series`, `build_series`|Parquet station series|
+|`check_catalog`, `build_catalog`|`stations.geojson` catalog|
+|`check_pmaxtp`, `sync_pmaxtp`, `read_pmaxtp`|PMAXTP grid cells|
+|`current_version(root, /, *, slot)`|Current version of a slot (`archive:<key>:<file>`, `series:<key>`, ...)|
+|`read_meta`, `read_archive`, `read_station_list`, `read_catalog`, `read_series_index`, `read_series`|Offline readers|
+|`select_series`, `summarize_series`|Series selection and coverage|
+|`export_archive`, `export_series`|CSV/JSONL export to a file or as a line iterator|
+
+**Command Catalog:**
+|Function|Description|
+|---|---|
+|`command_schema(command=None)`|JSON Schema of the catalog or one command (`x-imgw`: function, CLI, REST, rules)|
+|`data_commands()`|Catalog entries (`DataCommand`)|
+|`validate_command(command, /, *, options)`|Normalized options or `IMGWValidationError` with `details.option`|
+|`format_command(command, /, *, options)`|Equivalent CLI command line|
+|`run_command(command, /, *, options)`|Run a command → `CommandResult` (list commands → `Page`)|
+|`check_command(command, /, *, options)`|Plan of a command without side effects → `CommandResult`|
+
+**Projects:** `init_project`, `open_project`, `set_project_store`, `add_project_task`, `remove_project_task`, `check_project`, `download_project`, `get_project_status`, `verify_project`.
 
 **Data Models:**
-| Model | Description |
-|-------|-------------|
-| `PMaXTPData` | Precipitation quantiles (ks, sg, rb) with `get_precipitation(duration, prob)` |
-| `PMaXTPResult` | Complete PMAXTP result with metadata |
-| `HydroCurrentData` | Current hydro measurement |
-| `SynopData` | Current synop measurement |
-| `WarningData` | Weather/hydro warning |
-| `HydroStation` | Station with coordinates and water_state |
+|Model|Description|
+|---|---|
+|`PMaXTPData`|Precipitation quantiles (ks, sg, rb) with `get_precipitation(duration, prob)`|
+|`PMaXTPResult`|Complete PMAXTP result with metadata|
+|`HydroCurrentData`, `MeteoCurrentData`, `SynopData`|Current measurements (`station_code`)|
+|`WarningData`|Weather/hydro warning (`kind`, `event`, `level`, ...)|
+|`HydroState`|Station with coordinates and `water_state`|
+|`StationListEntry`|Station list row (`kind`, `station_code`, `name`, ...)|
+|`NormalizedRecord`, `Measurement`|Normalized archive/series record with value flags|
+|`CommandResult`, `Page`|Result envelope (`imgw-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
 
-**Exceptions:**
-| Exception | Description |
-|-----------|-------------|
-| `IMGWError` | Base exception |
-| `IMGWConnectionError` | Connection/timeout errors |
-| `IMGWDataError` | Data parsing errors |
-| `IMGWValidationError` | Input validation errors (e.g., coords outside Poland) |
+**Exceptions** (every `IMGWError` has `code` from `ERROR_CODES` and `details`):
+|Exception|Default code|Description|
+|---|---|---|
+|`IMGWError`|`internal_error`|Base exception|
+|`IMGWValidationError`|`validation_error`|Input validation errors (e.g. coords outside Poland)|
+|`IMGWConnectionError`|`source_unavailable`|Connection/timeout/HTTP errors|
+|`IMGWDataError`|`data_error`|Data parsing errors|
+|`IMGWStoreError`|`store_unavailable`|Bad/unsupported store root (`not_found` for missing versions)|
+|`IMGWStoreConflictError`|`conflict`|Collisions, races, non-atomic filesystems|
+|`IMGWStoreDependencyError`|`missing_dependency`|pyarrow missing|
+|`IMGWProjectError`|`validation_error`|Project manifest/lock/pins|
+|`IMGWCancelledError`|`cancelled`|Cancelled operation|
 
-**Parsers:**
-| Function | Description |
-|----------|-------------|
-| `parse_zip_file(zip_data, interval)` | Parse downloaded ZIP file |
-| `parse_daily_csv(content)` | Parse daily CSV |
-| `parse_monthly_csv(content)` | Parse monthly CSV |
-| `parse_stations_csv(content)` | Parse station list CSV |
-| `IMGW_ENCODING` | CP1250 encoding constant |
+**Parsers:** `parse_zip_file(zip_data, interval)`, `parse_daily_csv`, `parse_monthly_csv`, `parse_semi_annual_csv`, `parse_stations_csv(content, /, *, kind)`, `parse_meteo_climate_daily`, `parse_meteo_precip_daily`, `normalize_archive`, `IMGW_ENCODING` (CP1250).
 
-### Key Module: `url_builder.py`
+### Key Module: `commands.py`
 
-The `url_builder.py` module is the core of the application. It contains:
-- `build_hydro_url()` - Generates URLs for hydrological data
-- `build_meteo_url()` - Generates URLs for meteorological data
-- `build_pmaxtp_url()` - Generates URLs for PMAXTP API
-- `build_api_url()` - Generates URLs for IMGW real-time API
+The command catalog is the single source of options, validation, help texts and result types:
+- `_CATALOG` — 35 `DataCommand` entries (spec §13.3), each calling exactly one public function
+- `command_schema()` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`), plus `groups`, `errors`, `exit_codes`
+- `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 11 list commands, notices deduplicated in the envelope
+- CLI (`cli/_dispatch.py`) and REST (`api/routes/commands.py`) are generated from `command_schema()`; never add hand-written commands there
 
 ## Data Flow
 
 ```
-User → CLI/API/Web → URL Builder → IMGW Servers → User's computer
-                          ↓
-                   (generates links only)
+User → CLI/API/Web → command catalog → public functions → IMGW servers → User's computer
+                                              ↓
+                             (URLs only, unless an explicit --output/--root/IMGW_STORE_ROOT)
 ```
 
-No data is stored on our server - station lists are fetched directly from IMGW.
+No data is stored on our server by default - station lists and live data are fetched directly from IMGW.
 
 ## External Data Sources
 
@@ -206,141 +232,129 @@ No data is stored on our server - station lists are fetched directly from IMGW.
 
 ### Real-time API
 - **Hydro data**: `https://danepubliczne.imgw.pl/api/data/hydro`
+- **Meteo data**: `https://danepubliczne.imgw.pl/api/data/meteo`
 - **Synop data**: `https://danepubliczne.imgw.pl/api/data/synop`
+- **Warnings**: `https://danepubliczne.imgw.pl/api/data/warningshydro`, `.../warningsmeteo`
 
 ### Map Stations API
 - **Hydro stations with coordinates**: `https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=false`
   - Requires headers: `User-Agent`, `Referer: https://hydro.imgw.pl/`
   - Returns: 900+ stations with lat/lon and water state (alarm, warning, high, medium, low, etc.)
+  - Public access: `fetch_hydro_states()`, `imgw current hydro-states`, `GET /api/v1/current/hydro-states`
 
 ### Station Pages
-- **Hydro**: `https://hydro.imgw.pl/#/station/hydro/{station_id}`
-- **Meteo**: `https://hydro.imgw.pl/#/station/meteo/{station_id}`
+- **Hydro**: `https://hydro.imgw.pl/#/station/hydro/{station_code}`
+- **Meteo**: `https://hydro.imgw.pl/#/station/meteo/{station_code}`
 
-## API Endpoints
+## Command Catalog (CLI and REST)
 
-### Hydrological Data (`/api/v1/hydro`)
+CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`; `—` = no `--check`; "self" = the command is a check.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/stations` | GET | List hydrological stations |
-| `/stations/{station_id}` | GET | Get station details |
-| `/current` | GET | Current hydro data from IMGW API |
-| `/download-url` | POST | Generate single download URL |
-| `/download-urls` | POST | Generate multiple download URLs |
-| `/data` | GET | Get cached data (requires DB enabled) |
+|Command|Function|Check|REST|
+|---|---|---|---|
+|`datasets list`|`datasets`|—|`GET /api/v1/datasets/list`|
+|`datasets files`|`archive_files`|—|`GET /api/v1/datasets/files`|
+|`datasets download`|`download_archives`|`check_command`|local|
+|`stations find`|`find_stations`|`check_command`|`GET /api/v1/stations/find`|
+|`current hydro`|`fetch_hydro_current`|`check_command`|`GET /api/v1/current/hydro`|
+|`current meteo`|`fetch_meteo_current`|`check_command`|`GET /api/v1/current/meteo`|
+|`current synop`|`fetch_synop`|`check_command`|`GET /api/v1/current/synop`|
+|`current warnings`|`fetch_warnings`|`check_command`|`GET /api/v1/current/warnings`|
+|`current hydro-states`|`fetch_hydro_states`|`check_command`|`GET /api/v1/current/hydro-states`|
+|`pmaxtp fetch`|`fetch_pmaxtp`|`check_command`|`GET /api/v1/pmaxtp/fetch`|
+|`pmaxtp url`|`build_pmaxtp_url`|—|`GET /api/v1/pmaxtp/url`|
+|`pmaxtp check`|`check_pmaxtp`|self|`GET /api/v1/pmaxtp/check`|
+|`pmaxtp sync`|`sync_pmaxtp`|`check_pmaxtp`|`POST /api/v1/pmaxtp/sync`|
+|`pmaxtp read`|`read_pmaxtp`|—|`GET /api/v1/pmaxtp/read`|
+|`store init`|`init_store`|`check_command`|local|
+|`store info`|`store_info`|—|`GET /api/v1/store/info`|
+|`store scan`|`iter_store`|—|`GET /api/v1/store/scan`|
+|`store check`|`check_store`|self|`GET /api/v1/store/check`|
+|`store sync`|`sync_store`|`check_store`|`POST /api/v1/store/sync`|
+|`store catalog`|`build_catalog`|`check_catalog`|`POST /api/v1/store/catalog`|
+|`store export`|`export_archive`|`check_command`|`GET /api/v1/store/export`|
+|`series build`|`build_series`|`check_series`|`POST /api/v1/series/build`|
+|`series select`|`select_series`|—|`GET /api/v1/series/select`|
+|`series read`|`read_series`|—|`GET /api/v1/series/read`|
+|`series summary`|`summarize_series`|—|`GET /api/v1/series/summary`|
+|`series export`|`export_series`|`check_command`|`GET /api/v1/series/export`|
+|`project init`|`init_project`|`check_command`|local|
+|`project add`|`add_project_task`|`check_command`|local|
+|`project remove`|`remove_project_task`|`check_command`|local|
+|`project set-store`|`set_project_store`|`check_command`|local|
+|`project download`|`download_project`|`check_project`|local|
+|`project check`|`check_project`|self|local|
+|`project status`|`get_project_status`|—|local|
+|`project verify`|`verify_project`|—|local|
+|`commands schema`|`command_schema`|—|`GET /api/v1/commands/schema`|
 
-### Meteorological Data (`/api/v1/meteo`)
+Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw admin keys|create|revoke|delete|stats`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes) and the HTML pages.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/stations` | GET | List meteorological stations |
-| `/synop` | GET | Current synoptic data |
-| `/current` | GET | Current meteo data from IMGW API |
-| `/download-url` | POST | Generate single download URL |
-| `/download-urls` | POST | Generate multiple download URLs |
+### Options
 
-### Unified Download (`/api/v1/download`)
+Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output, `-r` root, `-f` format, `-p` path; `--lat`/`--lon` alias `--latitude`/`--longitude`. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_STORE_ROOT` (for `stations find` only with `--source store`). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/datasets` | GET | List available datasets |
-| `/url` | GET | Generate single download URL (hydro or meteo) |
-| `/urls` | GET | Generate multiple download URLs |
+### Output, errors and exit codes
 
-### PMAXTP (`/api/v1/pmaxtp`)
+- CLI stdout: compact one-line JSON envelope `imgw-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export` without `--path` stream CSV/JSONL bytes. Progress and notices (once per distinct notice) go to stderr.
+- CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
+- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `IMGW_API_MAX_LIMIT` (1000).
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/methods` | GET | List available PMAXTP methods (POT, AMP) |
-| `/url` | POST | Generate PMAXTP URL |
-| `/data` | POST | Fetch PMAXTP data |
+|Code|Title|CLI exit|HTTP|
+|---|---|---|---|
+|`validation_error`|Nieprawidłowe dane wejściowe|2|400|
+|`not_found`|Nie znaleziono|3|404|
+|`conflict`|Konflikt stanu|4|409|
+|`source_unavailable`|Źródło IMGW niedostępne|5|502|
+|`missing_dependency`|Brak opcjonalnej zależności|6|503|
+|`data_error`|Niepoprawne dane|7|500|
+|`store_unavailable`|Magazyn niedostępny|8|503|
+|`io_error`|Błąd systemu plików|9|500|
+|`cancelled`|Operację anulowano|130|—|
+|`forbidden`|Brak uprawnień do zapisu|—|403|
+|`method_not_allowed`|Niedozwolona metoda HTTP|—|405|
+|`internal_error`|Błąd wewnętrzny|1|500|
 
-**PMAXTP response data:**
-- `ks` - Kwantyle opadu maksymalnego [mm]
-- `sg` - Górne granice przedziału ufności [mm]
-- `rb` - Błędy estymacji kwantyli [mm]
-
-**Web GUI exports:** CSV, XLSX (4 arkusze), JSON
-
-### System
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/v1` | GET | API information |
+Envelope status exit codes: `ok` 0, `partial` 10, `failed` 11, `cancelled` 130.
 
 ### Web GUI Routes
 
-| Route | Description |
-|-------|-------------|
-| `/` | Main dashboard |
-| `/download` | Download page |
-| `/download/hydro` | Hydro download form |
-| `/download/meteo` | Meteo download form |
-| `/download/pmaxtp` | PMAXTP download form |
-| `/stations` | Stations list page (data from IMGW CSV) |
-| `/stations/hydro` | Hydro stations partial (HTMX) |
-| `/stations/meteo` | Meteo stations partial (HTMX) |
-| `/map` | Interactive map with stations (Leaflet, color-coded by water state) |
-| `/map/stations` | JSON endpoint for map markers (from hydro-back.imgw.pl, includes water state) |
+|Route|Description|
+|---|---|
+|`/`|Main dashboard|
+|`/download`|Download page|
+|`/download/archives`|Archive download form (10 registry archive datasets)|
+|`POST /download/files`|Archive links partial (`archive_files`)|
+|`/download/pmaxtp`|PMAXTP form|
+|`POST /download/pmaxtp/generate`|PMAXTP tables partial (CSV, XLSX, JSON export)|
+|`/stations`|Station search page|
+|`/stations/find`|Station search partial (HTMX, `run_command("stations find")` with paging)|
+|`/map`|Interactive map (Leaflet, color-coded by water state; data from `GET /api/v1/current/hydro-states`)|
 
-## CLI Commands
-
-### Main Commands
-
-| Command | Description |
-|---------|-------------|
-| `imgw version` | Show version |
-| `imgw server` | Run API server (`--host`, `--port`, `--reload`) |
-
-### Fetch Commands (`imgw fetch`)
-
-| Command | Description |
-|---------|-------------|
-| `fetch hydro` | Download hydro data (`-i interval`, `-y year`, `-m month`, `-p param`, `-o output`) |
-| `fetch meteo` | Download meteo data (`-i interval`, `-s subtype`, `-y year`, `-m month`, `-o output`) |
-| `fetch current <type>` | Get current data from API (hydro/meteo/synop) |
-| `fetch pmaxtp` | Get PMAXTP data (`--method`, `--lat`, `--lon`) |
-| `fetch warnings` | Get warnings (`--type hydro/meteo`) |
-
-### List Commands (`imgw list`)
-
-| Command | Description |
-|---------|-------------|
-| `list stations` | List stations (`--type hydro/meteo`, `--search`, `--limit`) |
-| `list datasets` | List available datasets (`--type`) |
-| `list intervals` | List available intervals and subtypes |
-
-### Admin Commands (`imgw admin`)
-
-| Command | Description |
-|---------|-------------|
-| `admin keys` | List API keys |
-| `admin create` | Create new API key (`--name`, `--limit`) |
-| `admin revoke <id>` | Revoke API key |
-| `admin delete <id>` | Delete API key (`--force`) |
-| `admin stats` | Show usage statistics |
-
-### Database Commands (`imgw db`)
-
-Requires `IMGW_DB_ENABLED=true` environment variable.
-
-| Command | Description |
-|---------|-------------|
-| `db init` | Initialize database (create tables) |
-| `db status` | Show database status (size, records, cached years) |
-| `db stations` | List cached stations (`--search`, `--refresh`) |
-| `db cache` | Pre-cache data (`--years 2020-2023`, `--interval dobowe/miesieczne/polroczne`) |
-| `db query` | Query cached data (`--station`, `--years`, `--interval`, `--output`) |
-| `db clear` | Clear cached data (`--interval`, `--force`) |
-| `db vacuum` | Optimize database (reclaim space) |
+Every `IMGWError` in a web handler renders `partials/error.html` (code, detail, option) with the HTTP status of the error registry.
 
 ## IMGW Data Structure
 
+### Dataset registry (13 descriptors)
+
+|Key|Legacy alias|Store|
+|---|---|---|
+|`pl.imgw.hydro_daily`|`hydro/dobowe`|yes|
+|`pl.imgw.hydro_monthly`|`hydro/miesieczne`|yes|
+|`pl.imgw.hydro_semiannual`|`hydro/polroczne_i_roczne`|yes|
+|`pl.imgw.meteo_climate_daily`|`meteo/dobowe/klimat`|yes|
+|`pl.imgw.meteo_precip_daily`|`meteo/dobowe/opad`|yes|
+|`pl.imgw.hydro_stations`, `pl.imgw.meteo_stations`|—|yes (station lists)|
+|`pl.imgw.pmaxtp`|—|yes (grid cells)|
+|`pl.imgw.hydro_phenomena`|— (`hydro/dobowe` with month 13)|download only|
+|`pl.imgw.meteo_climate_monthly`, `pl.imgw.meteo_precip_monthly`, `pl.imgw.meteo_synop_monthly`|`meteo/miesieczne/klimat\|opad\|synop`|download only|
+|`pl.imgw.meteo_climate_terms`|`meteo/terminowe/klimat`|download only|
+
+`get_dataset`/`archive_files` accept the key, the slug (e.g. `hydro_daily`) or the legacy alias; results and slots always use the full key.
+
 ### Hydrological data (1951-2024+)
 - `dobowe` (daily):
-  - Before 2023: `codz_{year}_{month:02d}.zip` (monthly files)
+  - Before 2023: `codz_{year}_{month:02d}.zip` (monthly files; month 13 = `zjaw_` phenomena)
   - From 2023: `codz_{year}.zip` (single yearly file)
 - `miesieczne` (monthly): `mies_{year}.zip`
 - `polroczne_i_roczne` (semi-annual): `polr_{param}_{year}.zip` (param: T, Q, H)
@@ -355,8 +369,8 @@ First folder differs per subtype: klimat `1951_1955`, opad `1950_1955`, synop `1
 **Files per interval/subtype:**
 - `miesieczne` (all subtypes): ONE file per folder — `{folder}_m_{k|o|s}.zip` (e.g. `1996_2000_m_s.zip`, `2023_m_s.zip`)
 - `dobowe`/`terminowe` klimat & opad: yearly `{year}_{k|o}.zip` until 2000, monthly `{year}_{month:02d}_{k|o}.zip` from 2001
-- `dobowe`/`terminowe` synop: PER-STATION files `{folder}_{station}_s.zip` — `build_meteo_url` raises ValueError (not supported)
-- `terminowe` opad: dataset does not exist — `build_meteo_url` raises ValueError
+- `dobowe`/`terminowe` synop: PER-STATION files `{folder}_{station}_s.zip` — `get_dataset`/`archive_files` raise `IMGWValidationError` (`details.reason=per_station`)
+- `terminowe` opad: dataset does not exist — `IMGWValidationError` (`details.reason=not_published`)
 
 **Subtypes:** `k` (klimat), `o` (opad), `s` (synop)
 
@@ -385,50 +399,45 @@ Aplikacja hostowana na prywatnym serwerze. Komponenty:
 ### Authorization (Planned)
 Klucze API w pliku JSON (`api_keys.json`). Naglowek: `X-API-Key: <token>`
 
-**Note:** API key validation middleware is not yet implemented. Keys are managed via CLI but not enforced in API requests.
+**Note:** API key validation middleware is not yet implemented. Keys are managed via CLI but not enforced in API requests. Store writes over REST use their own token (`IMGW_STORE_WRITE_TOKEN`, sent as `X-API-Key`).
 
 ### API versioning
 Wszystkie endpointy pod `/api/v1/...`
 
 ---
 
-## Database Cache (Optional)
+## Versioned Store (Optional)
 
-SQLite-based cache for hydrological data. Disabled by default.
+Explicit root only (`init_store(root)`, `--root`, `IMGW_STORE_ROOT`); readable offline, also from network shares. Decision: `docs/DECISIONS.md` ADR-001; contract: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence).
 
 ### Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IMGW_DB_ENABLED` | `false` | Enable database caching |
-| `IMGW_DB_PATH` | `./data/imgw_hydro.db` | Database file path |
+|Variable|Default|Description|
+|---|---|---|
+|`IMGW_STORE_ROOT`|unset|Absolute store root of the REST server; CLI default for `--root`. Unset → store routes 503 `store_unavailable`|
+|`IMGW_STORE_WRITES_ENABLED`|`false`|Allow REST writes (`POST` store/series/pmaxtp routes)|
+|`IMGW_STORE_WRITE_TOKEN`|unset|Token required in `X-API-Key` for REST writes (else 403 `forbidden`)|
+|`IMGW_USER_LOCATIONS_DIR`|unset|Directory of user location CSVs allowed in REST `user_locations`|
+|`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
+|`IMGW_DATA_DIR`|`./data`|Local reference data (`python -m imgwtools.reference_data`)|
 
-### Database Schema
+### Layout
 
-```sql
--- Stations
-hydro_stations (station_code, station_name, river_name, latitude, longitude, updated_at)
-
--- Cache tracking
-cached_ranges (interval, year, month, param, source_file, cached_at, record_count)
-
--- Data tables
-hydro_daily (station_code, hydro_year, hydro_month, day, water_level_cm, flow_m3s, water_temp_c, measurement_date)
-hydro_monthly (station_code, hydro_year, hydro_month, extremum, water_level_cm, flow_m3s, water_temp_c)
-hydro_semi_annual (station_code, hydro_year, period, param, extremum, value, extremum_start_date, extremum_end_date)
+```text
+<root>/imgw-store.json                                  # imgw-store/1 marker
+  archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
+  archives/versions/<server dir>/<stem>/observations/   # imgw-observation/1 signal register (ADR-003, C01)
+  stations/versions/<label>_<sha8>/stations.geojson + .meta.json
+  series/versions/<slug>/<label>_<sha8>/series.json + .meta.json + stations/<code>.parquet
+  pmaxtp/versions/<POT|AMP>/<indX>_<indY>/<label>_<sha8>/cell.json + response.json + .meta.json
+  .incoming/                                            # staging; never a version
 ```
 
-### Lazy Loading Flow
+Slots (spec §13.7): `archive:<key>:<file>` (e.g. `archive:pl.imgw.hydro_daily:2024/codz_2024.zip`), `series:<key>`, `catalog:pl.imgw.stations`, `pmaxtp:pl.imgw.pmaxtp:<METHOD>/<indX>_<indY>`.
 
-```
-Query: station X, years 2020-2023
-    │
-    ├─ Check cached_ranges for each year
-    │   ├─ Not cached → Download ZIP → Parse CSV → INSERT → Mark cached
-    │   └─ Cached → Skip download
-    │
-    └─ SELECT from database → Return results
-```
+### Contracts (IMGW-13)
+
+`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, envelope `imgw-result/1`, `imgw-commands/1` (command schema). Each has its own `/N` counter; within `/1` only optional fields are added. `/1` domains are open to further providers (ADR-003 C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, station code `STATION_CODE_PATTERN` (9-digit IMGW or WIGOS), optional `content_sha256`/`content_form` in sidecars and project pins.
 
 ### IMGW CSV Format Notes
 
@@ -437,14 +446,14 @@ Archive files are inconsistent between years — parsers auto-detect the format 
 - **Encoding**: CP1250 (Polish Windows encoding) for most archives; `codz_2023.zip` is UTF-8 with BOM (auto-detected)
 - **Delimiter**: comma with quoted fields (e.g. 2019-2022, 2024) or semicolon (e.g. 2023) — auto-detected from the first line
 - **Quoting**: daily/monthly 2024 files wrap whole lines in outer quotes with doubled inner quotes (auto-unwrapped); some files carry a header row of column codes (skipped)
-- **Missing data codes**: `9999` (water level), `99999.999` (flow), `99.9` (temperature)
+- **Missing data codes**: `9999` (water level), `99999.999` (flow), `99.9` (temperature); meteo status 8 = `missing`, 9 = `no_phenomenon`
 - **Hydrological year**: November 1 - October 31 (month 1 = November)
 
 ---
 
 ## Testing
 
-The project includes comprehensive unit tests for the public API.
+The project includes unit and contract tests for the public API, CLI, REST and web GUI; all run offline (`respx` mocks or packaged recordings).
 
 ### Running Tests
 
@@ -462,11 +471,8 @@ test collection.
 # Run specific test file
 .venv/bin/python -m pytest tests/unit/test_models.py -v
 
-# Lint (includes pydocstyle `D` rules, numpy convention; tests/ exempt)
+# Lint
 .venv/bin/ruff check src/ tests/
-
-# Format check (whole repository)
-.venv/bin/ruff format --check src/ tests/
 
 # Type check (pyright reads [tool.pyright] in pyproject.toml)
 npx -y pyright src/imgwtools/
@@ -474,16 +480,27 @@ npx -y pyright src/imgwtools/
 
 ### Test Structure
 
-| File | Tests | Description |
-|------|-------|-------------|
-| `tests/conftest.py` | - | Shared fixtures (API responses, CSV data) |
-| `tests/unit/test_models.py` | 17 | PMaXTPData, HydroCurrentData, SynopData, WarningData |
-| `tests/unit/test_fetch.py` | 19 | fetch_pmaxtp, fetch_hydro_current, fetch_synop |
-| `tests/unit/test_parsers.py` | 28 | CSV parsers: delimiter/encoding/quoting detection |
-| `tests/unit/test_stations.py` | 17 | list_hydro_stations, get_hydro_stations_with_coords |
-| `tests/unit/test_urls.py` | 28 | build_hydro_url, build_meteo_url, build_pmaxtp_url |
+|File|Tests|Description|
+|---|---|---|
+|`tests/conftest.py`|-|Shared fixtures; autouse `isolated_data_dir`|
+|`tests/unit/test_public_store_api.py`|179|`__all__` == spec §13.12, removed names absent, light imports|
+|`tests/unit/test_cli_catalog.py`|145|CLI generated from the catalog: envelope, errors, exit codes, streams|
+|`tests/unit/test_api_commands.py`|101|REST routes from the catalog, problem+json, write guard|
+|`tests/unit/test_command_schema.py`|98|`command_schema`, `imgw-commands/1`|
+|`tests/unit/test_commands.py`|96|Catalog, validation, `run_command`/`check_command`, paging|
+|`tests/unit/test_fetch_live.py`|66|Live functions with `respx`|
+|`tests/unit/test_datasets.py`|57|Registry, aliases, `archive_files`, `YearsArg`|
+|`tests/unit/test_project.py`|55|`imgw-project/1`|
+|`tests/unit/test_parsers.py`|50|Hydro/meteo/station-list parsers|
+|`tests/unit/test_exceptions.py`|49|`ERROR_CODES`, codes and details|
+|`tests/unit/test_store_*.py`, `test_series_export.py`|197|Store writer, sync, series, catalog, pmaxtp, reader, export|
+|`tests/unit/test_web_app.py`|44|Web GUI|
+|`tests/unit/` other files|147|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
+|`tests/contract/test_interface_contract.py`|78|Python = CLI = REST for all 25 REST commands, error matrix, paging|
+|`tests/contract/` other files|15|Store contract, CLI = API parity, project contract|
+|`tests/live/test_interfaces_live.py`|42|Live regression: 35 commands × Python/`imgw`/REST on real IMGW servers, live errors; skipped without `IMGW_LIVE=1`|
 
-**Total: 109 tests**
+**Total: 1419 tests** (`pytest --collect-only`, 2026-10-18): 1377 offline, 42 live (`IMGW_LIVE=1 .venv/bin/python -m pytest tests/live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
 
 ---
 
@@ -491,12 +508,15 @@ npx -y pyright src/imgwtools/
 
 Detailed project documentation is available in the `docs/` folder:
 
-| File | Description |
-|------|-------------|
-| `docs/PROGRESS.md` | Progress tracker, cross-project analysis, and backlog |
-| `docs/ARCHITECTURE.md` | Detailed system architecture and component diagrams |
-| `docs/PRD.md` | Product Requirements Document - project goals and requirements |
-| `docs/RULES.md` | Development rules and conventions |
+|File|Description|
+|---|---|
+|`docs/PROGRESS.md`|Progress tracker, cross-project analysis, and backlog (single source of truth for pending work)|
+|`docs/CHANGELOG.md`|Release notes (3.0.0 BREAKING list and migration tables)|
+|`docs/DECISIONS.md`|ADR-001 (versioned store), ADR-002 (one command catalog), ADR-003 (ČHMÚ provider)|
+|`docs/ARCHITECTURE.md`|Detailed system architecture and component diagrams|
+|`docs/PRD.md`|Product Requirements Document - project goals and requirements|
+|`docs/RULES.md`|Development rules and conventions|
+|`docs/DEVELOPMENT_STANDARDS.md`|Naming, error handling, docstrings, tests|
 
 ## Cross-Project Integration
 
@@ -509,4 +529,4 @@ HYDROGRAF (main app)
     └── Hydrolog → IMGWTools (required dependency)
 ```
 
-See `docs/PROGRESS.md` for cross-project analysis and integration details.
+Store consumers: **Archiwista** (public read API only) and **Retman** (command catalog: `command_schema`, `validate_command`, `check_command`, `run_command`). See `docs/PROGRESS.md` for cross-project analysis and integration details.

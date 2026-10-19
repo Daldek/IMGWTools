@@ -1,0 +1,2 @@
+# Golden CSV exports keep the CRLF line ends of the csv module (byte-exact comparison)
+tests/fixtures/export_golden/*.csv -text
