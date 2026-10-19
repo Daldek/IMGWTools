@@ -602,6 +602,7 @@ def assert_no_partial_version(root: Path) -> None:
             assert any(directory.glob("*.meta.json")), directory
 
 
+@pytest.mark.usefixtures("publication")
 def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
     tmp_path, imgw
 ):
@@ -666,6 +667,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
         assert_no_partial_version(store)
 
 
+@pytest.mark.usefixtures("publication")
 def test_concurrent_writers_publish_each_version_once(tmp_path):
     root = init_store(tmp_path / "store").root
     response = DownloadResult(OLD, H2024.url, V1["ETag"], V1["Last-Modified"], len(OLD))

@@ -66,6 +66,17 @@ _SUFFIXES = {"IMGW-PIB": (".zip", ".csv"), "CHMI": (".json", ".csv")}
 # Provider whose archive sidecars keep the 3.0.0 layout: no station_code or
 # param in request and no station_code in extra.period (the same bytes).
 _COUNTRY_LAYOUT = "IMGW-PIB"
+# On Windows os.rename never replaces an existing file or directory (MoveFileExW
+# without MOVEFILE_REPLACE_EXISTING) and a directory cannot be opened to be flushed.
+_WINDOWS = sys.platform == "win32"
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+# renameat2 errors of a C library or file system without RENAME_NOREPLACE.
+_NO_NOREPLACE = frozenset({errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP, errno.ENOTSUP})
+# link errors of file systems without hard links (e.g. SMB, FAT, exFAT).
+_NO_HARD_LINKS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS})
+# Seconds a marker just created by a concurrent init_store may stay unreadable.
+_MARKER_WAIT = 1.0
 
 
 def _canonical(value: object) -> bytes:
@@ -83,6 +94,9 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _fsync_dir(path: Path) -> None:
+    """Flush the entries of a directory to disk (no-op on Windows, see ``_WINDOWS``)."""
+    if _WINDOWS:
+        return
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
         os.fsync(descriptor)
@@ -90,18 +104,14 @@ def _fsync_dir(path: Path) -> None:
         os.close(descriptor)
 
 
-def _atomic_publish(staged_dir: Path, target_dir: Path) -> None:
-    """Rename a staged directory or file without replacing an existing target."""
+def _libc_renameat2() -> Callable[..., int] | None:
+    """``renameat2`` of the C library on Linux (glibc 2.28+), None elsewhere."""
     if not sys.platform.startswith("linux"):
-        raise IMGWStoreConflictError(
-            "System plików nie zapewnia atomowego zapisu bez zastąpienia celu"
-        )
+        return None
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
-    except AttributeError as exc:
-        raise IMGWStoreConflictError(
-            "Brak atomowego renameat2 bez zastępowania wersji"
-        ) from exc
+    except AttributeError:
+        return None
     renameat2.argtypes = (
         ctypes.c_int,
         ctypes.c_char_p,
@@ -110,16 +120,101 @@ def _atomic_publish(staged_dir: Path, target_dir: Path) -> None:
         ctypes.c_uint,
     )
     renameat2.restype = ctypes.c_int
-    source = os.fsencode(staged_dir)
-    destination = os.fsencode(target_dir)
-    if renameat2(-100, source, -100, destination, 1) != 0:  # RENAME_NOREPLACE
-        code = ctypes.get_errno()
-        if code == errno.EEXIST:
-            raise FileExistsError(code, os.strerror(code), str(target_dir))
-        raise IMGWStoreConflictError(
-            f"Nie można atomowo opublikować wersji: {os.strerror(code)}"
-        )
-    _fsync_dir(target_dir.parent)
+    return renameat2
+
+
+def _refusal(target: Path, error: OSError) -> Exception:
+    """
+    Exception for a publication the system refused.
+
+    ``FileExistsError`` whenever ``target`` exists: network file systems
+    report a rename onto an existing entry also with other codes, e.g.
+    ``EACCES`` or ``ENOTEMPTY``.
+    """
+    if error.errno == errno.EEXIST or os.path.lexists(target):
+        return FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(target))
+    return IMGWStoreConflictError(
+        f"Nie można atomowo opublikować wersji: {error.strerror or error}"
+    )
+
+
+def _rename_noreplace(staged: Path, target: Path) -> bool:
+    """Publish by ``renameat2(RENAME_NOREPLACE)``; False where it is unavailable."""
+    renameat2 = _libc_renameat2()
+    if renameat2 is None:
+        return False
+    source, destination = os.fsencode(staged), os.fsencode(target)
+    if renameat2(_AT_FDCWD, source, _AT_FDCWD, destination, _RENAME_NOREPLACE) == 0:
+        return True
+    code = ctypes.get_errno()
+    if code in _NO_NOREPLACE:
+        return False
+    error = OSError(code, os.strerror(code))
+    raise _refusal(target, error) from error
+
+
+def _hard_link(staged: Path, target: Path) -> bool:
+    """Link ``staged`` as ``target``, never replacing it; False without hard links."""
+    try:
+        os.link(staged, target)
+    except OSError as exc:
+        if exc.errno in _NO_HARD_LINKS:
+            return False
+        raise
+    return True
+
+
+def _publish_portable(staged: Path, target: Path) -> None:
+    """Publish without ``renameat2``, see :func:`_atomic_publish`."""
+    try:
+        if not _WINDOWS and staged.is_file() and _hard_link(staged, target):
+            return  # the staged name goes away with the caller's staging directory
+        if os.path.lexists(target):
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(target))
+        os.rename(staged, target)
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        raise _refusal(target, exc) from exc
+
+
+def _atomic_publish(staged: Path, target: Path) -> None:
+    """
+    Move a staged version directory or file to ``target`` without replacing it.
+
+    The entry appears complete in one step or not at all, so an interrupted
+    publication leaves at most its staging in ``.incoming``. Linux publishes
+    by ``renameat2(RENAME_NOREPLACE)``. Without it (Windows, macOS, a C
+    library or file system without the flag, e.g. NFS) only operations that
+    never replace an existing entry are used:
+
+    * Windows: ``os.rename`` (``MoveFileExW`` without replacement);
+    * a directory: ``os.rename`` after checking that ``target`` does not
+      exist; a concurrent publication of the same target still fails,
+      because no system renames a directory onto a non-empty one and a
+      version directory is never empty;
+    * a file: ``os.link``, or on a file system without hard links (e.g. SMB,
+      FAT) ``os.rename`` after the same check — only there two simultaneous
+      publications of one file name may both succeed, the later one in
+      place of the earlier.
+
+    Parameters
+    ----------
+    staged : pathlib.Path
+        Complete directory or file in the store's ``.incoming``.
+    target : pathlib.Path
+        New version directory or observation file; its parent exists.
+
+    Raises
+    ------
+    FileExistsError
+        If ``target`` exists.
+    IMGWStoreConflictError
+        If the system refuses the rename for another reason.
+    """
+    if not _rename_noreplace(staged, target):
+        _publish_portable(staged, target)
+    _fsync_dir(target.parent)
 
 
 def _safe_root(root: PathArg) -> Path:
@@ -252,9 +347,12 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     """
     Create a new store marker only in an empty, non-conflicting directory.
 
-    The marker ``imgw-store.json`` is published atomically and never replaces
-    a competing marker. If the root already holds a marker (including one
-    created concurrently), the existing store is opened instead.
+    The marker ``imgw-store.json`` is created exclusively, so it never
+    replaces a competing marker (also on file systems without hard links,
+    e.g. SMB or FAT, and on Windows), then written and flushed to disk. If
+    the root already holds a marker (including one created concurrently),
+    the existing store is opened instead; a marker that another call has
+    just created is waited for up to a second.
 
     Parameters
     ----------
@@ -279,15 +377,14 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
         supported store (code ``store_unavailable``).
     IMGWStoreConflictError
         If the directory is not empty and has no marker, it is nested in or
-        contains another IMGW store, it overlaps a Kartograf store, or the
-        file system cannot create the hard link used to publish the marker
-        atomically (e.g. SMB, FAT); code ``conflict``.
+        contains another IMGW store, or it overlaps a Kartograf store; code
+        ``conflict``.
     """
     path = _safe_root(root)
     _check_kartograf(path)
     marker = path / _MARKER
     if marker.exists():
-        return open_store(path)
+        return _open_marked(path)
     if path.exists() and (not path.is_dir() or any(path.iterdir())):
         raise IMGWStoreConflictError(
             f"Katalog nie jest pustym magazynem IMGW: {path}", details=_PATH_CONFLICT
@@ -299,25 +396,40 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
     }
     if created_at is not None:
         payload["created_at"] = _utc(created_at)
-    temporary = path / f".{_MARKER}.{uuid.uuid4().hex}.tmp"
     try:
-        _write_json(temporary, payload)
-        try:
-            os.link(
-                temporary, marker
-            )  # exclusive publication; never replace a competing marker
-        except FileExistsError:
-            return open_store(path)
-        except OSError as exc:
-            raise IMGWStoreConflictError(
-                "System plików nie obsługuje atomowego zapisu znacznika magazynu "
-                f"(dowiązanie twarde): {path} ({exc.strerror})",
-                details={"reason": "not_atomic"},
-            ) from exc
-        _fsync_dir(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+        stream = marker.open("xb")  # exclusive: never replaces a competing marker
+    except FileExistsError:
+        return _open_marked(path)
+    try:
+        with stream:
+            stream.write(_canonical(payload))
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        marker.unlink(missing_ok=True)  # no incomplete marker of this call remains
+        raise
+    _fsync_dir(path)
     return StoreHandle(path, "imgw-store/1")
+
+
+def _open_marked(path: Path) -> StoreHandle:
+    """
+    Open a store whose marker exists, waiting for a marker being written.
+
+    ``init_store`` writes the marker right after creating it exclusively, so
+    a concurrent call may find it empty for a moment: an unreadable marker is
+    read again for up to ``_MARKER_WAIT`` seconds before it is an error.
+    """
+    deadline = time.monotonic() + _MARKER_WAIT
+    while True:
+        try:
+            _marker(path / _MARKER)
+        except IMGWStoreError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+        else:
+            return open_store(path)
 
 
 def open_store(root: PathArg, /) -> StoreHandle:
@@ -609,7 +721,7 @@ def _publish_observation(
         If a path component is a symbolic link (code ``validation_error``).
     IMGWStoreConflictError
         If ``observations`` or the target name is not a regular entry of its
-        kind, or the file system cannot rename without replacement.
+        kind, or the system refuses the rename (e.g. no write permission).
     IMGWCancelledError
         If ``cancel`` returns ``True`` before publication.
     """
@@ -897,8 +1009,8 @@ def write_archive(
         If the store overlaps another IMGW or a Kartograf store, an existing
         version in the slot is corrupted (including a sidecar without
         ``extra.http``), the version directory collides with different
-        content, or the file system cannot publish atomically without
-        replacement.
+        content, or the system refuses to publish the version (e.g. no write
+        permission).
     IMGWCancelledError
         If ``cancel`` returns ``True`` before publication.
     """

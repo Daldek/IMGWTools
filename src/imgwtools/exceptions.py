@@ -233,7 +233,7 @@ class IMGWStoreError(IMGWError):
 
 class IMGWStoreConflictError(IMGWStoreError):
     """
-    Version collision, race, busy lock or no atomic-write guarantee.
+    Version collision, race, busy lock or a refused publication.
 
     Default code: ``conflict``.
     """

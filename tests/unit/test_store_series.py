@@ -396,6 +396,7 @@ def test_second_build_is_reused_without_parquet_writer(root, monkeypatch):
     assert len(series_versions(root)) == 1
 
 
+@pytest.mark.usefixtures("publication")
 def test_cancel_and_broken_input_publish_no_version(root):
     store_archives(root, HYDRO, [2023, 2024])
     calls = iter([False, False, True])
@@ -440,6 +441,7 @@ ORIGINAL_2024 = (
 CHANGED_2024 = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
 
 
+@pytest.mark.usefixtures("publication")
 def test_reverted_input_builds_new_current_series_instead_of_reusing_old(root):
     put_2024(root, ORIGINAL_2024, '"v1"', 17)
     first = build_series(root, dataset=HYDRO)
@@ -462,6 +464,7 @@ def test_reverted_input_builds_new_current_series_instead_of_reusing_old(root):
     assert (again.status, again.version) == ("reused", third.version)
 
 
+@pytest.mark.usefixtures("publication")
 def test_alternating_input_under_dominating_label_keeps_series_current(root):
     # The 2023 archive's later Last-Modified labels every build, so reverted inputs
     # produce identical series.json under an already taken directory name.

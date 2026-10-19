@@ -1949,8 +1949,8 @@ def build_catalog(
         list is unreadable, or a station code appears in both the hydro and
         meteo families.
     IMGWStoreConflictError
-        If a stored version is corrupted or the new version cannot be published
-        atomically.
+        If a stored version is corrupted or the system refuses to publish the
+        new version.
     """
     owner = get_provider(provider)
     handle = _handle(root)
