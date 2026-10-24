@@ -73,6 +73,14 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   path outside the allowed directories had no exit code (REST 403 and MCP only); it now
   exits 12 like in every tool of the ecosystem, and `command_schema()["errors"]`,
   `AGENTS.md` and the tables of the docs show it. Only `method_not_allowed` stays REST-only.
+- **`AGENTS.md` and `llms.txt` within their budgets (DOC-1.7, DOC-4.2):** the generated guide is
+  at most 200 lines and 16 KiB in both languages (it was 262 lines and 29 KB) and ends with
+  "Developing this repository? Read CLAUDE.md."; it states when to use the tool and when not, and
+  how to install it. The command section is an index of one line per command grouped by effect
+  (read, network, write, overwrite; `imgw commands schema` serves the options), the dataset table
+  lists the datasets of the store and one line the others, the flows and the flag notes are
+  shorter, and the stale developer gate commands (pyright) are gone. A contract test holds both
+  budgets and the 8,000 characters of `llms.txt` before its first link list.
 
 ## [3.0.0] — 2026-10-19
 

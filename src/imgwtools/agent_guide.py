@@ -20,7 +20,6 @@ generator.
 lines of the server mode.
 """
 
-import json
 import os
 import re
 import shlex
@@ -36,6 +35,7 @@ from imgwtools.commands import (
     command_schema,
     data_commands,
     format_command,
+    list_commands,
     validate_command,
 )
 from imgwtools.datasets import datasets, providers
@@ -51,77 +51,57 @@ McpMode = Literal["read", "write", "http"]
 # Default page size of the list tools of the MCP server (spec 2026-10-19 §6.4).
 _PAGE_SIZE = 50
 _MARKER = re.compile(r"<!--\s*imgw:(?P<name>[^\s>]*)\s*-->")
+# A comma-separated run of three or more years, or the same as a JSON array.
+_YEAR_RUN = re.compile(
+    r"\[\d{4}(?:,\d{4}){2,}\]|(?<![\d.-])\d{4}(?:,\d{4}){2,}(?![\d.-])"
+)
+# Statistics of the hydrological variables (``H_min``, ``H_mean``, ``H_max``).
+_STATISTICS = ("min", "mean", "max")
 _DASH = "—"
 # Country names of the country codes of the provider registry.
 _COUNTRIES: Mapping[str, tuple[str, str]] = {
     "PL": ("Polska", "Poland"),
     "CZ": ("Czechy", "Czechia"),
 }
+# Titles of the command classes by effect of a run: (Polish, English).
+_EFFECTS: Mapping[str, tuple[str, str]] = {
+    "read": ("Odczyt — bez sieci i bez zapisu", "Read — no network, no writes"),
+    "network": (
+        "Sieć — łączy się ze źródłem, nic nie zapisuje",
+        "Network — connects to a source, writes nothing",
+    ),
+    "add": (
+        "Zapis — nowe pliki, wersje albo zadania; najpierw `--check`",
+        "Write — new files, versions or tasks; `--check` first",
+    ),
+    "replace": (
+        "Nadpisanie — może zastąpić istniejący plik albo manifest; najpierw `--check`",
+        "Overwrite — may replace an existing file or manifest; `--check` first",
+    ),
+}
 # Texts of the generated blocks: (Polish, English).
 _TEXTS: Mapping[str, tuple[str, str]] = {
-    "read": ("odczyt", "read"),
-    "network": ("sieć", "network"),
     "add": ("zapis", "write"),
-    "replace": ("zapis z nadpisaniem", "write (may overwrite)"),
-    "itself": ("sama", "itself"),
-    "stream": ("strumień linii", "text lines"),
-    "one_of": ("dokładnie jedno z:", "exactly one of:"),
-    "requires": ("wymaga", "requires"),
-    "yes": ("tak", "yes"),
-    "no": ("nie", "no"),
+    "replace": ("nadpisanie", "overwrite"),
+    "itself": ("jest sprawdzeniem", "is a check"),
+    "local": ("lokalna", "local"),
+    "outside": (
+        "Poza magazynem (tylko `datasets files` i `datasets download`):",
+        "Outside the store (`datasets files` and `datasets download` only):",
+    ),
+    "keys": ("klucze", "keys"),
+    "station": ("kod stacji", "station code"),
+    "license": ("licencja", "license"),
 }
 _HEADERS: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "providers": (
-        ("Dostawca", "Nazwa", "Kraj", "Klucze zbiorów", "Licencja", "Kod stacji"),
-        ("Provider", "Name", "Country", "Dataset keys", "License", "Station code"),
-    ),
     "statuses": (
         ("Status", "Kod wyjścia CLI", "Znaczenie"),
         ("Status", "CLI exit code", "Meaning"),
     ),
-    "errors": (
-        ("Kod", "Tytuł", "Kod wyjścia CLI", "HTTP"),
-        ("Code", "Title", "CLI exit code", "HTTP"),
-    ),
     "datasets": (
-        (
-            "Klucz",
-            "Dostawca",
-            "Rodzaj",
-            "Jednostka czasu",
-            "Zmienne",
-            "Od roku",
-            "W magazynie",
-            "Zakres pliku",
-            "Alias legacy",
-            "Tytuł",
-        ),
-        (
-            "Key",
-            "Provider",
-            "Kind",
-            "Time unit",
-            "Variables",
-            "First year",
-            "In store",
-            "File scope",
-            "Legacy alias",
-            "Title",
-        ),
+        ("Klucz", "Zmienne", "Od roku"),
+        ("Key", "Variables", "First year"),
     ),
-    "commands": (
-        ("Komenda", "Opis", "Funkcja → wynik", "Opcje", "Skutek", "Check", "REST"),
-        (
-            "Command",
-            "Description",
-            "Function → result",
-            "Options",
-            "Effect",
-            "Check",
-            "REST",
-        ),
-    ),
-    "aliases": (("Skrót", "Flaga"), ("Alias", "Flag")),
 }
 # Meaning of each envelope status (spec 2026-10-17 §13.6).
 _STATUSES: Mapping[str, tuple[str, str]] = {
@@ -243,7 +223,6 @@ _SYMBOLS = (_STATION, _WIGOS, _PROJECT)
 _STORE = "/dane/imgw"
 _PRECIP = "pl.imgw.meteo_precip_daily"
 _CHMI_HYDRO = "cz.chmi.hydro_daily"
-_POINT = {"latitude": 52.23, "longitude": 21.01}
 _PRECIP_STORE = {"root": _STORE, "datasets": [_PRECIP], "years": "2010-2020"}
 _PRECIP_DAYS = {
     "root": _STORE,
@@ -267,114 +246,50 @@ _FLOWS: tuple[_Flow, ...] = (
             _Step(
                 "stations find",
                 {"kind": "meteo", "query": "poznan"},
-                "kilka trafień → zapytaj użytkownika, nie wybieraj sam; kod "
-                "wybranej stacji to `KOD_STACJI`.",
-                "several hits → ask the user, do not choose yourself; the code of "
-                "the chosen station is `STATION_CODE`.",
+                "kilka trafień → zapytaj użytkownika; kod wybranej stacji to "
+                "`KOD_STACJI`.",
+                "several hits → ask the user; the code of the chosen station is "
+                "`STATION_CODE`.",
             ),
             _Step(
                 None,
                 {},
                 "Wybierz zbiór: `pl.imgw.meteo_precip_daily` (stacje opadowe, `P`) "
                 "albo `pl.imgw.meteo_climate_daily` (stacje klimatyczne, `P` i "
-                "temperatury) — lista stacji IMGW-PIB nie mówi, w której sieci jest "
-                "stacja, a dobowe archiwa synoptyczne są plikami per stacja i nie są "
-                "obsługiwane.",
+                "temperatury) — lista stacji nie mówi, w której sieci jest stacja.",
                 "Choose the dataset: `pl.imgw.meteo_precip_daily` (precipitation "
                 "stations, `P`) or `pl.imgw.meteo_climate_daily` (climate stations, "
-                "`P` and temperatures) — the IMGW-PIB station list does not tell "
-                "the network of a station, and the daily synoptic archives are "
-                "per-station files, not supported.",
+                "`P` and temperatures) — the station list does not tell the network "
+                "of a station.",
             ),
             _Step(
                 "store check",
                 _PRECIP_STORE,
-                "plan: liczba plików i bajtów; archiwa IMGW-PIB obejmują cały kraj, "
-                "więc podaj użytkownikowi rozmiar.",
-                "plan: the number of files and bytes; IMGW-PIB archives cover the "
-                "whole country, so tell the user the size.",
+                "plan: liczba plików i bajtów; archiwa obejmują cały kraj, więc "
+                "podaj użytkownikowi rozmiar.",
+                "plan: the number of files and bytes; the archives cover the whole "
+                "country, so tell the user the size.",
             ),
             _Step(
                 "store sync",
                 _PRECIP_STORE,
-                "po zgodzie użytkownika; szeregi stacji budują się same "
-                "(`--series` domyślnie).",
-                "after the user agrees; the station series are built as well "
-                "(`--series` by default).",
+                "po zgodzie użytkownika; szeregi stacji budują się same.",
+                "after the user agrees; the station series are built as well.",
             ),
             _Step(
                 "series summary",
                 {"root": _STORE, "dataset": _PRECIP, "stations": [_STATION]},
-                "brak stacji w spisie → powtórz kroki 3–5 z "
-                "`pl.imgw.meteo_climate_daily`; brak w obu → powiedz użytkownikowi, "
-                "że obsługiwane zbiory nie mają danych tej stacji w tym okresie (np. "
-                "stacja synoptyczna albo nieczynna), zamiast podstawiać inną stację.",
-                "the station is missing from the summary → repeat steps 3–5 with "
-                "`pl.imgw.meteo_climate_daily`; missing from both → tell the user "
-                "that the supported datasets have no data of this station in this "
-                "period (e.g. a synoptic or closed station) instead of substituting "
-                "another station.",
+                "brak stacji → powtórz kroki 3–5 z `pl.imgw.meteo_climate_daily`; "
+                "brak w obu → powiedz to użytkownikowi, nie podstawiaj innej stacji.",
+                "the station is missing → repeat steps 3–5 with "
+                "`pl.imgw.meteo_climate_daily`; missing from both → tell the user, "
+                "do not substitute another station.",
             ),
             _Step(
                 "series read",
                 {**_PRECIP_DAYS, "limit": 500},
                 "kolejne strony: `--offset`.",
                 "next pages: `--offset`.",
-            ),
-            _Step(
-                "series export",
-                {**_PRECIP_DAYS, "path": "/dane/wyniki/opady.csv"},
-                "albo plik CSV: jednostki w nagłówku, flagi wartości, atrybucja w "
-                "pierwszym wierszu danych.",
-                "or a CSV file: units in the header, value flags, the attribution "
-                "in the first data row.",
-            ),
-        ),
-    ),
-    _Flow(
-        "Stan wody teraz",
-        "Water level now",
-        (
-            _Step(
-                "current hydro",
-                {"station": _STATION},
-                "bieżący pomiar stacji z API IMGW-PIB na żywo; zachowaj wynik "
-                "zamiast odpytywać w pętli.",
-                "the current reading of the station from the live IMGW-PIB API; "
-                "keep the result instead of polling.",
-            ),
-            _Step(
-                "current hydro-states",
-                {"main_only": True},
-                "stany wody stacji głównych ze współrzędnymi (`water_state`).",
-                "water states of the main stations with coordinates (`water_state`).",
-            ),
-        ),
-    ),
-    _Flow(
-        "Opad maksymalny prawdopodobny (PMAXTP) dla punktu",
-        "Probable maximum precipitation (PMAXTP) for a point",
-        (
-            _Step(
-                "pmaxtp fetch",
-                _POINT,
-                "metoda `POT` domyślnie (`--method AMP` — maksima roczne); punkt w "
-                "Polsce.",
-                "method `POT` by default (`--method AMP` — annual maxima); a point "
-                "in Poland.",
-            ),
-            _Step(
-                "pmaxtp sync",
-                {"root": _STORE, **_POINT},
-                "do magazynu: najpierw plan…",
-                "into the store: the plan first…",
-                check=True,
-            ),
-            _Step(
-                "pmaxtp sync",
-                {"root": _STORE, **_POINT},
-                "…potem zapis komórki siatki po zgodzie użytkownika.",
-                "…then the grid cell is written after the user agrees.",
             ),
         ),
     ),
@@ -563,18 +478,21 @@ def _principles(lang: Lang) -> str:
 
 
 def _providers(lang: Lang) -> str:
-    rows = [
-        (
-            _code(owner.id),
-            f"{owner.short_name} ({owner.name})",
-            f"{_localized(_COUNTRIES[owner.country], lang)} ({owner.country})",
-            _code(f"{owner.key_prefix}.*"),
-            f"[{owner.license.id}]({owner.license.url})",
-            _code(owner.station_code_pattern),
+    lines = []
+    for owner in providers():
+        label = (
+            _code(owner.id)
+            if owner.short_name == owner.id
+            else f"{_code(owner.id)} ({owner.short_name})"
         )
-        for owner in providers()
-    ]
-    return _table(_header("providers", lang), rows)
+        country = _localized(_COUNTRIES[owner.country], lang)
+        license_ = f"[{owner.license.id}]({owner.license.url})"
+        lines.append(
+            f"- {label} — {country}: {_text('keys', lang)} "
+            f"{_code(f'{owner.key_prefix}.*')}, {_text('station', lang)} "
+            f"{_code(owner.station_code_pattern)}, {_text('license', lang)} {license_}"
+        )
+    return "\n".join(lines)
 
 
 def _statuses(document: Mapping[str, Any], lang: Lang) -> str:
@@ -585,118 +503,80 @@ def _statuses(document: Mapping[str, Any], lang: Lang) -> str:
     return _table(_header("statuses", lang), rows)
 
 
-def _errors(document: Mapping[str, Any], lang: Lang) -> str:
-    rows = [
-        (
-            _code(error["code"]),
-            error["title"],
-            _DASH if error["exit_code"] is None else str(error["exit_code"]),
-            _DASH if error["http_status"] is None else str(error["http_status"]),
-        )
+def _errors(document: Mapping[str, Any]) -> str:
+    """Every error code with its CLI exit code and HTTP status (``—``: never)."""
+    return ", ".join(
+        f"{_code(error['code'])} "
+        f"({_DASH if error['exit_code'] is None else error['exit_code']}/"
+        f"{_DASH if error['http_status'] is None else error['http_status']})"
         for error in document["errors"]
-    ]
-    return _table(_header("errors", lang), rows)
+    )
+
+
+def _variables(variables: Iterable[str]) -> str:
+    """Variable names as code; ``X_min``, ``X_mean`` and ``X_max`` fold into braces."""
+    names = tuple(variables)
+    if not names:
+        return _DASH
+    step = len(_STATISTICS)
+    bases = tuple(name.rpartition("_")[0] for name in names[::step])
+    if len(names) > step and names == tuple(
+        f"{base}_{statistic}" for base in bases for statistic in _STATISTICS
+    ):
+        return _code(f"{{{','.join(bases)}}}_{{{','.join(_STATISTICS)}}}")
+    return ", ".join(_code(name) for name in names)
 
 
 def _datasets(lang: Lang) -> str:
+    """The datasets of the store as a table and the others as a line of keys."""
     rows = [
         (
             _code(descriptor.key),
-            _code(descriptor.provider),
-            _code_or_dash(descriptor.kind),
-            _code(descriptor.time_unit),
-            ", ".join(_code(name) for name in descriptor.variables) or _DASH,
+            _variables(descriptor.variables),
             _DASH if descriptor.first_year is None else str(descriptor.first_year),
-            _text("yes" if descriptor.in_store else "no", lang),
-            _code(descriptor.archive_scope),
-            _code_or_dash(descriptor.legacy_alias),
-            descriptor.title_en if lang == "en" else descriptor.title,
         )
         for descriptor in datasets()
+        if descriptor.in_store
     ]
-    return _table(_header("datasets", lang), rows)
+    outside = ", ".join(
+        _code(descriptor.key) for descriptor in datasets() if not descriptor.in_store
+    )
+    return f"{_table(_header('datasets', lang), rows)}\n\n{_text('outside', lang)} {outside}."
 
 
-def _default(value: object) -> str:
-    return value if isinstance(value, str) else json.dumps(value)
-
-
-def _options(schema: Mapping[str, Any], lang: Lang) -> str:
-    """Options in catalog order: ``*`` required, ``=`` default; groups and pairs."""
-    required = set(schema.get("required", ()))
-    words = []
-    for name, prop in schema["properties"].items():
-        word = name + ("*" if name in required else "")
-        if "default" in prop:
-            word += "=" + _default(prop["default"])
-        words.append(_code(word))
-    notes = []
-    if "oneOf" in schema:
-        groups = (
-            "+".join(_code(name) for name in group["required"])
-            for group in schema["oneOf"]
-        )
-        notes.append(f"{_text('one_of', lang)} {' / '.join(groups)}")
-    for name, needed in schema.get("dependentRequired", {}).items():
-        notes.append(
-            f"{_code(name)} {_text('requires', lang)} "
-            + ", ".join(_code(other) for other in needed)
-        )
-    text = ", ".join(words) or _DASH
-    return f"{text} ({'; '.join(notes)})" if notes else text
-
-
-def _effect(schema: Mapping[str, Any], lang: Lang) -> str:
-    """Effect of a run (``writes``, ``network``) and the options writing a file."""
+def _notes(schema: Mapping[str, Any], lang: Lang) -> str:
+    """Bracketed marks of a command: options writing a file, a check, no REST route."""
     meta = schema["x-imgw"]
-    parts = [_text("network", lang)] if meta["network"] else []
-    if meta["writes"] != "none":
-        parts.append(_text(meta["writes"], lang))
-    writing = [
+    marks = [
         f"{_code(name)}: {_text(prop['x-imgw-writes'], lang)}"
         for name, prop in schema["properties"].items()
         if "x-imgw-writes" in prop
     ]
-    return "; ".join([", ".join(parts) or _text("read", lang), *writing])
+    if meta["check"] is None and meta["function"].startswith("check_"):
+        marks.append(_text("itself", lang))
+    if meta["rest"] is None:
+        marks.append(_text("local", lang))
+    return f" [{'; '.join(marks)}]" if marks else ""
 
 
-def _result(meta: Mapping[str, Any], lang: Lang) -> str:
-    if meta["result"] == "stream":
-        return _text("stream", lang)
-    if meta["result"] == "list":
-        return _code(f"Page[{meta['result_type']}]")
-    return _code(meta["result_type"])
-
-
-def _twin(meta: Mapping[str, Any], lang: Lang) -> str:
-    if meta["check"] is not None:
-        return _code(meta["check"])
-    # The checks themselves (store check, project check, pmaxtp check).
-    return _text("itself", lang) if meta["function"].startswith("check_") else _DASH
-
-
-def _commands(document: Mapping[str, Any], lang: Lang) -> str:
-    sections = []
-    for group, title in document["groups"].items():
-        rows = []
-        for schema in document["commands"]:
-            meta = schema["x-imgw"]
-            if meta["group"] != group:
-                continue
-            rows.append(
-                (
-                    _code(meta["command"]),
-                    schema["description"],
-                    f"{_code(meta['function'])} → {_result(meta, lang)}",
-                    _options(schema, lang),
-                    _effect(schema, lang),
-                    _twin(meta, lang),
-                    _DASH if meta["rest"] is None else meta["rest"]["method"],
-                )
-            )
-        table = _table(_header("commands", lang), rows)
-        sections.append(f"### {_code(group)} — {title}\n\n{table}")
-    return "\n\n".join(sections)
+def _commands(
+    document: Mapping[str, Any], summaries: Mapping[str, str], lang: Lang
+) -> str:
+    """Commands by effect of a run (``read``, ``network``, ``add``, ``replace``)."""
+    classes: dict[str, list[str]] = {name: [] for name in _EFFECTS}
+    for schema in document["commands"]:
+        meta = schema["x-imgw"]
+        effect = meta["writes"] if meta["writes"] != "none" else "network"
+        if effect == "network" and not meta["network"]:
+            effect = "read"
+        classes[effect].append(
+            f"- {_code(meta['command'])} — {summaries[meta['command']]}"
+            f"{_notes(schema, lang)}"
+        )
+    return "\n\n".join(
+        f"**{_localized(_EFFECTS[name], lang)}**\n\n" + "\n".join(lines)
+        for name, lines in classes.items()
+    )
 
 
 def _listed(flags: Iterable[str]) -> str:
@@ -704,19 +584,15 @@ def _listed(flags: Iterable[str]) -> str:
 
 
 def _flags(document: Mapping[str, Any], lang: Lang) -> str:
-    """Short aliases and the value syntax of every flag of the catalog."""
-    aliases: dict[str, set[str]] = {}
+    """The value syntax of the flags of the catalog and the environment variables."""
     kinds: dict[str, set[str]] = {
-        key: set() for key in ("list", "year", "toggle", "switch", "date", "object")
+        key: set() for key in ("list", "year", "toggle", "switch", "date")
     }
     for schema in document["commands"]:
         for name, flags in schema["x-imgw"]["cli"]["flags"].items():
             canonical, *others = flags
             prop = schema["properties"][name]
             negative = f"--no-{canonical[2:]}"
-            for flag in others:
-                if flag != negative:
-                    aliases.setdefault(flag, set()).add(canonical)
             kind = prop.get("type")
             if kind == "array":
                 kinds["list"].add(canonical)
@@ -724,17 +600,8 @@ def _flags(document: Mapping[str, Any], lang: Lang) -> str:
                     kinds["year"].add(canonical)
             elif kind == "boolean":
                 kinds["toggle" if negative in others else "switch"].add(canonical)
-            elif kind == "object":
-                kinds["object"].add(canonical)
             elif prop.get("format") == "date":
                 kinds["date"].add(canonical)
-    table = _table(
-        _header("aliases", lang),
-        (
-            (_code(alias), _listed(aliases[alias]))
-            for alias in sorted(aliases, key=lambda flag: (flag.startswith("--"), flag))
-        ),
-    )
     toggles = ", ".join(f"`{flag}/--no-{flag[2:]}`" for flag in sorted(kinds["toggle"]))
     only = "only with" if lang == "en" else "tylko przy"
     roots = "; ".join(
@@ -748,17 +615,13 @@ def _flags(document: Mapping[str, Any], lang: Lang) -> str:
     if lang == "en":
         lines = [
             f"- Lists ({_listed(kinds['list'])}): comma-separated values "
-            "(`--months 1,2`) or a repeated flag (`-s A -s B`).",
-            f"- Years ({_listed(kinds['year'])}): a year `2024`, a range `2020-2023`, "
-            "a list `2020,2022` or ranges in a list (`2018,2020-2023`).",
-            f"- Dates ({_listed(kinds['date'])}): ISO `YYYY-MM-DD`.",
+            "(`--months 1,2`) or a repeated flag (`-s A -s B`). Years "
+            f"({_listed(kinds['year'])}): `2024`, `2020-2023`, `2020,2022` or "
+            "`2018,2020-2023`. Dates "
+            f"({_listed(kinds['date'])}): ISO `YYYY-MM-DD`.",
             f"- Switches on by default: {toggles} (`--no-…` turns it off); the other "
             f"boolean flags ({_listed(kinds['switch'])}) take no value and turn "
             "their option on.",
-            f"- JSON objects ({_listed(kinds['object'])}): one shell argument, e.g. "
-            '`--options \'{"dataset": "pl.imgw.hydro_daily", "years": "2024"}\'`.',
-            "- Every command: `--schema` (the option schema, nothing is run); "
-            "commands with a check twin: `--check` (a plan without writing).",
             "- Environment: `IMGW_STORE_ROOT` — the default `--root` (CLI, MCP "
             f"stdio; {roots}); `IMGW_LANG` — the language of the CLI help and the "
             "default `--lang` (`pl`, `en`).",
@@ -766,23 +629,18 @@ def _flags(document: Mapping[str, Any], lang: Lang) -> str:
     else:
         lines = [
             f"- Listy ({_listed(kinds['list'])}): wartości po przecinku "
-            "(`--months 1,2`) albo powtórzona flaga (`-s A -s B`).",
-            f"- Roczniki ({_listed(kinds['year'])}): rocznik `2024`, zakres "
-            "`2020-2023`, lista `2020,2022` albo zakresy na liście "
-            "(`2018,2020-2023`).",
-            f"- Daty ({_listed(kinds['date'])}): ISO `RRRR-MM-DD`.",
+            "(`--months 1,2`) albo powtórzona flaga (`-s A -s B`). Roczniki "
+            f"({_listed(kinds['year'])}): `2024`, `2020-2023`, `2020,2022` albo "
+            "`2018,2020-2023`. Daty "
+            f"({_listed(kinds['date'])}): ISO `RRRR-MM-DD`.",
             f"- Przełączniki domyślnie włączone: {toggles} (`--no-…` wyłącza); "
             f"pozostałe flagi logiczne ({_listed(kinds['switch'])}) nie mają "
             "wartości i włączają swoją opcję.",
-            f"- Obiekty JSON ({_listed(kinds['object'])}): jeden argument powłoki, "
-            'np. `--options \'{"dataset": "pl.imgw.hydro_daily", "years": "2024"}\'`.',
-            "- Każda komenda: `--schema` (schemat opcji bez uruchamiania); komendy z "
-            "bliźniakiem: `--check` (plan bez zapisu).",
             "- Zmienne środowiskowe: `IMGW_STORE_ROOT` — domyślne `--root` (CLI, "
             f"MCP stdio; {roots}); `IMGW_LANG` — język pomocy CLI i domyślne "
             "`--lang` (`pl`, `en`).",
         ]
-    return "\n".join([table, "", *lines])
+    return "\n".join(lines)
 
 
 def _substituted(value: object, stand_in: Callable[[_Symbol], object]) -> object:
@@ -797,12 +655,24 @@ def _substituted(value: object, stand_in: Callable[[_Symbol], object]) -> object
     return value
 
 
+def _year_range(match: re.Match[str]) -> str:
+    """A run of consecutive years as ``first-last``; other runs stay as they are."""
+    years = [int(year) for year in re.findall(r"\d{4}", match[0])]
+    if any(
+        later != earlier + 1 for earlier, later in zip(years, years[1:], strict=False)
+    ):
+        return match[0]
+    quote = '"' if match[0].startswith("[") else ""
+    return f"{quote}{years[0]}-{years[-1]}{quote}"
+
+
 def _command_line(step: _Step, lang: Lang) -> str:
     """The ``imgw`` line of a step: `format_command` with the symbols put back."""
     options = cast(
         Mapping[str, object], _substituted(step.options, lambda s: s.stand_in)
     )
     line = format_command(cast(str, step.command), options=options)
+    line = _YEAR_RUN.sub(_year_range, line)
     for symbol in _SYMBOLS:
         line = line.replace(symbol.rendered(), symbol.name(lang))
     return line + (" --check" if step.check else "")
@@ -828,15 +698,17 @@ def _flows(lang: Lang) -> str:
 def _blocks(lang: Lang) -> dict[str, Callable[[], str]]:
     """Generated blocks of the guide in ``lang`` (rendered only when used)."""
     document = command_schema(lang=lang)
+    listed = cast(list[Mapping[str, str]], list_commands(lang=lang)["commands"])
+    summaries = {item["command"]: item["summary"] for item in listed}
     return {
         "version": lambda: __version__,
         "summary": lambda: _summary(document, lang),
         "rules": lambda: _principles(lang),
         "providers": lambda: _providers(lang),
         "statuses": lambda: _statuses(document, lang),
-        "errors": lambda: _errors(document, lang),
+        "errors": lambda: _errors(document),
         "datasets": lambda: _datasets(lang),
-        "commands": lambda: _commands(document, lang),
+        "commands": lambda: _commands(document, summaries, lang),
         "flags": lambda: _flags(document, lang),
         "flows": lambda: _flows(lang),
     }
