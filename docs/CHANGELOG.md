@@ -164,10 +164,12 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `X-IMGW-Notices` header of an export are rendered in it, every command answer has
   `Content-Language`, and `Vary: Accept-Language` when the header (not `?lang=`) decided. The
   texts of the generated routes (summaries, descriptions, options, rules, tags, responses) come
-  from the English catalog, so `/openapi.json`, `/docs` and `/redoc` are English; only the field
-  descriptions of the result models (`models.py`) still wait for their own change. The `api/*`
-  modules leave the pending files of the message guard. Migration: REST clients that relied on the
-  Polish default send `Accept-Language: pl`.
+  from the English catalog, and the field descriptions of the result models (`models.py`, 47
+  texts, they feed the OpenAPI schemas) are English, so `/openapi.json`, `/docs` and `/redoc`
+  are English. The `to_dataframe()` error without pandas is the catalog message
+  `models.pandas_required`. The `api/*` and `models.py` modules leave the pending files of the
+  message guard. Migration: REST clients that relied on the Polish default send
+  `Accept-Language: pl`.
 
 ## [3.0.0] — 2026-10-19
 

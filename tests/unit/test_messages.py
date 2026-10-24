@@ -45,6 +45,8 @@ _SAME_AREAS = ("legal.",)
 _SAME_WORDS = frozenset({"agent_guide.header_status"})
 # Last segment of a file name such as ``series.json``, which is not a message key.
 _FILE_SUFFIXES = frozenset({"json", "geojson", "parquet", "csv", "zip", "toml"})
+# Polish keys of the JSON the IMGW-PIB API answers with: foreign data, not our text.
+_FOREIGN_KEYS = frozenset({"województwo", "stopień"})
 
 # Files that still hold Polish string literals outside the catalog. One comment line
 # names an area, so the commit that migrates an area touches only its own lines.
@@ -54,7 +56,6 @@ _PENDING = frozenset(
         # Command and dataset registries: Polish texts with an English variant beside.
         "commands.py",
         "datasets.py",
-        "models.py",
     }
 )
 
@@ -187,7 +188,10 @@ def test_polish_literals_stay_only_in_the_catalog_and_the_pending_files():
     found = {
         name
         for name, tree in sources()
-        if any(POLISH.search(node.value) for node in string_values(tree))
+        if any(
+            POLISH.search(node.value) and node.value not in _FOREIGN_KEYS
+            for node in string_values(tree)
+        )
     }
     assert found - _PENDING == set(), "a Polish text belongs in imgwtools.messages"
     assert _PENDING - found == set(), "no Polish literal left: drop the file"
