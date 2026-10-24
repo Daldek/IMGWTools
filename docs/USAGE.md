@@ -86,8 +86,9 @@ for dataset in datasets(kind="hydro"):
 for file in archive_files("hydro/dobowe", years=2022, months=[1, 2]):
     print(file.server_path, file.url)
 
-# Pobranie do katalogu w układzie ścieżek serwera IMGW (zapis przez .part i os.replace)
-report = download_archives("hydro/miesieczne", years=2023, output="dane")
+# Pobranie zwykłych plików do katalogu (output_dir) w układzie ścieżek serwera IMGW, bez metadanych;
+# istniejący plik wymaga force=True, a root=... zapisuje do magazynu zamiast do katalogu
+report = download_archives("hydro/miesieczne", years=2023, output_dir="dane")
 for item in report.items:
     print(item.slot, item.status, item.path)
 
@@ -116,7 +117,7 @@ from imgwtools import (
     sync_store,
 )
 
-store = init_store("/dane/imgw")  # jawny korzeń; brak domyślnego ./data
+store = init_store("/dane/imgw")  # jawny korzeń; bez niego komendy zapisujące używają <data_dir>/imgw
 
 # 1. Sprawdź aktualność bez pobierania archiwów (listing + HEAD); plan zapisany poza magazynem
 plan = check_store(store, datasets=["pl.imgw.hydro_monthly"], years="2022-2023", plan="plan.json")
@@ -322,7 +323,7 @@ imgw store catalog                                    # stations.geojson
 imgw store scan -k series
 imgw store export --version archives/versions/<ścieżka>/<wersja> --format jsonl | head
 imgw series summary -d hydro/miesieczne -s 152210170
-imgw series export -d hydro/miesieczne -s 152210170 --variables Q_mean > q.csv
+imgw series export -d hydro/miesieczne -s 152210170 --variables Q_mean --output q.csv
 imgw pmaxtp sync --lat 52.23 --lon 21.01
 imgw project init --project-dir ./projekt --store-dir /dane/imgw
 
@@ -408,6 +409,15 @@ Poza katalogiem: `imgw version`, `imgw server`, `imgw mcp` i `imgw admin keys|cr
 
 Punkt PMAXTP w ramce współrzędnych Polski, ale poza siatką IMGW (np. Kaliningrad, Lwów, Bałtyk) daje `validation_error` (CLI 2, REST 400). `imgw project set-store` przyjmuje nowy pusty magazyn z ostrzeżeniem `pins_not_in_store`; następne `imgw project download` odtwarza przypięte pliki z identycznym SHA-256 — a pliki ČHMÚ z formą kanoniczną także z tą samą treścią (`restored_by_content`, ostrzeżenie `pin_restored_by_content`) — inaczej zgłasza błąd zadania.
 
+**Zapis danych.** Komenda zapisująca ma dwa sposoby zapisu (DEV-19). `-o`/`--output-dir` zapisuje same pliki, bez metadanych, pod nazwami, które mają w magazynie (`datasets download`: układ ścieżek serwera dostawcy; `pmaxtp sync`: dwa pliki nazwane indeksami komórki); katalog powstaje, gdy go brak. Przed pierwszym bajtem powstaje pełna lista celów: duplikat nazwy, istniejący plik bez `--force` i katalog, który jest magazynem (dowolnego narzędzia Nogat) albo leży w magazynie, kończą się błędem `conflict` (`details.reason` = `duplicate_output_name`, `output_exists`, `output_in_store`; `details.paths` wymienia wszystkie ścieżki). `--check` pokazuje plan z działaniami `write`, `replace` (z `--force`) i `conflict`. Pliki trafiają najpierw do `<katalog>/.imgw-incoming/<host>_<pid>_<token>/` i dopiero po kontroli wchodzą na miejsce przez `os.replace`; ten katalog znika po sukcesie, błędzie, SIGINT i SIGTERM, a pozostałości starsze niż 24 h usuwa następne uruchomienie. Działa to na FAT/exFAT i SMB, bo nie używa dowiązań. `--force` zastępuje tylko wskazane pliki i niczego nie kasuje; w magazynie `--force` pobiera ponownie i daje nową wersję albo `unchanged`. Komendy, których wejściem albo wynikiem jest magazyn (`series build`, `store catalog`, `project *`), nie mają `--output-dir` (reguła „store only” w ich opisie), a `--plan` z `--output-dir` kończy się `validation_error` (`store_only_option`) z podpowiedzią `--root`. Przykład:
+
+```bash
+imgw datasets download -d hydro/miesieczne -y 2023 -o dane --check   # plan: write/replace/conflict
+imgw datasets download -d hydro/miesieczne -y 2023 -o dane           # pliki w dane/…, files[] z sha256
+imgw datasets download -d hydro/miesieczne -y 2023 -o dane --force   # zastępuje istniejące pliki
+imgw datasets download -d hydro/miesieczne -y 2023                   # bez celu: magazyn w <data_dir>/imgw
+```
+
 ## REST API
 
 Po uruchomieniu serwera (`imgw server`):
@@ -429,7 +439,7 @@ curl "http://localhost:8000/api/v1/commands/schema?command=store%20sync"
 curl http://localhost:8000/llms.txt
 curl -H "Accept-Language: pl" http://localhost:8000/llms.txt
 
-# Magazyn (wymaga IMGW_ROOT na serwerze; inaczej 503 store_unavailable)
+# Magazyn (wymaga IMGW_ROOT na serwerze; inaczej 503 not_configured)
 curl http://localhost:8000/api/v1/store/info
 curl "http://localhost:8000/api/v1/store/scan?kind=series"
 curl "http://localhost:8000/api/v1/series/summary?dataset=pl.imgw.hydro_monthly&stations=152210170"
@@ -477,9 +487,9 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
 ```
 
 - Bez instalacji w systemie: `"command": "uvx", "args": ["--from", "imgwtools[mcp]", "imgw", "mcp"]`.
-- Zapis: `"args": ["mcp", "--allow-writes"]` (albo `IMGW_MCP_ALLOW_WRITES=true`). Bez tej flagi serwer nie zapisuje: komendy zapisujące mają argument `check` stały `true` i zwracają plan `imgw-plan/1`, a opcje zapisujące są niedostępne (próba → `forbidden`, `details.reason="writes_disabled"`). Z flagą `check` jest domyślnie `true`, a zapis wymaga `check: false` — o zapisie decyduje użytkownik w konfiguracji, nie model.
+- Zapis: `"args": ["mcp", "--allow-writes", "--allow-dir", "/dane/imgw"]` (albo `IMGW_MCP_ALLOW_WRITES=true`; `--allow-dir` można powtórzyć). Bez `--allow-writes` serwer nie zapisuje: komendy zapisujące mają argument `check` stały `true` i zwracają plan `imgw-plan/1`, a opcje zapisujące (`output_dir`, `output`, `force`, `plan`) są niedostępne (próba → `forbidden`, `details.reason="writes_disabled"`). Z flagą `check` jest domyślnie `true`, a zapis wymaga `check: false` — o zapisie decyduje użytkownik w konfiguracji, nie model. Zapis bez `--allow-dir` to `forbidden` (`no_allowed_dir`), a cel (`root`, `output_dir`, `output` albo korzeń domyślny) poza tymi katalogami to `forbidden` (`outside_allowed_dirs`).
 - Język: serwer MCP mówi zawsze po angielsku (opisy narzędzi, instrukcje, tytuły i `detail` błędów; AGI-9.2), niezależnie od `IMGW_LANG`. Opcji `--lang` nie ma; tekst polski dostaje agent wyłącznie na jawną prośbę (argument `lang: "pl"` narzędzi `imgw_commands_list`, `imgw_commands_schema`, `imgw_commands_guide`).
-- `root` jak w CLI: argument narzędzia albo `IMGW_ROOT` serwera; ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
+- `root` jak w CLI: argument narzędzia albo `IMGW_ROOT` serwera; bez nich korzeń domyślny `<data_dir>/imgw` (musi leżeć w `--allow-dir`); ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
 
 Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` z rejestru, wszystko po angielsku). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `output`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `output`; zapis wymaga `--allow-writes` i katalogu `--allow-dir`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 38 narzędzi z opisami to ok. 48 KB schematów (tryb bez zapisu).
 
@@ -546,7 +556,7 @@ data_dir = "/srv/nogat/dane"
 lang = "pl"
 
 [imgw]    # dowolne ustawienie z tabeli niżej: nazwa zmiennej bez IMGW_, małymi literami
-store_root = "/srv/nogat/dane/imgw"
+root = "/srv/nogat/dane/imgw"
 api_max_limit = 500
 ```
 

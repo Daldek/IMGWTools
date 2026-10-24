@@ -23,7 +23,7 @@ Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw co
 - Dane PMAXTP (opady maksymalne prawdopodobne)
 - Listy stacji (wyszukiwanie IMGW-PIB i ČHMÚ) i stany wody stacji hydro IMGW ze współrzędnymi
 
-**Kluczowa zasada:** domyślnie serwer niczego nie zapisuje — generuje bezpośrednie linki do serwerów IMGW-PIB i ČHMÚ, a dane bieżące przekazuje na żywo. Dane trafiają na dysk wyłącznie po jawnej decyzji: wskazaniu katalogu `--output`, korzenia magazynu (`--root`, `IMGW_ROOT`) albo skonfigurowaniu `IMGW_ROOT` na serwerze.
+**Kluczowa zasada:** serwer HTTP niczego nie zapisuje, dopóki administrator nie ustawi `IMGW_ROOT` i nie włączy zapisu; generuje bezpośrednie linki do serwerów IMGW-PIB i ČHMÚ, a dane bieżące przekazuje na żywo. Komenda zapisująca (CLI, Python) ma dwa sposoby zapisu i nigdy nie pisze do katalogu roboczego: `-o`/`--output-dir` zapisuje same pliki, bez metadanych; `--root` albo `IMGW_ROOT` zapisuje do magazynu wersjonowanego. Bez żadnego z nich zapis idzie do magazynu w katalogu danych użytkownika (`<data_dir>/imgw`, `imgw config show --json` pokazuje korzeń i jego źródło). Pojedynczy plik eksportu: `--output PLIK`.
 
 **Wersjonowany magazyn danych** (opcjonalny, od 3.0.0):
 - niezmienne wersje archiwów IMGW-PIB i ČHMÚ 1:1 z sumami SHA-256, nagłówkami HTTP i licencją w sidecarze `*.meta.json`,
@@ -63,7 +63,7 @@ cd IMGWTools
 uv sync --locked
 ```
 
-Zapis do magazynu wersjonowanego wymaga systemu plików z dowiązaniami twardymi — tak jak magazyn Kartografa (jego ADR-036). Linux, macOS i Windows (ext4, APFS, NTFS) oraz udział SMB obsługujący dowiązania twarde działają; na FAT/exFAT, części NAS i FUSE oraz na udziale SMB zamontowanym w macOS `store init` i każdy zapis kończą się błędem `conflict` (`details.reason="not_atomic"`). Odczyt magazynu dowiązań nie wymaga.
+Zapis do magazynu wersjonowanego wymaga systemu plików z dowiązaniami twardymi — tak jak magazyn Kartografa (jego ADR-036). Linux, macOS i Windows (ext4, APFS, NTFS) oraz udział SMB obsługujący dowiązania twarde działają; na FAT/exFAT, części NAS i FUSE oraz na udziale SMB zamontowanym w macOS `store init` i każdy zapis kończą się błędem `conflict` (`details.reason="not_atomic"`). Odczyt magazynu dowiązań nie wymaga. Zapis zwykłych plików (`--output-dir`, `--output`) dowiązań nie używa i działa także na FAT/exFAT i SMB.
 
 ---
 
@@ -90,6 +90,8 @@ imgw datasets files -d hydro/dobowe -y 2023 -m 1
 imgw stations find -k hydro -q wisla --limit 5
 imgw current hydro -s 150160180
 imgw pmaxtp fetch --lat 52.23 --lon 21.01 --method AMP
+imgw datasets download -d hydro/miesieczne -y 2023 -o dane          # zwykłe pliki w katalogu dane/
+imgw store sync -d pl.imgw.hydro_monthly -y 2023                    # magazyn wersjonowany w <data_dir>/imgw
 ```
 
 stdout to jedna linia JSON — koperta `imgw-result/1`; `imgw commands list` wypisuje wszystkie komendy katalogu.
@@ -118,7 +120,7 @@ curl "http://localhost:8000/api/v1/datasets/files?dataset=hydro/dobowe&years=202
 }
 ```
 
-Domyślnie bez zapisu (komendy zapisujące zwracają plan); zapis włącza `--allow-writes`.
+Domyślnie bez zapisu (komendy zapisujące zwracają plan); zapis włącza `--allow-writes` i tylko w katalogach z `--allow-dir` (np. `"args": ["mcp", "--allow-writes", "--allow-dir", "/dane/imgw"]`); korzeń poza nimi kończy się błędem `forbidden`.
 
 ---
 
@@ -146,7 +148,7 @@ Pełna tabela zmiennych, przykład `nogat.toml` i kopia zapasowa magazynu: [Konf
 
 ## Źródła danych
 
-IMGWTools nie dystrybuuje danych IMGW-PIB ani ČHMÚ, a serwer domyślnie ich nie przechowuje — każde pobranie i zapis do magazynu jest świadomą decyzją użytkownika lub administratora (jawny `--output`, `--root`, `IMGW_ROOT`). Poniżej zestawienie wykorzystywanych źródeł.
+IMGWTools nie dystrybuuje danych IMGW-PIB ani ČHMÚ, a serwer domyślnie ich nie przechowuje — każde pobranie i zapis jest świadomą decyzją użytkownika lub administratora (`--output-dir`, `--output`, `--root`, `IMGW_ROOT`; bez nich CLI i Python zapisują do magazynu w katalogu danych użytkownika). Poniżej zestawienie wykorzystywanych źródeł.
 
 | Źródło | Operator | Warunki korzystania |
 |--------|----------|---------------------|
@@ -193,7 +195,7 @@ Pozostałe dokumenty:
 - [`docs/CODEBASE.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/CODEBASE.md) - Referencja kodu i modułów (publiczne API, katalog komend, formaty danych; [struktura projektu](https://github.com/Daldek/IMGWTools/blob/master/docs/CODEBASE.md#struktura-projektu-z-readme))
 - [`docs/TESTING.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/TESTING.md) - Testy: układ, znaczniki, uruchamianie ([instrukcje testów z README](https://github.com/Daldek/IMGWTools/blob/master/docs/TESTING.md#testy-z-readme))
 - [`docs/CHANGELOG.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/CHANGELOG.md) - Historia zmian (w tym BREAKING 3.0.0)
-- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/DECISIONS.md) - Rejestr decyzji (ADR-001: magazyn wersjonowany, ADR-002: jeden katalog komend, ADR-003: dostawca ČHMÚ, ADR-004: wsparcie agentów AI)
+- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/DECISIONS.md) - Rejestr decyzji (ADR-001: magazyn wersjonowany, ADR-002: jeden katalog komend, ADR-003: dostawca ČHMÚ, ADR-004: wsparcie agentów AI, ADR-005: środowisko użytkownika, ADR-006: katalog komunikatów, ADR-007: zapis danych)
 - [`docs/ARCHITECTURE.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/ARCHITECTURE.md) - Architektura systemu
 - [`docs/PRD.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/PRD.md) - Wymagania produktu
 - [`docs/PROGRESS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/PROGRESS.md) - Stan bieżący, kolejne kroki, pytania otwarte
