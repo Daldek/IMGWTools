@@ -282,7 +282,7 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   value syntax of the flags) are catalog messages (`imgwtools.messages.agent_guide`, 52
   entries) instead of Polish and English literals in `agent_guide.py`. Migration: pass `lang="pl"`
   or `--lang pl` where the Polish descriptions were meant; regenerate the guide files with
-  `imgw commands guide --format agents --path AGENTS.md` (and `--format llms --path llms.txt`).
+  `imgw commands guide --format agents --output AGENTS.md --force` (and `--format llms --output llms.txt --force`).
 - **Breaking — REST answers in English by default and the OpenAPI document is English (AGI-6.4,
   AGI-9.2, ADR-006):** without `Accept-Language`, or with one that names neither `en` nor `pl`, a
   REST answer is English: the `title` and `detail` of problem+json, the notices, the texts of
@@ -298,6 +298,98 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `models.pandas_required`. The `api/*` and `models.py` modules leave the pending files of the
   message guard. Migration: REST clients that relied on the Polish default send
   `Accept-Language: pl`.
+
+### Migration guide: data output (ADR-007, DEV §19)
+
+What a caller of IMGWTools (Python, `imgw`, REST, MCP) or a reader of its files has to change. The
+entries above give the reasons and every detail; this is the list to follow. The names are those of
+the unreleased 3.0.0, so no earlier release has to keep working and no alias exists.
+
+**The three targets (DEV-19.1, DEV-19.2).** `output_dir` (`--output-dir`, `-o`) writes plain files,
+`root` (`--root`, `-r`) writes the versioned store, `output` (`--output`, no short form) writes the one
+file of an export; `--force` replaces existing plain files. `output_dir` and `root` exclude each other
+(`validation_error`, `exclusive_options`). A writing command given neither writes the store at the first
+of `--root`, `IMGW_ROOT`, `[imgw] root` of `nogat.toml` and `<data_dir>/imgw` (`imgw config show --json`
+names it and its source), never into the working directory. A REST server writes only to its own
+`IMGW_ROOT`, with writes enabled and the token, and takes no `root`, `output_dir`, `output` or `force` in
+a request; `imgw mcp` writes only inside its `--allow-dir` directories and with `--allow-writes`.
+
+| Old | New |
+|---|---|
+| `IMGW_STORE_ROOT`, `Settings.store_root` | `IMGW_ROOT`, `Settings.root`; `root` is optional in every store command (default store) |
+| `IMGW_DATA_DIR` as the directory of the reference data | `IMGW_REFERENCE_DIR` (`IMGW_DATA_DIR` is the user data directory) |
+| `download_archives(output=DIR)`, `datasets download --output/-o DIR` (default `./data/downloaded`) | `output_dir=DIR`, `--output-dir/-o DIR` for plain files; `root=`, `--root` for versions in the store; neither: the default store |
+| `DownloadReport.output` | `DownloadReport.mode` (`plain`/`store`), `.output_dir` or `.root`, `.files` |
+| `export_archive`, `export_series`, `agent_guide` with `path=F`; `--path F`, `-p F` | `output=F` (`force=True` over an existing file); `--output F` (`--force`) |
+| their `Path` result; envelope `result` `"<path>"` | `OutputReport` (`.output`, `.files`); `{"output": …, "files": […]}` |
+| status `created`; series status `reused` | `new`; `unchanged` (also in the pins of project reports) |
+| `.part` files beside the targets | staging directory `<dir>/.imgw-incoming/<host>_<pid>_<token>/`, removed after every run (success, error, SIGINT, SIGTERM) |
+| `imgw-store.json` with `schema`, `created_by` | also `tool` (`imgw`), `created_at`, `producer_version`, always; the first write creates it, `imgw store init` only verifies the layout |
+| nested stores found by `kartograf-project.json` and `kartograf-meta/1` sidecars | by the marker names `kartograf-store.json` and `imgw-store.json` only |
+| `imgw mcp --allow-writes` alone | needs `--allow-dir DIR` (repeatable) for any write and for any `output`, `output_dir` or `plan` file |
+
+**Results (DEV-19.19).** Every writing command lists `files[]` = `{path, size_bytes, sha256, status}`
+with `written` or `replaced` (plain) and `new`, `unchanged` or `relabeled` (store); `sha256` is computed
+while the file is written. `items[]` keep the per-unit outcomes (`DownloadItem`: `downloaded`,
+`not_published`, `failed`, `cancelled`; a plain `store sync` item is `new` for a written file).
+`--check` plans each plain target as `write`, `replace` (with `--force`) or `conflict`
+(`PlanAction.action`, `path`, `reason`); a plan with conflicts is `ok` (exit 0), only the run fails.
+
+**Errors** (codes of the registry; `details.reason` is the new precision):
+
+| Code (CLI exit) | `details.reason` | When |
+|---|---|---|
+| `conflict` (4) | `output_exists` | a plain target exists and there is no `--force`; `details.paths` lists every such file |
+| `conflict` (4) | `duplicate_output_name` | two targets of one request have one name; `details.paths` |
+| `conflict` (4) | `output_in_store` | the directory or file is, lies in or would enter a store of IMGWTools or Kartograf; `details.paths` |
+| `conflict` (4) | `nested_store` | the root lies in, holds or nests a store of any tool |
+| `conflict` (4) | `not_empty` | `store init` in a directory with other files and no layout (was `path_conflict`) |
+| `store_unavailable` (8) | `no_marker` | a root that has the layout and no marker; hint `imgw store init --root <path>` |
+| `data_error` (7) | `invalid_layout` | `store init` found a foreign or invalid file |
+| `validation_error` (2) | `exclusive_options` | `output_dir` with `root` (`details.option` is `root`, `details.options` both) |
+| `validation_error` (2) | `store_only_option` | `plan` or `series` of `store sync`, or any `output_dir` of a project task, with `output_dir` |
+| `validation_error` (2) | `not_in_store` | a store download of a dataset that has no place in the store (hint `--output-dir`) |
+| `validation_error` (2) | `years_required_in_plain_mode` | plain `store sync` of ČHMÚ station files without `years` |
+| `forbidden` (12) | `no_allowed_dir`, `outside_allowed_dirs` | an MCP write without `--allow-dir`, or outside it |
+
+An `output` that is a directory, a `force` without `output` and a plain `output_dir` that is a file are
+`validation_error` with `details.option`.
+
+**Unchanged.** `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data` and every reader
+(`read_*`, `iter_store`, `current_version`, `store_info`); the store layout and the schemas
+`imgw-meta/1` (its sidecar already has the core of DEV-19.16, held by a contract test),
+`imgw-series/1`, `imgw-pmaxtp/1`, `imgw-observation/1`; the envelope `imgw-result/1`, `imgw-plan/1`
+(only the optional `action`, `path`, `reason` are new), the error registry and exit codes, the REST
+routes and `operationId`s, the MCP tool names.
+
+**Per consumer** (checkouts of 2026-10-25):
+
+- **Retman** (`src/retman/tools/imgwtools/`): `calls.py:226-228` and `calls_archives.py:271-272` give
+  `path` to an export: pass `output` (add `force` only where a step may repeat in one result folder);
+  `calls_archives.py:90-91` gives `output` (a directory) to `datasets download`: pass `output_dir`;
+  `client.py:235-240` and `:272` look for `path` and take the export result as a string: use `output`
+  and `result["output"]` (or `files[0]["path"]`); `describe.py:717` and `describe_archives.py:104-125`
+  match `created` and `reused`: match `new` and `unchanged`; `client.py:62-71` exports
+  `IMGW_DATA_DIR` for the reference data: `IMGW_REFERENCE_DIR`; `client.py:101` keeps passing `root`,
+  which is optional now (a default store exists), so `store_dir` need not stay required. Retman sets no
+  `IMGW_STORE_ROOT`.
+- **Archiwista:** no IMGW adapter yet (only `adapter/kartograf`). When `adapter/imgw` is written: read the
+  marker fields `tool`, `created_at`, `producer_version` beside `created_by`; let `probe` follow DEV-19.12
+  and DEV-19.13 (a layout without a marker is `store_unavailable`, `no_marker`); statuses are `new`,
+  `unchanged`, `relabeled` (a series is `unchanged`, not `reused`). `docs/IMGWTOOLS_REQUIREMENTS.md`
+  (IMGW-5 and IMGW-7: lines 715-717, 747, 826-865, 1320-1363, 1528-1551; the marker: 26, 386-448) and
+  `docs/SPEC.md` §12.7 still quote the old marker and `created`/`reused`. `imgwtools.testing` and the
+  packaged `contract_schemas.json` carry the new marker.
+- **Hydrolog:** no package dependency (the registry says `file`, `imgw-series-csv`), and the CSV of
+  `series export` is unchanged. Its documents already name `imgw series export … --output FILE`
+  (`docs/INTEGRATION.md:391`, `docs/USAGE.md:665-678`, `AGENTS.md:139`, `src/hydrolog/agent_guide.py:217`,
+  `README.md:21,256`): that name is real now, so item 3 of its PROGRESS can be closed. Add `--force` to
+  the example where the file may exist and read `files[].path` of the `--json` result.
+- **Hydraulik, Hydrograf:** only `fetch_pmaxtp(latitude, longitude, method=…)` (Hydraulik
+  `src/hydraulik/data.py:347` in the proof-of-concept worktree, pin `v2.1.1`; Hydrograf
+  `backend/scripts/preprocess_precipitation.py:169` and `analyze_watershed.py:348`, pin `v2.1.0`),
+  unchanged and compatible with the 3.0.0 signature: change the pin to the 3.0.0 tag when it exists.
+  Neither reads the store or uses the names above.
 
 ## [3.0.0] — 2026-10-19
 
@@ -411,7 +503,7 @@ Dotyczy integracji pisanych na gałęzi przed dodaniem dostawcy ČHMÚ i wsparci
 
 | Było | Jest |
 |---|---|
-| `imgw fetch hydro -i dobowe -y 2023 -m 1 [-p H] [-o KAT]` | `imgw datasets download -d hydro/dobowe -y 2023 -m 1 [--params H] [-o KAT]` (`-d` wymagane, bez domyślnego interwału); `-o` odwzorowuje ścieżki serwera IMGW, zapis przez `.part` i `os.replace` |
+| `imgw fetch hydro -i dobowe -y 2023 -m 1 [-p H] [-o KAT]` | `imgw datasets download -d hydro/dobowe -y 2023 -m 1 [--params H] [-o KAT]` (`-d` wymagane, bez domyślnego interwału); `-o` (`--output-dir`) zapisuje zwykłe pliki w układzie ścieżek serwera IMGW przez katalog `.imgw-incoming/` i `os.replace`, istniejący plik wymaga `--force` |
 | `imgw fetch meteo -i miesieczne -s synop -y 2023 [-o KAT]` | `imgw datasets download -d meteo/miesieczne/synop -y 2023 [-o KAT]` |
 | `imgw fetch current hydro\|meteo\|synop [-s ID] [-o PLIK]` | `imgw current hydro\|meteo\|synop [-s KOD]` (zapis: `> PLIK`) |
 | `imgw fetch pmaxtp -m AMP --lat … --lon … [-o PLIK]` | `imgw pmaxtp fetch --method AMP --lat … --lon …` |
@@ -422,7 +514,7 @@ Dotyczy integracji pisanych na gałęzi przed dodaniem dostawcy ČHMÚ i wsparci
 | `imgw store check\|sync --dataset K` | `--datasets K` albo `-d K` |
 | `imgw store read …` | `imgw store export …` |
 | `imgw pmaxtp check\|sync\|read --method M` (wymagane) | opcjonalne, domyślnie `POT`; `--lat`/`--lon` to aliasy `--latitude`/`--longitude` |
-| `imgw series export … --path P` (wymagane) | `--path` opcjonalne (bez niego CSV na stdout) |
+| `imgw series export … --path P` (wymagane) | `--output P` opcjonalne (bez niego CSV na stdout), `--force` zastępuje istniejący plik |
 | `--check` przy `store check`, `pmaxtp check`, `project check` | brak |
 | stdout: surowy wynik, ścieżki bezwzględne | koperta `imgw-result/1` w jednej linii, ścieżki w magazynie względne do root |
 | błąd: `Błąd: …` na stderr (komendy legacy: stdout), kod 1 | JSON `{"code", "detail", "details"}` w ostatniej linii stderr, kod według rejestru błędów; wynik `partial`/`failed` → 10/11, anulowanie 130 |
@@ -830,8 +922,9 @@ bajty co bez dostawcy ČHMÚ.
 
 ### Zmienione
 
-- Domyślnie serwer nadal tylko generuje URL-e do IMGW; dane trafiają na dysk wyłącznie
-  po jawnym wskazaniu magazynu (`--root`, `IMGW_STORE_ROOT`) lub katalogu `--output`.
+- Domyślnie serwer nadal tylko generuje URL-e do IMGW; dane trafiają na dysk wyłącznie na polecenie
+  użytkownika (`--output-dir`, `--output`, `--root`, `IMGW_ROOT` albo domyślny magazyn `<data_dir>/imgw`)
+  albo do `IMGW_ROOT` skonfigurowanego na serwerze.
 - URL-e archiwów (biblioteka, CLI, REST, web) wynikają wyłącznie z rejestru
   `archive_files`, bez zahardkodowanej górnej granicy roku.
 - Lista stacji hydro zachowuje `river_order` (czwarta kolumna CSV) i `hydrographic_code`.

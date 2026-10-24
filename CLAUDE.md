@@ -86,10 +86,11 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 
 ## 7. Cross-project context
 
-IMGWTools is a tool of the Nogat ecosystem; its entry (interfaces, provided contracts `imgw-store/1`, `imgw-meta/1`, ..., data sources) is `IMGWTools` in [ecosystem.yaml](https://github.com/Daldek/Nogat/blob/main/ecosystem.yaml). Hydrolog depends on IMGWTools (required dependency); Hydrograf and Kartograf are neighbours. Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries) and **Retman** (command catalog: `command_schema` — English by default, `lang="pl"` for Polish — `x-imgw.writes`/`network`, `validate_command`, `format_command`, `check_command`, `run_command`). Cross-project analysis: [docs/HISTORY.md](docs/HISTORY.md).
+IMGWTools is a tool of the Nogat ecosystem; its entry (interfaces, provided contracts `imgw-store/1`, `imgw-meta/1`, ..., data sources) is `IMGWTools` in [ecosystem.yaml](https://github.com/Daldek/Nogat/blob/main/ecosystem.yaml). Hydrolog has no package dependency on it (it reads the CSV of `imgw series export`); Hydrograf and Hydraulik call `fetch_pmaxtp`; Kartograf is a neighbour. Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries) and **Retman** (command catalog: `command_schema` — English by default, `lang="pl"` for Polish — `x-imgw.writes`/`network`, `validate_command`, `format_command`, `check_command`, `run_command`). What a consumer changes for the data output (ADR-007): [docs/CHANGELOG.md](docs/CHANGELOG.md), "Migration guide: data output". Cross-project analysis: [docs/HISTORY.md](docs/HISTORY.md).
 
 ## Deviations
 
 Deviations from the Nogat standard (DEV-1.2), one line each.
 
 - DEV-7.3: `tests/` is checked by mypy with the `tests.*` override of `pyproject.toml` (`disallow_untyped_defs`, `disallow_incomplete_defs`, `disallow_untyped_calls`, `disallow_untyped_decorators`, `check_untyped_defs` off): the test functions and fixtures are not annotated. `src/` is `strict` without overrides, except `pyarrow` (no type information: `ignore_missing_imports`).
+- DEV-19.5, DEV-19.6: the two files of `imgw pmaxtp sync --output-dir` are named by the cell indices of the answer, so only a call that gives `--ind-x` and `--ind-y` is refused before the request; any other is checked after the one small answer and before the first file is written (ADR-007 D3).
