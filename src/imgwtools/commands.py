@@ -287,7 +287,13 @@ def _command(
     idempotent: bool = True,
     env_root_when: Mapping[str, str] | None = None,
 ) -> tuple[DataCommand, str]:
-    """Catalog entry; ``rules`` are (Polish, English) pairs of one rule each."""
+    """
+    Catalog entry; ``rules`` are (Polish, English) pairs of one rule each.
+
+    ``one_of`` is a pair of alternative option groups (the refusal names both).
+    """
+    if len(one_of) not in (0, 2):
+        raise ValueError(f"one_of of {name} must be a pair of option groups")
     listed = (*options, _LIMIT, _OFFSET) if result == "list" else tuple(options)
     command = DataCommand(
         name,
@@ -2134,12 +2140,13 @@ def _validate(
     if spec.one_of:
         matched = [group for group in spec.one_of if present.issuperset(group)]
         if len(matched) != 1:
-            groups = " albo ".join("+".join(group) for group in spec.one_of)
+            first, second = ("+".join(group) for group in spec.one_of)
             _fail(
                 message(
                     "commands.command_needs_exactly_one_group",
                     name=spec.name,
-                    groups=groups,
+                    first=first,
+                    second=second,
                 ),
                 option=(matched[1] if matched else spec.one_of[0])[0],
             )
@@ -2445,7 +2452,7 @@ def _live(command: str, urls: Iterable[str]) -> StorePlan:
             PlanAction(
                 command,
                 "unverifiable",
-                f"Odczyt na żywo {url} (bez zapisu; aktualność znana dopiero po pobraniu)",
+                message("commands.live_read", url=url),
             )
             for url in urls
         ],
@@ -2472,12 +2479,15 @@ def _archives(options: Options) -> tuple[ArchiveFile, ...]:
 
 def _check_datasets_list(options: Options, hooks: Hooks) -> StorePlan:
     found = datasets(kind=options.get("kind"), provider=options.get("provider"))
-    return _reading("datasets list", f"Rejestr zbiorów (offline): {len(found)}")
+    return _reading(
+        "datasets list", message("commands.datasets_registry", count=len(found))
+    )
 
 
 def _check_datasets_providers(options: Options, hooks: Hooks) -> StorePlan:
     return _reading(
-        "datasets providers", f"Rejestr dostawców (offline): {len(providers())}"
+        "datasets providers",
+        message("commands.providers_registry", count=len(providers())),
     )
 
 
@@ -2485,8 +2495,7 @@ def _check_datasets_files(options: Options, hooks: Hooks) -> StorePlan:
     files = _archives(options)
     return _reading(
         "datasets files",
-        f"Pliki archiwów zbioru {options['dataset']} (offline, bez pobierania): "
-        f"{len(files)}",
+        message("commands.archive_files", dataset=options["dataset"], count=len(files)),
     )
 
 
@@ -2500,8 +2509,13 @@ def _check_download(options: Options, hooks: Hooks) -> StorePlan:
             PlanAction(
                 "datasets download",
                 "unverifiable" if exists else "missing",
-                f"{file.url} → {target}"
-                + (" (istniejący plik zostanie zastąpiony)" if exists else ""),
+                message(
+                    "commands.download_replaces"
+                    if exists
+                    else "commands.download_writes",
+                    url=file.url,
+                    target=target,
+                ),
             )
         )
     return _plan(output, actions)
@@ -2520,12 +2534,16 @@ def _check_stations(options: Options, hooks: Hooks) -> StorePlan:
         return _live("stations find", _stations._live_urls(kinds, owners))
     info = _store.store_info(root)
     action = (
-        PlanAction("stations find", "current", f"Odczyt list stacji z magazynu {root}")
+        PlanAction(
+            "stations find",
+            "current",
+            message("commands.read_station_lists", root=root),
+        )
         if info.supported
         else PlanAction(
             "stations find",
             "check_failed",
-            "; ".join(info.problems) or f"Katalog {root} nie jest magazynem IMGW",
+            "; ".join(info.problems) or message("commands.not_imgw_store", root=root),
         )
     )
     return _plan(root, [action])
@@ -2560,7 +2578,9 @@ def _check_pmaxtp_fetch(options: Options, hooks: Hooks) -> StorePlan:
 
 
 def _check_pmaxtp_url(options: Options, hooks: Hooks) -> StorePlan:
-    return _reading("pmaxtp url", f"Adres API PMAXTP (offline): {_pmaxtp_url(options)}")
+    return _reading(
+        "pmaxtp url", message("commands.pmaxtp_url", pmaxtp_url=_pmaxtp_url(options))
+    )
 
 
 def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
@@ -2574,13 +2594,17 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
             entry = _store.current_version(root, slot=f"pmaxtp:pl.imgw.pmaxtp:{cell}")
             found = None if entry is None else entry.version
     except IMGWError as exc:
-        action = PlanAction("pmaxtp read", "check_failed", str(exc))
+        action = PlanAction("pmaxtp read", "check_failed", reason(exc))
     else:
         action = (
-            PlanAction("pmaxtp read", "current", f"Odczyt komórki {cell} z {found}")
+            PlanAction(
+                "pmaxtp read",
+                "current",
+                message("commands.read_cell", cell=cell, found=found),
+            )
             if found is not None
             else PlanAction(
-                "pmaxtp read", "missing", f"Brak zapisanej komórki PMAXTP {cell}"
+                "pmaxtp read", "missing", message("commands.no_stored_cell", cell=cell)
             )
         )
     return _plan(root, [action])
@@ -2591,20 +2615,21 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
     info = _store.store_info(root)
     if info.supported:
         action = PlanAction(
-            "store init", "current", f"Magazyn IMGW już istnieje: {root}"
+            "store init", "current", message("commands.store_exists", root=root)
         )
     elif not root.exists() or (root.is_dir() and not any(root.iterdir())):
         action = PlanAction(
             "store init",
             "missing",
-            f"Zostanie utworzony znacznik {_STORE_MARKER} w {root}",
+            message(
+                "commands.marker_will_be_created", store_marker=_STORE_MARKER, root=root
+            ),
         )
     else:
         action = PlanAction(
             "store init",
             "check_failed",
-            "; ".join(info.problems)
-            or f"Katalog {root} nie jest pustym magazynem IMGW",
+            "; ".join(info.problems) or message("commands.not_empty_store", root=root),
         )
     return _plan(root, [action])
 
@@ -2612,7 +2637,9 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
 def _check_reading(command: str, key: str) -> Checker:
     def check(options: Options, hooks: Hooks) -> StorePlan:
         root = cast(Path, options[key])
-        return _reading(command, f"Operacja tylko do odczytu: {root}", root)
+        return _reading(
+            command, message("commands.read_only_operation", root=root), root
+        )
 
     return check
 
@@ -2641,13 +2668,18 @@ def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
 
 def _export_action(command: str, what: str, path: object) -> PlanAction:
     if not isinstance(path, Path):
-        return PlanAction(command, "current", f"Eksport {what} na standardowe wyjście")
+        return PlanAction(
+            command, "current", message("commands.export_to_stdout", what=what)
+        )
     exists = path.exists()
     return PlanAction(
         command,
         "newer" if exists else "missing",
-        f"Eksport {what} do {path}"
-        + (" (istniejący plik zostanie zastąpiony)" if exists else ""),
+        message(
+            "commands.export_replaces" if exists else "commands.export_to_file",
+            what=what,
+            path=path,
+        ),
     )
 
 
@@ -2656,9 +2688,13 @@ def _check_store_export(options: Options, hooks: Hooks) -> StorePlan:
     try:
         _store.read_archive(version)
     except IMGWError as exc:
-        action = PlanAction("store export", "check_failed", str(exc))
+        action = PlanAction("store export", "check_failed", reason(exc))
     else:
-        what = f"rekordów {version} ({options.get('format', 'csv')})"
+        what = message(
+            "commands.export_records",
+            version=version,
+            format=options.get("format", "csv"),
+        )
         action = _export_action("store export", what, options.get("path"))
     return _plan(options.get("root") or _store_root(version), [action])
 
@@ -2670,14 +2706,19 @@ def _check_select(options: Options, hooks: Hooks) -> StorePlan:
         status: Literal["missing", "check_failed"] = (
             "missing" if exc.code == "not_found" else "check_failed"
         )
-        action = PlanAction("series select", status, str(exc))
+        action = PlanAction("series select", status, reason(exc))
     else:
         action = PlanAction(
             "series select",
             "current",
-            f"{selection.version}: stacje {', '.join(selection.stations)}; zmienne "
-            f"{', '.join(selection.variables)}; lata "
-            f"{', '.join(map(str, selection.years))} ({selection.year_type})",
+            message(
+                "commands.series_selection",
+                version=selection.version,
+                stations=", ".join(selection.stations),
+                variables=", ".join(selection.variables),
+                years=", ".join(map(str, selection.years)),
+                year_type=selection.year_type,
+            ),
         )
     return _plan(options["root"], [action])
 
@@ -2698,17 +2739,23 @@ def _check_series(command: str) -> Checker:
         except IMGWError as exc:
             missing = exc.code == "not_found" and command != "series export"
             action = PlanAction(
-                command, "missing" if missing else "check_failed", str(exc)
+                command, "missing" if missing else "check_failed", reason(exc)
             )
         else:
             action = (
                 _export_action(
                     command,
-                    f"szeregu stacji {options['station']} z {path}",
+                    message(
+                        "commands.export_station_series",
+                        station=options["station"],
+                        path=path,
+                    ),
                     options.get("path"),
                 )
                 if command == "series export"
-                else PlanAction(command, "current", f"Odczyt szeregu {path} (offline)")
+                else PlanAction(
+                    command, "current", message("commands.read_series", path=path)
+                )
             )
         base = root if isinstance(root, Path) else _store_root(options["version"])
         return _plan(base, [action])
@@ -2723,20 +2770,28 @@ def _check_manifest(command: str) -> Checker:
         if command == "project init":
             action = (
                 PlanAction(
-                    command, "current", f"Manifest projektu już istnieje: {manifest}"
+                    command,
+                    "current",
+                    message("commands.manifest_exists", manifest=manifest),
                 )
                 if manifest.exists()
                 else PlanAction(
-                    command, "missing", f"Zostanie utworzony manifest {manifest}"
+                    command,
+                    "missing",
+                    message("commands.manifest_will_be_created", manifest=manifest),
                 )
             )
         elif manifest.is_file():
             action = PlanAction(
-                command, "newer", f"Zostanie zaktualizowany manifest {manifest}"
+                command,
+                "newer",
+                message("commands.manifest_will_be_updated", manifest=manifest),
             )
         else:
             action = PlanAction(
-                command, "check_failed", f"Brak manifestu projektu {manifest}"
+                command,
+                "check_failed",
+                message("commands.no_manifest", manifest=manifest),
             )
         return _plan(directory, [action])
 
@@ -2746,12 +2801,19 @@ def _check_manifest(command: str) -> Checker:
 def _check_commands_guide(options: Options, hooks: Hooks) -> StorePlan:
     # The guide is rendered offline from the package; the plan names its target.
     path = options.get("path")
-    target = "standardowe wyjście"
+    target: str = message("commands.standard_output")
     if isinstance(path, Path):
-        replaced = " (istniejący plik zostanie zastąpiony)" if path.exists() else ""
-        target = f"{path}{replaced}"
-    language = options.get("lang", "pl")
-    detail = f"Przewodnik {options.get('format', 'agents')} ({language}) → {target}"
+        target = (
+            message("commands.target_replaced", path=path)
+            if path.exists()
+            else str(path)
+        )
+    detail = message(
+        "commands.guide_plan",
+        format=options.get("format", "agents"),
+        language=options.get("lang", "pl"),
+        target=target,
+    )
     return _reading("commands guide", detail)
 
 
@@ -2792,10 +2854,10 @@ _CHECKS: dict[str, Checker] = {
     "project status": _check_reading("project status", "project_dir"),
     "project verify": _check_reading("project verify", "project_dir"),
     "commands list": lambda options, hooks: _reading(
-        "commands list", "Spis komend imgw-command-list/1 (offline)"
+        "commands list", message("commands.command_list_description")
     ),
     "commands schema": lambda options, hooks: _reading(
-        "commands schema", "Opis katalogu komend imgw-commands/1 (offline)"
+        "commands schema", message("commands.commands_catalog_description")
     ),
     "commands guide": _check_commands_guide,
 }

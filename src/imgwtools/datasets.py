@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from imgwtools.exceptions import IMGWValidationError
-from imgwtools.messages import message
+from imgwtools.messages import Message, message
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 YearsArg = int | str | Iterable[int | str]
@@ -78,7 +78,8 @@ class License:
         License identifier, e.g. ``"IMGW-PIB"`` (IMGW-PIB terms of use) or
         ``"CC-BY-4.0"``.
     attribution : str
-        Required attribution formula of the source files (in Polish).
+        Required attribution formula of the source files; it keeps its (Polish)
+        wording in every language, because sidecars and exports persist it.
     url : str
         URL of the license or terms of use.
     terms_url : str or None, optional
@@ -118,7 +119,8 @@ class ProviderDescriptor:
         Formula marking processed forms (series, catalog, exports), without
         a final full stop.
     notice : str
-        Text of the ``license_terms`` notice that follows the attribution.
+        Text of the ``license_terms`` notice that follows the attribution (a
+        catalog message).
     station_code_pattern : str
         Regular expression of the provider's station codes.
     datasets : tuple of str
@@ -136,6 +138,30 @@ class ProviderDescriptor:
     notice: str
     station_code_pattern: str
     datasets: tuple[str, ...]
+
+    def license_notice(self, attribution: str | None = None) -> Message:
+        """
+        Text of the ``license_terms`` notice of data of this provider.
+
+        Parameters
+        ----------
+        attribution : str or None, optional
+            The attribution formula the written data carries (the source one
+            with the processed-data formula appended for a derived form);
+            the provider's source formula by default.
+
+        Returns
+        -------
+        Message
+            The attribution followed by the provider's notice.
+        """
+        return message(
+            "datasets.license_notice",
+            attribution=self.license.attribution
+            if attribution is None
+            else attribution,
+            notice=self.notice,
+        )
 
 
 @dataclass(frozen=True)
@@ -273,13 +299,12 @@ class ArchiveFile:
 
 _LICENSE = License(
     "IMGW-PIB",
-    "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy",
+    message("legal.imgw_attribution"),
     "https://danepubliczne.imgw.pl/regulations",
 )
 _CHMI_LICENSE = License(
     "CC-BY-4.0",
-    "Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, "
-    "licencja CC BY 4.0",
+    message("legal.chmi_attribution"),
     "https://creativecommons.org/licenses/by/4.0/",
     "https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti",
 )
@@ -626,15 +651,13 @@ _PROVIDERS = (
     ProviderDescriptor(
         id="IMGW-PIB",
         short_name="IMGW-PIB",
-        name="Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy",
+        name=message("legal.imgw_name"),
         country="PL",
         key_prefix="pl.imgw",
         base_url=f"{IMGW_PUBLIC_DATA_URL}/",
         license=_LICENSE,
-        processed_attribution="Dane Instytutu Meteorologii i Gospodarki Wodnej – "
-        "Państwowego Instytutu Badawczego zostały przetworzone",
-        notice="Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-        "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+        processed_attribution=message("legal.imgw_processed_attribution"),
+        notice=message("datasets.provider_notice_imgw"),
         station_code_pattern=r"^[0-9]{9}$",
         datasets=tuple(item.key for item in _DATASETS if item.provider == "IMGW-PIB"),
     ),
@@ -646,10 +669,8 @@ _PROVIDERS = (
         key_prefix="cz.chmi",
         base_url="https://opendata.chmi.cz/",
         license=_CHMI_LICENSE,
-        processed_attribution="Dane ČHMÚ zostały przetworzone (normalizacja i "
-        "zmiana formatu)",
-        notice="Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie komercyjne "
-        "pod warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian.",
+        processed_attribution=message("legal.chmi_processed_attribution"),
+        notice=message("datasets.provider_notice_chmi"),
         station_code_pattern=rf"^{_WIGOS_CODE}$",
         datasets=tuple(item.key for item in _DATASETS if item.provider == "CHMI"),
     ),

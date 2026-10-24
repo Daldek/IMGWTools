@@ -95,4 +95,36 @@ MESSAGES = {
         "A series version directory collision: {parent}",
         "Kolizja katalogu wersji szeregu: {parent}",
     ),
+    "input_progress": Text(
+        "Series input {relative}",
+        "Wejście szeregu {relative}",
+    ),
+    "series_current": Text(
+        "The series {slug} matches the current archives",
+        "Szereg {slug} odpowiada bieżącym archiwom",
+    ),
+    "series_needs_rebuild": Text(
+        "The series {slug} needs a rebuild",
+        "Szereg {slug} wymaga przebudowy",
+    ),
+    "series_missing": Text(
+        "No series {slug}",
+        "Brak szeregu {slug}",
+    ),
+    "no_archives_of_dataset": Text(
+        "No archives of the dataset {dataset} in the store",
+        "Brak archiwów zbioru {dataset} w magazynie",
+    ),
+    "series_inputs_unchanged": Text(
+        "The series {slug} has unchanged inputs",
+        "Szereg {slug} bez zmian wejść",
+    ),
+    "archive_read": Text(
+        "Read {relative}",
+        "Odczytano {relative}",
+    ),
+    "station_progress": Text(
+        "Station {code}",
+        "Stacja {code}",
+    ),
 }

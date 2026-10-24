@@ -87,4 +87,12 @@ MESSAGES = {
         "Cannot save {path}: {exc}",
         "Nie można zapisać {path}: {exc}",
     ),
+    "archive_downloaded": Text(
+        "Downloaded {server_path}",
+        "Pobrano {server_path}",
+    ),
+    "archive_not_downloaded": Text(
+        "Not downloaded {server_path}: {error}",
+        "Nie pobrano {server_path}: {error}",
+    ),
 }

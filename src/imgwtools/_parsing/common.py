@@ -124,7 +124,7 @@ def _is_header_row(row: list[str]) -> bool:
 
 
 def archive_csv_members(
-    data: bytes, *, kind: str | None = None, filename: str = "archiwum ZIP"
+    data: bytes, *, kind: str | None = None, filename: str | None = None
 ) -> Iterator[tuple[str, bytes]]:
     """
     Iterate over CSV members of an IMGW ZIP archive without extracting it.
@@ -140,8 +140,8 @@ def archive_csv_members(
     kind : str or None, optional
         If given, only members whose lowercase name contains this substring
         are yielded.
-    filename : str, optional
-        Archive name used in error messages.
+    filename : str or None, optional
+        Archive name used in error messages; "ZIP archive" by default.
 
     Yields
     ------
@@ -157,6 +157,8 @@ def archive_csv_members(
         member path, contains a CSV member larger than 64 MiB, or cannot be
         read as a ZIP file.
     """
+    if filename is None:
+        filename = message("parsing.zip_archive")
     try:
         with ZipFile(io.BytesIO(data)) as archive:
             members = archive.infolist()

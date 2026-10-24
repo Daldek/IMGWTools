@@ -70,25 +70,25 @@ _CHMI_ELEMENTS, _CHMI_RAIN = "0-203-0-90001", "0-203-0-90000000002"
 # sync_store selectors with the expected statuses of the items and of the series.
 _CHMI_STEPS: tuple[tuple[str, Mapping[str, Any], tuple[str, ...], str], ...] = (
     (
-        "ČHMÚ hydro (1) pierwsza publikacja",
+        "ČHMÚ hydro (1) first publication",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL, _CHMI_GAP)},
         ("created",) * 4,
         "created",
     ),
     (
-        "ČHMÚ hydro (2) ponowna publikacja",
+        "ČHMÚ hydro (2) republication",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_GAP,)},
         ("relabeled",) * 2,
         "reused",
     ),
     (
-        "ČHMÚ hydro (3) poprawka",
+        "ČHMÚ hydro (3) correction",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2024,)},
         ("created",),
         "created",
     ),
     (
-        "ČHMÚ hydro (8) ponowna serializacja",
+        "ČHMÚ hydro (8) reserialization",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2023,)},
         ("unchanged",),
         "reused",

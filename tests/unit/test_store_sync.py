@@ -130,13 +130,13 @@ def test_check_store_reports_all_statuses_with_listing_and_head_only(root, serve
     assert by_path[H2023.server_path].status == "current"
     assert by_path[H2023.server_path].content_length == 999999
     assert by_path[H2022_01.server_path].status == "unverifiable"
-    assert "porównywalnego" in by_path[H2022_01.server_path].error
+    assert "no comparable" in by_path[H2022_01.server_path].error
     assert by_path[H2022_02.server_path].status == "missing"
     assert by_path[H2022_02.server_path].local_path is None
     assert by_path[H2098.server_path].status == "unverifiable"
-    assert by_path[H2098.server_path].error == "nieopublikowany"
+    assert by_path[H2098.server_path].error == "not published"
     assert by_path[H2022_03.server_path].status == "check_failed"
-    assert "czas" in by_path[H2022_03.server_path].error
+    assert "Timed out" in by_path[H2022_03.server_path].error
     assert (
         by_path[H2024.server_path]
         .local_path.as_posix()

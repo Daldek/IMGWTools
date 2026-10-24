@@ -109,8 +109,14 @@ def _attribution(descriptor: DatasetDescriptor) -> tuple[str, str]:
 def _license(descriptor: DatasetDescriptor, on_notice: NoticeHook | None) -> None:
     if on_notice is not None:
         source, processed = _attribution(descriptor)
-        notice = get_provider(descriptor.provider).notice
-        on_notice(Notice("info", "license_terms", f"{source}. {processed}. {notice}"))
+        provider = get_provider(descriptor.provider)
+        on_notice(
+            Notice(
+                "info",
+                "license_terms",
+                provider.license_notice(f"{source}. {processed}"),
+            )
+        )
 
 
 def _field_names(name: str, descriptor: DatasetDescriptor) -> list[str]:
@@ -184,7 +190,11 @@ class _Lines:
                             self._total,
                             "row",
                             "written",
-                            f"{self._label}: {self.written} wierszy",
+                            message(
+                                "export.rows_written",
+                                label=self._label,
+                                written=self.written,
+                            ),
                         )
                     )
 
@@ -223,7 +233,7 @@ def _deliver(
         _fsync_dir(target.parent)
     finally:
         part.unlink(missing_ok=True)
-    lines.finish(f"{done} do {target}")
+    lines.finish(message("export.exported_to_file", done=done, target=target))
     return target
 
 
@@ -449,12 +459,15 @@ def export_archive(
         head,
         rows,
         total=None,
-        label=f"Archiwum {source}",
+        label=message("export.archive_progress", source=source),
         on_progress=on_progress,
         cancel=cancel,
     )
     return _deliver(
-        lines, target=target, cancel=cancel, done=f"Wyeksportowano archiwum {source}"
+        lines,
+        target=target,
+        cancel=cancel,
+        done=message("export.archive_exported", source=source),
     )
 
 
@@ -675,7 +688,7 @@ def export_series(
         (_csv_line(header),),
         _csv_lines(row(number, record) for number, record in enumerate(records)),
         total=len(records),
-        label=f"Stacja {station}",
+        label=message("export.station_progress", station=station),
         on_progress=on_progress,
         cancel=cancel,
     )
@@ -683,5 +696,5 @@ def export_series(
         lines,
         target=target,
         cancel=cancel,
-        done=f"Wyeksportowano szereg stacji {station}",
+        done=message("export.series_exported", station=station),
     )

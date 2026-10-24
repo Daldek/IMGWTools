@@ -119,4 +119,26 @@ MESSAGES = {
         "The write of the archive was cancelled",
         "Anulowano zapis archiwum",
     ),
+    "abandoned_staging_removed": Text(
+        "Removed an abandoned staging directory older than 24 h: .incoming/{name}",
+        "Usunięto porzucony staging starszy niż 24 h: .incoming/{name}",
+    ),
+    "no_observation_reference": Text(
+        "none (the signal of reference is the current version)",
+        "brak (sygnałem odniesienia jest bieżąca wersja)",
+    ),
+    "content_unchanged": Text(
+        "Unchanged content in {slot}: the downloaded bytes (SHA-256 {sha}) have the "
+        "same canonical content {form} (content_sha256 {content_sha256}) as the "
+        "current version {current} (SHA-256 {sha256}); no new version was written, "
+        "observation: {recorded}",
+        "Treść bez zmian w {slot}: pobrane bajty (SHA-256 {sha}) mają tę samą treść "
+        "kanoniczną {form} (content_sha256 {content_sha256}) co bieżąca wersja "
+        "{current} (SHA-256 {sha256}); nowej wersji nie zapisano, obserwacja: "
+        "{recorded}",
+    ),
+    "archive_written": Text(
+        "Wrote the archive {filename}",
+        "Zapisano archiwum {filename}",
+    ),
 }

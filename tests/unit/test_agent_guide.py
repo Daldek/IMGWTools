@@ -304,12 +304,12 @@ def test_path_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
 
     plan = json.loads(planned.stdout)
     assert (plan["check"], plan["status"]) == (True, "ok")
-    replaced = " (istniejący plik zostanie zastąpiony)" if existing else ""
+    replaced = " (an existing file is replaced)" if existing else ""
     assert plan["result"]["actions"] == [
         {
             "command": "commands guide",
             "status": "current",
-            "detail": f"Przewodnik agents (en) → {target}{replaced}",
+            "detail": f"Guide agents (en) → {target}{replaced}",
         }
     ]
     assert untouched == ("stara treść\n".encode() if existing else False)
@@ -323,7 +323,7 @@ def test_guide_without_path_plans_the_standard_output():
     plan = check_command("commands guide", options={"format": "llms"}).result
 
     assert [(action.status, action.detail) for action in plan.actions] == [
-        ("current", "Przewodnik llms (pl) → standardowe wyjście")
+        ("current", "Guide llms (pl) → the standard output")
     ]
 
 

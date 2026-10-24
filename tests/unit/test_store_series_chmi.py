@@ -180,8 +180,9 @@ def test_station_with_an_unpublished_year_matches_the_spec_example(root):
         ]
     ]
     provider_notice = (
-        "Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie komercyjne pod "
-        "warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian."
+        "The CC BY 4.0 licence permits copying, changes and commercial use provided "
+        "that the author ČHMÚ is credited, the licence is given and the changes are "
+        "marked."
     )
     assert [(notice.code, notice.text) for notice in notices] == [
         ("license_terms", f"{CHMI_ATTRIBUTION}. {provider_notice}")
@@ -536,7 +537,6 @@ def test_imgw_series_keep_the_layout_of_3_0_0(root):
         for entry in meta["extra"]["source_files"]
     )
     assert [notice.text for notice in notices] == [
-        f"{attribution}. Do użytku prywatnego i badawczego; inne zastosowania "
-        "wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej "
-        "wartości."
+        f"{attribution}. For private and research use; other uses require checking "
+        "the IMGW-PIB terms, including the exceptions for high-value data."
     ]

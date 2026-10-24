@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
-from imgwtools.datasets import _license_document, get_dataset
+from imgwtools.datasets import (
+    ProviderDescriptor,
+    _license_document,
+    get_dataset,
+    get_provider,
+)
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWStoreError,
@@ -53,10 +58,6 @@ CELL_FILE = "cell.json"
 RESPONSE_FILE = "response.json"
 CELL_SCHEMA = "imgw-pmaxtp/1"
 PMAXTP_DATASET = "pl.imgw.pmaxtp"
-PROCESSED_ATTRIBUTION = (
-    "Dane Instytutu Meteorologii i Gospodarki Wodnej – Państwowego Instytutu Badawczego "
-    "zostały przetworzone"
-)
 _METHODS = ("POT", "AMP")
 _TABLES = ("ks", "sg", "rb")
 
@@ -170,9 +171,15 @@ def _result(
     )
 
 
+def _provider() -> ProviderDescriptor:
+    return get_provider(get_dataset(PMAXTP_DATASET).provider)
+
+
 def _license() -> dict[str, str]:
     license_ = _license_document(get_dataset(PMAXTP_DATASET).license)
-    license_["attribution"] = f"{license_['attribution']}. {PROCESSED_ATTRIBUTION}"
+    license_["attribution"] = (
+        f"{license_['attribution']}. {_provider().processed_attribution}"
+    )
     return license_
 
 
@@ -251,20 +258,28 @@ def check_pmaxtp(
             "imgw-plan/1", handle.root, now, (), {}, (action,), cancelled=True
         )
     if cell is None:
-        detail = (
-            f"{method} {latitude:.4f},{longitude:.4f}: komórka nieznana bez pobrania — "
-            "indeksy indX/indY ustala wyłącznie odpowiedź API, które nie udostępnia sygnału aktualności"
+        detail = message(
+            "pmaxtp.cell_unknown_without_download",
+            method=method,
+            latitude=latitude,
+            longitude=longitude,
         )
     else:
         current = _current_cell(handle.root, method, *cell)
         where = (
-            f"lokalna wersja {current[0].relative_to(handle.root).as_posix()}"
+            message(
+                "pmaxtp.local_version",
+                current=current[0].relative_to(handle.root).as_posix(),
+            )
             if current
-            else "brak lokalnej wersji"
+            else message("pmaxtp.no_local_version")
         )
-        detail = (
-            f"{method} komórka {cell[0]}_{cell[1]}: {where}; aktualności nie można sprawdzić "
-            "bez pobrania (API nie udostępnia sygnału aktualności)"
+        detail = message(
+            "pmaxtp.cell_cannot_check",
+            method=method,
+            cell=cell[0],
+            cell_2=cell[1],
+            where=where,
         )
     if on_notice is not None:
         on_notice(Notice("warning", "source_unverifiable", detail))
@@ -392,7 +407,7 @@ def sync_pmaxtp(
                     1,
                     "cell",
                     "unchanged",
-                    f"Komórka PMAXTP {cell[0]}_{cell[1]} bez zmian",
+                    message("pmaxtp.cell_unchanged", cell=cell[0], cell_2=cell[1]),
                 )
             )
         return PMaXTPStoreResult("unchanged", current[0], cell[0], cell[1], result)
@@ -445,7 +460,12 @@ def sync_pmaxtp(
                 1,
                 "cell",
                 status,
-                f"Komórka PMAXTP {cell[0]}_{cell[1]}: {path.parent.name}",
+                message(
+                    "pmaxtp.cell_published",
+                    cell=cell[0],
+                    cell_2=cell[1],
+                    name=path.parent.name,
+                ),
             )
         )
     if created and on_notice is not None:
@@ -453,8 +473,7 @@ def sync_pmaxtp(
             Notice(
                 "info",
                 LICENSE_NOTICE,
-                f"{_license()['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-                "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                _provider().license_notice(_license()["attribution"]),
             )
         )
     return PMaXTPStoreResult(status, path, cell[0], cell[1], result)

@@ -309,7 +309,7 @@ def put_monthly(store, codes, etag, *, shift=0):
 
 
 def series_action(plan):
-    (action,) = [a for a in plan.actions if a.detail.startswith("indeksy szeregów")]
+    (action,) = [a for a in plan.actions if a.detail.startswith("series indexes")]
     return action.status
 
 
@@ -769,7 +769,9 @@ def test_check_catalog_tracks_static_file_presence(store, isolated_reference_dir
 
     def static_action():
         (action,) = [
-            a for a in check_catalog(store).actions if "plik położeń static" in a.detail
+            a
+            for a in check_catalog(store).actions
+            if "location file static" in a.detail
         ]
         return action
 
@@ -777,7 +779,7 @@ def test_check_catalog_tracks_static_file_presence(store, isolated_reference_dir
         mock_sources(router)
         build_catalog(store)
         absent = static_action()
-        assert absent.status == "current" and "brak pliku" in absent.detail
+        assert absent.status == "current" and "missing file" in absent.detail
         static.write_text(
             "station_code,latitude,longitude\n149190312,50.0512,19.9512\n",
             encoding="utf-8",
@@ -812,8 +814,8 @@ def test_code_listed_twice_is_reported_and_kept_once(store):
     assert report.status == "created"
     (problem,) = [p for p in report.problems if "250199990" in p]
     assert problem == (
-        "Lista meteo: powtórzony kod stacji 250199990 (STACJA TESTOWA, kod krótki "
-        "4611 oraz STACJA TESTOWA, kod krótki 94660); katalog używa pierwszego wiersza"
+        "List meteo: repeated station code 250199990 (STACJA TESTOWA, short code "
+        "4611 and STACJA TESTOWA, short code 94660); the catalog uses the first row"
     )
     assert list(features(report)).count("250199990") == 1
     rows = [

@@ -41,7 +41,8 @@ class Progress:
         Outcome or state of the current unit, e.g. ``"created"`` or
         ``"failed"``.
     message : str
-        Human-readable message (in Polish).
+        Human-readable message: a catalog `Message` (English; render it in
+        another language with ``Message.localized``).
     """
 
     current: int
@@ -64,7 +65,8 @@ class Notice:
         Stable machine-readable identifier, e.g. ``"license_terms"`` or
         ``"source_unverifiable"``.
     text : str
-        Human-readable message (in Polish).
+        Human-readable message: a catalog `Message` (English; render it in
+        another language with ``Message.localized``).
     """
 
     level: Literal["info", "warning", "error"]
@@ -198,7 +200,7 @@ class PlanItem:
         Size reported by the server (``Content-Length`` or the listing), or
         None.
     error : str or None
-        Reason for an unverifiable or failed check, e.g. ``"nieopublikowany"``.
+        Reason for an unverifiable or failed check, e.g. ``"not published"``.
     station_code : str or None, optional
         Station of a per-station file (ČHMÚ), None for country archives.
     signal : {"head", "listing"}, optional
@@ -239,7 +241,7 @@ class PlanAction:
     status : {"current", "newer", "missing", "unverifiable", "check_failed"}
         Freshness state of the action's result.
     detail : str
-        Human-readable explanation (in Polish).
+        Human-readable explanation: a catalog `Message` (English).
     """
 
     command: str
@@ -604,8 +606,8 @@ class DownloadItem:
     path : Path or None
         Absolute path of the written file, or None when nothing was written.
     error : str or None
-        Error description (in Polish) of a failed item (``"nieopublikowany"``
-        for an unpublished one), or None.
+        Error description of a failed item (``"not published"`` for an
+        unpublished one), or None.
     error_code : ErrorCode or None
         Error code from ``ERROR_CODES`` of a failed item, or None.
     """
@@ -798,7 +800,7 @@ class StoreEntry:
     problem_code : str or None
         Machine-readable problem code, e.g. ``"missing_sidecar"``, or None.
     problem : str or None
-        Human-readable problem description (in Polish), or None.
+        Human-readable problem description, or None.
     observation : Observation or None, optional
         Parsed observation of an ``"observation"`` entry, None otherwise.
     provider : str or None, optional

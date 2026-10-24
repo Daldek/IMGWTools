@@ -345,4 +345,217 @@ MESSAGES = {
         "Manifest projektu jest zablokowany (właściciel: {owner}); jeśli żaden "
         "proces IMGWTools nie pracuje na projekcie, usuń ręcznie katalog {lock}",
     ),
+    "upgrade_hint": Text(
+        'a deliberate re-pin: update="upgrade"',
+        'świadome przepięcie: update="upgrade"',
+    ),
+    "pin_missing_same_content": Text(
+        "the pinned file is missing; the version {version} has the same content but "
+        "is not identical ({upgrade})",
+        "brak przypiętego pliku; wersja {version} ma tę samą treść, ale nie jest "
+        "identyczna ({upgrade})",
+    ),
+    "pin_symlink": Text(
+        "a symbolic link instead of the version file",
+        "dowiązanie symboliczne zamiast pliku wersji",
+    ),
+    "pin_missing_in_store": Text(
+        "the pinned file is missing in the store",
+        "brak przypiętego pliku w magazynie",
+    ),
+    "pin_not_file": Text(
+        "the pinned path is not a file",
+        "przypięta ścieżka nie jest plikiem",
+    ),
+    "pin_not_confirmed_by_index": Text(
+        "the series.json index of the version does not confirm the pinned station file",
+        "spis series.json wersji nie potwierdza przypiętego pliku stacji",
+    ),
+    "pin_size_differs": Text(
+        "the size {size} B differs from the sidecar ({size_bytes} B)",
+        "rozmiar {size} B różni się od sidecara ({size_bytes} B)",
+    ),
+    "pin_sidecar_other_sha256": Text(
+        "the sidecar names another SHA-256 than the pinned one",
+        "sidecar wskazuje inną sumę SHA-256 niż przypięta",
+    ),
+    "pin_sha256_differs": Text(
+        "the SHA-256 of the file ({actual}) differs from the pinned one ({sha256})",
+        "suma SHA-256 pliku ({actual}) różni się od przypiętej ({sha256})",
+    ),
+    "equivalent_does_not_confirm": Text(
+        "the equivalent version {relative} does not confirm the content of the pin "
+        "(SHA-256 of the file {actual}, in the sidecar {sha256})",
+        "wersja równoważna {relative} nie potwierdza treści pinu (SHA-256 pliku "
+        "{actual}, w sidecarze {sha256})",
+    ),
+    "equivalent_sha256_differs": Text(
+        "the equivalent version {relative}: the SHA-256 of the file ({actual}) "
+        "differs from the pinned one ({sha256})",
+        "wersja równoważna {relative}: suma SHA-256 pliku ({actual}) różni się od "
+        "przypiętej ({sha256})",
+    ),
+    "task_restored_by_content": Text(
+        "Task {name}: the pinned files were restored by content ({count}): "
+        "{described}; the pins are unchanged, {upgrade}",
+        "Zadanie {name}: przypięte pliki odtworzone treścią ({count}): {described}; "
+        "przypięcia bez zmian, {upgrade}",
+    ),
+    "check_failed": Text(
+        "check failed",
+        "błąd sprawdzenia",
+    ),
+    "pins_changed": Text(
+        "changed pinned files (not restorable): {changed}",
+        "zmienione przypięte pliki (nie do odtworzenia): {changed}",
+    ),
+    "task_not_pinned": Text(
+        "the task is not pinned: project download fetches the data and pins the files",
+        "zadanie nieprzypięte: project download pobierze dane i przypnie pliki",
+    ),
+    "newer_or_missing": Text(
+        "newer or missing source data are available; only {upgrade} changes the pins",
+        "dostępne nowsze lub brakujące dane źródłowe; piny zmieni wyłącznie {upgrade}",
+    ),
+    "no_comparable_signal_part": Text(
+        "no comparable freshness signal for part of the data",
+        "brak porównywalnego sygnału aktualności części danych",
+    ),
+    "pins_current_content_match": Text(
+        "the pinned files are present or restored by content (content_match: "
+        "{matched}), the data is current; only {upgrade} changes the pins",
+        "przypięte pliki obecne albo odtworzone treścią (content_match: {matched}), "
+        "dane aktualne; piny zmieni wyłącznie {upgrade}",
+    ),
+    "pins_current": Text(
+        "the pinned files are present, the data is current",
+        "przypięte pliki obecne, dane aktualne",
+    ),
+    "store_missing": Text(
+        "the store {root} does not exist; project download creates it and fetches "
+        "the data",
+        "magazyn {root} nie istnieje; project download utworzy go i pobierze dane",
+    ),
+    "series_build_failed": Text(
+        "building the series failed",
+        "budowa szeregu nie powiodła się",
+    ),
+    "task_reasons": Text(
+        "Task {name}: {reasons}; the pins are unchanged",
+        "Zadanie {name}: {reasons}; przypięcia bez zmian",
+    ),
+    "not_restored": Text(
+        "Not restored {key}: {exc}",
+        "Nie odtworzono {key}: {exc}",
+    ),
+    "not_restored_key": Text(
+        "Not restored {key}",
+        "Nie odtworzono {key}",
+    ),
+    "server_other_content": Text(
+        "{short_name} serves other content of {server_path} (SHA-256 {served}) than "
+        "the pinned one ({sha256}); the pins are unchanged, {upgrade}",
+        "{short_name} udostępnia inną treść {server_path} (SHA-256 {served}) niż "
+        "przypięta ({sha256}); przypięcia bez zmian, {upgrade}",
+    ),
+    "identical_bytes_written": Text(
+        "The identical bytes were written as {written_path}; the pinned version "
+        "{key} stays unavailable, {upgrade}",
+        "Identyczne bajty zapisano jako {written_path}; przypięta wersja {key} "
+        "pozostaje niedostępna, {upgrade}",
+    ),
+    "unknown_series_dataset": Text(
+        "Unknown series dataset {slug}",
+        "Nieznany zbiór szeregu {slug}",
+    ),
+    "current_archives_differ": Text(
+        "The current versions of the archives of the dataset {key} differ from the "
+        "pinned inputs of the series; an identical version cannot be built, {upgrade}",
+        "Bieżące wersje archiwów zbioru {key} różnią się od przypiętych wejść "
+        "szeregu; identycznej wersji nie można zbudować, {upgrade}",
+    ),
+    "series_not_restored": Text(
+        "Not restored the series {slug}: {exc}",
+        "Nie odtworzono szeregu {slug}: {exc}",
+    ),
+    "series_other_sha256": Text(
+        "The series {key} built from the pinned inputs ({store_path}) has another "
+        "SHA-256 ({built}) than the pinned one ({sha256}); the pins are unchanged, "
+        "{upgrade}",
+        "Szereg {key} zbudowany z przypiętych wejść ({store_path}) ma inną sumę "
+        "SHA-256 ({built}) niż przypięta ({sha256}); przypięcia bez zmian, {upgrade}",
+    ),
+    "version_cannot_restore": Text(
+        "The version {path} cannot be restored: the label of the directory or cell "
+        "comes from the day of the download; {upgrade}",
+        "Wersji {path} nie można odtworzyć: etykieta katalogu/komórki pochodzi z "
+        "dnia pobrania; {upgrade}",
+    ),
+    "task_progress": Text(
+        "Task {name}",
+        "Zadanie {name}",
+    ),
+    "command_failed": Text(
+        "{command}: failed",
+        "{command}: niepowodzenie",
+    ),
+    "task_error": Text(
+        "Task {name}: {exc}",
+        "Zadanie {name}: {exc}",
+    ),
+    "pins_not_in_store": Text(
+        "The new store {root} is empty: {count} pinned files are missing. project "
+        "download restores them {origin} only with an identical SHA-256{by_content} "
+        "(series from exactly the pinned inputs), otherwise it reports a task "
+        "error{lost}",
+        "Nowy magazyn {root} jest pusty: brak {count} przypiętych plików. project "
+        "download odtworzy je {origin} wyłącznie z identyczną sumą "
+        "SHA-256{by_content} (szeregi z dokładnie przypiętych wejść), inaczej zgłosi "
+        "błąd zadania{lost}",
+    ),
+    "origin_providers": Text(
+        "from {sources}",
+        "z {sources}",
+    ),
+    "origin_source": Text(
+        "from the source",
+        "ze źródła",
+    ),
+    "restored_by_content": Text(
+        "or, for datasets with a canonical form, with the same content "
+        "(restored_by_content)",
+        "albo, dla zbiorów z formą kanoniczną, z tą samą treścią (restored_by_content)",
+    ),
+    "catalogs_not_restored": Text(
+        "; it does not restore the station catalog and the PMAXTP cells (tasks: "
+        "{tasks}), {upgrade}",
+        "; katalogu stacji i komórek PMAXTP nie odtwarza (zadania: {tasks}), {upgrade}",
+    ),
+    "sources_pair": Text(
+        "{first} and {second}",
+        "{first} i {second}",
+    ),
+    "pin_matched": Text(
+        "pin {path} (SHA-256 {sha256}) → {version} (SHA-256 {version_sha256}), {basis}",
+        "przypięcie {path} (SHA-256 {sha256}) → {version} (SHA-256 "
+        "{version_sha256}), {basis}",
+    ),
+    "shared_content_sha256": Text(
+        "shared content_sha256 {content_sha256}",
+        "wspólne content_sha256 {content_sha256}",
+    ),
+    "same_sha256": Text(
+        "the same SHA-256",
+        "ta sama suma SHA-256",
+    ),
+    "pins_missing": Text(
+        "{count} pinned files are missing; project download restores them only with "
+        "an identical SHA-256{by_content}",
+        "brak {count} przypiętych plików; project download odtworzy je wyłącznie "
+        "przy identycznym SHA-256{by_content}",
+    ),
+    "or_same_content": Text(
+        " or the same content (content_sha256)",
+        " albo tej samej treści (content_sha256)",
+    ),
 }

@@ -258,7 +258,7 @@ def parse_chmi_hydro_daily(
         of ``filename``, or one date of a variable has two different values.
         The message names the file and the JSON path.
     """
-    match = _filename_match(filename, _CHMI_HYDRO_FILE, "H_<kod>_DQ_<rok>.json")
+    match = _filename_match(filename, _CHMI_HYDRO_FILE, "H_<code>_DQ_<year>.json")
     code, year = match.group(1), int(match.group(2))
     root = _load_json(_decode(content, filename), filename, decimal=False)
     if not isinstance(root, dict):
@@ -385,7 +385,7 @@ def parse_chmi_hydro_daily(
 def _meteo_measurement(
     variable: str, raw_value: str, raw_flag: str, raw_quality: str
 ) -> Measurement:
-    """Measurement of one CSV row; ValueError with a Polish reason when malformed."""
+    """Measurement of one CSV row; ValueError with the reason when malformed."""
     if raw_quality == "":
         quality = None
     else:
@@ -463,7 +463,7 @@ def parse_chmi_meteo_daily(
         ``VALUE`` is not numeric, ``QUALITY`` is not an integer, or one date
         has two different rows. The message names the file and the line.
     """
-    match = _filename_match(filename, _CHMI_METEO_FILE, "dly-<kod>-<element>.csv")
+    match = _filename_match(filename, _CHMI_METEO_FILE, "dly-<code>-<element>.csv")
     code, element = match.group(1), match.group(2)
     variable = ELEMENT_VARIABLES[element]
     timefunc, clock = _METEO_TIMING[element]
@@ -542,7 +542,7 @@ def parse_chmi_meteo_daily(
             try:
                 measurement = _meteo_measurement(variable, *row[4:7])
             except ValueError as exc:
-                raise _csv_error(filename, line, str(exc)) from exc
+                raise _csv_error(filename, line, reason(exc)) from exc
             previous = by_day.setdefault(day, measurement)
             if previous != measurement:
                 raise _csv_error(
@@ -736,7 +736,7 @@ class MetadataTable:
         column : str
             Column name (present in ``header``).
         reason : str
-            Polish description of the problem.
+            Description of the problem.
 
         Returns
         -------
@@ -756,7 +756,7 @@ class MetadataTable:
         location : str
             JSON path, e.g. ``data.data.values[3]``.
         reason : str
-            Polish description of the problem.
+            Description of the problem.
 
         Returns
         -------

@@ -171,7 +171,7 @@ _MATCHED = "pin_restored_by_content"
 _DONE = ("created", "relabeled", "unchanged", "reused")
 _SERIES_UNITS = ("day", "month", "half_year")
 _SEVERITY = {"current": 0, "outdated": 1, "missing": 2}
-_UPGRADE = 'świadome przepięcie: update="upgrade"'
+_UPGRADE = message("project.upgrade_hint")
 _CHUNK = 1024 * 1024
 _OPTIONS = {
     command.name: {option.name: option for option in command.options}
@@ -452,7 +452,7 @@ def _parse_file(raw: object, where: str, root: Path) -> ProjectFile:
     try:
         path = _relative(data["path"], root, "path")
     except IMGWValidationError as exc:
-        raise _invalid(f"{where}.path", str(exc)) from exc
+        raise _invalid(f"{where}.path", reason(exc)) from exc
     sha = data["sha256"]
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
         raise _invalid(f"{where}.sha256", message("project.full_sha_256_was_expected"))
@@ -504,7 +504,7 @@ def _parse_task(raw: object, where: str, directory: Path, root: Path) -> Project
     try:
         options = _stored_options(command, data["options"], directory, root)
     except IMGWValidationError as exc:
-        raise _invalid(f"{where}.options", str(exc), exc.details) from exc
+        raise _invalid(f"{where}.options", reason(exc), exc.details) from exc
     geometry = options.get("geometry")
     digests = data.get("geometry_sha256")
     if "geometry_sha256" in data:
@@ -1066,26 +1066,33 @@ def set_project_store(
             }
         )
         sources = _sources(pin for _, pin in pins)
-        origin = f"z {sources}" if sources else "ze źródła"
         _notice(
             on_notice,
             "warning",
             "pins_not_in_store",
-            f"Nowy magazyn {root} jest pusty: brak {len(problems)} przypiętych plików. "
-            f"project download odtworzy je {origin} "
-            "wyłącznie z identyczną sumą SHA-256"
-            + (
-                " albo, dla zbiorów z formą kanoniczną, z tą samą treścią "
-                "(restored_by_content)"
-                if any(pin.content_sha256 is not None for _, pin in pins)
-                else ""
-            )
-            + " (szeregi z dokładnie przypiętych wejść), inaczej zgłosi błąd zadania"
-            + (
-                f"; katalogu stacji i komórek PMAXTP nie odtwarza (zadania: {', '.join(lost)}), "
-                f"{_UPGRADE}"
-                if lost
-                else ""
+            message(
+                "project.pins_not_in_store",
+                root=root,
+                count=len(problems),
+                origin=(
+                    message("project.origin_providers", sources=sources)
+                    if sources
+                    else message("project.origin_source")
+                ),
+                by_content=(
+                    message("project.restored_by_content")
+                    if any(pin.content_sha256 is not None for _, pin in pins)
+                    else ""
+                ),
+                lost=(
+                    message(
+                        "project.catalogs_not_restored",
+                        tasks=", ".join(lost),
+                        upgrade=_UPGRADE,
+                    )
+                    if lost
+                    else ""
+                ),
             ),
         )
     return project
@@ -1094,9 +1101,10 @@ def set_project_store(
 def _mismatch(check: _PinCheck) -> str:
     """Why a pin is not identical in a store (``set_project_store``)."""
     if check.state == "content_match" and check.version is not None:
-        return (
-            f"brak przypiętego pliku; wersja {check.version.as_posix()} ma tę samą "
-            f"treść, ale nie jest identyczna ({_UPGRADE})"
+        return message(
+            "project.pin_missing_same_content",
+            version=check.version.as_posix(),
+            upgrade=_UPGRADE,
         )
     return check.error or check.state
 
@@ -1108,9 +1116,10 @@ def _sources(pins: Iterable[ProjectFile]) -> str:
         kind, _, rest = (_pin_slot(pin.path, pin.station_code) or "").partition(":")
         if kind in ("archive", "series"):
             owners.add(get_dataset(rest.partition(":")[0]).provider)
-    return " i ".join(
-        provider.short_name for provider in providers() if provider.id in owners
-    )
+    names = [provider.short_name for provider in providers() if provider.id in owners]
+    if len(names) == 2:
+        return message("project.sources_pair", first=names[0], second=names[1])
+    return ", ".join(names)
 
 
 def _area(data: bytes, name: str) -> _Border:
@@ -1434,7 +1443,7 @@ class _PinCheck:
         ``content_match`` when the pinned path is missing but the current
         version of its slot carries the pinned content (ADR-003 D14).
     error : str or None
-        Polish description of a mismatch.
+        Description of a mismatch.
     code : ErrorCode or None
         §13.5 code of a mismatch: ``not_found`` (missing file),
         ``data_error`` (other content), ``io_error`` (unreadable file) or the
@@ -1471,15 +1480,13 @@ def _inspect(
     """
     path = root.joinpath(*pin.path.parts)
     if path.is_symlink():
-        return _PinCheck(
-            "changed", "dowiązanie symboliczne zamiast pliku wersji", "data_error"
-        )
+        return _PinCheck("changed", message("project.pin_symlink"), "data_error")
     if not path.exists():
         return _equivalent(root, pin, full=full, indexes=indexes) or _PinCheck(
-            "missing", "brak przypiętego pliku w magazynie", "not_found"
+            "missing", message("project.pin_missing_in_store"), "not_found"
         )
     if not path.is_file():
-        return _PinCheck("changed", "przypięta ścieżka nie jest plikiem", "data_error")
+        return _PinCheck("changed", message("project.pin_not_file"), "data_error")
     try:
         if pin.role == "station_series":
             if full:
@@ -1495,7 +1502,7 @@ def _inspect(
                 ):
                     return _PinCheck(
                         "changed",
-                        "spis series.json wersji nie potwierdza przypiętego pliku stacji",
+                        message("project.pin_not_confirmed_by_index"),
                         "data_error",
                     )
         else:
@@ -1504,13 +1511,17 @@ def _inspect(
             if meta.size_bytes != size:
                 return _PinCheck(
                     "changed",
-                    f"rozmiar {size} B różni się od sidecara ({meta.size_bytes} B)",
+                    message(
+                        "project.pin_size_differs",
+                        size=size,
+                        size_bytes=meta.size_bytes,
+                    ),
                     "data_error",
                 )
             if meta.sha256 != pin.sha256:
                 return _PinCheck(
                     "changed",
-                    "sidecar wskazuje inną sumę SHA-256 niż przypięta",
+                    message("project.pin_sidecar_other_sha256"),
                     "data_error",
                 )
         if full:
@@ -1518,13 +1529,15 @@ def _inspect(
             if actual != pin.sha256:
                 return _PinCheck(
                     "changed",
-                    f"suma SHA-256 pliku ({actual}) różni się od przypiętej ({pin.sha256})",
+                    message(
+                        "project.pin_sha256_differs", actual=actual, sha256=pin.sha256
+                    ),
                     "data_error",
                 )
     except IMGWError as exc:
-        return _PinCheck("changed", str(exc), exc.code)
+        return _PinCheck("changed", reason(exc), exc.code)
     except OSError as exc:
-        return _PinCheck("changed", str(exc), "io_error")
+        return _PinCheck("changed", reason(exc), "io_error")
     return _PinCheck("current")
 
 
@@ -1624,8 +1637,12 @@ def _equivalent_archive(
         return None
     return _PinCheck(
         "changed",
-        f"wersja równoważna {relative.as_posix()} nie potwierdza treści pinu "
-        f"(SHA-256 pliku {actual}, w sidecarze {meta.sha256})",
+        message(
+            "project.equivalent_does_not_confirm",
+            relative=relative.as_posix(),
+            actual=actual,
+            sha256=meta.sha256,
+        ),
         "data_error",
         relative,
         actual,
@@ -1664,8 +1681,12 @@ def _equivalent_series(
     if actual != recorded:
         return _PinCheck(
             "changed",
-            f"wersja równoważna {relative.as_posix()}: suma SHA-256 pliku ({actual}) "
-            f"różni się od przypiętej ({pin.sha256})",
+            message(
+                "project.equivalent_sha256_differs",
+                relative=relative.as_posix(),
+                actual=actual,
+                sha256=pin.sha256,
+            ),
             "data_error",
             relative,
             actual,
@@ -1748,12 +1769,19 @@ def _matched_notice(
 ) -> None:
     """Warning ``pin_restored_by_content`` listing every pin with its equivalent."""
     described = [
-        f"{pin.path.as_posix()} (SHA-256 {pin.sha256}) → "
-        f"{check.version.as_posix() if check.version else '?'} (SHA-256 {check.sha256}), "
-        + (
-            f"wspólne content_sha256 {pin.content_sha256}"
-            if pin.content_sha256 is not None
-            else "ta sama suma SHA-256"
+        message(
+            "project.pin_matched",
+            path=pin.path.as_posix(),
+            sha256=pin.sha256,
+            version=check.version.as_posix() if check.version else "?",
+            version_sha256=check.sha256,
+            basis=(
+                message(
+                    "project.shared_content_sha256", content_sha256=pin.content_sha256
+                )
+                if pin.content_sha256 is not None
+                else message("project.same_sha256")
+            ),
         )
         for pin, check in pairs
     ]
@@ -1762,9 +1790,13 @@ def _matched_notice(
             hook,
             "warning",
             _MATCHED,
-            f"Zadanie {task.name}: przypięte pliki odtworzone treścią "
-            f"({len(described)}): {'; '.join(described)}; przypięcia bez zmian, "
-            f"{_UPGRADE}",
+            message(
+                "project.task_restored_by_content",
+                name=task.name,
+                count=len(described),
+                described="; ".join(described),
+                upgrade=_UPGRADE,
+            ),
         )
 
 
@@ -2027,12 +2059,12 @@ def _check_task(
                 return "unverifiable", CANCELLED, None
             plan = checked
     except IMGWError as exc:
-        return "check_failed", str(exc), None
+        return "check_failed", reason(exc), None
     found = [(item.status, item.error) for item in plan.items] + [
         (action.status, action.detail) for action in plan.actions
     ]
     failed = [
-        detail or "błąd sprawdzenia"
+        detail or message("project.check_failed")
         for status, detail in found
         if status == "check_failed"
     ]
@@ -2054,33 +2086,33 @@ def _check_task(
     if changed:
         return (
             "check_failed",
-            f"zmienione przypięte pliki (nie do odtworzenia): {'; '.join(changed)}",
+            message("project.pins_changed", changed="; ".join(changed)),
             plan,
         )
     if task.pinned_at is None:
         return (
             "missing",
-            "zadanie nieprzypięte: project download pobierze dane i przypnie pliki",
+            message("project.task_not_pinned"),
             plan,
         )
     if missing:
         return (
             "missing",
-            (
-                f"brak {len(missing)} przypiętych plików; project download odtworzy je "
-                "wyłącznie przy identycznym SHA-256"
-                + (
-                    " albo tej samej treści (content_sha256)"
+            message(
+                "project.pins_missing",
+                count=len(missing),
+                by_content=(
+                    message("project.or_same_content")
                     if any(_by_content(pin) for pin in missing)
                     else ""
-                )
+                ),
             ),
             plan,
         )
     if any(status in ("newer", "missing") for status, _ in found):
         return (
             "newer",
-            f"dostępne nowsze lub brakujące dane źródłowe; piny zmieni wyłącznie {_UPGRADE}",
+            message("project.newer_or_missing", upgrade=_UPGRADE),
             plan,
         )
     if any(
@@ -2088,17 +2120,18 @@ def _check_task(
     ):
         return (
             "unverifiable",
-            "brak porównywalnego sygnału aktualności części danych",
+            message("project.no_comparable_signal_part"),
             plan,
         )
     if matched:
         return (
             "current",
-            f"przypięte pliki obecne albo odtworzone treścią (content_match: {matched}), "
-            f"dane aktualne; piny zmieni wyłącznie {_UPGRADE}",
+            message(
+                "project.pins_current_content_match", matched=matched, upgrade=_UPGRADE
+            ),
             plan,
         )
-    return "current", "przypięte pliki obecne, dane aktualne", plan
+    return "current", message("project.pins_current"), plan
 
 
 def _store_ready(root: Path) -> bool:
@@ -2183,7 +2216,7 @@ def check_project(
         elif not ready:
             status, detail = (
                 "missing",
-                f"magazyn {root} nie istnieje; project download utworzy go i pobierze dane",
+                message("project.store_missing", root=root),
             )
         else:
             status, detail, checked = _check_task(root, project.path, task, hooks)
@@ -2204,7 +2237,13 @@ def check_project(
         actions.append(PlanAction("project download", status, f"{task.name}: {detail}"))
         if on_progress is not None:
             on_progress(
-                Progress(index, len(selected), "task", status, f"Zadanie {task.name}")
+                Progress(
+                    index,
+                    len(selected),
+                    "task",
+                    status,
+                    message("project.task_progress", name=task.name),
+                )
             )
     result = StorePlan(
         "imgw-plan/1",
@@ -2348,7 +2387,7 @@ def _add_series(
                 slot,
                 "failed",
                 report.version,
-                "; ".join(report.problems) or "budowa szeregu nie powiodła się",
+                "; ".join(report.problems) or message("project.series_build_failed"),
                 task.name,
                 "data_error",
             )
@@ -2378,7 +2417,8 @@ def _add_version(
             _task_result(
                 task,
                 "failed",
-                "; ".join(problems) or f"{task.command}: niepowodzenie",
+                "; ".join(problems)
+                or message("project.command_failed", command=task.command),
                 "data_error",
             )
         )
@@ -2523,7 +2563,7 @@ def _pin(
             hooks["on_notice"],
             "error",
             "task_failed",
-            f"Zadanie {task.name}: {reasons}; przypięcia bez zmian",
+            message("project.task_reasons", name=task.name, reasons=reasons),
         )
         return _Outcome("failed", tuple(produced.failures))
     # Wybór obszarem materializowano raz z konkretnej wersji katalogu: jej pin zostaje.
@@ -2605,7 +2645,7 @@ def _recreate_archive(root: Path, pin: ProjectFile, hooks: Hooks) -> _Failure | 
             cancel=hooks["cancel"],
         )
     except IMGWError as exc:
-        return f"Nie odtworzono {key}: {exc}", exc.code
+        return message("project.not_restored", key=key, exc=reason(exc)), exc.code
     written_path = _store_path(root, written.path)
     if written.sha256 == pin.sha256 and written_path == key:
         return None
@@ -2613,21 +2653,32 @@ def _recreate_archive(root: Path, pin: ProjectFile, hooks: Hooks) -> _Failure | 
     if equivalent is not None:
         if equivalent.state == "content_match":
             return None
-        return equivalent.error or f"Nie odtworzono {key}", equivalent.code
+        return equivalent.error or message(
+            "project.not_restored_key", key=key
+        ), equivalent.code
     # Bytes seen at the source: other bytes of the same content leave the
     # current version in place (``unchanged``, ADR-003 D17).
     served = written.observed_sha256 or written.sha256
     if served != pin.sha256:
         provider = get_provider(get_dataset(archive.dataset).provider)
         return (
-            f"{provider.short_name} udostępnia inną treść {archive.server_path} "
-            f"(SHA-256 {served}) niż przypięta ({pin.sha256}); przypięcia bez zmian, "
-            f"{_UPGRADE}",
+            message(
+                "project.server_other_content",
+                short_name=provider.short_name,
+                server_path=archive.server_path,
+                served=served,
+                sha256=pin.sha256,
+                upgrade=_UPGRADE,
+            ),
             "not_found",
         )
     return (
-        f"Identyczne bajty zapisano jako {written_path}; przypięta wersja {key} pozostaje "
-        f"niedostępna, {_UPGRADE}",
+        message(
+            "project.identical_bytes_written",
+            written_path=written_path,
+            key=key,
+            upgrade=_UPGRADE,
+        ),
         "not_found",
     )
 
@@ -2682,7 +2733,7 @@ def _recreate_series(
     """
     descriptor = _series_datasets().get(slug)
     if descriptor is None:
-        return f"Nieznany zbiór szeregu {slug}", "not_found"
+        return message("project.unknown_series_dataset", slug=slug), "not_found"
     prefix = f"archives/versions/{descriptor.server_dir}/"
     inputs = [
         pin
@@ -2697,19 +2748,24 @@ def _recreate_series(
         ]
         if not inputs or not _inputs_match(root, descriptor, inputs, current):
             return (
-                f"Bieżące wersje archiwów zbioru {descriptor.key} różnią się od przypiętych wejść szeregu; "
-                f"identycznej wersji nie można zbudować, {_UPGRADE}",
+                message(
+                    "project.current_archives_differ",
+                    key=descriptor.key,
+                    upgrade=_UPGRADE,
+                ),
                 "not_found",
             )
         report = build_series(root, dataset=descriptor.key, **hooks)
         built = read_meta(report.version).sha256 if report.version is not None else None
     except IMGWError as exc:
-        return f"Nie odtworzono szeregu {slug}: {exc}", exc.code
+        return message(
+            "project.series_not_restored", slug=slug, exc=reason(exc)
+        ), exc.code
     if report.status == "cancelled":
         return CANCELLED, None
     if report.status == "failed":
         return (
-            "; ".join(report.problems) or "budowa szeregu nie powiodła się",
+            "; ".join(report.problems) or message("project.series_build_failed"),
             "data_error",
         )
     pinned = next(
@@ -2727,9 +2783,14 @@ def _recreate_series(
         and built != pinned.sha256
     ):
         return (
-            f"Szereg {descriptor.key} zbudowany z przypiętych wejść "
-            f"({_store_path(root, report.version)}) ma inną sumę SHA-256 ({built}) "
-            f"niż przypięta ({pinned.sha256}); przypięcia bez zmian, {_UPGRADE}",
+            message(
+                "project.series_other_sha256",
+                key=descriptor.key,
+                store_path=_store_path(root, report.version),
+                built=built,
+                sha256=pinned.sha256,
+                upgrade=_UPGRADE,
+            ),
             "data_error",
         )
     return None
@@ -2750,8 +2811,11 @@ def _recreate(
             continue
         if kind != "archives":
             errors[pin] = (
-                f"Wersji {pin.path.as_posix()} nie można odtworzyć: etykieta katalogu/komórki "
-                f"pochodzi z dnia pobrania; {_UPGRADE}",
+                message(
+                    "project.version_cannot_restore",
+                    path=pin.path.as_posix(),
+                    upgrade=_UPGRADE,
+                ),
                 "not_found",
             )
             continue
@@ -2837,7 +2901,7 @@ def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
             hooks["on_notice"],
             "error",
             "task_failed",
-            f"Zadanie {task.name}: {reasons}; przypięcia bez zmian",
+            message("project.task_reasons", name=task.name, reasons=reasons),
         )
     _matched_notice(hooks["on_notice"], task, matched)
     return _Outcome(status, tuple(results))
@@ -2968,10 +3032,13 @@ def download_project(
                     outcome = _restore(root, task, hooks)
             except IMGWError as exc:
                 _notice(
-                    on_notice, "error", "task_failed", f"Zadanie {task.name}: {exc}"
+                    on_notice,
+                    "error",
+                    "task_failed",
+                    message("project.task_error", name=task.name, exc=reason(exc)),
                 )
                 outcome = _Outcome(
-                    "failed", (_task_result(task, "failed", str(exc), exc.code),)
+                    "failed", (_task_result(task, "failed", reason(exc), exc.code),)
                 )
             if outcome.task is not None:
                 try:
@@ -2981,13 +3048,13 @@ def download_project(
                         on_notice,
                         "error",
                         "project_conflict",
-                        f"Zadanie {task.name}: {exc}",
+                        message("project.task_error", name=task.name, exc=reason(exc)),
                     )
                     outcome = _Outcome(
                         "failed",
                         (
                             *outcome.files,
-                            _task_result(task, "failed", str(exc), exc.code),
+                            _task_result(task, "failed", reason(exc), exc.code),
                         ),
                     )
             stopped = outcome.status == "cancelled"
@@ -2996,7 +3063,11 @@ def download_project(
         if on_progress is not None:
             on_progress(
                 Progress(
-                    index, len(selected), "task", outcome.status, f"Zadanie {task.name}"
+                    index,
+                    len(selected),
+                    "task",
+                    outcome.status,
+                    message("project.task_progress", name=task.name),
                 )
             )
     return ProjectReport(statuses, tuple(results), stopped)

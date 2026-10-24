@@ -111,6 +111,20 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   matched Polish `detail` text match the English text or `exc.detail.key`.
 - The text of a cancelled plan item and of a cancelled version write is English (`cancelled`, "The
   write of the archive was cancelled"); the plan item error `anulowano` became `cancelled`.
+- **Breaking — notices, progress lines and plan lines are English (AGI-9.2, ADR-006):** the
+  `text` of every `Notice`, the `message` of every `Progress`, the `detail` of every `PlanAction`,
+  the `error` of a plan item or a result item, the problems of a catalog or series report and the
+  pin, check and status texts of a project are catalog messages (about 300 more entries in
+  `imgwtools.messages.<area>`), English by default; `Message.localized("pl")` gives the Polish
+  text. The `license_terms` notice is the
+  attribution followed by the translated notice of the provider (`ProviderDescriptor.license_notice`);
+  the attribution formulas themselves and the official name of IMGW-PIB keep their wording in every
+  language (`imgwtools.messages.legal`), because sidecars, series, catalogs and CSV exports persist them.
+  The error of an unpublished ČHMÚ file is `not published` (it was `nieopublikowany`; Retman
+  and Archiwista compare it) and the server errors of a check begin `Timed out waiting for`,
+  `HTTP error`, `Connection error to`; `check_failed` items of a saved plan are classified by
+  that English text. Migration: match `not published` and the English texts, or the language-free
+  `Message.key` of an item that has one.
 
 ## [3.0.0] — 2026-10-19
 

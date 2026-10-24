@@ -239,7 +239,7 @@ EXPECTED: dict[tuple[str, int], Callable[[Mapping[str, Any]], bool]] = {
     ),
     ("store check", 0): lambda d: (
         _statuses(d) == ["current", "current", "unverifiable"]
-        and d["result"]["items"][2]["error"] == "nieopublikowany"
+        and d["result"]["items"][2]["error"] == "not published"
         and d["result"]["requests"] == {"made": 1, "planned": 0}
     ),
     ("store check", 1): lambda d: (
