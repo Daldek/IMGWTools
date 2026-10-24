@@ -348,7 +348,7 @@ Option name = function parameter = JSON field; CLI flag = `--` + name with `_` �
 |`store_unavailable`|Magazyn niedostępny / Store unavailable|8|503|
 |`io_error`|Błąd systemu plików / File system error|9|500|
 |`cancelled`|Operację anulowano / Operation cancelled|130|—|
-|`forbidden`|Brak uprawnień do zapisu / Write not permitted|—|403|
+|`forbidden`|Brak uprawnień do zapisu / Write not permitted|12|403|
 |`method_not_allowed`|Niedozwolona metoda HTTP / HTTP method not allowed|—|405|
 |`internal_error`|Błąd wewnętrzny / Internal error|1|500|
 

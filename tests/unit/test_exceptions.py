@@ -34,7 +34,7 @@ SPEC_TABLE = {
     "store_unavailable": (8, 503, "Magazyn niedostępny"),
     "io_error": (9, 500, "Błąd systemu plików"),
     "cancelled": (130, None, "Operację anulowano"),
-    "forbidden": (None, 403, "Brak uprawnień do zapisu"),
+    "forbidden": (12, 403, "Brak uprawnień do zapisu"),
     "method_not_allowed": (None, 405, "Niedozwolona metoda HTTP"),
     "internal_error": (1, 500, "Błąd wewnętrzny"),
 }

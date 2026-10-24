@@ -47,7 +47,8 @@ class ErrorSpec:
     title : str
         Short Polish title (``title`` of an RFC 9457 problem document).
     exit_code : int or None
-        CLI exit code, or ``None`` when the CLI never reports this code.
+        CLI exit code, or ``None`` when the CLI never reports this code
+        (``method_not_allowed``).
     http_status : int or None
         HTTP status, or ``None`` when REST never reports this code.
     title_en : str
@@ -112,7 +113,7 @@ ERROR_CODES: Mapping[ErrorCode, ErrorSpec] = MappingProxyType(
             ErrorSpec(
                 "forbidden",
                 "Brak uprawnień do zapisu",
-                None,
+                12,
                 403,
                 title_en="Write not permitted",
             ),

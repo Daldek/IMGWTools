@@ -22,6 +22,10 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 - **CI (DEV-7.7, DEV-13.6):** `ci.yml` (the gate on Linux, macOS and Windows, a dependency
   audit), `live.yml` (weekly `live` tests) and `dependabot.yml` (GitHub Actions), copied
   from the Nogat templates; they trigger on `main` and `develop`.
+- **`forbidden` has the CLI exit code 12 (ERR §2):** the registry code for a refused write or a
+  path outside the allowed directories had no exit code (REST 403 and MCP only); it now
+  exits 12 like in every tool of the ecosystem, and `command_schema()["errors"]`,
+  `AGENTS.md` and the tables of the docs show it. Only `method_not_allowed` stays REST-only.
 
 ## [3.0.0] — 2026-10-19
 

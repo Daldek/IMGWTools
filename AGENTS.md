@@ -58,7 +58,7 @@ Błąd ma kod z zamkniętego rejestru, ten sam w Pythonie (`IMGWError.code`), CL
 | `store_unavailable` | Magazyn niedostępny | 8 | 503 |
 | `io_error` | Błąd systemu plików | 9 | 500 |
 | `cancelled` | Operację anulowano | 130 | — |
-| `forbidden` | Brak uprawnień do zapisu | — | 403 |
+| `forbidden` | Brak uprawnień do zapisu | 12 | 403 |
 | `method_not_allowed` | Niedozwolona metoda HTTP | — | 405 |
 | `internal_error` | Błąd wewnętrzny | 1 | 500 |
 

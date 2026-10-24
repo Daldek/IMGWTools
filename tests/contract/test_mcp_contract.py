@@ -314,9 +314,16 @@ def test_every_local_command_answers_alike_in_mcp_python_and_cli(
 # --------------------------------------------------------------------------
 
 
-# The CLI reports every code with an exit code (the others are REST's own).
+# The CLI reports every code with an exit code (the others are REST's own), except
+# `forbidden`: no CLI command refuses a write, so there is no scenario that makes the CLI
+# and MCP answer alike; the MCP refusal is checked in tests/unit/test_mcp_calls.py.
 @pytest.mark.parametrize(
-    "code", [code for code, spec in ERROR_CODES.items() if spec.exit_code is not None]
+    "code",
+    [
+        code
+        for code, spec in ERROR_CODES.items()
+        if spec.exit_code is not None and code != "forbidden"
+    ],
 )
 def test_every_error_of_the_cli_is_the_same_document_in_mcp(
     code, cli, tmp_path, fixture_root, imgw, monkeypatch
