@@ -53,6 +53,7 @@ from imgwtools.commands import (
     command_schema,
     data_commands,
     format_command,
+    list_commands,
     run_command,
     validate_command,
 )
@@ -391,6 +392,7 @@ __all__ = [
     "SeriesSelection",
     "data_commands",
     "command_schema",
+    "list_commands",
     "validate_command",
     "format_command",
     "check_command",

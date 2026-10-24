@@ -45,7 +45,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | CLI | Implemented | `imgw` command: catalog groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `project`, `commands` plus `version`, `server`, `mcp`, `admin`; help in Polish or English (`IMGW_LANG`) |
 | Web GUI | Implemented | HTMX + Jinja2 web interface on the public library API (IMGW-PIB datasets) |
 | REST API | Implemented | FastAPI with OpenAPI documentation; routes generated from the same command catalog; `Accept-Language`; `GET /llms.txt` |
-| Python command catalog | Implemented (3.0.0) | 37 commands, `command_schema` (Polish or English texts, declared effects), `run_command`/`check_command`, envelope `imgw-result/1`, error registry `ERROR_CODES` |
+| Python command catalog | Implemented (3.0.0) | 38 commands, `command_schema` and `list_commands` (Polish or English texts, declared effects), `run_command`/`check_command`, envelope `imgw-result/1`, error registry `ERROR_CODES` |
 | MCP server | Implemented (3.0.0) | `imgwtools[mcp]`: `imgw mcp` (stdio, read and plan by default, writes with `--allow-writes`) and `/mcp` in the REST server (read and plan only); tools = catalog commands |
 
 ### 3.3. Visualization
@@ -77,7 +77,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 |-------------|--------|
 | OpenAPI/Swagger documentation | Implemented |
 | API versioning (`/api/v1/`) | Implemented |
-| Catalog routes `/api/v1/<group>/<command>` (datasets, stations, current, pmaxtp, store, series, commands) | Implemented — 27 routes generated from `command_schema()` |
+| Catalog routes `/api/v1/<group>/<command>` (datasets, stations, current, pmaxtp, store, series, commands) | Implemented — 28 routes generated from `command_schema()` |
 | Paging of list commands (`limit`/`offset`, maximum `IMGW_API_MAX_LIMIT`) | Implemented |
 | Errors as `application/problem+json` with registry codes | Implemented |
 | Health check | Implemented |
@@ -178,6 +178,7 @@ imgw pmaxtp read --root <dir> --ind-x <x> --ind-y <y> [--method POT|AMP]
 imgw project init|add|remove|set-store|download|check|status|verify --project-dir <dir> ...
 
 # Command catalog
+imgw commands list [--lang pl|en]
 imgw commands schema [--command "<group> <name>"] [--lang pl|en]
 imgw commands guide [-f agents|llms] [--lang pl|en] [-p <file>]
 ```
@@ -191,8 +192,8 @@ imgw commands guide [-f agents|llms] [--lang pl|en] [-p <file>]
 | No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_STORE_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
-| Unit and contract tests | Implemented | 2134 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-19); Python = CLI = REST = MCP contract |
-| Live integration tests | Implemented | 79 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (53: 37 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (26: ČHMÚ on opendata.chmi.cz) |
+| Unit and contract tests | Implemented | 2157 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-24); Python = CLI = REST = MCP contract |
+| Live integration tests | Implemented | 80 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (54: 38 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (26: ČHMÚ on opendata.chmi.cz) |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
 

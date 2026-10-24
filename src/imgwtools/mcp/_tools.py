@@ -14,10 +14,12 @@ only the offered options. A stdio server with ``IMGW_STORE_ROOT`` makes ``root``
 optional, list commands page by ``limit`` (50 by default, at most
 ``IMGW_API_MAX_LIMIT``), ``lang`` defaults to the server language and commands
 with a check twin take a ``check`` argument, fixed to ``true`` for a writing
-command of a server without writes. The annotations tell whether the schema
-allows a write (``readOnlyHint``), whether that write may replace content
-(``destructiveHint``) and whether the command reaches a source server
-(``openWorldHint``); they are hints for the client, not a safeguard.
+command of a server without writes. The annotations (all five on every tool)
+give the title, whether the schema allows a write (``readOnlyHint``), whether
+that write may replace content (``destructiveHint``, false for a read-only
+tool), whether repeating a call changes nothing more (``idempotentHint``) and
+whether the command reaches a source server (``openWorldHint``); they are
+hints for the client, not a safeguard.
 """
 
 from __future__ import annotations
@@ -256,14 +258,17 @@ def _tool(
         lines.append("\n".join([_RULES[lang], *(f"- {rule}" for rule in rules)]))
     if spec.writes != "none":
         lines.append(_NO_WRITES[lang] if fixed else _WRITES[lang])
+    title = f"imgw {spec.name}"
     definition = types.Tool(
         name=cast(str, meta["operation_id"]),
-        title=f"imgw {spec.name}",
+        title=title,
         description="\n\n".join(lines),
         input_schema=input_schema,
         annotations=types.ToolAnnotations(
+            title=title,
             read_only_hint=not writable,
-            destructive_hint=destructive if writable else None,
+            destructive_hint=writable and destructive,
+            idempotent_hint=spec.idempotent,
             open_world_hint=spec.network,
         ),
         _meta={"imgwtools/command": spec.name},

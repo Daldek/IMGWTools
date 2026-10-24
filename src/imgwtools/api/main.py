@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.applications import Starlette
 
@@ -125,6 +126,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
 
 
+def _operation_id(route: APIRoute) -> str:
+    """``operationId`` of a route outside the catalog: ``imgw_system_<function>``."""
+    # Catalog routes name their id themselves (imgw_<group>_<verb>, AGI-6.2).
+    return f"imgw_system_{route.name}"
+
+
 # Create FastAPI app
 app = FastAPI(
     title=API_TITLE,
@@ -142,6 +149,7 @@ app = FastAPI(
     ],
     exception_handlers=EXCEPTION_HANDLERS,
     lifespan=_lifespan,
+    generate_unique_id_function=_operation_id,
 )
 
 # Middleware

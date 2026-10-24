@@ -10,7 +10,12 @@ from imgwtools import __version__
 from imgwtools._jsonable import jsonable
 from imgwtools.api.main import app as rest_app
 from imgwtools.cli.main import app as cli_app
-from imgwtools.commands import command_schema, run_command, validate_command
+from imgwtools.commands import (
+    command_schema,
+    list_commands,
+    run_command,
+    validate_command,
+)
 from imgwtools.config import settings
 from imgwtools.datasets import datasets
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
@@ -32,7 +37,7 @@ SERIES_KEYS = [
 ]
 
 
-def test_catalog_document_lists_37_schemas_groups_errors_and_exit_codes():
+def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes():
     document = command_schema()
     assert json.loads(json.dumps(document)) == document
     assert (
@@ -94,7 +99,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
     meta = {key: value for key, value in find["x-imgw"].items() if key != "rules"}
     assert meta == {
         "command": "stations find",
-        "operation_id": "stations_find",
+        "operation_id": "imgw_stations_find",
         "group": "stations",
         "function": "find_stations",
         "check": "check_command",
@@ -102,6 +107,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "result_type": "StationListEntry",
         "writes": "none",
         "network": True,
+        "idempotent": True,
         "cli": {
             "command": "imgw stations find",
             "flags": {
@@ -281,4 +287,55 @@ def test_store_scan_of_observations_answers_alike_in_python_cli_and_rest(
     assert answered.status_code == 200, answered.text
     assert canonical(answered.json()) == canonical(
         python.to_json(root=root, server=True)
+    )
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_command_list_summarizes_every_command_of_the_catalog(lang):
+    document = list_commands(lang=lang)
+    catalog = command_schema(lang=lang)
+
+    assert json.loads(json.dumps(document)) == document
+    assert (document["schema"], document["version"], document["lang"]) == (
+        "imgw-command-list/1",
+        __version__,
+        lang,
+    )
+    assert document["groups"] == catalog["groups"]
+    assert [entry["command"] for entry in document["commands"]] == SPEC_COMMANDS
+    for entry, schema in zip(document["commands"], catalog["commands"], strict=True):
+        meta = schema["x-imgw"]
+        assert entry == {
+            "command": meta["command"],
+            "operation_id": meta["operation_id"],
+            "group": meta["group"],
+            "summary": entry["summary"],
+            "writes": meta["writes"],
+            "network": meta["network"],
+            "idempotent": meta["idempotent"],
+            "check": meta["check"],
+            "result": meta["result"],
+            "result_type": meta["result_type"],
+            "rest": None
+            if meta["rest"] is None
+            else {"method": meta["rest"]["method"], "path": meta["rest"]["path"]},
+        }
+        # The summary is the first sentence of the description (DOC-1.7: 100).
+        assert schema["description"].startswith(entry["summary"])
+        assert len(entry["summary"]) <= 100, meta["command"]
+
+
+def test_command_list_stays_within_the_default_page_budget():
+    # DOC-1.7: at most 20,000 characters per default page of a CLI or MCP result.
+    for lang in ("pl", "en"):
+        text = json.dumps(list_commands(lang=lang), ensure_ascii=False)
+        assert len(text) <= 20_000
+
+
+def test_command_list_rejects_a_language_outside_the_catalog():
+    with pytest.raises(IMGWValidationError) as error:
+        list_commands(lang="de")
+    assert (error.value.details["option"], error.value.details["allowed"]) == (
+        "lang",
+        ["pl", "en"],
     )

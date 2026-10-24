@@ -1052,6 +1052,10 @@ class DataCommand:
         (a manifest, a result file, a file of a download directory).
     network : bool, optional
         Whether a run connects to a source server for some option values.
+    idempotent : bool, optional
+        Whether repeating a run with the same options on the same source data
+        changes nothing more (a stored version is reported ``unchanged``, a
+        file is rewritten with the same bytes); the MCP ``idempotentHint``.
     env_root_when : Mapping of str to str, optional
         Option values under which an absent ``root`` comes from
         ``IMGW_STORE_ROOT`` (CLI, MCP stdio); empty means always.
@@ -1071,6 +1075,7 @@ class DataCommand:
     rules_en: tuple[str, ...] = ()
     writes: Writes = "none"
     network: bool = False
+    idempotent: bool = True
     env_root_when: Mapping[str, str] = field(default_factory=dict)
 
 

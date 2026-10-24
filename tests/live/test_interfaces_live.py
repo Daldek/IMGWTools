@@ -355,6 +355,7 @@ CASES: dict[str, list[Case]] = {
     "project check": [Case({"project_dir": PROJECT}, "full", "p_tasks")],
     "project status": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
     "project verify": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
+    "commands list": [Case({}), Case({"lang": "en"})],
     "commands schema": [Case({"command": "store sync"})],
     "commands guide": [Case({}), Case({"format": "llms", "lang": "en"})],
 }

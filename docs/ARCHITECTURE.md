@@ -8,7 +8,7 @@ System consists of six main components:
    - `pip install imgwtools` for integration with external projects
    - Sync and async functions for live data and archive downloads (`DownloadResult`, `download_archives`)
    - Provider registry (`IMGW-PIB`, `CHMI` — ČHMÚ, ADR-003) and dataset registry (17 descriptors: 13 `pl.imgw.*`, 4 `cz.chmi.*`, with slugs and legacy aliases), IMGW-PIB and ČHMÚ parsers with value flags
-   - Command catalog (`imgwtools.commands`): 37 commands, one envelope `imgw-result/1`, one error registry `ERROR_CODES` (ADR-002); Polish texts with an English variant, declared effects (`writes`, `network`) and the agent guide `agent_guide` (ADR-004)
+   - Command catalog (`imgwtools.commands`): 38 commands, one envelope `imgw-result/1`, one error registry `ERROR_CODES` (ADR-002); Polish texts with an English variant, declared effects (`writes`, `network`, `idempotent`) and the agent guide `agent_guide` (ADR-004)
    - Minimal dependencies (httpx, pydantic)
 
 2. **Versioned Store** [Parquet: `imgwtools[store]`]
@@ -18,7 +18,7 @@ System consists of six main components:
    - Decision records: `docs/DECISIONS.md` (ADR-001 store, ADR-002 interfaces, ADR-003 ČHMÚ provider and open `/1` domains, ADR-004 agent support); contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md`, `2026-10-18-chmi-provider-design.md`, `2026-10-19-agent-support-design.md`
 
 3. **Backend (FastAPI)** [optional: `imgwtools[api]`]
-   - Routes `/api/v1/<group>/<command>` generated from the command catalog (27 commands; local-only commands have no route)
+   - Routes `/api/v1/<group>/<command>` generated from the command catalog (28 commands; local-only commands have no route)
    - URL generation for IMGW-PIB and ČHMÚ downloads and live IMGW data
    - Store commands only with an explicit server-side `IMGW_STORE_ROOT`
    - Errors as `application/problem+json`; language negotiation (`Accept-Language`); `GET /llms.txt`; optional MCP endpoint `/mcp`; rate limiting via Nginx
@@ -173,15 +173,15 @@ The CLI uses the library directly and downloads data straight from IMGW-PIB and 
 
 ### Architecture
 `src/imgwtools/mcp/` is the fourth adapter of the command catalog (ADR-004 D6–D9), outside `imgwtools.__all__`:
-- `_tools.py` — one tool per catalog command: name `x-imgw.operation_id`, title `imgw <command>`, description with rules, input schema from `command_schema(name, lang=)` (without `$schema`, `title`, `x-imgw`), annotations `readOnlyHint`, `destructiveHint` (`replace`), `openWorldHint` (`network`); list commands get `limit` default 50.
+- `_tools.py` — one tool per catalog command: name `x-imgw.operation_id` (`imgw_<group>_<verb>`, ECO-018), title `imgw <command>`, description with rules, input schema from `command_schema(name, lang=)` (without `$schema`, `title`, `x-imgw`), annotations `title`, `readOnlyHint`, `destructiveHint` (`replace`; false when read-only), `idempotentHint` (`idempotent`), `openWorldHint` (`network`); list commands get `limit` default 50.
 - `_calls.py` — stdio: `check_command`/`run_command` in a worker thread with `on_progress` → `notifications/progress`, `on_notice` → envelope and `cancel` ← request cancellation; http: the same request a REST client would send, dispatched in process to `imgwtools.api.main:app` (POST always with `?check=true`, `Accept-Language` = server language).
 - `server.py` — `create_server(*, mode, lang)`, `run_stdio(*, allow_writes, lang)` (used by `imgw mcp`), `http_app(*, lang)` (route `/mcp` added to the REST app when `IMGW_MCP_ENABLED=true`; hosts from `IMGW_MCP_ALLOWED_HOSTS`).
 
 | Mode | Start | Tools | Writes |
 |---|---|---|---|
-| `read` (default) | `imgw mcp` | 37 | none: writing commands have `check` fixed `true` (plan `imgw-plan/1`), writing options removed |
-| `write` | `imgw mcp --allow-writes` / `IMGW_MCP_ALLOW_WRITES=true` | 37 | `check` defaults to `true`; writes with `check: false` |
-| `http` | `imgw server` + `IMGW_MCP_ENABLED=true` → `/mcp` | 27 (commands with a REST route) | none (REST rules: server root, `version` under `*/versions/`, hidden server paths) |
+| `read` (default) | `imgw mcp` | 38 | none: writing commands have `check` fixed `true` (plan `imgw-plan/1`), writing options removed |
+| `write` | `imgw mcp --allow-writes` / `IMGW_MCP_ALLOW_WRITES=true` | 38 | `check` defaults to `true`; writes with `check: false` |
+| `http` | `imgw server` + `IMGW_MCP_ENABLED=true` → `/mcp` | 28 (commands with a REST route) | none (REST rules: server root, `version` under `*/versions/`, hidden server paths) |
 
 Results: `structuredContent` = envelope `imgw-result/1` (the CLI stdout bytes also as text), `isError=false` for every envelope; errors `isError=true` with `{code, title, detail, details}` (`OSError` → `io_error`, other exceptions → `internal_error`; refused write → `forbidden`, `details.reason="writes_disabled"`). Streams up to 256 KiB as text with `result={format, bytes, lines}`. The language (`--lang`, `IMGW_LANG`) is fixed per server, because the tool list must not depend on the connection.
 

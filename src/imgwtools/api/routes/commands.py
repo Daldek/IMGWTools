@@ -682,7 +682,9 @@ def _description(route: _Route) -> str:
 
 
 def _pascal(route: _Route) -> str:
-    return "".join(part.capitalize() for part in route.operation_id.split("_"))
+    """Name of the OpenAPI component models of a route, from the command name."""
+    words = route.spec.name.replace("-", " ").split()
+    return "".join(word.capitalize() for word in words)
 
 
 def _body_field(route: _Route, option: CommandOption) -> tuple[Any, None]:

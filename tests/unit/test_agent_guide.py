@@ -326,7 +326,7 @@ def test_instructions_hold_the_rules_and_the_mode_below_2_kib(lang, mode, tmp_pa
         assert len(instructions.encode("utf-8")) < 2048
         for polish, english in _PRINCIPLES:
             assert (english if lang == "en" else polish) in instructions
-        assert "`commands_guide`" in instructions and "50" in instructions
+        assert "`imgw_commands_guide`" in instructions and "50" in instructions
     assert with_store != without
     shown = mode != "http"  # REST never names the server's directories
     assert (str(workdir) in with_store, str(root) in with_store) == (shown, shown)

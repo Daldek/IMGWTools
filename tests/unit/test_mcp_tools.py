@@ -243,7 +243,7 @@ async def test_imgw_store_root_makes_root_optional_on_stdio(
         assert description.endswith("magazyn serwera MCP")
         when = commands[name]["x-imgw"]["command"] == "stations find"
         assert ("source=store" in description.rsplit(";", 1)[1]) is when
-    assert rooted["series_read"]["oneOf"] == [
+    assert rooted["imgw_series_read"]["oneOf"] == [
         {"required": ["version"]},
         {"required": ["dataset"]},
     ]
@@ -268,7 +268,11 @@ async def test_lang_option_defaults_to_the_server_language(lang):
     tools = await listing("read", lang)
 
     with_lang = [tool for tool in tools if "lang" in tool["inputSchema"]["properties"]]
-    assert [tool["name"] for tool in with_lang] == ["commands_schema", "commands_guide"]
+    assert [tool["name"] for tool in with_lang] == [
+        "imgw_commands_list",
+        "imgw_commands_schema",
+        "imgw_commands_guide",
+    ]
     for tool in with_lang:
         assert tool["inputSchema"]["properties"]["lang"]["default"] == lang
 
@@ -327,11 +331,14 @@ async def test_annotations_follow_the_effects_of_the_catalog(mode):
         ]
         fixed = properties.get("check", {}).get("const") is True
         writable = (meta["writes"] != "none" and not fixed) or bool(writing)
-        expected = {"readOnlyHint": not writable, "openWorldHint": meta["network"]}
-        if writable:
-            expected["destructiveHint"] = (
-                meta["writes"] == "replace" or "replace" in writing
-            )
+        expected = {
+            "title": f"imgw {meta['command']}",
+            "readOnlyHint": not writable,
+            "destructiveHint": writable
+            and (meta["writes"] == "replace" or "replace" in writing),
+            "idempotentHint": meta["idempotent"],
+            "openWorldHint": meta["network"],
+        }
         assert tool["annotations"] == expected, meta["command"]
     if mode != "write":  # a server without writes offers no write at all
         assert all(tool["annotations"]["readOnlyHint"] for tool in tools.values())
@@ -344,7 +351,9 @@ async def test_store_sync_of_a_server_without_writes_matches_spec_example(
     async with Client(create_server(mode="read", lang="pl")) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-    tool = tools["store_sync"].model_dump(mode="json", by_alias=True, exclude_none=True)
+    tool = tools["imgw_store_sync"].model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    )
     given = tool["inputSchema"]
     assert tool["title"] == "imgw store sync"
     assert list(given["properties"]) == [
@@ -362,7 +371,13 @@ async def test_store_sync_of_a_server_without_writes_matches_spec_example(
     )
     assert given["oneOf"] == [{"required": ["plan"]}, {"required": ["datasets"]}]
     assert "required" not in given
-    assert tool["annotations"] == {"readOnlyHint": True, "openWorldHint": True}
+    assert tool["annotations"] == {
+        "title": "imgw store sync",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    }
     assert tool["description"].endswith(
         "Serwer MCP działa bez zapisu: wywołanie zwraca plan imgw-plan/1 (check)."
     )

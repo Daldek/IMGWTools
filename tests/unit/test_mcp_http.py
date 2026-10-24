@@ -152,7 +152,7 @@ async def test_mcp_serves_the_rest_routes_as_tools_in_the_language_of_imgw_lang(
 
     async with connected(app, mode=client_mode) as client:
         tools = (await client.list_tools()).tools
-        answered = await client.call_tool("datasets_providers", {})
+        answered = await client.call_tool("imgw_datasets_providers", {})
 
     assert [tool.name for tool in tools] == ROUTES
     assert dumped(tools) == dumped(expected)
@@ -169,7 +169,7 @@ async def test_a_problem_of_rest_is_the_error_result_in_the_server_language(
     arguments = {"latitude": "1", "longitude": 21.01}
 
     async with connected(app) as client:
-        result = await client.call_tool("pmaxtp_fetch", arguments)
+        result = await client.call_tool("imgw_pmaxtp_fetch", arguments)
 
     problem = TestClient(app).get(
         "/api/v1/pmaxtp/fetch", params=arguments, headers={"Accept-Language": "en"}
@@ -192,7 +192,7 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
 
     async with connected(app) as client:
         result = await client.call_tool(
-            "store_sync",
+            "imgw_store_sync",
             {"datasets": ["pl.imgw.hydro_daily"], "years": [2024], "check": False},
         )
 
@@ -204,8 +204,12 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
 @pytest.mark.parametrize(
     ("tool", "arguments", "option"),
     [
-        ("store_info", {"root": "/srv/imgw"}, "root"),
-        ("store_export", {"version": "archives/x.zip", "path": "wynik.csv"}, "path"),
+        ("imgw_store_info", {"root": "/srv/imgw"}, "root"),
+        (
+            "imgw_store_export",
+            {"version": "archives/x.zip", "path": "wynik.csv"},
+            "path",
+        ),
     ],
 )
 async def test_server_and_local_options_are_refused_by_rest(
@@ -243,7 +247,7 @@ async def test_a_stream_over_256_kib_is_refused_and_rest_stops_producing_it(
 
     with anyio.fail_after(60):  # an endless stream nobody stops never answers
         async with connected(app) as client:
-            result = await client.call_tool("commands_guide", {})
+            result = await client.call_tool("imgw_commands_guide", {})
 
     document = error_of(result)
     assert document["code"] == "validation_error"

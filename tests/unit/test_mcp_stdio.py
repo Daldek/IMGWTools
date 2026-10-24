@@ -70,10 +70,10 @@ async def test_imgw_mcp_serves_the_tools_of_its_mode_and_language_over_stdio(
     with (tmp_path / "stderr.log").open("w+", encoding="utf-8") as log:
         async with Client(stdio_client(server, errlog=log)) as client:
             tools = (await client.list_tools()).tools
-            answered = await client.call_tool("datasets_list", options)
+            answered = await client.call_tool("imgw_datasets_list", options)
 
     assert dumped(tools) == dumped(expected)
-    sync = {tool.name: tool for tool in tools}["store_sync"]
+    sync = {tool.name: tool for tool in tools}["imgw_store_sync"]
     check = sync.input_schema["properties"]["check"]
     assert check["default"] is True  # a writing command plans unless check: false
     assert ("const" in check) is (mode == "read")
