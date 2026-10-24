@@ -38,7 +38,7 @@ class Progress:
         Kind of unit being counted, e.g. ``"archive"``, ``"station"``,
         ``"row"``, ``"task"`` or ``"file"``.
     status : str
-        Outcome or state of the current unit, e.g. ``"created"`` or
+        Outcome or state of the current unit, e.g. ``"new"`` or
         ``"failed"``.
     message : str
         Human-readable message: a catalog `Message` (English; render it in
@@ -140,8 +140,8 @@ class VersionResult:
 
     Attributes
     ----------
-    status : {"created", "unchanged", "relabeled", "reused"}
-        ``"created"`` for new content, ``"unchanged"`` when identical
+    status : {"new", "unchanged", "relabeled"}
+        ``"new"`` for new content, ``"unchanged"`` when identical
         content and HTTP signal already exist (or, for a dataset with a
         canonical form, other bytes carry the content of the current
         version), ``"relabeled"`` when identical bytes were published with a
@@ -164,7 +164,7 @@ class VersionResult:
         reference signal is the current version's own.
     """
 
-    status: Literal["created", "unchanged", "relabeled", "reused"]
+    status: Literal["new", "unchanged", "relabeled"]
     path: Path
     sha256: str
     label: str
@@ -508,7 +508,7 @@ class OperationResult:
         ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; the project task
         name is kept separately in ``task``; None when the item has no slot
         (e.g. an error of a whole project task).
-    status : {"created", "relabeled", "unchanged", "reused", "restored_by_content", "failed", "stale_plan", "cancelled"}
+    status : {"new", "relabeled", "unchanged", "restored_by_content", "failed", "stale_plan", "cancelled"}
         Outcome of the operation; ``"stale_plan"`` means the remote signal
         changed since the plan was made and the item was not downloaded;
         ``"restored_by_content"`` means a project pin was restored by an
@@ -525,10 +525,9 @@ class OperationResult:
 
     slot: str | None
     status: Literal[
-        "created",
+        "new",
         "relabeled",
         "unchanged",
-        "reused",
         "restored_by_content",
         "failed",
         "stale_plan",
@@ -547,21 +546,21 @@ class SeriesReport:
 
     Attributes
     ----------
-    status : {"created", "reused", "cancelled", "failed"}
-        ``"reused"`` when an existing version was built from the same inputs
+    status : {"new", "unchanged", "cancelled", "failed"}
+        ``"unchanged"`` when an existing version was built from the same inputs
         and nothing was written.
     version : Path or None
         Path of the version's ``series.json``, or None.
     stations : int
         Number of stations in the series.
     source_files : tuple of Path
-        Absolute paths of the input archive versions (for ``"reused"``, the
+        Absolute paths of the input archive versions (for ``"unchanged"``, the
         inputs recorded in the reused version's sidecar).
     problems : tuple of str
         Human-readable descriptions of problems, e.g. blocking slots.
     """
 
-    status: Literal["created", "reused", "cancelled", "failed"]
+    status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     stations: int
     source_files: tuple[Path, ...]
@@ -647,7 +646,7 @@ class CatalogReport:
 
     Attributes
     ----------
-    status : {"created", "unchanged", "cancelled", "failed"}
+    status : {"new", "unchanged", "cancelled", "failed"}
         Outcome of the build.
     version : Path or None
         Path of the version's ``stations.geojson``, or None.
@@ -664,7 +663,7 @@ class CatalogReport:
         ``ProviderDescriptor.id`` of the catalog's provider.
     """
 
-    status: Literal["created", "unchanged", "cancelled", "failed"]
+    status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     station_count: int
     without_location: int
@@ -948,7 +947,7 @@ class PMaXTPStoreResult:
 
     Attributes
     ----------
-    status : {"created", "unchanged", "cancelled", "failed"}
+    status : {"new", "unchanged", "cancelled", "failed"}
         Outcome of the operation.
     version : Path or None
         Path of the version's ``cell.json``, or None.
@@ -960,7 +959,7 @@ class PMaXTPStoreResult:
         Stored PMAXTP data, or None.
     """
 
-    status: Literal["created", "unchanged", "cancelled", "failed"]
+    status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     ind_x: int | None
     ind_y: int | None

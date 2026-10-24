@@ -425,7 +425,7 @@ def test_imgw_16_k2_a_version_only_for_new_content(pl_cz, tmp_path, chmi, frozen
     )
     relabeled = sync_store(root, datasets=[HYDRO], stations=[S1], years=[2023])
     assert statuses(relabeled.items) == ["relabeled"]
-    assert statuses(relabeled.series) == ["reused"]
+    assert statuses(relabeled.series) == ["unchanged"]
     assert _versions(root, slot_2023) == sorted([first, f"2026-02-06_{first[-8:]}"])
 
     # Other bytes of the same canonical content: no version, one more observation.
@@ -457,12 +457,12 @@ def test_imgw_16_k2_a_version_only_for_new_content(pl_cz, tmp_path, chmi, frozen
     )
     corrected = sync_store(root, datasets=[METEO], stations=[FULL])
     assert statuses(corrected.items) == [
-        "created",
+        "new",
         "unchanged",
         "unchanged",
         "unchanged",
     ]
-    assert statuses(corrected.series) == ["created"]
+    assert statuses(corrected.series) == ["new"]
     assert len(_versions(root, sra)) == 2 and old in _versions(root, sra)
     assert [
         entry.problem for entry in iter_store(root) if entry.kind == "problem"
@@ -914,7 +914,7 @@ def test_imgw_18_k3_the_same_inputs_reuse_the_series(pl_cz, tmp_path, chmi, froz
 
     assert {
         dataset: (report.status, report.version) for dataset, report in built.items()
-    } == {dataset: ("reused", version) for dataset, version in current.items()}
+    } == {dataset: ("unchanged", version) for dataset, version in current.items()}
     # Scenario (2): the same bytes republished — relabeled inputs, the series reused.
     chmi.serve(
         "hydro_listing_republished",
@@ -924,7 +924,7 @@ def test_imgw_18_k3_the_same_inputs_reuse_the_series(pl_cz, tmp_path, chmi, froz
     report = sync_store(root, datasets=[HYDRO], stations=[S1], years=[2023])
     assert statuses(report.items) == ["relabeled"]
     assert [(series.status, series.version) for series in report.series] == [
-        ("reused", current[HYDRO])
+        ("unchanged", current[HYDRO])
     ]
     assert snapshot(root / "series") == snapshot(pl_cz / "series")
 
@@ -1036,7 +1036,7 @@ RUNS = [
             "m90000000002_SRA_head",
             "m90000000002_SRA_get",
         ),
-        statuses=("created", "unchanged", "unchanged", "unchanged"),
+        statuses=("new", "unchanged", "unchanged", "unchanged"),
     ),
     Run(
         "store sync",
@@ -1044,7 +1044,7 @@ RUNS = [
         "empty",
         FIRST_900001,
         plan={"datasets": [HYDRO], "stations": [S1]},
-        statuses=("created", "created"),
+        statuses=("new", "new"),
     ),
     Run(
         "store catalog",
@@ -1053,11 +1053,11 @@ RUNS = [
         CATALOG_HEADS,
         status="unchanged",
     ),
-    Run("store catalog", {"provider": "CHMI"}, "empty", CATALOG_GETS, status="created"),
+    Run("store catalog", {"provider": "CHMI"}, "empty", CATALOG_GETS, status="new"),
     Run("store export", {"version": "<archive>"}, "served"),
     Run("store export", {"version": "<meteo>", "format": "jsonl"}, "served"),
-    Run("series build", {"dataset": HYDRO}, "pl_cz", status="reused"),
-    Run("series build", {"dataset": METEO}, "unbuilt", status="created"),
+    Run("series build", {"dataset": HYDRO}, "pl_cz", status="unchanged"),
+    Run("series build", {"dataset": METEO}, "unbuilt", status="new"),
     Run(
         "series select",
         {
@@ -1449,9 +1449,9 @@ def test_imgw_19_k2_an_empty_store_restores_both_providers_with_identical_sha256
         ("raba", "zapadla", "snezka", "srazky"), "current"
     )
     # Every pinned file is created once; later tasks pinning it find it there.
-    created = [result.slot for result in report.files if result.status == "created"]
+    created = [result.slot for result in report.files if result.status == "new"]
     assert len(created) == len(set(created))
-    assert {result.status for result in report.files} == {"created", "unchanged"}
+    assert {result.status for result in report.files} == {"new", "unchanged"}
     assert all(sha256(store / pin.path) == pin.sha256 for pin in pins)
     assert (project / "imgw-project.json").read_bytes() == manifest
     assert sorted(url for _, url in chmi.traffic(start) if "chmi" in url) == sorted(

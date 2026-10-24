@@ -167,7 +167,7 @@ def test_empty_store_restores_both_providers_with_identical_sha256(
     report = download_project(pinned)
 
     assert report.tasks == {"raba": "current", "snezka": "current", "srazky": "current"}
-    assert {result.status for result in report.files} == {"created"}
+    assert {result.status for result in report.files} == {"new"}
     assert all(sha((store / pin.path).read_bytes()) == pin.sha256 for pin in pins)
     assert (pinned / PROJECT_FILE).read_bytes() == before
     assert sorted(chmi_traffic(server, start)) == sorted(
@@ -190,7 +190,7 @@ def test_other_bytes_of_the_same_content_restore_pins_by_content(
         f"series:{HYDRO}": "restored_by_content",
         f"series:{HYDRO}:{S1}": "restored_by_content",
         SLOT_2023: "restored_by_content",
-        SLOT_2024: "created",
+        SLOT_2024: "new",
     }
     reserialized = payload(CASES["h900001_2023_reserialized_get"])
     equivalent = results[SLOT_2023].version

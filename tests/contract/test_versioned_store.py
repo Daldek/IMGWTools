@@ -242,7 +242,7 @@ def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root
     imgw.publish_pmaxtp("pmaxtp_pot_first", "pmaxtp_pot_same_cell")
 
     stored = sync_pmaxtp(root, method="POT", latitude=52.23, longitude=21.01)
-    assert (stored.status, stored.ind_x, stored.ind_y) == ("created", 751, 317)
+    assert (stored.status, stored.ind_x, stored.ind_y) == ("new", 751, 317)
     assert schema_errors(load(stored.version), "imgw-pmaxtp/1") == []
     meta = assert_sidecar_contract(root, Path(f"{stored.version}.meta.json"))
     assert meta["request"]["method"] == "POT" and meta["extra"]["derived"] == "pmaxtp"
@@ -428,11 +428,11 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     # Sync from a fresh plan: one GET, a version named after Last-Modified and SHA.
     report = sync_store(root, plan=check_store(root, datasets=[DAILY], years=[2024]))
     (created,) = report.items
-    assert created.status == "created"
+    assert created.status == "new"
     assert created.version == root / SLOT_DIR / f"2026-10-18_{old8}" / "codz_2024.zip"
     assert sha256(created.version) == sha256(OLD)
     (first,) = report.series
-    assert first.status == "created" and first.source_files == (created.version,)
+    assert first.status == "new" and first.source_files == (created.version,)
     assert imgw.downloads() == [H2024.url]
 
     # Newer bytes: the plan flags the series; sync without series leaves it outdated.
@@ -442,11 +442,11 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     assert plan.series_state == {"hydro_daily": "outdated"}
     report = sync_store(root, plan=plan, series=False)
     (newer,) = report.items
-    assert newer.status == "created" and report.series == ()
+    assert newer.status == "new" and report.series == ()
     assert newer.version == root / SLOT_DIR / f"2026-10-19_{new8}" / "codz_2024.zip"
     assert check_series(root, dataset=DAILY).series_state == {"hydro_daily": "outdated"}
     series = build_series(root, dataset=DAILY)
-    assert series.status == "created" and series.source_files == (newer.version,)
+    assert series.status == "new" and series.source_files == (newer.version,)
     assert check_series(root, dataset=DAILY).series_state == {"hydro_daily": "current"}
     assert (
         current_version(root, slot="series:pl.imgw.hydro_daily").version
@@ -491,7 +491,7 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     # Catalog: lists archived first, HEAD-only check, identical rebuild unchanged.
     imgw.publish_catalog_sources()
     catalog = build_catalog(root)
-    assert catalog.status == "created" and catalog.without_location > 0
+    assert catalog.status == "new" and catalog.without_location > 0
     features = read_catalog(catalog.version)
     assert len(features) == catalog.station_count
     assert (
@@ -575,7 +575,7 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     assert verify_project(project).tasks == {"raba": "missing"}
     restored = download_project(project)
     assert restored.tasks == {"raba": "current"}
-    assert {result.status for result in restored.files} == {"created", "unchanged"}
+    assert {result.status for result in restored.files} == {"new", "unchanged"}
     assert sha256(newer.version) == pins["input"]["sha256"]
     assert manifest.read_bytes() == pinned
     assert verify_project(project).tasks == {"raba": "current"}
@@ -588,7 +588,7 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     assert relabeled.status == "relabeled"
     assert relabeled.version == root / SLOT_DIR / f"2026-10-20_{new8}" / "codz_2024.zip"
     (reused,) = report.series
-    assert (reused.status, reused.version) == ("reused", series.version)
+    assert (reused.status, reused.version) == ("unchanged", series.version)
     assert stamps(series.version.parent) == series_files
     assert [action.status for action in check_project(project).actions] == ["current"]
     assert manifest.read_bytes() == pinned
@@ -626,7 +626,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
     assert imgw.downloads() == []
 
     report = sync_store(root, plan=tmp_path / "plan.json")
-    assert [result.status for result in report.items] == ["created", "cancelled"]
+    assert [result.status for result in report.items] == ["new", "cancelled"]
     assert report.cancelled and [s.status for s in report.series] == ["cancelled"]
     assert imgw.downloads() == [H2023.url]
 
@@ -637,7 +637,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
         years=[2023, 2024],
         cancel=lambda: H2024.url in imgw.downloads(),
     )
-    assert [result.status for result in report.items] == ["created", "cancelled"]
+    assert [result.status for result in report.items] == ["new", "cancelled"]
     assert report.cancelled and report.items[1].version is None
     assert not (other / SLOT_DIR).exists() or not any((other / SLOT_DIR).iterdir())
     assert [s.status for s in report.series] == ["cancelled"]
@@ -678,9 +678,7 @@ def test_concurrent_writers_publish_each_version_once(tmp_path):
 
     with ThreadPoolExecutor(4) as pool:
         written = list(pool.map(write, range(4)))
-    assert (
-        sorted(result.status for result in written) == ["created"] + ["unchanged"] * 3
-    )
+    assert sorted(result.status for result in written) == ["new"] + ["unchanged"] * 3
     assert len({result.path for result in written}) == 1
     assert [path.name for path in (root / SLOT_DIR).iterdir()] == [
         written[0].path.parent.name
@@ -694,7 +692,11 @@ def test_concurrent_writers_publish_each_version_once(tmp_path):
 
     with ThreadPoolExecutor(3) as pool:
         built = list(pool.map(build, range(3)))
-    assert sorted(report.status for report in built) == ["created", "reused", "reused"]
+    assert sorted(report.status for report in built) == [
+        "new",
+        "unchanged",
+        "unchanged",
+    ]
     assert len({report.version for report in built}) == 1
     assert len(list((root / "series" / "versions" / "hydro_daily").iterdir())) == 1
     assert not any((root / ".incoming").iterdir())

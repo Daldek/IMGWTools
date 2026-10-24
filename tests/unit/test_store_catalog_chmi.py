@@ -184,7 +184,7 @@ def test_every_station_of_the_sources_is_kept_also_without_location(store):
 
     assert list(found) == CODES
     assert (report.status, report.provider, report.station_count) == (
-        "created",
+        "new",
         "CHMI",
         7,
     )

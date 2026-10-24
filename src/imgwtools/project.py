@@ -140,10 +140,9 @@ TaskStatus = Literal[
 PinState = Literal["current", "content_match", "missing", "changed"]
 Hooks = Mapping[str, Any]
 _ResultStatus = Literal[
-    "created",
+    "new",
     "relabeled",
     "unchanged",
-    "reused",
     "restored_by_content",
     "failed",
     "stale_plan",
@@ -168,7 +167,7 @@ _SHA = re.compile(r"[0-9a-f]{64}")
 _STATION = re.compile(STATION_CODE_PATTERN)
 _DRIVE = re.compile(r"[A-Za-z]:")
 _MATCHED = "pin_restored_by_content"
-_DONE = ("created", "relabeled", "unchanged", "reused")
+_DONE = ("new", "relabeled", "unchanged")
 _SERIES_UNITS = ("day", "month", "half_year")
 _SEVERITY = {"current": 0, "outdated": 1, "missing": 2}
 _UPGRADE = message("project.upgrade_hint")
@@ -2473,7 +2472,7 @@ def _produce_select(
         return produced
     series = build_series(root, dataset=dataset, **hooks)
     stations: tuple[str, ...] = ()
-    if series.status in ("created", "reused") and series.version is not None:
+    if series.status in ("new", "unchanged") and series.version is not None:
         stations = select_series(
             root,
             dataset=dataset,
@@ -2860,7 +2859,7 @@ def _restore(root: Path, task: ProjectTask, hooks: Hooks) -> _Outcome:
         if check.state == "missing":
             check = _inspect(root, pin, full=True)
             if check.state == "current":
-                results.append(_pin_result(task, root, pin, "created", None))
+                results.append(_pin_result(task, root, pin, "new", None))
                 continue
             if check.state != "content_match":
                 error, code = errors.get(pin) or (check.error, check.code)

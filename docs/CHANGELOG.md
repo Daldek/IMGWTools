@@ -127,6 +127,12 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   (`forbidden`, `details.reason="outside_allowed_dirs"`) and a write without any directory is
   `forbidden` (`no_allowed_dir`), while a plan needs none. Migration: rename `IMGW_STORE_ROOT`; pass
   `--allow-dir` to `imgw mcp --allow-writes`.
+- **Breaking — the store status `created` is `new` (DEV-19.19, ADR-007 D7):** `VersionResult`,
+  `OperationResult`, `SeriesReport`, `CatalogReport`, `PMaXTPStoreResult`, the pin states of the
+  project reports and the fixture builder say `new` where they said `created`, and a series
+  version built from the same inputs is `unchanged` (it was `reused`); `relabeled` stays. The
+  statuses of plain files, `written` and `replaced`, come with plain mode. Migration:
+  `status == "created"` → `"new"`, and `"reused"` → `"unchanged"` for a series.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

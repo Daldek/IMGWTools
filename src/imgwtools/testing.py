@@ -72,34 +72,34 @@ _CHMI_STEPS: tuple[tuple[str, Mapping[str, Any], tuple[str, ...], str], ...] = (
     (
         "ČHMÚ hydro (1) first publication",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL, _CHMI_GAP)},
-        ("created",) * 4,
-        "created",
+        ("new",) * 4,
+        "new",
     ),
     (
         "ČHMÚ hydro (2) republication",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_GAP,)},
         ("relabeled",) * 2,
-        "reused",
+        "unchanged",
     ),
     (
         "ČHMÚ hydro (3) correction",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2024,)},
-        ("created",),
-        "created",
+        ("new",),
+        "new",
     ),
     (
         "ČHMÚ hydro (8) reserialization",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2023,)},
         ("unchanged",),
-        "reused",
+        "unchanged",
     ),
     (
         "ČHMÚ meteo",
         {"datasets": (_CHMI_METEO,), "stations": (_CHMI_ELEMENTS, _CHMI_RAIN)},
         # The three temperature elements of the precipitation-only station are
         # not published: unchanged without a version.
-        ("created",) * 5 + ("unchanged",) * 3,
-        "created",
+        ("new",) * 5 + ("unchanged",) * 3,
+        "new",
     ),
 )
 # Recorder patching is process-global; serialize concurrent builders.
@@ -290,7 +290,7 @@ def _add_chmi(handle: StoreHandle) -> None:
                 built,
             )
         catalog = build_catalog(handle, provider="CHMI")
-        _expect("ČHMÚ station catalog", catalog.status, "created")
+        _expect("ČHMÚ station catalog", catalog.status, "new")
 
 
 def build_fixture_store(
@@ -376,10 +376,8 @@ def build_fixture_store(
         old = write_archive(
             handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
         )
-        _expect("codz_2024 v1", old.status, "created")
-        _expect(
-            "series hydro v1", build_series(handle, dataset=_HYDRO).status, "created"
-        )
+        _expect("codz_2024 v1", old.status, "new")
+        _expect("series hydro v1", build_series(handle, dataset=_HYDRO).status, "new")
         relabeled = write_archive(
             handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
         )
@@ -387,26 +385,24 @@ def build_fixture_store(
         newer = write_archive(
             handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
         )
-        _expect("codz_2024 v3", newer.status, "created")
-        _expect(
-            "series hydro v2", build_series(handle, dataset=_HYDRO).status, "created"
-        )
+        _expect("codz_2024 v3", newer.status, "new")
+        _expect("series hydro v2", build_series(handle, dataset=_HYDRO).status, "new")
         meteo = write_archive(
             handle,
             archive=meteo_2001,
             response=download_meteo_data("dobowe", "opad", 2001, 1),
         )
-        _expect("2001_01_o", meteo.status, "created")
-        _expect("series meteo", build_series(handle, dataset=_METEO).status, "created")
+        _expect("2001_01_o", meteo.status, "new")
+        _expect("series meteo", build_series(handle, dataset=_METEO).status, "new")
         late = write_archive(
             handle,
             archive=meteo_1995,
             response=download_meteo_data("dobowe", "opad", 1995),
         )
-        _expect("1995_o", late.status, "created")
+        _expect("1995_o", late.status, "new")
         with _without_reference_data():
             catalog = build_catalog(handle)
-        _expect("station catalog", catalog.status, "created")
+        _expect("station catalog", catalog.status, "new")
         if catalog.without_location == 0:
             raise IMGWDataError(message("testing.fixture_station_catalog_has_no"))
     if variant == "corrupt":

@@ -65,7 +65,7 @@ def test_archive_provenance_relabel_and_unchanged(tmp_path):
     )
     assert open_store(handle.root) == handle
     first = write_archive(handle, archive=ARCHIVE, response=response())
-    assert first.status == "created"
+    assert first.status == "new"
     assert first.path.relative_to(handle.root).as_posix() == (
         f"archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024/"
         f"2026-10-17_{first.sha256[:8]}/codz_2024.zip"
@@ -140,7 +140,7 @@ def test_interrupted_publication_is_no_version_and_is_completed(tmp_path):
         "missing_sidecar"
     ]
     written = write_archive(root, archive=ARCHIVE, response=response())
-    assert (written.status, written.path) == ("created", target / "codz_2024.zip")
+    assert (written.status, written.path) == ("new", target / "codz_2024.zip")
     assert list(iter_store(root, kind="problem")) == []
     assert current_version(root, slot=DAILY_2024).version == written.path
 
@@ -184,7 +184,7 @@ def test_failed_commit_keeps_files_a_concurrent_writer_committed(
     with pytest.raises(type(failure)):
         write_archive(root, archive=ARCHIVE, response=response())
     [winner] = concurrent
-    assert (winner.status, winner.path) == ("created", target / "codz_2024.zip")
+    assert (winner.status, winner.path) == ("new", target / "codz_2024.zip")
     assert sorted(path.name for path in target.iterdir()) == [
         "codz_2024.zip",
         "codz_2024.zip.meta.json",
@@ -310,7 +310,7 @@ def test_identical_signal_after_relabel_is_unchanged(tmp_path):
     second = write_archive(root, archive=ARCHIVE, response=response(etag='"e2"'))
     third = write_archive(root, archive=ARCHIVE, response=response(etag='"e1"'))
     assert [first.status, second.status, third.status] == [
-        "created",
+        "new",
         "relabeled",
         "unchanged",
     ]
@@ -367,7 +367,7 @@ def test_stale_staging_removed_concurrently_does_not_abort(tmp_path, monkeypatch
     result = write_archive(
         root, archive=ARCHIVE, response=response(), on_notice=notices.append
     )
-    assert result.status == "created" and not old.exists()
+    assert result.status == "new" and not old.exists()
     assert not [item for item in notices if item.code == "leftover_incoming"]
 
 
@@ -381,9 +381,7 @@ def test_corrupt_sidecar_in_other_slot_does_not_block_writes(tmp_path):
         response=DownloadResult(data, other.url, '"x"', None, len(data)),
     )
     written.path.with_name(written.path.name + ".meta.json").write_text("{")
-    assert write_archive(root, archive=ARCHIVE, response=response()).status == (
-        "created"
-    )
+    assert write_archive(root, archive=ARCHIVE, response=response()).status == ("new")
 
 
 def test_kartograf_versions_inside_store_still_detected(tmp_path):
@@ -483,9 +481,9 @@ def test_write_archive_results_ignore_the_observation_register_of_the_slot(tmp_p
         ]
     assert results["observed"] == results["plain"]
     assert [status for status, *_ in results["plain"]] == [
-        "created",
+        "new",
         "unchanged",
         "relabeled",
-        "created",
+        "new",
         "unchanged",
     ]

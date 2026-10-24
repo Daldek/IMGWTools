@@ -144,10 +144,10 @@ def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
     assert statuses(stale) == ["stale_plan"]
     assert stale["status"] == "failed"  # no item done: exit code 11
     assert stale["result"]["series"][0]["status"] == "failed"
-    assert statuses(synced) == statuses(newer) == ["created"]
-    assert [s["status"] for s in synced["result"]["series"]] == ["created"]
+    assert statuses(synced) == statuses(newer) == ["new"]
+    assert [s["status"] for s in synced["result"]["series"]] == ["new"]
     assert newer["result"]["series"] == []
-    assert [returned[i]["result"]["status"] for i in (6, 7, 9)] == ["created"] * 3
+    assert [returned[i]["result"]["status"] for i in (6, 7, 9)] == ["new"] * 3
     assert returned[8]["result"] == str(work / "raba.csv")
     assert statuses(returned[11]) == ["downloaded"]
     assert (
@@ -229,7 +229,7 @@ def test_two_imgw_processes_building_one_series_publish_it_once(tmp_path, fixtur
     assert [envelope_errors(envelope) for envelope in envelopes] == [[], []]
     assert [envelope["status"] for envelope in envelopes] == ["ok", "ok"]
     reports = [envelope["result"] for envelope in envelopes]
-    assert sorted(report["status"] for report in reports) == ["created", "reused"]
+    assert sorted(report["status"] for report in reports) == ["new", "unchanged"]
     assert len({report["version"] for report in reports}) == 1
     (new,) = {path.name for path in slot.iterdir()} - before
     assert Path(reports[0]["version"]).parent.name == new

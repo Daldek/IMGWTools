@@ -146,7 +146,7 @@ def publish_first(root, server):
     """Scenario (1) for station 900001: both years ``missing``, then ``created``."""
     serve(server, "hydro_listing", *FIRST)
     report = sync_store(root, datasets=[HYDRO], stations=[S1], series=False)
-    assert [item.status for item in report.items] == ["created", "created"]
+    assert [item.status for item in report.items] == ["new", "new"]
     return report
 
 
@@ -270,7 +270,7 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
 
     def fake_build(store_root, /, **kwargs):
         built.append(kwargs["dataset"])
-        return SeriesReport("created", None, 2, (), ())
+        return SeriesReport("new", None, 2, (), ())
 
     monkeypatch.setattr(sync_module, "build_series", fake_build)
     serve(
@@ -316,10 +316,10 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
         ("unchanged", True, "not published"),
         ("unchanged", True, "not published"),
         ("unchanged", True, "not published"),
-        ("created", False, None),
+        ("new", False, None),
     ]
     assert built == [HYDRO]  # unpublished years do not block the series
-    assert [entry.status for entry in report.series] == ["created"]
+    assert [entry.status for entry in report.series] == ["new"]
 
 
 def test_plan_of_listing_items_round_trips_and_meets_the_contract(
@@ -385,8 +385,8 @@ def test_first_publication_heads_then_gets_and_writes_chmi_sidecars(root, server
         f"imgwtools/{__version__}"
     }
     assert [(item.slot, item.status) for item in report.items] == [
-        (f"archive:{HYDRO}:H_{S1}_DQ_2023.json", "created"),
-        (f"archive:{HYDRO}:H_{S1}_DQ_2024.json", "created"),
+        (f"archive:{HYDRO}:H_{S1}_DQ_2023.json", "new"),
+        (f"archive:{HYDRO}:H_{S1}_DQ_2024.json", "new"),
     ]
     entry = CASES["h900001_2023_get"]
     data = payload(entry)
@@ -459,7 +459,7 @@ def test_mass_republication_of_the_same_bytes_is_relabeled(root, server):
         ),
     )
     first = sync_store(root, datasets=[HYDRO], stations=[S1, S2], series=False)
-    assert [item.status for item in first.items] == ["created"] * 4
+    assert [item.status for item in first.items] == ["new"] * 4
     names = ("h900001_2023", "h900001_2024", "h900002_2004", "h900002_2006")
     serve(
         server,
@@ -502,7 +502,7 @@ def test_correction_creates_a_version_beside_the_untouched_one(root, server):
     assert [item.status for item in plan.items] == ["current", "newer"]
     report = sync_store(root, plan=plan, series=False)
 
-    assert [item.status for item in report.items] == ["unchanged", "created"]
+    assert [item.status for item in report.items] == ["unchanged", "new"]
     corrected = report.items[1].version
     assert corrected.read_bytes() == payload(CASES["h900001_2024_corrected_get"])
     assert corrected.parent.name.startswith("2026-05-21_")
@@ -721,9 +721,9 @@ def test_meteo_station_has_four_files_and_missing_elements_are_unpublished(
     ]
     report = sync_store(root, plan=plan, series=False)
     assert [item.status for item in report.items] == [
-        "created",
+        "new",
         *["unchanged"] * 3,
-        *["created"] * 4,
+        *["new"] * 4,
     ]
     meta = json.loads(
         Path(f"{report.items[0].version}.meta.json").read_text(encoding="utf-8")
@@ -754,7 +754,7 @@ def test_meteo_station_has_four_files_and_missing_elements_are_unpublished(
         "current",
     ]
     corrected = sync_store(root, plan=changed, series=False)
-    assert [item.status for item in corrected.items] == ["created", *["unchanged"] * 3]
+    assert [item.status for item in corrected.items] == ["new", *["unchanged"] * 3]
     assert corrected.items[0].version != sra and sra.is_file()
     assert corrected.items[0].version.read_bytes() == payload(
         CASES["m90001_SRA_corrected_get"]
@@ -806,7 +806,7 @@ def test_cancel_before_the_listing_and_between_files(root, server):
     ]
     serve(server, "h900001_2023_head", "h900001_2023_get")
     report = sync_store(root, plan=partial, series=False)
-    assert [item.status for item in report.items] == ["created", "cancelled"]
+    assert [item.status for item in report.items] == ["new", "cancelled"]
     assert report.cancelled is True
 
 

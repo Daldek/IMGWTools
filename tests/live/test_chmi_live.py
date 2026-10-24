@@ -247,21 +247,21 @@ EXPECTED: dict[tuple[str, int], Callable[[Mapping[str, Any]], bool]] = {
         and d["result"]["requests"] == {"made": 2, "planned": 0}
     ),
     ("store sync", 0): lambda d: (
-        _statuses(d) == ["created", "created", "unchanged"]  # 2026 unpublished
-        and _statuses(d, "series") == ["created"]
+        _statuses(d) == ["new", "new", "unchanged"]  # 2026 unpublished
+        and _statuses(d, "series") == ["new"]
     ),
     ("store sync", 1): lambda d: (
-        _statuses(d) == ["created"] * 4 and _statuses(d, "series") == ["created"]
+        _statuses(d) == ["new"] * 4 and _statuses(d, "series") == ["new"]
     ),
     ("store catalog", 0): lambda d: (
         d["result"]["provider"] == "CHMI"
-        and d["result"]["status"] in ("unchanged", "created")
+        and d["result"]["status"] in ("unchanged", "new")
     ),
-    ("series build", 0): lambda d: d["result"]["status"] == "reused",
+    ("series build", 0): lambda d: d["result"]["status"] == "unchanged",
     ("project download", 0): lambda d: (
         _pinned(d)
         and {item["status"] for item in d["result"]["files"]}
-        <= {"created", "restored_by_content"}
+        <= {"new", "restored_by_content"}
     ),
     ("project status", 0): _pinned,
     ("project verify", 0): _pinned,
@@ -486,7 +486,7 @@ class ChmiLive(Live):
             self.save("p_done", project)
             self.save("pinned", root)
             catalog = _patiently(lambda: build_catalog(root, provider="CHMI"))
-            assert (catalog.status, catalog.provider) == ("created", "CHMI"), catalog
+            assert (catalog.status, catalog.provider) == ("new", "CHMI"), catalog
             self.save("full", root)
             self.values = {
                 ROOT: str(root),

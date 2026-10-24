@@ -332,7 +332,7 @@ def sync_pmaxtp(
     ind_y : int or None, optional
         Expected grid cell Y index; must be given together with ``ind_x``.
     on_progress : ProgressHook or None, optional
-        Called once with the ``created`` or ``unchanged`` progress event.
+        Called once with the ``new`` or ``unchanged`` progress event.
     on_notice : NoticeHook or None, optional
         Called with the license notice when a new version is created and with a
         ``leftover_incoming`` warning for every removed staging directory older
@@ -344,7 +344,7 @@ def sync_pmaxtp(
     Returns
     -------
     PMaXTPStoreResult
-        ``status`` is ``"created"``, ``"unchanged"`` or ``"cancelled"``;
+        ``status`` is ``"new"``, ``"unchanged"`` or ``"cancelled"``;
         ``version`` is the ``cell.json`` path (``None`` when cancelled) and
         ``result`` holds the data for the requested point.
 
@@ -452,7 +452,7 @@ def sync_pmaxtp(
         on_notice=on_notice,
         attachments={RESPONSE_FILE: response.content},
     )
-    status: Literal["created", "unchanged"] = "created" if created else "unchanged"
+    status: Literal["new", "unchanged"] = "new" if created else "unchanged"
     if on_progress is not None:
         on_progress(
             Progress(
