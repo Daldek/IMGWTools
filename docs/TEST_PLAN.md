@@ -26,8 +26,15 @@ Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asynci
 > `test_parsing_chmi.py`, `test_store_content.py` i kontrakt `tests/contract/test_chmi_contract.py` (IMGW-15..19 na
 > `build_fixture_store(variant="complete_pl_cz")`), a na żywo `tests/live/test_chmi_live.py`; wsparcie agentów —
 > `test_agent_guide.py` (test dryfu `AGENTS.md`/`llms.txt`), `test_catalog_effects.py`, `test_catalog_i18n.py`,
-> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan: 2213 testów
+> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan z 2026-10-19: 2213 testów
 > (2134 offline, 79 na żywo; `pytest --collect-only`).
+>
+> **Aktualizacja 2026-10-25 (ADR-005, ADR-006, ADR-007):** opisy poniżej, w których występują `Settings.data_dir=./data`,
+> `store_root`, zapis przez `.part`, `output` jako katalog pobierania albo `path` eksportu, opisują stan sprzed tych decyzji;
+> obowiązują nazwy `root` (`IMGW_ROOT`), `output_dir`, `output`, `force`, staging `.imgw-incoming/` i statusy `new`/`unchanged`.
+> Zapis danych pokrywają `tests/unit/test_output.py`, `test_plain_output.py`, `test_default_root.py`,
+> `test_store_marker.py`, `test_cli_interrupt.py` (SIGINT i SIGTERM prawdziwych poleceń) oraz odmowy zapisu REST i MCP w
+> `test_api_commands.py` i `test_mcp_calls.py`. Stan: 2409 testów (2329 offline, 80 na żywo; `docs/TESTING.md`).
 
 Komendy bazowe:
 

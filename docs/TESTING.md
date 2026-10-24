@@ -32,31 +32,33 @@ uv run mypy src tests
 |File|Tests|Description|
 |---|---|---|
 |`tests/conftest.py`|-|Shared fixtures; autouse `isolated_reference_dir` (`settings.reference_dir` in a temporary directory)|
-|`tests/unit/test_public_store_api.py`|192|`__all__` == spec §13.12 + ČHMÚ + `agent_guide`, removed names absent, light imports|
-|`tests/unit/test_cli_catalog.py`|155|CLI generated from the catalog: envelope, errors, exit codes, streams, help languages|
-|`tests/unit/test_api_commands.py`|113|REST routes from the catalog, problem+json, write guard, `Accept-Language`|
-|`tests/unit/test_command_schema.py`|102|`command_schema`, `imgw-commands/1`|
-|`tests/unit/test_commands.py`|98|Catalog, validation, `run_command`/`check_command`, paging|
+|`tests/unit/test_public_store_api.py`|196|`__all__` == spec §13.12 + ČHMÚ + `agent_guide`, removed names absent, light imports|
+|`tests/unit/test_cli_catalog.py`|163|CLI generated from the catalog: envelope, errors, exit codes, streams, help languages|
+|`tests/unit/test_api_commands.py`|150|REST routes from the catalog, problem+json, write guard, refused request options, `Accept-Language`|
+|`tests/unit/test_command_schema.py`|111|`command_schema`, `imgw-commands/1`|
+|`tests/unit/test_commands.py`|103|Catalog, validation, `run_command`/`check_command`, paging|
 |`tests/unit/test_fetch_live.py`|66|Live functions with `respx`|
 |`tests/unit/test_datasets.py`|59|Registry, aliases, `archive_files`, `YearsArg`|
 |`tests/unit/test_project.py`|55|`imgw-project/1`|
 |`tests/unit/test_parsers.py`|50|Hydro/meteo/station-list parsers|
 |`tests/unit/test_exceptions.py`|53|`ERROR_CODES`, codes and details, file-system errors|
-|`tests/unit/test_messages.py`|10|Message catalog: both languages, call sites against entries, Polish literals left|
-|`tests/unit/test_store_*.py` (IMGW), `test_series_export.py`|210|Store writer, sync, series, catalog, pmaxtp, reader, export, types, fixtures|
-|`tests/unit/test_*_chmi.py`, `test_parsing_chmi.py`, `test_store_content.py`|360|ČHMÚ: parsers, registry, listing sync, catalog, series, export, commands, stations, projects, content form|
-|`tests/unit/test_catalog_effects.py`, `test_catalog_i18n.py`, `test_agent_guide.py`, `test_mcp_*.py`|179|Agents: effects = behavior, English texts, guide drift test, MCP tools/calls/stdio/HTTP|
+|`tests/unit/test_messages.py`|11|Message catalog: both languages, call sites against entries, Polish literals left|
+|`tests/unit/test_store_*.py` (IMGW), `test_series_export.py`|236|Store writer, sync, series, catalog, pmaxtp, reader, export, types, fixtures, marker (`test_store_marker.py`)|
+|`tests/unit/test_*_chmi.py`, `test_parsing_chmi.py`, `test_store_content.py`|363|ČHMÚ: parsers, registry, listing sync, catalog, series, export, commands, stations, projects, content form|
+|`tests/unit/test_catalog_effects.py`, `test_catalog_i18n.py`, `test_agent_guide.py`, `test_mcp_*.py`|183|Agents: effects = behavior, English texts, guide drift test, MCP tools/calls/stdio/HTTP|
 |`tests/unit/test_web_app.py`|45|Web GUI|
 |`tests/unit/test_cli_interrupt.py` (with `interrupt_driver.py`)|6|SIGINT and SIGTERM of real plain writes (`datasets download -o`, `store export --output`): exit codes, no staging directory, old target whole|
-|`tests/unit/` other files|152|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
+|`tests/unit/test_output.py`, `test_plain_output.py`|33|Plain output (ADR-007): target list, conflicts, staging and its cleanup, `files[]`, `--check` plan|
+|`tests/unit/test_default_root.py`, `test_environment.py`|40|Default root and its source (`IMGW_ROOT`, `nogat.toml`, `<data_dir>/imgw`), REST and MCP write refusals, `nogat.toml` settings|
+|`tests/unit/` other files|153|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
 |`tests/contract/test_interface_contract.py`|81|Python = CLI = REST for all 28 REST commands, error matrix, paging|
 |`tests/contract/test_chmi_contract.py`|68|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
 |`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|87|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
-|`tests/contract/` other files|15|Store contract, CLI = API parity, project contract|
+|`tests/contract/` other files|17|Store contract (sidecar core of every kind of version), CLI = API parity, project contract|
 |`tests/live/test_interfaces_live.py`|54|Live IMGW-PIB: 38 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); marker `live`|
 |`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; marker `live`|
 
-**Total: 2409 tests** (`pytest --collect-only`, 2026-10-25): 2329 offline, 80 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`). The counts of the rows above date from 2026-10-19 except the new `test_cli_interrupt.py`; recount them with `pytest --collect-only -q`.
+**Total: 2409 tests** (`pytest --collect-only`, 2026-10-25): 2329 offline, 80 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`). The counts of the rows above were recounted the same day with `pytest --collect-only -q`.
 
 ## Testy (z README)
 

@@ -192,7 +192,7 @@ imgw commands guide [-f agents|llms] [--lang pl|en] [--output <file> [--force]]
 | No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
-| Unit and contract tests | Implemented | 2157 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-24); Python = CLI = REST = MCP contract |
+| Unit and contract tests | Implemented | 2329 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-25); Python = CLI = REST = MCP contract |
 | Live integration tests | Implemented | 80 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (54: 38 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (26: ČHMÚ on opendata.chmi.cz) |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
