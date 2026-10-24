@@ -201,9 +201,11 @@ def check_config() -> None:
     Raises
     ------
     IMGWValidationError
-        If the file is unreadable, not valid TOML, has a section that is not a
-        table, or ``NOGAT_CONFIG`` names a file that does not exist
-        (``details.path`` and ``details.reason``).
+        If the file is unreadable, not UTF-8, not valid TOML, has a section that is
+        not a table, or ``NOGAT_CONFIG`` names a file that does not exist. The
+        message names the cause; ``details.reason`` is ``invalid_config`` (the
+        same for every cause), ``details.option`` the variable or the file name
+        and ``details.path`` the file.
     """
     file = environment.config_file()
     if file.error is not None:
@@ -214,7 +216,7 @@ def check_config() -> None:
                 if file.source == environment.CONFIG_ENV
                 else environment.CONFIG_FILENAME,
                 "path": str(file.path),
-                "reason": file.error,
+                "reason": "invalid_config",
             },
         )
 
