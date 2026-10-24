@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from imgwtools.api.main import app
-from imgwtools.commands import check_command, command_schema, run_command
-from imgwtools.config import Settings, settings
+from imgwtools.commands import check_command, command_schema, data_commands, run_command
+from imgwtools.config import Settings, default_root, settings
 from imgwtools.exceptions import ERROR_CODES
 from imgwtools.messages import localize
 from imgwtools.stations import HYDRO_MAP_API_URL
@@ -976,6 +976,80 @@ def test_api_refuses_server_local_unknown_and_repeated_options(
 
     assert problem(response, 400, "validation_error")["details"]["option"] == option
     assert stamps(served) == before
+
+
+def refused_options():
+    """(command, method, option) of every option that is no REST request parameter."""
+    return [
+        (spec.name, spec.method, option.name)
+        for spec in data_commands()
+        if spec.method is not None
+        for option in spec.options
+        if option.rest != "param"
+    ]
+
+
+@pytest.mark.parametrize(("command", "method", "option"), refused_options())
+def test_api_no_route_takes_a_place_to_write_from_a_request(
+    client, served, writable, command, method, option
+):
+    # DEV-19.3: root, output_dir, output (and force, plan) are server or local
+    # options; even a client that holds the write token cannot choose a place.
+    before = stamps(served)
+
+    if method == "GET":
+        response = client.get(path_of(command), params={option: "x"})
+        assert problem(response, 400, "validation_error")["details"] == {
+            "option": option
+        }
+    else:
+        bodies = {name: body for name, body, _ in POST_CASES}
+        response = client.post(
+            path_of(command), json={**bodies[command], option: "x"}, headers=writable
+        )
+        errors = problem(response, 400, "validation_error")["details"]["errors"]
+        assert {error["option"] for error in errors} == {option}
+
+    assert stamps(served) == before
+
+
+@pytest.mark.parametrize(
+    ("command", "body"), [(name, body) for name, body, _ in POST_CASES]
+)
+def test_api_a_write_without_a_configured_root_never_goes_to_the_default_root(
+    client, writable, monkeypatch, tmp_path, command, body
+):
+    (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
+    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
+    assert default_root() == tmp_path / "data" / "imgw"  # where the CLI would write
+
+    response = client.post(path_of(command), json=body, headers=writable)
+
+    problem_details = problem(response, 503, "store_unavailable")["details"]
+    assert problem_details == {"reason": "not_configured"}
+    assert not (tmp_path / "data").exists()
+
+
+def test_api_a_write_goes_to_the_configured_root_and_not_to_the_default_root(
+    client, writable, empty_root, imgw, monkeypatch, tmp_path
+):
+    (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
+    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
+    imgw.publish_pmaxtp("pmaxtp_pot_first")
+
+    response = client.post(
+        "/api/v1/pmaxtp/sync",
+        json={"latitude": 52.23, "longitude": 21.01},
+        headers=writable,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["status"] == "new"
+    assert (empty_root / "pmaxtp").is_dir()
+    assert not (tmp_path / "data").exists()
 
 
 def test_api_catalog_user_locations_come_only_from_the_server_directory(

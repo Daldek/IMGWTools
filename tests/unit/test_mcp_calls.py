@@ -139,14 +139,32 @@ async def test_a_writing_command_returns_its_plan_and_leaves_the_store(
     ("tool", "arguments", "option"),
     [
         ("imgw_store_sync", {**SYNC, "check": False}, "check"),
+        ("imgw_store_sync", {**SYNC, "output_dir": "plain"}, "output_dir"),
+        (
+            "imgw_datasets_download",
+            {"dataset": DAILY, "years": "2024", "output_dir": "plain"},
+            "output_dir",
+        ),
         ("imgw_store_check", {**SYNC, "plan": "plan.json"}, "plan"),
         (
             "imgw_series_export",
             {"dataset": DAILY, "station": "149190310", "output": "x.csv"},
             "output",
         ),
+        (
+            "imgw_store_export",
+            {"version": "archives/versions/x", "force": True},
+            "force",
+        ),
     ],
-    ids=["check-false", "store-check-plan", "export-output"],
+    ids=[
+        "check-false",
+        "sync-output-dir",
+        "download-output-dir",
+        "store-check-plan",
+        "export-output",
+        "export-force",
+    ],
 )
 async def test_a_server_without_writes_forbids_every_write(
     tool, arguments, option, root, imgw, tmp_path, monkeypatch
@@ -162,7 +180,7 @@ async def test_a_server_without_writes_forbids_every_write(
     assert document["title"] == spec.title
     assert document["details"] == {"reason": "writes_disabled", "option": option}
     assert stamps(root) == before
-    assert not (tmp_path / "plan.json").exists() and not (tmp_path / "x.csv").exists()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["store"]
     assert imgw.requests("GET") == imgw.requests("HEAD") == []
 
 
