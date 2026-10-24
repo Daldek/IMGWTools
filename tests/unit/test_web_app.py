@@ -503,5 +503,5 @@ def test_web_app_map_source_failure_is_problem_with_code_title_detail(client):
     assert response.status_code == 502
     problem = response.json()
     assert problem["code"] == "source_unavailable"
-    assert problem["title"] == "Źródło danych niedostępne"
+    assert problem["title"] == "Data source unavailable"
     assert problem["detail"]

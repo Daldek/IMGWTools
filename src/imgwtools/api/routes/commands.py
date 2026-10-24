@@ -21,10 +21,13 @@ object. Server and local options in a request are refused. Writes (POST
 without ``?check=true``) need ``IMGW_STORE_WRITES_ENABLED``, a configured
 ``IMGW_STORE_WRITE_TOKEN`` and a matching ``X-API-Key`` (constant-time
 comparison) and are checked before the root; list commands page by ``limit``
-(default and maximum ``IMGW_API_MAX_LIMIT``) and ``offset``. A command with a
-``lang`` option takes it from ``Accept-Language`` when the request omits it
-(``?lang=`` first, Polish by default; ``Content-Language`` and ``Vary``);
-``operationId`` is ``x-imgw.operation_id`` of the catalog.
+(default and maximum ``IMGW_API_MAX_LIMIT``) and ``offset``. The catalog
+messages of an answer (notices, texts of failed items) and the texts of a command
+with a ``lang`` option are in the language of ``?lang=``, else of
+``Accept-Language`` (English by default, AGI-6.4); every answer names it in
+``Content-Language`` and adds ``Vary`` when the header decided. The OpenAPI
+document is English (AGI-9.2); ``operationId`` is ``x-imgw.operation_id`` of the
+catalog.
 """
 
 import hmac
@@ -73,7 +76,7 @@ from imgwtools.exceptions import (
     IMGWStoreError,
     IMGWValidationError,
 )
-from imgwtools.messages import message
+from imgwtools.messages import Lang, message
 from imgwtools.models import PMaXTPResult
 from imgwtools.store import store_info
 from imgwtools.store.types import (
@@ -93,7 +96,7 @@ router = APIRouter()
 _API_KEY = APIKeyHeader(
     name="X-API-Key",
     scheme_name="StoreWriteToken",
-    description="Token zapisu magazynu (IMGW_STORE_WRITE_TOKEN serwera)",
+    description="Store write token (IMGW_STORE_WRITE_TOKEN of the server)",
     auto_error=False,
 )
 # Store directory of the versions accepted by the version option of each group.
@@ -176,13 +179,15 @@ class _Envelope(BaseModel):
     """Envelope ``imgw-result/1`` of a catalog command (spec §13.6)."""
 
     schema_: Literal["imgw-result/1"] = Field(alias="schema")
-    command: str = Field(description="Nazwa komendy katalogu")
-    check: bool = Field(description="Czy wynik jest planem imgw-plan/1 (?check=true)")
+    command: str = Field(description="Name of the catalog command")
+    check: bool = Field(
+        description="Whether the result is an imgw-plan/1 plan (?check=true)"
+    )
     status: Literal["ok", "partial", "failed", "cancelled"] = Field(
-        description="ok bez porażek, partial/failed przy nieudanych pozycjach raportu"
+        description="ok without failures, partial/failed when items of the report failed"
     )
     notices: list[Notice] = Field(
-        description="Różne komunikaty w kolejności wystąpienia (np. license_terms)"
+        description="The distinct notices in order of first occurrence (e.g. license_terms)"
     )
 
 
@@ -209,7 +214,8 @@ class _Route:
 def _routes() -> tuple[_Route, ...]:
     specs = {spec.name: spec for spec in data_commands()}
     routes = []
-    for schema in cast(list[dict[str, Any]], command_schema()["commands"]):
+    # The OpenAPI document is machine output: English (AGI-9.2).
+    for schema in cast(list[dict[str, Any]], command_schema(lang="en")["commands"]):
         meta = schema["x-imgw"]
         if meta["rest"] is not None:
             routes.append(
@@ -530,9 +536,12 @@ def _stream(
     envelope: CommandResult[object],
     options: Mapping[str, object],
     root: Path | None,
+    lang: Lang,
 ) -> StreamingResponse:
     lines = cast(Iterator[str], envelope.result)
-    notices = hide_server_paths(jsonable(envelope.notices, root=root, server=True))
+    notices = hide_server_paths(
+        jsonable(envelope.notices, root=root, server=True, lang=lang)
+    )
     return StreamingResponse(
         (line.encode("utf-8") for line in lines),
         media_type=_MEDIA_TYPES[_stream_format(route, options)],
@@ -546,7 +555,9 @@ def _stream(
     )
 
 
-def _respond(route: _Route, options: dict[str, object], *, check: bool) -> Response:
+def _respond(
+    route: _Route, options: dict[str, object], *, check: bool, lang: Lang
+) -> Response:
     root = _server_root(route, options)
     if root is not None:
         options["root"] = root
@@ -571,23 +582,16 @@ def _respond(route: _Route, options: dict[str, object], *, check: bool) -> Respo
             envelope = run_command(route.spec.name, options=normalized)
     if envelope.status == "cancelled":
         raise IMGWError(message("api.operation_was_interrupted_without_report"))
+    # The ``lang`` option of a command wins; else the language of the caller.
+    language = cast(Lang, normalized.get(_LANG, lang))
     if route.spec.result == "stream" and not check:
-        response: Response = _stream(route, envelope, normalized, root)
+        response: Response = _stream(route, envelope, normalized, root, language)
     else:
         response = JSONResponse(
-            hide_server_paths(envelope.to_json(root=root, server=True))
+            hide_server_paths(envelope.to_json(root=root, server=True, lang=language))
         )
-    if _LANG in normalized:
-        response.headers["Content-Language"] = cast(str, normalized[_LANG])
+    response.headers["Content-Language"] = language
     return response
-
-
-def _negotiated(route: _Route, options: dict[str, object], request: Request) -> bool:
-    """Fill an absent ``lang`` option from ``Accept-Language``; True when filled."""
-    if _LANG in options or all(option.name != _LANG for option in route.params):
-        return False
-    options[_LANG] = accept_language(request.headers.get("accept-language"))
-    return True
 
 
 class _Endpoint:
@@ -595,9 +599,10 @@ class _Endpoint:
     Endpoint of one catalog route; FastAPI reads the parameters from `__signature__`.
 
     GET routes take only the request; POST routes also take the generated
-    body model and the ``?check=true`` flag resolved by the write guard. A
-    command with a ``lang`` option absent from the request answers in the
-    language of ``Accept-Language`` (``Vary: Accept-Language``).
+    body model and the ``?check=true`` flag resolved by the write guard. The
+    texts of the answer are in the language of ``?lang=`` (a command with a
+    ``lang`` option) or of ``Accept-Language`` (``Content-Language``, and ``Vary:
+    Accept-Language`` when the header decided).
     """
 
     def __init__(self, route: _Route, body: type[BaseModel] | None) -> None:
@@ -627,8 +632,13 @@ class _Endpoint:
                 if name != "check":
                     _refuse(route, name)
             options = {} if body is None else body.model_dump(exclude_unset=True)
-        negotiated = _negotiated(route, options, request)
-        response = _respond(route, options, check=check)
+        # The texts follow ``?lang=`` (a command with a ``lang`` option), else the
+        # ``Accept-Language`` of the request, which a cache must key on.
+        header = accept_language(request.headers.get("accept-language"))
+        negotiated = _LANG not in options
+        if negotiated and any(option.name == _LANG for option in route.params):
+            options[_LANG] = header
+        response = _respond(route, options, check=check, lang=header)
         if negotiated:
             response.headers.add_vary_header("Accept-Language")
         return response
@@ -645,41 +655,43 @@ def _option_schema(route: _Route, option: CommandOption) -> dict[str, Any]:
     if option.name == "version":
         kind = _VERSION_DIRS[route.group]
         schema["description"] = (
-            f"{schema['description']}. REST: wyłącznie ścieżka względna do magazynu "
-            f"serwera pod {kind}/versions/"
+            f"{schema['description']}. REST: only a path relative to the store of "
+            f"the server under {kind}/versions/"
         )
     elif option.name == "user_locations":
         schema = {
             "type": "string",
             "minLength": 1,
-            "description": "Nazwa pliku CSV station_code,latitude,longitude[,source] "
-            "z katalogu IMGW_USER_LOCATIONS_DIR serwera",
+            "description": "Name of a CSV file station_code,latitude,longitude[,source] "
+            "in the directory IMGW_USER_LOCATIONS_DIR of the server",
         }
     elif option.name == _PLAN:
         schema = {
             "type": "object",
-            "description": "Plan imgw-plan/1 (result komendy store check albo "
-            '?check=true) z root "." (zamiast datasets, years, months i stations)',
+            "description": "The imgw-plan/1 plan (the result of the command store "
+            'check or of ?check=true) with root "." (instead of datasets, years, '
+            "months and stations)",
         }
     elif option.name == "limit":
         maximum = settings.api_max_limit
         schema.update(default=maximum, maximum=maximum)
         schema["description"] = (
-            f"{schema['description']} (domyślnie i najwyżej IMGW_API_MAX_LIMIT)"
+            f"{schema['description']} (default and at most IMGW_API_MAX_LIMIT)"
         )
     return schema
 
 
 def _description(route: _Route) -> str:
-    lines = [route.spec.description]
-    if route.spec.rules:
-        lines += ["", "Reguły:", *(f"- {rule}" for rule in route.spec.rules)]
+    lines = [cast(str, route.schema["description"])]
+    rules = cast(list[str], route.schema["x-imgw"]["rules"])
+    if rules:
+        lines += ["", "Rules:", *(f"- {rule}" for rule in rules)]
     if route.method == "POST":
         lines += [
             "",
-            "Zapis wymaga IMGW_STORE_WRITES_ENABLED, IMGW_STORE_WRITE_TOKEN i "
-            "nagłówka X-API-Key; ?check=true zwraca plan imgw-plan/1 bez zapisu i "
-            "bez tokenu.",
+            "Writing needs IMGW_STORE_WRITES_ENABLED, IMGW_STORE_WRITE_TOKEN and the "
+            "header X-API-Key; ?check=true returns the imgw-plan/1 plan without "
+            "writing and without a token.",
         ]
     return "\n".join(lines)
 
@@ -716,7 +728,7 @@ def _body_model(route: _Route) -> type[BaseModel]:
     return create_model(
         f"{_pascal(route)}Body",
         __config__=ConfigDict(extra="forbid", json_schema_extra=extra or None),
-        __doc__=f"Ciało JSON komendy {route.spec.name}; serwer wstawia root.",
+        __doc__=f"JSON body of the command {route.spec.name}; the server inserts root.",
         **fields,
     )
 
@@ -743,10 +755,10 @@ def _response_model(route: _Route) -> type[BaseModel]:
     model = create_model(
         f"{_pascal(route)}Result",
         __base__=_Envelope,
-        __doc__=f"Koperta imgw-result/1 komendy {route.spec.name}",
+        __doc__=f"Envelope imgw-result/1 of the command {route.spec.name}",
         result=(
             _result_type(route),
-            Field(description=f"Wynik funkcji {route.spec.function}"),
+            Field(description=f"Result of the function {route.spec.function}"),
         ),
     )
     model.model_rebuild(_types_namespace=_ANNOTATIONS)
@@ -779,8 +791,8 @@ def _add_route(route: _Route) -> None:
         body = _body_model(route)
     if route.spec.result == "stream":
         responses[200] = {
-            "description": "Strumień danych (załącznik) z nagłówkami X-IMGW-Status "
-            "i X-IMGW-Notices",
+            "description": "The data stream (an attachment) with the headers "
+            "X-IMGW-Status and X-IMGW-Notices",
             "content": {
                 _MEDIA_TYPES[name]: {"schema": {"type": "string"}}
                 for name in route.schema["properties"]["format"]["enum"]

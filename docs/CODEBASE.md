@@ -38,7 +38,7 @@ src/imgwtools/
 │   └── export.py         # export_archive, export_series (CSV/JSONL, file or line iterator)
 ├── api/                  # FastAPI REST API [optional: imgwtools[api]]
 │   ├── main.py           # App entry point (/health, /api/v1, /llms.txt, /mcp, web router, static)
-│   ├── routes/commands.py# Routes generated from command_schema() (x-imgw.rest), Accept-Language
+│   ├── routes/commands.py# Routes generated from command_schema() (x-imgw.rest), Accept-Language (English by default)
 │   ├── errors.py         # application/problem+json handlers, hide_server_paths, accept_language
 │   └── schemas.py        # HealthCheck
 ├── cli/                  # Typer/Click CLI [optional: imgwtools[cli]]
@@ -274,23 +274,23 @@ Option name = function parameter = JSON field; CLI flag = `--` + name with `_` �
 
 - CLI stdout: compact one-line JSON envelope `imgw-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export` without `--path` stream CSV/JSONL bytes. Progress and notices (once per distinct notice) go to stderr.
 - CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
-- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `IMGW_API_MAX_LIMIT` (1000). `lang` from the query, else `Accept-Language`, else `pl`; `title` of problem+json follows `Accept-Language`; `Content-Language` and `Vary: Accept-Language` on negotiated answers.
+- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `IMGW_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
 - MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`).
 
-|Code|Title (`title` / `title_en`)|CLI exit|HTTP|
+|Code|Title (`title` / `title.localized("pl")`)|CLI exit|HTTP|
 |---|---|---|---|
-|`validation_error`|Nieprawidłowe dane wejściowe / Invalid input|2|400|
-|`not_found`|Nie znaleziono / Not found|3|404|
-|`conflict`|Konflikt stanu / State conflict|4|409|
-|`source_unavailable`|Źródło danych niedostępne / Data source unavailable|5|502|
-|`missing_dependency`|Brak opcjonalnej zależności / Missing optional dependency|6|503|
-|`data_error`|Niepoprawne dane / Invalid data|7|500|
-|`store_unavailable`|Magazyn niedostępny / Store unavailable|8|503|
-|`io_error`|Błąd systemu plików / File system error|9|500|
-|`cancelled`|Operację anulowano / Operation cancelled|130|—|
-|`forbidden`|Brak uprawnień do zapisu / Write not permitted|12|403|
-|`method_not_allowed`|Niedozwolona metoda HTTP / HTTP method not allowed|—|405|
-|`internal_error`|Błąd wewnętrzny / Internal error|1|500|
+|`validation_error`|Invalid input / Nieprawidłowe dane wejściowe|2|400|
+|`not_found`|Not found / Nie znaleziono|3|404|
+|`conflict`|State conflict / Konflikt stanu|4|409|
+|`source_unavailable`|Data source unavailable / Źródło danych niedostępne|5|502|
+|`missing_dependency`|Missing optional dependency / Brak opcjonalnej zależności|6|503|
+|`data_error`|Invalid data / Niepoprawne dane|7|500|
+|`store_unavailable`|Store unavailable / Magazyn niedostępny|8|503|
+|`io_error`|File system error / Błąd systemu plików|9|500|
+|`cancelled`|Operation cancelled / Operację anulowano|130|—|
+|`forbidden`|Write not permitted / Brak uprawnień do zapisu|12|403|
+|`method_not_allowed`|HTTP method not allowed / Niedozwolona metoda HTTP|—|405|
+|`internal_error`|Internal error / Błąd wewnętrzny|1|500|
 
 Envelope status exit codes: `ok` 0, `partial` 10, `failed` 11, `cancelled` 130.
 
@@ -384,7 +384,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 |`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
 |`IMGW_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/imgw`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 it held the reference data: that is `IMGW_REFERENCE_DIR` now|
 |`IMGW_REFERENCE_DIR`|`<cache_dir>/imgw/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m imgwtools.reference_data`); `settings.reference_dir`|
-|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines (`--lang` of `commands list\|schema\|guide` defaults to English whatever it says; REST answers follow `Accept-Language`, MCP is always English; the CLI error line and the envelope are English)|
+|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines only (`--lang` of `commands list\|schema\|guide` defaults to English whatever it says; REST answers follow `Accept-Language`, English without it; MCP is always English; the CLI error line and the envelope are English)|
 |`IMGW_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `imgw server` (needs `imgwtools[mcp]`; read and plan only)|
 |`IMGW_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
 |`IMGW_MCP_ALLOW_WRITES`|`false`|Envvar of `imgw mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|

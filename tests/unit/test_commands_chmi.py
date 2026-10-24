@@ -414,7 +414,7 @@ def test_source_unavailable_title_is_neutral_and_the_detail_names_chmi(server):
     assert response.status_code == 502
     assert (problem["code"], problem["title"]) == (
         "source_unavailable",
-        "Źródło danych niedostępne",
+        "Data source unavailable",
     )
     assert "ČHMÚ" in problem["detail"]
     assert problem["details"]["url"] == HYDRO_NOW

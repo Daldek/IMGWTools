@@ -413,10 +413,10 @@ Punkt PMAXTP w ramce współrzędnych Polski, ale poza siatką IMGW (np. Kalinin
 Po uruchomieniu serwera (`imgw server`):
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
-- `GET /api/v1` — wersja i lista tras katalogu, `GET /health` — stan serwera, `GET /llms.txt` — przewodnik dla agentów (llms.txt) w języku z `Accept-Language`
+- `GET /api/v1` — wersja i lista tras katalogu, `GET /health` — stan serwera, `GET /llms.txt` — przewodnik dla agentów (llms.txt) w języku z `Accept-Language` (domyślnie angielski)
 - `/mcp` — serwer MCP (Streamable HTTP), gdy `IMGW_MCP_ENABLED=true` (sekcja „Agenci AI”)
 
-Trasy powstają z katalogu: `/api/v1/<grupa>/<komenda>` (tabela wyżej; komendy lokalne — `datasets download`, `store init`, `project …` — nie mają tras). GET przyjmuje opcje w query (listy po przecinku albo powtórzony parametr), POST — w ciele JSON; `?check=true` przy POST zwraca plan bez zapisu. Odpowiedź to ta sama koperta `imgw-result/1` co w CLI; komendy listowe mają `limit` (domyślnie i najwyżej `IMGW_API_MAX_LIMIT`, 1000) i `offset`. Błędy: `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`). Język: `commands schema` i `commands guide` biorą `lang` z zapytania, a bez niego z nagłówka `Accept-Language` (domyślnie `pl`); `title` problem+json idzie za nagłówkiem, `detail` jest po polsku, odpowiedzi mają `Content-Language` i `Vary: Accept-Language`.
+Trasy powstają z katalogu: `/api/v1/<grupa>/<komenda>` (tabela wyżej; komendy lokalne — `datasets download`, `store init`, `project …` — nie mają tras). GET przyjmuje opcje w query (listy po przecinku albo powtórzony parametr), POST — w ciele JSON; `?check=true` przy POST zwraca plan bez zapisu. Odpowiedź to ta sama koperta `imgw-result/1` co w CLI; komendy listowe mają `limit` (domyślnie i najwyżej `IMGW_API_MAX_LIMIT`, 1000) i `offset`. Błędy: `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`). Język: powiadomienia, teksty pozycji i planów oraz `title` i `detail` problem+json są po angielsku, a po polsku przy `Accept-Language: pl` (wagi `q` wg RFC 9110); komendy z opcją `lang` (`commands list`, `commands schema`, `commands guide`) biorą ją z zapytania, a bez niego z nagłówka. Każda odpowiedź komendy ma `Content-Language`, a `Vary: Accept-Language`, gdy decydował nagłówek. Dokument OpenAPI (`/openapi.json`) jest po angielsku.
 
 ```bash
 # Dane bieżące i URL-e archiwów
@@ -424,9 +424,10 @@ curl "http://localhost:8000/api/v1/current/hydro?station=150160180"
 curl "http://localhost:8000/api/v1/datasets/files?dataset=hydro/dobowe&years=2023&months=1"
 curl "http://localhost:8000/api/v1/datasets/files?dataset=cz.chmi.hydro_daily&stations=0-203-1-001000&years=2024"
 
-# Katalog komend i przewodnik po angielsku
-curl -H "Accept-Language: en" "http://localhost:8000/api/v1/commands/schema?command=store%20sync"
-curl -H "Accept-Language: en" http://localhost:8000/llms.txt
+# Katalog komend i przewodnik (po angielsku; po polsku z Accept-Language: pl)
+curl "http://localhost:8000/api/v1/commands/schema?command=store%20sync"
+curl http://localhost:8000/llms.txt
+curl -H "Accept-Language: pl" http://localhost:8000/llms.txt
 
 # Magazyn (wymaga IMGW_STORE_ROOT na serwerze; inaczej 503 store_unavailable)
 curl http://localhost:8000/api/v1/store/info
@@ -455,7 +456,7 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
 
 ## Agenci AI: język, skutki komend i serwer MCP
 
-**Język.** Wynik maszynowy jest po angielsku (AGI-9.2): koperta, `detail` błędów, powiadomienia, linie planu, opisy `commands list|schema|guide` (`command_schema()`, `list_commands()`, `agent_guide()`), `AGENTS.md`, `llms.txt` i serwer MCP; REST odpowiada w języku `Accept-Language` (do osobnej zmiany: domyślnie po polsku). Polskie teksty katalogu (opisy komend, pomoc opcji, reguły, grupy, tytuły błędów i zbiorów) dostaje się na jawną prośbę: `lang="pl"`, `--lang pl`, `Accept-Language: pl`. `IMGW_LANG` (domyślnie `pl`) dotyczy wyłącznie tekstu dla człowieka w CLI: pomocy, linii postępu i powiadomień na stderr; ostatnia linia błędu i koperta są zawsze po angielsku, a `IMGW_LANG` nie jest domyślną wartością `--lang`. Agent decyduje po `code`, `status` i polach JSON; język nie zmienia kontraktu.
+**Język.** Wynik maszynowy jest po angielsku (AGI-9.2): koperta, `detail` błędów, powiadomienia, linie planu, opisy `commands list|schema|guide` (`command_schema()`, `list_commands()`, `agent_guide()`), `AGENTS.md`, `llms.txt`, dokument OpenAPI, odpowiedzi REST bez nagłówka `Accept-Language` i serwer MCP. Polskie teksty katalogu (opisy komend, pomoc opcji, reguły, grupy, tytuły błędów i zbiorów) dostaje się na jawną prośbę: `lang="pl"`, `--lang pl`, `Accept-Language: pl`. `IMGW_LANG` (domyślnie `pl`) dotyczy wyłącznie tekstu dla człowieka w CLI: pomocy, linii postępu i powiadomień na stderr; ostatnia linia błędu i koperta są zawsze po angielsku, a `IMGW_LANG` nie jest domyślną wartością `--lang`. Agent decyduje po `code`, `status` i polach JSON; język nie zmienia kontraktu.
 
 **Skutki komend.** `x-imgw.writes` (`none`, `add` — tylko nowe pliki i wersje, `replace` — może zastąpić plik użytkownika), `x-imgw.network` i `x-imgw-writes` opcji (np. `path`, `plan` w `store check`) mówią, co komenda zrobi, zanim zostanie uruchomiona; każda komenda zapisująca ma plan (`--check`, `?check=true`, `check: true`).
 

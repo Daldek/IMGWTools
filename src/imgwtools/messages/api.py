@@ -121,4 +121,17 @@ MESSAGES = {
         "The store at IMGW_STORE_ROOT is unavailable: {problems}",
         "Magazyn pod IMGW_STORE_ROOT jest niedostępny: {problems}",
     ),
+    "invalid_parameters_or_body": Text(
+        "Invalid parameters or request body",
+        "Niepoprawne parametry lub ciało żądania",
+    ),
+    "unexpected_server_error": Text(
+        "Unexpected error of the IMGWTools server; the details are in the server log",
+        "Nieoczekiwany błąd serwera IMGWTools; szczegóły w dzienniku serwera",
+    ),
+    "unknown_route": Text("Unknown route", "Nieznana trasa"),
+    "method_not_allowed": Text(
+        "The method {method} is not allowed for {path}",
+        "Metoda {method} jest niedozwolona dla {path}",
+    ),
 }
