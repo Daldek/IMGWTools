@@ -365,3 +365,7 @@ An agent reads the same English text whatever the user's setting, and a Polish u
 ### Open questions
 
 - Whether the reasons of the internal validators (a `ValueError` whose text another message embeds) need a Polish variant: they are catalog messages where a person reads them and plain English where only a developer does.
+
+### Errata
+
+**2026-10-24 — D3, D4 (MCP).** `imgw mcp --lang` and the `lang` of `create_server`, `run_stdio` and `http_app` are removed without an alias: AGI-9.2 makes MCP results, descriptions and instructions English, so the tool list never depends on a setting. `IMGW_LANG` no longer reaches the MCP server or `/mcp` (an invalid value is not refused by the REST server any more; the CLI still refuses it). The tool descriptions, the instructions and the error documents (`title`, `detail`) are English; the MCP server in mode `http` asks the REST route for `Accept-Language: en`. Polish text over MCP is only an explicit `lang: "pl"` argument of `imgw_commands_list`, `imgw_commands_schema` and `imgw_commands_guide`. D4 reads without `imgw mcp --lang` in both lists.

@@ -19,8 +19,6 @@ by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``,
 command, which writes nothing to stdout, the channel of the protocol.
 """
 
-from typing import cast
-
 import typer
 from rich.console import Console
 
@@ -35,8 +33,7 @@ from imgwtools.cli._dispatch import (
     register_catalog,
 )
 from imgwtools.config import settings
-from imgwtools.exceptions import IMGWError
-from imgwtools.messages import Lang, message
+from imgwtools.messages import message
 
 app = typer.Typer(
     name="imgw",
@@ -98,13 +95,6 @@ def mcp(
         "--allow-writes/--no-allow-writes",
         help=message("cli.mcp_allow_writes_help", lang=_LANG),
     ),
-    lang: str = typer.Option(
-        "pl",
-        "--lang",
-        envvar="IMGW_LANG",
-        metavar="pl|en",
-        help=message("cli.mcp_lang_help", lang=_LANG),
-    ),
 ) -> None:
     """
     Run the MCP server for AI agents on the standard input and output.
@@ -118,10 +108,7 @@ def mcp(
         raise typer.Exit(
             _error_line("missing_dependency", message("cli.mcp_needs_extra"), {})
         ) from None
-    try:
-        run_stdio(allow_writes=allow_writes, lang=cast(Lang, lang))
-    except IMGWError as exc:  # --lang outside pl and en
-        raise typer.Exit(_error_line(exc.code, exc.detail, exc.details)) from None
+    run_stdio(allow_writes=allow_writes)
 
 
 def main() -> None:

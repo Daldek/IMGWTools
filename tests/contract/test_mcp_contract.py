@@ -35,7 +35,6 @@ from imgwtools import (
 )
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
-from imgwtools.messages import Lang
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -77,14 +76,12 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
     }
 
 
-def call(
-    command: str, options: dict[str, object], *, mode: Mode, lang: Lang = "pl"
-) -> CallToolResult:
+def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
     name = command_document(command)["x-imgw"]["operation_id"]
 
     async def answer() -> CallToolResult:
-        async with Client(create_server(mode=mode, lang=lang)) as client:
+        async with Client(create_server(mode=mode)) as client:
             return await client.call_tool(name, arguments(options))
 
     return anyio.run(answer)
@@ -94,13 +91,11 @@ def writing(command: str) -> bool:
     return bool(command_document(command)["x-imgw"]["writes"] != "none")
 
 
-def run(
-    command: str, options: dict[str, object], *, lang: Lang = "pl"
-) -> CallToolResult:
+def run(command: str, options: dict[str, object]) -> CallToolResult:
     """Run the command: a writing one on a server with writes and ``check: false``."""
     if writing(command):
-        return call(command, {**options, "check": False}, mode="write", lang=lang)
-    return call(command, options, mode="read", lang=lang)
+        return call(command, {**options, "check": False}, mode="write")
+    return call(command, options, mode="read")
 
 
 def assert_envelope(answered: CallToolResult, python, printed, root) -> None:
@@ -161,6 +156,8 @@ def test_every_rest_command_answers_alike_in_mcp_python_and_cli(
         local = dict(given)
         if ROUTES[command]["result"] == "list" and "limit" not in options:
             local["limit"] = PAGE  # the page MCP takes without limit
+        if "lang" in ROUTES[command]["cli"]["flags"]:
+            local.setdefault("lang", "en")  # MCP speaks English, Python still Polish
         before = stamps(served_root)
         answers, requests, trees = {}, {}, {}
         for interface in ("python", "cli", "mcp"):
@@ -337,7 +334,7 @@ def test_every_error_of_the_cli_is_the_same_document_in_mcp(
     options = rooted(scenario.options, scenario.root)
 
     printed = cli(*cli_words(scenario.command, options))
-    answered = run(scenario.command, options, lang="en")  # as the CLI line is
+    answered = run(scenario.command, options)
 
     if code == "cancelled":  # an envelope without a report, as on CLI stdout
         assert answered.is_error is False

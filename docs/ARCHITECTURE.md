@@ -183,7 +183,7 @@ The CLI uses the library directly and downloads data straight from IMGW-PIB and 
 | `write` | `imgw mcp --allow-writes` / `IMGW_MCP_ALLOW_WRITES=true` | 38 | `check` defaults to `true`; writes with `check: false` |
 | `http` | `imgw server` + `IMGW_MCP_ENABLED=true` → `/mcp` | 28 (commands with a REST route) | none (REST rules: server root, `version` under `*/versions/`, hidden server paths) |
 
-Results: `structuredContent` = envelope `imgw-result/1` (the CLI stdout bytes also as text), `isError=false` for every envelope; errors `isError=true` with `{code, title, detail, details}` (`OSError` → `io_error`, other exceptions → `internal_error`; refused write → `forbidden`, `details.reason="writes_disabled"`). Streams up to 256 KiB as text with `result={format, bytes, lines}`. The language (`--lang`, `IMGW_LANG`) is fixed per server, because the tool list must not depend on the connection.
+Results: `structuredContent` = envelope `imgw-result/1` (the CLI stdout bytes also as text), `isError=false` for every envelope; errors `isError=true` with `{code, title, detail, details}` (`OSError` → `io_error`, other exceptions → `internal_error`; refused write → `forbidden`, `details.reason="writes_disabled"`). Streams up to 256 KiB as text with `result={format, bytes, lines}`. The server speaks English only (AGI-9.2: tool descriptions, instructions, error documents; `IMGW_LANG` does not reach it), so the tool list does not depend on the connection or the user's setting; Polish text is only an explicit `lang: "pl"` argument of `imgw_commands_list`, `imgw_commands_schema` and `imgw_commands_guide`.
 
 ---
 

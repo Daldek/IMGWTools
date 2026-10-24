@@ -6,8 +6,8 @@ The catalog routes ``/api/v1/<group>/<command>`` come from
 server, ``GET /llms.txt`` is the agent guide in the llms.txt format in the
 language of ``Accept-Language`` (spec 2026-10-19 §5.8). With
 ``IMGW_MCP_ENABLED=true`` and the ``mcp`` extra, ``/mcp`` serves the MCP server
-in mode ``http`` (Streamable HTTP, spec §6.2, §6.9) in the language of
-``IMGW_LANG``; its session manager runs in the lifespan of this application.
+in mode ``http`` (Streamable HTTP, spec §6.2, §6.9), in English like every MCP
+server; its session manager runs in the lifespan of this application.
 """
 
 import logging
@@ -31,12 +31,9 @@ from imgwtools.api.routes import commands
 from imgwtools.api.schemas import HealthCheck
 from imgwtools.commands import command_schema
 from imgwtools.config import check_config, settings
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.messages import LANGS, message
 from imgwtools.web.app import router as web_router
 
 _LOG = logging.getLogger(__name__)
-_LANG_ENV = "IMGW_LANG"
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
@@ -83,32 +80,12 @@ def _mcp_app() -> Starlette | None:
     Returns
     -------
     starlette.applications.Starlette or None
-        The MCP server in mode ``http`` in the language of ``IMGW_LANG``; None
-        unless ``IMGW_MCP_ENABLED=true`` and the ``mcp`` extra is installed
-        (``/mcp`` is then an unknown route: 404 ``not_found``).
-
-    Raises
-    ------
-    IMGWValidationError
-        If MCP is enabled and ``IMGW_LANG`` is neither ``pl`` nor ``en``.
+        The MCP server in mode ``http``; None unless ``IMGW_MCP_ENABLED=true`` and
+        the ``mcp`` extra is installed (``/mcp`` is then an unknown route: 404
+        ``not_found``).
     """
     if not settings.mcp_enabled:
         return None
-    lang = settings.lang.strip()
-    if lang not in LANGS:
-        raise IMGWValidationError(
-            message(
-                "api.invalid_value_environment_variable_allowed",
-                language=settings.lang,
-                lang_env=_LANG_ENV,
-                langs=", ".join(LANGS),
-            ),
-            details={
-                "option": _LANG_ENV,
-                "value": settings.lang,
-                "allowed": list(LANGS),
-            },
-        )
     try:
         from imgwtools.mcp.server import http_app
     except ImportError:
@@ -117,7 +94,7 @@ def _mcp_app() -> Starlette | None:
             "imgwtools[mcp]; trasa /mcp nie istnieje"
         )
         return None
-    return http_app(lang=lang)
+    return http_app()
 
 
 _MCP = _mcp_app()

@@ -81,7 +81,7 @@ imgw commands schema --command "store sync"          # JSON Schema of a command
 imgw commands schema --command "store sync" --lang en   # Same, English texts
 imgw store sync --schema                             # Same, via the command itself
 imgw commands guide --format agents --lang pl --path AGENTS.md   # Regenerate AGENTS.md
-imgw mcp [--allow-writes] [--lang en]                # MCP server on stdio (imgwtools[mcp])
+imgw mcp [--allow-writes]                            # MCP server on stdio, English (imgwtools[mcp])
 imgw admin keys                                      # List API keys
 imgw admin create --name "User1"                     # Create API key
 imgw admin revoke <key_id>                           # Revoke API key
@@ -262,7 +262,7 @@ CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET 
 |`commands schema`|`command_schema`|—|`GET /api/v1/commands/schema`|
 |`commands guide`|`agent_guide`|`check_command`|`GET /api/v1/commands/guide`|
 
-Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`, `--lang`), `imgw admin keys|create|revoke|delete|stats`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
+Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`), `imgw admin keys|create|revoke|delete|stats`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
 
 Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions/tasks, `replace` = may replace a user file (`datasets download`, `project remove|set-store|download`); writing options (`x-imgw-writes`): `plan` of `store check`/`project check`, `path` of `store export`/`series export`/`commands guide`. Every writing command has a check twin.
 
@@ -346,7 +346,7 @@ docker compose up -d
 IMGW_MCP_ENABLED=true IMGW_MCP_ALLOWED_HOSTS=dane.example.pl docker compose up -d   # with /mcp
 ```
 
-Services: app (FastAPI, `python:3.12-slim`, `pip install ".[api,mcp]"`, one uvicorn process), nginx (reverse proxy, `location = /mcp` with the `api_limit` zone, no buffering). Compose passes `IMGW_MCP_ENABLED` (default `false`), `IMGW_MCP_ALLOWED_HOSTS` (default `127.0.0.1,localhost`) and `IMGW_LANG` (default `pl`). No Redis needed.
+Services: app (FastAPI, `python:3.12-slim`, `pip install ".[api,mcp]"`, one uvicorn process), nginx (reverse proxy, `location = /mcp` with the `api_limit` zone, no buffering). Compose passes `IMGW_MCP_ENABLED` (default `false`) and `IMGW_MCP_ALLOWED_HOSTS` (default `127.0.0.1,localhost`). No Redis needed.
 
 ## Cloud & Deployment Details
 
@@ -384,7 +384,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 |`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
 |`IMGW_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/imgw`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 it held the reference data: that is `IMGW_REFERENCE_DIR` now|
 |`IMGW_REFERENCE_DIR`|`<cache_dir>/imgw/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m imgwtools.reference_data`); `settings.reference_dir`|
-|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines and the `--lang` default, `imgw mcp` default, language of `/mcp` tools (REST answers follow `Accept-Language`; the CLI error line and the envelope are English)|
+|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines and the `--lang` default (REST answers follow `Accept-Language`, MCP is always English; the CLI error line and the envelope are English)|
 |`IMGW_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `imgw server` (needs `imgwtools[mcp]`; read and plan only)|
 |`IMGW_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
 |`IMGW_MCP_ALLOW_WRITES`|`false`|Envvar of `imgw mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|

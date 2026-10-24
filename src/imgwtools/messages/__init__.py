@@ -4,9 +4,9 @@ Message catalog: every text for a person has an English default and a Polish var
 Machine output is English (AGI-9.2): the ``detail`` of an error, the text of a
 notice, a progress or plan line and the descriptions of the catalog. The
 Polish variants serve human-readable output (the CLI help and its progress
-lines, the web GUI, ``Accept-Language: pl`` of REST, ``imgw mcp --lang pl``) and
-live next to the English text, so a text and its translation are edited
-together (DEV-2.3).
+lines, the web GUI, ``Accept-Language: pl`` of REST, an explicit ``lang="pl"``
+of the description commands) and live next to the English text, so a text and
+its translation are edited together (DEV-2.3).
 
 A catalog is the module ``imgwtools.messages.<area>``; its mapping ``MESSAGES``
 holds a `Text` per name. The key of a message is ``<area>.<name>`` in snake_case

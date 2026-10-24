@@ -1160,9 +1160,7 @@ def mcp_answer(
         arguments["check"] = False
 
     async def ask() -> Any:
-        async with Client(
-            create_server(mode="write" if writes else "read", lang="en")
-        ) as client:
+        async with Client(create_server(mode="write" if writes else "read")) as client:
             return await client.call_tool(meta["operation_id"], arguments)
 
     return anyio.run(ask)

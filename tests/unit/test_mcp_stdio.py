@@ -2,9 +2,9 @@
 
 The SDK client starts the installed ``imgw mcp`` the way a client configuration
 does (``"command": "imgw", "args": ["mcp"]``) and talks to it over stdin and
-stdout. Flags and environment variables choose the mode and the language: the
-process lists the tools of the in-memory server of that mode and language and
-answers a call with the envelope of Python.
+stdout. Flags and environment variables choose the mode (IMGW_LANG is ignored: the
+server speaks English): the process lists the tools of the in-memory server of that
+mode and answers a call with the envelope of Python.
 """
 
 import json
@@ -43,23 +43,18 @@ def dumped(tools) -> list[dict[str, Any]]:
 
 
 @pytest.mark.parametrize(
-    ("args", "env", "mode", "lang"),
+    ("args", "env", "mode"),
     [
-        pytest.param([], {}, "read", "pl", id="default"),
-        pytest.param(["--allow-writes", "--lang", "en"], {}, "write", "en", id="flags"),
-        pytest.param(
-            [],
-            {"IMGW_MCP_ALLOW_WRITES": "true", "IMGW_LANG": "en"},
-            "write",
-            "en",
-            id="environment",
-        ),
+        pytest.param([], {}, "read", id="default"),
+        pytest.param(["--allow-writes"], {}, "write", id="flags"),
+        pytest.param([], {"IMGW_MCP_ALLOW_WRITES": "true"}, "write", id="environment"),
+        pytest.param([], {"IMGW_LANG": "pl"}, "read", id="polish-setting-ignored"),
     ],
 )
-async def test_imgw_mcp_serves_the_tools_of_its_mode_and_language_over_stdio(
-    args, env, mode, lang, tmp_path
+async def test_imgw_mcp_serves_the_english_tools_of_its_mode_over_stdio(
+    args, env, mode, tmp_path
 ):
-    async with Client(create_server(mode=mode, lang=lang)) as memory:
+    async with Client(create_server(mode=mode)) as memory:
         expected = (await memory.list_tools()).tools
     command, *prefix = imgw_executable()
     server = StdioServerParameters(
@@ -103,13 +98,11 @@ def test_imgw_mcp_ends_cleanly_without_a_byte_on_stdout_when_stdin_closes(tmp_pa
     assert (finished.returncode, finished.stdout) == (0, b""), finished.stderr
 
 
-def test_imgw_mcp_refuses_a_language_outside_pl_and_en():
-    result = RUNNER.invoke(cli_main.app, ["mcp", "--lang", "de"])
+def test_imgw_mcp_has_no_language_option():
+    result = RUNNER.invoke(cli_main.app, ["mcp", "--lang", "en"])
 
     assert result.exit_code == 2
     assert result.stdout == ""
     error = json.loads(result.stderr.splitlines()[-1])
-    assert (error["code"], error["details"]) == (
-        "validation_error",
-        {"option": "lang", "value": "de", "allowed": ["en", "pl"]},
-    )
+    assert error["code"] == "validation_error"
+    assert "--lang" in error["detail"]

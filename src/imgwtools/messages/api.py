@@ -3,12 +3,6 @@
 from imgwtools.messages import Text
 
 MESSAGES = {
-    "invalid_value_environment_variable_allowed": Text(
-        "Invalid value {language!r} of the environment variable {lang_env}; allowed: "
-        "{langs}",
-        "Nieprawidłowa wartość {language!r} zmiennej środowiskowej {lang_env}; "
-        "dozwolone: {langs}",
-    ),
     "server_sets_option_imgw_store": Text(
         "The server sets the option {name} (IMGW_STORE_ROOT); remove it from the "
         "request",

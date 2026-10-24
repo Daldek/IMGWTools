@@ -146,10 +146,6 @@ MESSAGES = {
         "Zezwól na zapis (IMGW_MCP_ALLOW_WRITES): komendy zapisujące domyślnie "
         "zwracają plan (check=true), a zapisują przy check=false",
     ),
-    "mcp_lang_help": Text(
-        "Language of the tool descriptions, instructions and error titles",
-        "Język opisów narzędzi, instrukcji i tytułów błędów",
-    ),
     # imgw admin
     "admin_help": Text("API key administration", "Administracja kluczy API"),
     "admin_group_help": Text("Administration (API keys)", "Administracja (klucze API)"),

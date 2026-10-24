@@ -476,12 +476,12 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
 
 - Bez instalacji w systemie: `"command": "uvx", "args": ["--from", "imgwtools[mcp]", "imgw", "mcp"]`.
 - Zapis: `"args": ["mcp", "--allow-writes"]` (albo `IMGW_MCP_ALLOW_WRITES=true`). Bez tej flagi serwer nie zapisuje: komendy zapisujące mają argument `check` stały `true` i zwracają plan `imgw-plan/1`, a opcje zapisujące są niedostępne (próba → `forbidden`, `details.reason="writes_disabled"`). Z flagą `check` jest domyślnie `true`, a zapis wymaga `check: false` — o zapisie decyduje użytkownik w konfiguracji, nie model.
-- Po angielsku: `"args": ["mcp", "--lang", "en"]` (domyślnie `IMGW_LANG`).
+- Język: serwer MCP mówi zawsze po angielsku (opisy narzędzi, instrukcje, tytuły i `detail` błędów; AGI-9.2), niezależnie od `IMGW_LANG`. Opcji `--lang` nie ma; tekst polski dostaje agent wyłącznie na jawną prośbę (argument `lang: "pl"` narzędzi `imgw_commands_list`, `imgw_commands_schema`, `imgw_commands_guide`).
 - `root` jak w CLI: argument narzędzia albo `IMGW_STORE_ROOT` serwera; ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
 
-Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` w języku serwera). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `path`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `path`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 38 narzędzi z opisami to ok. 48 KB schematów (tryb bez zapisu, po polsku).
+Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` z rejestru, wszystko po angielsku). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `path`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `path`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 38 narzędzi z opisami to ok. 48 KB schematów (tryb bez zapisu).
 
-**MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 28 trasom REST i są wywoływane jako żądania REST w tym samym procesie, więc obowiązują reguły serwera (magazyn z `IMGW_STORE_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Język narzędzi ustala `IMGW_LANG` procesu serwera. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
+**MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 28 trasom REST i są wywoływane jako żądania REST w tym samym procesie (z `Accept-Language: en`), więc obowiązują reguły serwera (magazyn z `IMGW_STORE_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Narzędzia są po angielsku, jak w `imgw mcp`; `IMGW_LANG` ich nie dotyczy. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
 
 ```bash
 IMGW_MCP_ENABLED=true IMGW_STORE_ROOT=/srv/imgw imgw server   # → http://127.0.0.1:8000/mcp
@@ -532,7 +532,7 @@ docker compose up -d
 IMGW_MCP_ENABLED=true IMGW_MCP_ALLOWED_HOSTS=dane.example.pl docker compose up -d
 ```
 
-Obraz (`python:3.12-slim`) instaluje `.[api,mcp]` i uruchamia jeden proces uvicorn (sesje MCP żyją w procesie). `docker-compose.yml` przekazuje z otoczenia `IMGW_MCP_ENABLED` (domyślnie `false`), `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`) i `IMGW_LANG` (domyślnie `pl`); `nginx.conf` ma `location = /mcp` z limitem żądań i bez buforowania.
+Obraz (`python:3.12-slim`) instaluje `.[api,mcp]` i uruchamia jeden proces uvicorn (sesje MCP żyją w procesie). `docker-compose.yml` przekazuje z otoczenia `IMGW_MCP_ENABLED` (domyślnie `false`) i `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); `nginx.conf` ma `location = /mcp` z limitem żądań i bez buforowania.
 
 ## Konfiguracja
 

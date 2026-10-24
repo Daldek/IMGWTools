@@ -41,7 +41,6 @@ from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import STREAM_LIMIT
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
-from imgwtools.messages import Lang
 from imgwtools.testing import build_fixture_store
 from tests.contract.support import (
     DAILY,
@@ -91,10 +90,8 @@ def imgw():
         yield fake
 
 
-async def call(
-    tool: str, arguments: dict[str, Any], *, mode: Mode = "read", lang: Lang = "pl"
-):
-    async with Client(create_server(mode=mode, lang=lang)) as client:
+async def call(tool: str, arguments: dict[str, Any], *, mode: Mode = "read"):
+    async with Client(create_server(mode=mode)) as client:
         return await client.call_tool(tool, arguments)
 
 
@@ -137,7 +134,6 @@ async def test_a_writing_command_returns_its_plan_and_leaves_the_store(
     assert imgw.downloads() == []
 
 
-@pytest.mark.parametrize("lang", ["pl", "en"])
 @pytest.mark.parametrize(
     ("tool", "arguments", "option"),
     [
@@ -152,17 +148,17 @@ async def test_a_writing_command_returns_its_plan_and_leaves_the_store(
     ids=["check-false", "store-check-plan", "export-path"],
 )
 async def test_a_server_without_writes_forbids_every_write(
-    tool, arguments, option, lang, root, imgw, tmp_path, monkeypatch
+    tool, arguments, option, root, imgw, tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
     before = stamps(root)
 
-    result = await call(tool, {"root": str(root), **arguments}, lang=lang)
+    result = await call(tool, {"root": str(root), **arguments})
 
     document = error_of(result)
     spec = ERROR_CODES["forbidden"]
     assert document["code"] == "forbidden"
-    assert document["title"] == spec.title.localized(lang)
+    assert document["title"] == spec.title
     assert document["details"] == {"reason": "writes_disabled", "option": option}
     assert stamps(root) == before
     assert not (tmp_path / "plan.json").exists() and not (tmp_path / "x.csv").exists()
@@ -221,12 +217,11 @@ async def test_imgw_store_root_is_the_root_of_absent_root(root, monkeypatch):
     assert live.structured_content["result"]["actions"][0]["status"] == "unverifiable"
 
 
-@pytest.mark.parametrize("lang", ["pl", "en"])
-async def test_lang_option_defaults_to_the_server_language(lang):
-    result = await call("imgw_commands_schema", {"command": "store info"}, lang=lang)
+async def test_lang_option_defaults_to_english():
+    result = await call("imgw_commands_schema", {"command": "store info"})
 
     schema = result.structured_content["result"]
-    assert schema == command_schema("store info", lang=lang)
+    assert schema == command_schema("store info", lang="en")
 
 
 # --------------------------------------------------------------------------
@@ -234,11 +229,10 @@ async def test_lang_option_defaults_to_the_server_language(lang):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("lang", ["pl", "en"])
-async def test_commands_guide_stream_is_the_agent_guide_text(lang):
-    result = await call("imgw_commands_guide", {}, lang=lang)
+async def test_commands_guide_stream_is_the_english_agent_guide_text():
+    result = await call("imgw_commands_guide", {})
 
-    text = "".join(agent_guide(lang=lang))
+    text = "".join(agent_guide(lang="en"))
     assert result.is_error is False
     assert result.content[0].text == text
     assert result.structured_content == {
@@ -415,19 +409,18 @@ async def test_arguments_other_than_an_object_are_a_protocol_error():
     assert [answer["error"]["code"] for answer in answers] == [INVALID_PARAMS] * 3
 
 
-@pytest.mark.parametrize("lang", ["pl", "en"])
-async def test_an_error_is_the_cli_document_in_the_server_language(lang):
+async def test_an_error_is_the_english_cli_document():
     options = {"latitude": "1", "longitude": 21.01}
     with pytest.raises(IMGWValidationError) as raised:
         validate_command("pmaxtp fetch", options=options)
 
-    result = await call("imgw_pmaxtp_fetch", options, lang=lang)
+    result = await call("imgw_pmaxtp_fetch", options)
 
     spec = ERROR_CODES["validation_error"]
     assert error_of(result) == {
         "code": "validation_error",
-        "title": spec.title.localized(lang),
-        "detail": raised.value.localized(lang),
+        "title": spec.title,
+        "detail": raised.value.detail,
         "details": dict(raised.value.details),
     }
 
