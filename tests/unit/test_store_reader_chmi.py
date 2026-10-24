@@ -215,7 +215,7 @@ def test_only_the_thresholds_property_may_be_an_object(tmp_path):
         ("deep", lambda p: p["thresholds"]["H"].update(unit={"cm": 1})),
         ("name", lambda p: p.update(name={"cs": "Špindlerův Mlýn"})),
     ):
-        with pytest.raises(IMGWDataError, match="wartościami prostymi"):
+        with pytest.raises(IMGWDataError, match="must be simple values"):
             read_catalog(variant(name, change))
 
 

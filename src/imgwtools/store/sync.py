@@ -49,6 +49,7 @@ from imgwtools.fetch import (
     download_hydro_data,
     download_meteo_data,
 )
+from imgwtools.messages import message
 from imgwtools.store.reader import _Reference, _reference_signal
 from imgwtools.store.series import (
     SeriesState,
@@ -78,7 +79,7 @@ from imgwtools.store.types import (
 from imgwtools.store.writer import write_archive
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
-CANCELLED = "anulowano"
+CANCELLED = message("common.cancelled")
 NO_SIGNAL = "brak porównywalnego nagłówka ETag/Last-Modified"
 NO_LISTING_SIGNAL = "brak porównywalnego sygnału"
 
@@ -593,7 +594,7 @@ def _descriptors(datasets: Iterable[str]) -> list[DatasetDescriptor]:
     """Measurement series datasets of the request, without repetitions."""
     if isinstance(datasets, str):
         raise IMGWValidationError(
-            "Parametr datasets musi być listą kluczy zbiorów",
+            message("sync.parameter_datasets_must_list_dataset"),
             details={"option": "datasets", "value": datasets},
         )
     found: dict[str, DatasetDescriptor] = {}
@@ -602,7 +603,7 @@ def _descriptors(datasets: Iterable[str]) -> list[DatasetDescriptor]:
         found.setdefault(descriptor.key, descriptor)
     if not found:
         raise IMGWValidationError(
-            "Wybierz co najmniej jeden zbiór", details={"option": "datasets"}
+            message("sync.choose_least_one_dataset"), details={"option": "datasets"}
         )
     return list(found.values())
 
@@ -616,13 +617,12 @@ def _country_archives(
     """Country archives (IMGW-PIB) of the request, in the 3.0.0 order."""
     if stations is not None:
         raise IMGWValidationError(
-            "Archiwa IMGW-PIB obejmują cały kraj; opcja stations dotyczy wyłącznie "
-            "zbiorów stacji ČHMÚ",
+            message("sync.imgw_pib_archives_cover_whole"),
             details={"option": "stations", "value": None},
         )
     if years is None:
         raise IMGWValidationError(
-            "Zbiory IMGW-PIB wymagają opcji years",
+            message("sync.imgw_pib_datasets_need_option"),
             details={"option": "years", "value": None},
         )
     selected_years = parse_years(years, option="years")
@@ -657,13 +657,12 @@ def _station_request(
     keys = ", ".join(descriptor.key for descriptor in descriptors)
     if stations is None:
         raise IMGWValidationError(
-            f"Zbiory {keys} wymagają opcji stations: kodów stacji (pliki źródła "
-            "obejmują pojedyncze stacje)",
+            message("sync.datasets_need_option_stations_station", keys=keys),
             details={"option": "stations", "value": None},
         )
     if months is not None:
         raise IMGWValidationError(
-            f"Opcja months nie dotyczy zbiorów {keys}: pliki stacji nie są miesięczne",
+            message("sync.option_months_does_not_apply", keys=keys),
             details={"option": "months", "value": None},
         )
     codes: tuple[str, ...] = ()
@@ -709,9 +708,10 @@ def _selection(
     per_station = {descriptor.archive_scope != "country" for descriptor in descriptors}
     if len(per_station) > 1:
         raise IMGWValidationError(
-            "Jedno wywołanie obejmuje zbiory jednego rodzaju: archiwa krajowe "
-            "IMGW-PIB (bez opcji stations) albo pliki stacji ČHMÚ (z opcją "
-            f"stations); podano {', '.join(item.key for item in descriptors)}",
+            message(
+                "sync.one_call_covers_datasets_one",
+                names=", ".join(item.key for item in descriptors),
+            ),
             details={"option": "stations", "value": None},
         )
     if per_station == {True}:
@@ -745,12 +745,12 @@ def _plan_target(root: Path, plan: PathArg) -> Path:
     resolved, store = target.resolve(), root.resolve()
     if resolved == store or store in resolved.parents:
         raise IMGWValidationError(
-            f"Plan musi być zapisany poza magazynem: {target}",
+            message("sync.plan_must_written_outside_store", target=target),
             details={"option": "plan", "value": str(target)},
         )
     if not target.parent.is_dir():
         raise IMGWValidationError(
-            f"Katalog pliku planu nie istnieje: {target.parent}",
+            message("sync.directory_plan_file_does_not", parent=target.parent),
             details={"option": "plan", "value": str(target)},
         )
     return target
@@ -814,7 +814,7 @@ def check_store(
     cancel : Cancel or None, optional
         Polled before each listing and archive; once it returns ``True`` the
         remaining archives are listed as ``unverifiable`` with error
-        ``"anulowano"``.
+        ``"cancelled"``.
 
     Returns
     -------
@@ -822,7 +822,7 @@ def check_store(
         ``imgw-plan/1`` plan with one item per archive: ``current``,
         ``newer``, ``missing`` (published but not stored), ``unverifiable``
         (no comparable signal, ``"nieopublikowany"`` when the file is not
-        published, or ``"anulowano"``) or ``check_failed`` (listing or HEAD
+        published, or ``"cancelled"``) or ``check_failed`` (listing or HEAD
         error, unreadable listing, local version or observation). IMGW-PIB
         items compare every header present on both sides (``signal="head"``);
         ČHMÚ items carry ``station_code``, ``signal="listing"``, the listing
@@ -1146,14 +1146,12 @@ def sync_store(
     if plan is not None and any(
         option is not None for option in (datasets, years, months, stations)
     ):
-        raise IMGWValidationError(
-            "Podaj plan albo selektory datasets/years/months/stations, nie oba naraz"
-        )
+        raise IMGWValidationError(message("sync.give_plan_selectors_datasets_years"))
     explicit = plan is None
     if plan is None:
         if datasets is None:
             raise IMGWValidationError(
-                "Bez planu wymagany jest parametr datasets",
+                message("sync.without_plan_parameter_datasets_required"),
                 details={"option": "datasets", "value": None},
             )
         plan = check_store(
@@ -1169,7 +1167,9 @@ def sync_store(
     elif not isinstance(plan, StorePlan):
         plan = StorePlan.from_json(plan)
     if Path(plan.root).expanduser().absolute() != path:
-        raise IMGWValidationError(f"Plan dotyczy innego magazynu: {plan.root}")
+        raise IMGWValidationError(
+            message("sync.plan_concerns_another_store", root=plan.root)
+        )
 
     def cancelled() -> bool:
         return cancel is not None and cancel()

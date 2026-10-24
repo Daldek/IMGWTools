@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import message
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 YearsArg = int | str | Iterable[int | str]
@@ -670,17 +671,15 @@ _ALLOWED = [descriptor.key for descriptor in _DATASETS]
 _UNSUPPORTED = {
     "meteo/dobowe/synop": (
         "per_station",
-        "Archiwa meteo/dobowe/synop są publikowane osobno dla każdej stacji i nie "
-        "mają zbioru w rejestrze; użyj pl.imgw.meteo_synop_monthly",
+        message("datasets.meteo_dobowe_synop_archives_published"),
     ),
     "meteo/terminowe/synop": (
         "per_station",
-        "Archiwa meteo/terminowe/synop są publikowane osobno dla każdej stacji i "
-        "nie mają zbioru w rejestrze; użyj pl.imgw.meteo_synop_monthly",
+        message("datasets.meteo_terminowe_synop_archives_published"),
     ),
     "meteo/terminowe/opad": (
         "not_published",
-        "Dane meteo/terminowe/opad nie istnieją na serwerach IMGW",
+        message("datasets.meteo_terminowe_opad_data_do"),
     ),
 }
 # Suffix of the file name and the last year of the first folder of the
@@ -733,7 +732,11 @@ def get_provider(provider: str, /) -> ProviderDescriptor:
         return _PROVIDER_BY_NAME[provider]
     allowed = [item.id for item in _PROVIDERS]
     raise IMGWValidationError(
-        f"Nieznany dostawca danych: {provider!r}; dozwolone: {', '.join(allowed)}",
+        message(
+            "datasets.unknown_data_provider_allowed",
+            provider=provider,
+            allowed=", ".join(allowed),
+        ),
         details={
             "option": "provider",
             "value": provider if isinstance(provider, str) else repr(provider),
@@ -774,7 +777,7 @@ def datasets(
     """
     if kind is not None and kind not in ("hydro", "meteo"):
         raise IMGWValidationError(
-            f"Nieprawidłowy rodzaj zbioru: {kind!r}; dozwolone: hydro, meteo",
+            message("datasets.invalid_kind_dataset_allowed_hydro", kind=kind),
             details={"option": "kind", "value": kind, "allowed": ["hydro", "meteo"]},
         )
     owner = None if provider is None else get_provider(provider).id
@@ -820,9 +823,9 @@ def get_dataset(dataset: str, /) -> DatasetDescriptor:
         ) is not None:
             return descriptor
         if dataset in _UNSUPPORTED:
-            reason, message = _UNSUPPORTED[dataset]
+            reason, text = _UNSUPPORTED[dataset]
             raise IMGWValidationError(
-                message,
+                text,
                 details={
                     "option": "dataset",
                     "value": dataset,
@@ -831,7 +834,11 @@ def get_dataset(dataset: str, /) -> DatasetDescriptor:
                 },
             )
     raise IMGWValidationError(
-        f"Nieznany zbiór IMGW: {dataset!r}; dozwolone klucze: {', '.join(_ALLOWED)}",
+        message(
+            "datasets.unknown_imgw_dataset_allowed_keys",
+            dataset=dataset,
+            allowed=", ".join(_ALLOWED),
+        ),
         details={
             "option": "dataset",
             "value": dataset if isinstance(dataset, str) else repr(dataset),
@@ -899,7 +906,9 @@ def _items(value: object, option: str) -> list[int | str]:
         raw = list(value)
     else:
         raise IMGWValidationError(
-            f"Opcja {option} musi być liczbą, tekstem lub listą: {value!r}",
+            message(
+                "datasets.option_must_number_text_list", option=option, value=value
+            ),
             details={"option": option, "value": repr(value)},
         )
     items: list[int | str] = []
@@ -910,12 +919,12 @@ def _items(value: object, option: str) -> list[int | str]:
             items.append(item)
         else:
             raise IMGWValidationError(
-                f"Nieprawidłowa wartość opcji {option}: {item!r}",
+                message("datasets.invalid_value_option", option=option, item=item),
                 details={"option": option, "value": repr(item)},
             )
     if not items or "" in items:
         raise IMGWValidationError(
-            f"Opcja {option} wymaga niepustej listy wartości",
+            message("datasets.option_needs_non_empty_list", option=option),
             details={"option": option, "value": repr(value)},
         )
     return items
@@ -954,12 +963,16 @@ def parse_years(value: YearsArg, /, *, option: str = "years") -> tuple[int, ...]
             end = int(match.group(2) or start)
         else:
             raise IMGWValidationError(
-                f"Nieprawidłowy rok lub zakres lat w opcji {option}: {item!r}",
+                message(
+                    "datasets.invalid_year_range_years_option", option=option, item=item
+                ),
                 details={"option": option, "value": item},
             )
         if not 1 <= start <= end <= 9999:
             raise IMGWValidationError(
-                f"Nieprawidłowy zakres lat w opcji {option}: {item!r}",
+                message(
+                    "datasets.invalid_range_years_option", option=option, item=item
+                ),
                 details={"option": option, "value": item},
             )
         years.update(range(start, end + 1))
@@ -993,13 +1006,17 @@ def parse_months(value: MonthsArg, /, *, option: str = "months") -> tuple[int, .
         if isinstance(item, str):
             if not _MONTH.fullmatch(item):
                 raise IMGWValidationError(
-                    f"Opcja {option} musi zawierać liczby całkowite: {item!r}",
+                    message(
+                        "datasets.option_must_contain_integers",
+                        option=option,
+                        item=item,
+                    ),
                     details={"option": option, "value": item},
                 )
             item = int(item)
         if not 1 <= item <= 12:
             raise IMGWValidationError(
-                "Miesiące muszą należeć do zakresu 1–12",
+                message("datasets.months_must_range_1_12"),
                 details={"option": option, "value": item},
             )
         months.add(item)
@@ -1011,8 +1028,7 @@ def _parse_params(
 ) -> tuple[str, ...]:
     if dataset.key != "pl.imgw.hydro_semiannual":
         raise IMGWValidationError(
-            f"Opcja params dotyczy wyłącznie zbioru pl.imgw.hydro_semiannual, "
-            f"nie {dataset.key}",
+            message("datasets.option_params_applies_only_dataset", key=dataset.key),
             details={"option": "params", "value": dataset.key},
         )
     items = [
@@ -1022,7 +1038,7 @@ def _parse_params(
     ]
     if not items or any(item not in _PARAMS for item in items):
         raise IMGWValidationError(
-            f"Nieprawidłowe parametry półroczne: {items!r}; dozwolone: H, Q, T",
+            message("datasets.invalid_semi_annual_parameters_allowed", items=items),
             details={"option": "params", "value": items, "allowed": list(_PARAMS)},
         )
     return tuple(param for param in _PARAMS if param in items)
@@ -1146,7 +1162,7 @@ def archive_files(
     descriptor = get_dataset(dataset)
     if descriptor.server_dir is None or descriptor.time_unit == "station_list":
         raise IMGWValidationError(
-            f"Zbiór {descriptor.key} nie udostępnia archiwów rocznych",
+            message("datasets.dataset_has_no_annual_archives", key=descriptor.key),
             details={"option": "dataset", "value": descriptor.key},
         )
     if descriptor.archive_scope == "country":
@@ -1162,8 +1178,11 @@ def _minimum_year(years: tuple[int, ...], descriptor: DatasetDescriptor) -> None
     """Reject years before ``first_year`` of the dataset (``details.minimum``)."""
     if descriptor.first_year is not None and years[0] < descriptor.first_year:
         raise IMGWValidationError(
-            f"Nieprawidłowe roczniki zbioru {descriptor.key}; minimalny rok: "
-            f"{descriptor.first_year}",
+            message(
+                "datasets.invalid_years_dataset_first_year",
+                key=descriptor.key,
+                first_year=descriptor.first_year,
+            ),
             details={
                 "option": "years",
                 "value": list(years),
@@ -1184,13 +1203,12 @@ def _country_archives(
     key = descriptor.key
     if stations is not None:
         raise IMGWValidationError(
-            f"Archiwa zbioru {key} obejmują cały kraj; opcja stations dotyczy "
-            "wyłącznie zbiorów z plikami stacji (cz.chmi.*)",
+            message("datasets.archives_dataset_cover_whole_country", key=key),
             details={"option": "stations", "value": key},
         )
     if years is None:
         raise IMGWValidationError(
-            f"Zbiór {key} wymaga opcji years (roczniki archiwów)",
+            message("datasets.dataset_needs_option_years_years", key=key),
             details={"option": "years", "value": None},
         )
     selected_years = parse_years(years)
@@ -1283,7 +1301,7 @@ def _parse_stations(
     """Station codes of the provider's grammar, sorted, without duplicates."""
     if isinstance(stations, str) or not isinstance(stations, Iterable):
         raise IMGWValidationError(
-            "Opcja stations musi być listą kodów stacji, nie pojedynczym tekstem",
+            message("datasets.option_stations_must_list_station"),
             details={"option": "stations", "value": str(stations)},
         )
     items = list(stations)
@@ -1295,9 +1313,12 @@ def _parse_stations(
     ]
     if not items or invalid:
         raise IMGWValidationError(
-            f"Nieprawidłowe kody stacji {provider.short_name}: "
-            f"{', '.join(invalid) or '(brak)'}; oczekiwano co najmniej jednego "
-            f"kodu zgodnego z {provider.station_code_pattern}, np. 0-203-1-001000",
+            message(
+                "datasets.invalid_station_codes_expected_least",
+                short_name=provider.short_name,
+                codes=", ".join(invalid) or message("common.none"),
+                station_code_pattern=provider.station_code_pattern,
+            ),
             details={"option": "stations", "value": invalid},
         )
     return tuple(sorted(set(items)))
@@ -1316,16 +1337,22 @@ def _station_archives(
     provider = get_provider(descriptor.provider)
     if months is not None:
         raise IMGWValidationError(
-            f"Opcja months nie dotyczy zbioru {key}: pliki {provider.short_name} "
-            "nie są miesięczne",
+            message(
+                "datasets.option_months_does_not_apply",
+                key=key,
+                short_name=provider.short_name,
+            ),
             details={"option": "months", "value": key},
         )
     if params is not None:
         _parse_params(params, descriptor)
     if stations is None:
         raise IMGWValidationError(
-            f"Zbiór {key} wymaga opcji stations: kodów stacji {provider.short_name} "
-            "(archiwa obejmują pojedyncze stacje)",
+            message(
+                "datasets.dataset_needs_option_stations_station",
+                key=key,
+                short_name=provider.short_name,
+            ),
             details={"option": "stations", "value": None},
         )
     codes = _parse_stations(stations, provider)
@@ -1333,8 +1360,11 @@ def _station_archives(
     if descriptor.archive_scope == "station_element":
         if years is not None:
             raise IMGWValidationError(
-                f"Pliki {provider.short_name} zbioru {key} obejmują całą historię "
-                "stacji; opcja years nie dotyczy tego zbioru",
+                message(
+                    "datasets.files_dataset_cover_whole_history",
+                    short_name=provider.short_name,
+                    key=key,
+                ),
                 details={"option": "years", "value": key},
             )
         return tuple(
@@ -1350,8 +1380,7 @@ def _station_archives(
         )
     if years is None:
         raise IMGWValidationError(
-            f"Zbiór {key} wymaga opcji years: bez listingu serwera lata "
-            "opublikowane nie są znane",
+            message("datasets.dataset_needs_option_years_without", key=key),
             details={"option": "years", "value": None},
         )
     selected_years = parse_years(years)

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import imgwtools
+from imgwtools.exceptions import IMGWError
 from imgwtools.messages import (
     DEFAULT_LANG,
     LANGS,
@@ -19,17 +20,25 @@ from imgwtools.messages import (
     localize,
     message,
     placeholders,
+    reason,
     valid_key,
 )
 
 SRC = Path(imgwtools.__file__).parent
-# Polish diacritics or a few words that no English text uses.
+# Polish diacritics or words that no English text uses (also for Polish text that
+# has no diacritics, such as "Nieczytelny znacznik").
 POLISH = re.compile(
     "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]"
-    r"|\b(?:nie|brak|albo|lub|oraz|jest|dla|musi|dozwolone|nieznan\w+|niepoprawn\w+)\b",
+    r"|\b(?:nie|brak|albo|lub|oraz|jest|dla|musi|dozwolone|gdy|jesli|tylko|przez|moze"
+    r"|bez|przy|czy|plik\w*|katalog\w*|magazyn\w*|stacj\w+|zbior\w*|dane|danych"
+    r"|wersj\w+|zapis\w*|opcj\w+|wymag\w+|zmienn\w+|wartosc\w*|nieznan\w+"
+    r"|niepoprawn\w+|nieprawidlow\w+|nieczytel\w+|powtorzon\w+|pominieto|pobier\w+"
+    r"|pobrano|odczyt\w*|podaj|uzyj|blad\w*)\b",
     re.IGNORECASE,
 )
 SCOPES = ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+# Last segment of a file name such as ``series.json``, which is not a message key.
+_FILE_SUFFIXES = frozenset({"json", "geojson", "parquet", "csv", "zip", "toml"})
 
 # Files that still hold Polish string literals outside the catalog. One comment line
 # names an area, so the commit that migrates an area touches only its own lines.
@@ -39,6 +48,7 @@ _PENDING = frozenset(
         # Command and dataset registries: Polish texts with an English variant beside.
         "commands.py",
         "datasets.py",
+        "models.py",
         # Agent guide and MCP server.
         "agent_guide.py",
         "mcp/_calls.py",
@@ -53,34 +63,18 @@ _PENDING = frozenset(
         "cli/admin.py",
         "cli/config_cmd.py",
         "cli/main.py",
-        # Versioned store.
+        "reference_data.py",
+        # Notices, progress and plan lines.
+        "fetch.py",
+        "project.py",
         "store/catalog.py",
-        "store/content.py",
         "store/export.py",
         "store/pmaxtp.py",
-        "store/reader.py",
         "store/series.py",
         "store/sync.py",
-        "store/types.py",
         "store/writer.py",
-        # Projects.
-        "project.py",
-        # Parsers.
-        "_parsing/__init__.py",
-        "_parsing/chmi.py",
-        "_parsing/common.py",
-        "_parsing/hydro.py",
-        "_parsing/meteo.py",
-        "_parsing/stations.py",
-        # Other modules of the library.
-        "config.py",
-        "coverage.py",
-        "fetch.py",
-        "models.py",
-        "reference_data.py",
-        "stations.py",
-        "testing.py",
-        "urls.py",
+        # Web GUI.
+        "web/app.py",
     }
 )
 
@@ -190,7 +184,10 @@ def test_no_entry_is_unused_and_no_key_like_literal_is_misspelled():
     areas = set(catalogs())
     unused = sorted(known - literals)
     misspelled = sorted(
-        value for value in literals - known if value.split(".")[0] in areas
+        value
+        for value in literals - known
+        if value.split(".")[0] in areas
+        and value.rsplit(".", 1)[-1] not in _FILE_SUFFIXES
     )
     assert not unused, f"entries nobody uses: {unused}"
     assert not misspelled, f"literals that look like keys of a catalog: {misspelled}"
@@ -236,8 +233,8 @@ def test_localized_renders_the_same_key_and_values_in_the_other_language():
 
 
 def test_a_message_among_the_values_is_rendered_in_the_language_of_its_parent():
-    reason = message("errors.os_no_space")
-    text = message("errors.file_system", reason=reason)
+    nested = message("errors.os_no_space")
+    text = message("errors.file_system", reason=nested)
 
     assert text == "File system error: no space left on the device"
     assert text.localized("pl") == "Błąd systemu plików: brak miejsca na urządzeniu"
@@ -255,6 +252,17 @@ def test_operations_on_a_message_give_plain_text_but_copies_keep_it_translatable
         assert isinstance(clone, Message)
         assert clone.key == text.key
         assert clone.localized("pl") == "plik już istnieje"
+
+
+def test_reason_keeps_the_message_of_an_exception_translatable_and_stringifies_others():
+    nested = message("errors.os_no_space")
+    text = message("errors.file_system", reason=reason(ValueError(nested)))
+
+    assert reason(ValueError(nested)) is nested
+    assert reason(IMGWError(nested)) is nested
+    assert text.localized("pl") == "Błąd systemu plików: brak miejsca na urządzeniu"
+    assert reason(OSError(2, "No such file")) == "[Errno 2] No such file"
+    assert type(reason(ValueError("plain"))) is str
 
 
 def test_localize_changes_only_catalog_messages():

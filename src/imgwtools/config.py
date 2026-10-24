@@ -29,6 +29,7 @@ from pydantic_settings import (
 from imgwtools import _environment as environment
 from imgwtools._version import __version__
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import message
 
 __all__ = ["Settings", "check_config", "environment_report", "settings"]
 
@@ -210,7 +211,9 @@ def check_config() -> None:
     file = environment.config_file()
     if file.error is not None:
         raise IMGWValidationError(
-            f"Nie można użyć pliku ustawień {file.path}: {file.error}",
+            message(
+                "config.cannot_use_settings_file", path=file.path, error=file.error
+            ),
             details={
                 "option": environment.CONFIG_ENV
                 if file.source == environment.CONFIG_ENV

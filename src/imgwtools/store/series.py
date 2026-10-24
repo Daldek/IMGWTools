@@ -40,6 +40,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
     io_error,
 )
+from imgwtools.messages import message, reason
 from imgwtools.models import Flag, Measurement, NormalizedRecord
 from imgwtools.store.types import (
     Cancel,
@@ -75,7 +76,7 @@ _FLAGS = ("value", "missing", "no_phenomenon", "accumulated")
 _PERIODS = ("winter", "summer", "annual")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _INT8 = range(-128, 128)
-_CANCELLED = "anulowano"
+_CANCELLED = message("common.cancelled")
 _CHUNK = 1024 * 1024
 
 
@@ -120,7 +121,11 @@ def _series_descriptor(dataset: str) -> DatasetDescriptor:
     ]
     if descriptor.key not in allowed:
         raise IMGWValidationError(
-            f"Zbiór {dataset} nie tworzy szeregów pomiarowych; dozwolone: {', '.join(allowed)}",
+            message(
+                "series.dataset_does_not_build_measurement",
+                dataset=dataset,
+                allowed=", ".join(allowed),
+            ),
             details={"option": "dataset", "value": dataset, "allowed": allowed},
         )
     return descriptor
@@ -175,19 +180,23 @@ def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
                 or main.is_symlink()
                 or meta_path.is_symlink()
             ):
-                raise ValueError("dowiązanie lub plik zamiast katalogu wersji")
+                raise ValueError(message("series.link_file_instead_version_directory"))
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             if meta["schema"] != "imgw-meta/1" or not main.is_file():
-                raise ValueError("nieznany schemat lub brak pliku głównego")
+                raise ValueError(message("series.unknown_schema_no_main_file"))
             if not isinstance(meta["sha256"], str) or not isinstance(
                 meta["extra"]["version"]["label"], str
             ):
-                raise ValueError("brak sumy lub etykiety wersji")
+                raise ValueError(message("series.no_checksum_label_version"))
             _content_fields(meta)
             _downloaded(meta)
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
-                f"Uszkodzona wersja archiwum {version_dir.relative_to(root).as_posix()}: {exc}"
+                message(
+                    "series.corrupt_archive_version",
+                    version_dir=version_dir.relative_to(root).as_posix(),
+                    exc=reason(exc),
+                )
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
@@ -227,7 +236,7 @@ def _content_fields(meta: Mapping[str, Any]) -> dict[str, str]:
         and isinstance(fields["content_form"], str)
         and fields["content_form"]
     ):
-        raise ValueError("niepoprawna para content_sha256 i content_form")
+        raise ValueError(message("series.invalid_pair_content_sha256_content"))
     return fields
 
 
@@ -241,10 +250,22 @@ def _restore_archive(dataset: str, meta: Mapping[str, Any]) -> ArchiveFile:
         else None
     )
     if archive is None:
-        raise ValueError(f"ścieżka {server_path} nie należy do zbioru {dataset}")
+        raise ValueError(
+            message(
+                "series.path_does_not_belong_dataset",
+                server_path=server_path,
+                dataset=dataset,
+            )
+        )
     for key in ("year", "month", "station_code", "param"):
         if key in request and request[key] != getattr(archive, key):
-            raise ValueError(f"request.{key} nie odpowiada ścieżce {server_path}")
+            raise ValueError(
+                message(
+                    "series.request_does_not_match_path",
+                    key=key,
+                    server_path=server_path,
+                )
+            )
     return archive
 
 
@@ -269,12 +290,19 @@ def _scan_inputs(
                 continue
             if current.meta.get("dataset") != descriptor.key:
                 raise IMGWDataError(
-                    f"Wersja {current.relative} należy do innego zbioru"
+                    message(
+                        "series.version_belongs_another_dataset",
+                        relative=current.relative,
+                    )
                 )
             archive = _restore_archive(descriptor.key, current.meta)
             if _slot_of(archive) != slot:
                 raise IMGWDataError(
-                    f"Wersja {current.relative} nie odpowiada slotowi {slot}"
+                    message(
+                        "series.version_does_not_match_slot",
+                        relative=current.relative,
+                        slot=slot,
+                    )
                 )
         except (IMGWError, ValueError, KeyError, TypeError) as exc:
             problems.append(str(exc))
@@ -383,7 +411,7 @@ def check_series(
         Receives an ``archive_failed`` error for every unreadable archive slot.
     cancel : Cancel or None, optional
         Polled before each input; once it returns ``True`` the remaining inputs are
-        listed as ``unverifiable`` with error ``"anulowano"``.
+        listed as ``unverifiable`` with error ``"cancelled"``.
 
     Returns
     -------
@@ -475,11 +503,18 @@ def _pyarrow() -> tuple[Any, Any]:
         import pyarrow.parquet
     except ImportError as exc:
         raise IMGWStoreDependencyError(
-            "Budowa szeregów Parquet wymaga pakietu pyarrow>=15. Zainstaluj dodatek: pip install imgwtools[store]"
+            message(
+                "series.building_parquet_series_needs_package",
+                install=message("errors.store_extra"),
+            )
         ) from exc
     if int(pyarrow.__version__.split(".")[0]) < 15:
         raise IMGWStoreDependencyError(
-            f"Wymagany pyarrow>=15 (zainstalowano {pyarrow.__version__}). Zainstaluj dodatek: pip install imgwtools[store]"
+            message(
+                "series.pyarrow_15_required_version_installed",
+                version=pyarrow.__version__,
+                install=message("errors.store_extra"),
+            )
         )
     return pyarrow, pyarrow.parquet
 
@@ -563,18 +598,35 @@ def _collect(
         measurement = _shared(shared, value, flag, quality, source_flag)
         previous = columns.get(variable)
         if previous is not None and previous != measurement:
-            raise IMGWDataError(f"Sprzeczne wartości {variable} stacji {code} z {day}")
+            raise IMGWDataError(
+                message(
+                    "series.conflicting_values_station",
+                    variable=variable,
+                    code=code,
+                    day=day,
+                )
+            )
         columns[variable] = measurement
     for variable, bounds in extrema:
         dates = station.extrema.setdefault(key, {})
         if dates.get(variable, bounds) != bounds:
-            raise IMGWDataError(f"Sprzeczne daty ekstremum {variable} stacji {code}")
+            raise IMGWDataError(
+                message(
+                    "series.conflicting_dates_extremum_station",
+                    variable=variable,
+                    code=code,
+                )
+            )
         dates[variable] = bounds
     for variable, count in occurrences:
         counts = station.occurrences.setdefault(key, {})
         if counts.get(variable, count) != count:
             raise IMGWDataError(
-                f"Sprzeczna liczba wystąpień ekstremum {variable} stacji {code}"
+                message(
+                    "series.conflicting_number_occurrences_extremum_station",
+                    variable=variable,
+                    code=code,
+                )
             )
         counts[variable] = count
     station.hydro_years.add(hydro_year)
@@ -604,18 +656,27 @@ class _Spill:
         """Validate one record and queue it for the file of its station."""
         code = record.station_code
         if code not in self.stations and not self._code.fullmatch(code):
-            raise IMGWDataError(f"Nieprawidłowy kod stacji: {code!r}")
+            raise IMGWDataError(message("series.invalid_station_code", code=code))
         measurements: list[tuple[str, float | None, Flag, int | None, str | None]] = []
         for variable, measurement in record.measurements.items():
             if variable not in self._descriptor.variables:
                 raise IMGWDataError(
-                    f"Nieznana zmienna {variable} w zbiorze {self._descriptor.key}"
+                    message(
+                        "series.unknown_variable_dataset",
+                        variable=variable,
+                        key=self._descriptor.key,
+                    )
                 )
             if (measurement.value is None) != (
                 measurement.flag == "missing"
             ) or measurement.flag not in _FLAGS:
                 raise IMGWDataError(
-                    f"Niespójna flaga {measurement.flag} zmiennej {variable} stacji {code}"
+                    message(
+                        "series.inconsistent_flag_variable_station",
+                        flag=measurement.flag,
+                        variable=variable,
+                        code=code,
+                    )
                 )
             # Fields the dataset does not declare must stay empty: the Parquet
             # file has no column for them. Quality is stored as int8.
@@ -628,8 +689,14 @@ class _Spill:
                 or (self._source_flag and isinstance(source_flag, str))
             ):
                 raise IMGWDataError(
-                    f"Niedozwolona jakość {quality!r} lub flaga źródła "
-                    f"{source_flag!r} zmiennej {variable} stacji {code} z {record.date}"
+                    message(
+                        "series.disallowed_quality_source_flag_variable",
+                        quality=quality,
+                        source_flag=source_flag,
+                        variable=variable,
+                        code=code,
+                        date=record.date,
+                    )
                 )
             measurements.append(
                 (variable, measurement.value, measurement.flag, quality, source_flag)
@@ -784,8 +851,12 @@ def _spill_station_file(
     for record in records:
         if record.station_code != code:
             raise IMGWDataError(
-                f"Rekord stacji {record.station_code} w pliku stacji {code}: "
-                f"{archive.server_path}"
+                message(
+                    "series.record_station_file_station",
+                    station_code=record.station_code,
+                    code=code,
+                    server_path=archive.server_path,
+                )
             )
         spill.add(record)
         if first is None or record.date < first:
@@ -993,7 +1064,10 @@ def build_series(
                 data = item.version.file.read_bytes()
                 if hashlib.sha256(data).hexdigest() != item.version.sha256:
                     raise IMGWDataError(
-                        f"Suma kontrolna nie zgadza się z sidecarem: {item.version.relative}"
+                        message(
+                            "series.checksum_does_not_match_sidecar",
+                            relative=item.version.relative,
+                        )
                     )
                 # Records go to their station files and are dropped: neither the
                 # parsed records nor the values of all stations stay in memory.
@@ -1181,7 +1255,9 @@ def build_series(
                     stations=len(index_stations),
                     sources=sources,
                 )
-            raise IMGWStoreConflictError(f"Kolizja katalogu wersji szeregu: {parent}")
+            raise IMGWStoreConflictError(
+                message("series.series_version_directory_collision", parent=parent)
+            )
         finally:
             if staging.exists():
                 shutil.rmtree(staging)

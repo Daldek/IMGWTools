@@ -485,7 +485,7 @@ def test_selection_task_takes_only_codes_of_the_dataset_provider(
 ):
     project = tmp_path / "project"
     init_project(project, store_dir="../store")
-    with pytest.raises(IMGWValidationError, match=f"gramatyki {provider}") as error:
+    with pytest.raises(IMGWValidationError, match=f"{provider} grammar") as error:
         add_project_task(
             project,
             name="zadanie",

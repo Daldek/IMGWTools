@@ -617,7 +617,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
     assert plan.cancelled
     assert [(item.status, item.error) for item in plan.items] == [
         ("missing", None),
-        ("unverifiable", "anulowano"),
+        ("unverifiable", "cancelled"),
     ]
     document = load(plan.to_json(tmp_path / "plan.json"))
     assert (

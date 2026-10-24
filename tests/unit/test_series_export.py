@@ -242,7 +242,7 @@ def test_meteo_defaults_to_calendar_and_keeps_zero_and_accumulated_flags(
 
 def test_half_year_has_period_and_extrema_columns_and_rejects_calendar(root, tmp_path):
     version = store(root, HALF, [2024])
-    with pytest.raises(IMGWValidationError, match="hydrologiczne"):
+    with pytest.raises(IMGWValidationError, match="only hydrological years"):
         export_series(
             version,
             station=STATION,
@@ -297,10 +297,10 @@ def test_monthly_has_no_period_column(root, tmp_path):
     [
         ({"format": "xlsx"}, "format"),
         ({"year_type": "fiscal"}, "year_type"),
-        ({"variables": "H"}, "listą"),
-        ({"variables": ["X"]}, "Nieznane zmienne"),
-        ({"variables": []}, "Nieznane zmienne"),
-        ({"station": "123456789"}, "nie występuje"),
+        ({"variables": "H"}, "must be a list"),
+        ({"variables": ["X"]}, "Unknown variables"),
+        ({"variables": []}, "Unknown variables"),
+        ({"station": "123456789"}, "is not in the series"),
     ],
 )
 def test_invalid_options_are_rejected_without_writing(
@@ -318,9 +318,9 @@ def test_invalid_options_are_rejected_without_writing(
 
 
 def test_target_must_be_a_file_in_existing_directory(hydro_year, tmp_path):
-    with pytest.raises(IMGWValidationError, match="katalog"):
+    with pytest.raises(IMGWValidationError, match="points to a directory"):
         export_series(hydro_year, station=STATION, path=tmp_path, variables=["H"])
-    with pytest.raises(IMGWValidationError, match="nie istnieje"):
+    with pytest.raises(IMGWValidationError, match="does not exist"):
         export_series(
             hydro_year,
             station=STATION,
@@ -331,7 +331,7 @@ def test_target_must_be_a_file_in_existing_directory(hydro_year, tmp_path):
 
 def test_empty_series_is_rejected(hydro_year, tmp_path, monkeypatch):
     monkeypatch.setattr(export_module, "read_series", lambda *args, **kwargs: iter(()))
-    with pytest.raises(IMGWDataError, match="pusty"):
+    with pytest.raises(IMGWDataError, match="is empty"):
         export_series(
             hydro_year, station=STATION, path=tmp_path / "out.csv", variables=["H"]
         )
@@ -353,7 +353,7 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
         return len(calls) >= 2
 
     for cancel in (lambda: True, cancel_on_second_check):
-        with pytest.raises(IMGWCancelledError, match="Anulowano") as error:
+        with pytest.raises(IMGWCancelledError, match="cancelled") as error:
             export_series(
                 hydro_year,
                 station=STATION,
@@ -465,14 +465,14 @@ def test_month_and_half_year_ranges_match_the_period_start(
 
 def test_empty_range_is_a_data_error(root):
     version = store(root, MONTHLY, [2024])
-    with pytest.raises(IMGWDataError, match="pusty") as error:
+    with pytest.raises(IMGWDataError, match="is empty") as error:
         export_series(version, station=STATION, start=date(2024, 2, 2))
     assert error.value.code == "data_error"
 
 
 def test_target_inside_a_store_is_rejected_without_writing(hydro_year, root):
     target = root / "export.csv"
-    with pytest.raises(IMGWValidationError, match="poza magazynem") as error:
+    with pytest.raises(IMGWValidationError, match="outside the IMGW store") as error:
         export_series(hydro_year, station=STATION, path=target)
     assert error.value.details["option"] == "path"
     assert not target.exists()

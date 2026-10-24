@@ -175,7 +175,7 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
             )
         with pytest.raises(IMGWValidationError):
             sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01, ind_x=751)
-        with pytest.raises(IMGWValidationError, match="poza siatką PMAXTP"):
+        with pytest.raises(IMGWValidationError, match="outside the PMAXTP grid"):
             sync_pmaxtp(store, method="POT", latitude=54.9, longitude=23.9)
         for payload in (empty, no_index):
             route.mock(return_value=httpx.Response(200, json=payload))

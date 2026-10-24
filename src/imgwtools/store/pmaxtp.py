@@ -18,6 +18,7 @@ from imgwtools.exceptions import (
     io_error,
 )
 from imgwtools.fetch import _check_pmaxtp_payload, _validate_poland_coords
+from imgwtools.messages import message, reason
 from imgwtools.models import PMaXTPData, PMaXTPResult
 from imgwtools.store.catalog import (
     LICENSE_NOTICE,
@@ -65,7 +66,7 @@ Method = Literal["POT", "AMP"]
 def _validate_method(method: object) -> Method:
     if method not in _METHODS:
         raise IMGWValidationError(
-            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
+            message("pmaxtp.unknown_pmaxtp_method_allowed_pot", method=method),
             details={"option": "method", "allowed": list(_METHODS)},
         )
     return cast(Method, method)
@@ -74,7 +75,7 @@ def _validate_method(method: object) -> Method:
 def _validate_index(name: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise IMGWValidationError(
-            f"Indeks komórki {name} musi być nieujemną liczbą całkowitą: {value!r}",
+            message("pmaxtp.cell_index_must_non_negative", name=name, value=value),
             details={"option": name, "value": str(value)},
         )
     return value
@@ -85,7 +86,7 @@ def _validate_cell(ind_x: int | None, ind_y: int | None) -> tuple[int, int] | No
         return None
     if ind_x is None or ind_y is None:
         raise IMGWValidationError(
-            "Podaj oba indeksy komórki ind_x i ind_y albo żaden",
+            message("pmaxtp.give_both_cell_indices_ind"),
             details={"option": "ind_y" if ind_y is None else "ind_x"},
         )
     return _validate_index("ind_x", ind_x), _validate_index("ind_y", ind_y)
@@ -97,16 +98,27 @@ def _slot(method: Method, ind_x: int, ind_y: int) -> str:
 
 def _table(name: str, value: object) -> dict[str, dict[str, float]]:
     if not isinstance(value, Mapping) or not value:
-        raise IMGWDataError(f"Odpowiedź PMAXTP: pusta lub niepoprawna tabela {name}")
+        raise IMGWDataError(
+            message("pmaxtp.pmaxtp_response_empty_invalid_table", name=name)
+        )
     table: dict[str, dict[str, float]] = {}
     for duration, row in value.items():
         if not isinstance(row, Mapping) or not row:
-            raise IMGWDataError(f"Odpowiedź PMAXTP: pusty wiersz {name}[{duration}]")
+            raise IMGWDataError(
+                message(
+                    "pmaxtp.pmaxtp_response_empty_row", name=name, duration=duration
+                )
+            )
         values: dict[str, float] = {}
         for probability, number in row.items():
             if isinstance(number, bool) or not isinstance(number, int | float):
                 raise IMGWDataError(
-                    f"Odpowiedź PMAXTP: wartość {name}[{duration}][{probability}] nie jest liczbą"
+                    message(
+                        "pmaxtp.pmaxtp_response_value_not_number",
+                        name=name,
+                        duration=duration,
+                        probability=probability,
+                    )
                 )
             values[str(probability)] = number
         table[str(duration)] = values
@@ -118,26 +130,24 @@ def _cell_document(
 ) -> dict[str, Any]:
     """Validate the API response and build the canonical cell document."""
     if not isinstance(payload, Mapping):
-        raise IMGWDataError("Nieoczekiwany format odpowiedzi PMAXTP")
+        raise IMGWDataError(message("pmaxtp.unexpected_format_pmaxtp_response"))
     _check_pmaxtp_payload(payload, latitude, longitude)
     point = payload.get("point")
     data = payload.get("data")
     if not isinstance(point, Mapping):
-        raise IMGWDataError("Odpowiedź PMAXTP bez opisu punktu")
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_description"))
     try:
         ind_x = _validate_index("indX", point["indX"])
         ind_y = _validate_index("indY", point["indY"])
     except (KeyError, IMGWValidationError) as exc:
-        raise IMGWDataError(
-            "Odpowiedź PMAXTP bez poprawnych indeksów komórki indX/indY"
-        ) from exc
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_valid")) from exc
     center = {"lon": point.get("dataLon"), "lat": point.get("dataLat")}
     if any(
         isinstance(v, bool) or not isinstance(v, int | float) for v in center.values()
     ):
-        raise IMGWDataError("Odpowiedź PMAXTP bez środka komórki dataLon/dataLat")
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_cell"))
     if not isinstance(data, Mapping) or not data:
-        raise IMGWDataError("Odpowiedź PMAXTP bez danych (puste data)")
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_data"))
     return {
         "schema": CELL_SCHEMA,
         "method": method,
@@ -236,7 +246,7 @@ def check_pmaxtp(
     cell = _validate_cell(ind_x, ind_y)
     now = datetime.now(UTC)
     if _cancelled(cancel):
-        action = PlanAction("pmaxtp sync", "unverifiable", "anulowano")
+        action = PlanAction("pmaxtp sync", "unverifiable", message("common.cancelled"))
         return StorePlan(
             "imgw-plan/1", handle.root, now, (), {}, (action,), cancelled=True
         )
@@ -353,13 +363,20 @@ def sync_pmaxtp(
     try:
         payload = response.json()
     except ValueError as exc:
-        raise IMGWDataError("Niepoprawna odpowiedź JSON z API PMAXTP") from exc
+        raise IMGWDataError(
+            message("pmaxtp.invalid_json_response_from_pmaxtp")
+        ) from exc
     document = _cell_document(payload, method, latitude, longitude)
     cell = (document["ind_x"], document["ind_y"])
     if expected is not None and expected != cell:
         raise IMGWValidationError(
-            f"Podane indeksy komórki {expected[0]}_{expected[1]} różnią się od odpowiedzi API "
-            f"{cell[0]}_{cell[1]}; nic nie zapisano"
+            message(
+                "pmaxtp.given_cell_indices_differ_from",
+                expected_x=expected[0],
+                expected_y=expected[1],
+                cell_x=cell[0],
+                cell_y=cell[1],
+            )
         )
     result = _result(document, latitude=latitude, longitude=longitude)
     if _cancelled(cancel):
@@ -501,7 +518,12 @@ def read_pmaxtp(
         current = _current_cell(handle.root, method, *cell)
         if current is None:
             raise IMGWStoreError(
-                f"Brak zapisanej komórki PMAXTP {method} {cell[0]}_{cell[1]}",
+                message(
+                    "pmaxtp.no_stored_pmaxtp_cell",
+                    method=method,
+                    cell_x=cell[0],
+                    cell_y=cell[1],
+                ),
                 code="not_found",
             )
         path = current[0]
@@ -511,28 +533,39 @@ def read_pmaxtp(
         given = given / CELL_FILE if given.name != CELL_FILE else given
         if given.parent.parent != slot:
             raise IMGWValidationError(
-                f"Wersja {version} nie należy do komórki {method} {cell[0]}_{cell[1]}"
+                message(
+                    "pmaxtp.version_does_not_belong_cell",
+                    version=version,
+                    method=method,
+                    cell_x=cell[0],
+                    cell_y=cell[1],
+                )
             )
         matches = [entry for entry in _existing(slot, CELL_FILE) if entry[0] == given]
         if not matches:
             raise IMGWStoreError(
-                f"Brak wersji komórki PMAXTP: {version}", code="not_found"
+                message("pmaxtp.no_version_pmaxtp_cell", version=version),
+                code="not_found",
             )
         path = matches[0][0]
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
         if document.get("schema") != CELL_SCHEMA:
-            raise ValueError(f"nieobsługiwany schemat {document.get('schema')!r}")
+            raise ValueError(
+                message("pmaxtp.unsupported_schema", schema=document.get("schema"))
+            )
         if (document["method"], document["ind_x"], document["ind_y"]) != (
             method,
             *cell,
         ):
-            raise ValueError("metoda lub indeksy niezgodne ze ścieżką")
+            raise ValueError(message("pmaxtp.method_indices_do_not_match"))
         center = document["center"]
         return _result(
             document, latitude=float(center["lat"]), longitude=float(center["lon"])
         )
     except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
-        raise IMGWDataError(f"Uszkodzona komórka PMAXTP {path}: {exc}") from exc
+        raise IMGWDataError(
+            message("pmaxtp.corrupt_pmaxtp_cell", path=path, exc=reason(exc))
+        ) from exc
     except OSError as exc:
         raise io_error(exc) from exc

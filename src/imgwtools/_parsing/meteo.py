@@ -13,6 +13,7 @@ from imgwtools._parsing.common import (
     _iter_rows,
 )
 from imgwtools.exceptions import IMGWDataError
+from imgwtools.messages import message, reason
 from imgwtools.models import Measurement, NormalizedRecord
 
 _ATTRIBUTE_COLUMNS = {
@@ -38,7 +39,9 @@ def _measurement(raw: str, status: str, *, filename: str, number: int) -> Measur
         return Measurement(float(raw.strip().replace(",", ".")), "value")
     except ValueError as exc:
         raise IMGWDataError(
-            f"Błędna wartość w {filename}, wiersz {number}: {raw}"
+            message(
+                "meteo.invalid_value_row", filename=filename, number=number, raw=raw
+            )
         ) from exc
 
 
@@ -63,16 +66,18 @@ def _parse_daily(
             if _is_header_row(row):
                 continue  # column codes (e.g. o_d_08_2025.csv: kansp,kapost,...)
         if len(row) < (18 if kind == "k_d" else 16):
-            raise IMGWDataError(f"Za mało kolumn w {filename}, wiersz {number}")
+            raise IMGWDataError(
+                message("meteo.too_few_columns_row", filename=filename, number=number)
+            )
         try:
             station = row[0].strip().strip('"')
             if not re.fullmatch(r"\d{9}", station):
-                raise ValueError("Niepoprawny kod stacji")
+                raise ValueError(message("meteo.invalid_station_code"))
             measured = date(int(row[2]), int(row[3]), int(row[4]))
             if year is not None and (
                 measured.year != year or month is not None and measured.month != month
             ):
-                raise ValueError("Data poza okresem archiwum")
+                raise ValueError(message("meteo.date_outside_period_archive"))
             months.add((measured.year, measured.month))
             if kind == "k_d":
                 values = {
@@ -112,11 +117,16 @@ def _parse_daily(
             )
             entries = fields.setdefault(station, {})
             if measured in entries:
-                raise ValueError("Powtórzony dzień stacji")
+                raise ValueError(message("meteo.repeated_day_station"))
             entries[measured] = record
         except (ValueError, IndexError) as exc:
             raise IMGWDataError(
-                f"Błędny rekord w {filename}, wiersz {number}: {exc}"
+                message(
+                    "meteo.invalid_record_row",
+                    filename=filename,
+                    number=number,
+                    exc=reason(exc),
+                )
             ) from exc
     if year is not None:
         months = {(year, month)} if month else {(year, i) for i in range(1, 13)}
@@ -341,4 +351,4 @@ def normalize_meteo_archive(
             content, filename=f"{filename}/{member}", kind=kind, year=year, month=month
         )
     if not matched:
-        raise IMGWDataError(f"Brak pliku {kind} w {filename}")
+        raise IMGWDataError(message("meteo.no_file", kind=kind, filename=filename))

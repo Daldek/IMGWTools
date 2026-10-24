@@ -10,6 +10,7 @@ from typing import Literal
 
 from imgwtools.datasets import DatasetDescriptor, get_dataset
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.messages import message
 from imgwtools.models import Measurement, NormalizedRecord
 from imgwtools.store.types import StationCoverage
 
@@ -205,7 +206,7 @@ def _given_periods(
     """Validated ``station_periods`` of :func:`summarize_coverage`, merged per station."""
     if not isinstance(station_periods, Mapping):
         raise IMGWValidationError(
-            "station_periods musi być słownikiem: kod stacji → przedziały dat",
+            message("coverage.station_periods_must_dict_station"),
             details={"option": "station_periods", "value": str(station_periods)},
         )
     result: dict[str, tuple[_Span, ...]] = {}
@@ -227,9 +228,7 @@ def _given_periods(
             pairs.append((span[0], span[1]))
         if not valid:
             raise IMGWValidationError(
-                f"Nieprawidłowe okresy stacji {code!r} w station_periods: oczekiwano "
-                "par (początek, koniec) typu datetime.date, z początkiem nie "
-                "późniejszym niż koniec",
+                message("coverage.invalid_periods_station_station_periods", code=code),
                 details={"option": "station_periods", "value": str(code)},
             )
         result[code] = _merge_spans(pairs)
@@ -351,12 +350,15 @@ def summarize_coverage(
         "month",
         "half_year",
     ):
-        raise IMGWValidationError(f"Zbiór {dataset} nie zawiera szeregu pomiarowego")
+        raise IMGWValidationError(
+            message("coverage.dataset_has_no_measurement_series", dataset=dataset)
+        )
     per_station = descriptor.archive_scope != "country"
     if station_periods is not None and not per_station:
         raise IMGWValidationError(
-            f"Zbiór {dataset} ma archiwa całego kraju; okresy stacji "
-            "(station_periods) dotyczą wyłącznie zbiorów z plikami stacji",
+            message(
+                "coverage.dataset_has_nationwide_archives_station", dataset=dataset
+            ),
             details={"option": "station_periods", "value": dataset},
         )
     given = {} if station_periods is None else _given_periods(station_periods)
@@ -368,7 +370,11 @@ def summarize_coverage(
     for record in records:
         if record.dataset != dataset:
             raise IMGWValidationError(
-                f"Rekord zbioru {record.dataset} nie należy do {dataset}"
+                message(
+                    "coverage.record_dataset_does_not_belong",
+                    record_dataset=record.dataset,
+                    expected_dataset=dataset,
+                )
             )
         if per_station:
             derived.add(record)
@@ -378,11 +384,22 @@ def summarize_coverage(
         columns = stations[record.station_code].setdefault((record.date, period), {})
         for variable, measurement in record.measurements.items():
             if variable not in descriptor.variables:
-                raise IMGWDataError(f"Nieznana zmienna {variable} w zbiorze {dataset}")
+                raise IMGWDataError(
+                    message(
+                        "coverage.unknown_variable_dataset",
+                        variable=variable,
+                        dataset=dataset,
+                    )
+                )
             previous = columns.get(variable)
             if previous is not None and previous != measurement:
                 raise IMGWDataError(
-                    f"Sprzeczne wartości {variable} stacji {record.station_code} z {record.date}"
+                    message(
+                        "coverage.conflicting_values_station",
+                        variable=variable,
+                        station_code=record.station_code,
+                        date=record.date,
+                    )
                 )
             columns[variable] = measurement
     result: list[StationCoverage] = []

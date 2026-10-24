@@ -31,7 +31,7 @@ from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import call_tool
 from imgwtools.mcp._tools import MODES, Mode, catalog_tools
-from imgwtools.messages import LANGS, Lang
+from imgwtools.messages import LANGS, Lang, message
 
 __all__ = ["create_server", "http_app", "run_stdio"]
 
@@ -41,8 +41,12 @@ _ROOT_ENV = "IMGW_STORE_ROOT"
 def _choice(name: str, value: object, allowed: tuple[str, ...]) -> None:
     if value not in allowed:
         raise IMGWValidationError(
-            f"Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: "
-            f"{', '.join(allowed)}",
+            message(
+                "mcp.invalid_value_option_allowed",
+                value=value,
+                name=name,
+                allowed=", ".join(allowed),
+            ),
             details={"option": name, "value": str(value), "allowed": list(allowed)},
         )
 

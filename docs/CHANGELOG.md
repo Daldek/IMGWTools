@@ -98,6 +98,19 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   → `spec.title.localized("pl")`.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
+- **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of
+  `IMGWError` and its subclasses (and of the validators whose text another message embeds) gives
+  a catalog message (`imgwtools.messages.<area>`, about 570 entries) instead of an inline Polish
+  sentence, so `str(exc)`, `exc.detail`, the `--json` error line, the plan and item errors of
+  a failed unit and every caller of the library read the same English text. `details` stay
+  unchanged. Polish is `exc.localized("pl")`; REST (`Accept-Language: pl`, still the default
+  until its own change), MCP (`--lang pl`) and the web GUI render both the `title` and the
+  `detail` in the language of their caller (the `detail` used to stay Polish next to an English
+  `title`). `imgwtools.messages.reason(exc)` gives the catalog message an exception carries, so a
+  message that embeds a caught error stays translatable. Migration: tests and clients that
+  matched Polish `detail` text match the English text or `exc.detail.key`.
+- The text of a cancelled plan item and of a cancelled version write is English (`cancelled`, "The
+  write of the archive was cancelled"); the plan item error `anulowano` became `cancelled`.
 
 ## [3.0.0] — 2026-10-19
 

@@ -165,7 +165,7 @@ def test_plan_json_round_trip_including_cancellation(root, server, tmp_path):
     assert plan.cancelled
     assert [(item.status, item.error) for item in plan.items] == [
         ("missing", None),
-        ("unverifiable", "anulowano"),
+        ("unverifiable", "cancelled"),
     ]
 
     saved = plan.to_json(tmp_path / "plan.json")

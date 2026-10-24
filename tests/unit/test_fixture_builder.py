@@ -177,12 +177,12 @@ def test_unknown_schema_variant_adds_unparsed_series_version(tmp_path):
 
 
 def test_rejects_unknown_variant_and_non_empty_root(tmp_path):
-    with pytest.raises(IMGWValidationError, match="wariant"):
+    with pytest.raises(IMGWValidationError, match="Unknown fixture variant"):
         build_fixture_store(tmp_path / "x", variant="partial")
     assert not (tmp_path / "x").exists()
     (tmp_path / "busy").mkdir()
     (tmp_path / "busy" / "file.txt").write_text("x")
-    with pytest.raises(IMGWStoreError, match="pustego"):
+    with pytest.raises(IMGWStoreError, match="needs an empty directory"):
         build_fixture_store(tmp_path / "busy")
 
 

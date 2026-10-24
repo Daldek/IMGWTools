@@ -526,7 +526,7 @@ def test_meteo_archive_selects_only_daily_csv_and_reports_line():
     broken = _make_zip(
         "k_d_2001.csv", "123456789;Klimat;2001;2;30;2;0;0;0;1;0;0;0;0;9;S;0;9"
     )
-    with pytest.raises(IMGWDataError, match=r"k_d_2001.csv, wiersz 1"):
+    with pytest.raises(IMGWDataError, match="k_d_2001.csv, row 1"):
         list(normalize_archive(archive, data=broken))
 
 
@@ -575,7 +575,7 @@ def test_recorded_daily_archives_cover_annual_monthly_and_leap_day():
 def test_normalized_hydro_bad_measurement_reports_member_and_line():
     archive = _archive("pl.imgw.hydro_daily", "dobowe/codz_2024.zip", 2024)
     csv = "123456789;SAN ESCOBAR;Ławica;2024;04;29;abc;45.6;5.5;2\n"
-    with pytest.raises(IMGWDataError, match=r"codz_2024\.zip/codz_2024\.csv, wiersz 1"):
+    with pytest.raises(IMGWDataError, match="codz_2024\\.zip/codz_2024\\.csv, row 1"):
         list(normalize_archive(archive, data=_make_zip("codz_2024.csv", csv)))
 
 
@@ -707,10 +707,12 @@ def test_normalized_semiannual_old_layout_gives_start_and_end_datetimes():
 def test_semiannual_unknown_or_mixed_column_layout_is_an_error():
     archive = _archive("pl.imgw.hydro_semiannual", "2024/polr_H_2024.zip", 2024)
     fifteen = "123456789;SAN ESCOBAR;Ławica;2024;15;H;2;100.0;;;;;;;\n"
-    with pytest.raises(IMGWDataError, match=r"15 kolumn\) w .*polr_H_2024\.csv"):
+    with pytest.raises(IMGWDataError, match="15 columns\\) in .*polr_H_2024\\.csv"):
         list(normalize_archive(archive, data=_make_zip("polr_H_2024.csv", fifteen)))
     mixed = SEMI_2023_T + SEMI_2023_Q
-    with pytest.raises(IMGWDataError, match=r"Niejednolita liczba kolumn \(17, 19\)"):
+    with pytest.raises(
+        IMGWDataError, match=r"inconsistent number of columns \(17, 19\)"
+    ):
         list(parse_semi_annual_csv(mixed))
 
 
@@ -741,7 +743,7 @@ def test_normalized_semiannual_merges_repeated_extremum_rows():
         "2023;12;26;01;00;2023;12;26;01;00\n"
     )
     with pytest.raises(
-        IMGWDataError, match="Sprzeczne wartości H_max stacji 123456789"
+        IMGWDataError, match="Conflicting values of H_max of the station 123456789"
     ):
         list(normalize_archive(archive, data=_make_zip("polr_H_2024.csv", conflicting)))
 
@@ -773,7 +775,7 @@ def test_meteo_precip_skips_only_a_leading_header_row():
     )
     assert len(records) == 31
     assert records[0].measurements["P"].value == 0.8
-    with pytest.raises(IMGWDataError, match=r"o_d_08_2025\.csv, wiersz 2"):
+    with pytest.raises(IMGWDataError, match="o_d_08_2025\\.csv, row 2"):
         list(
             normalize_archive(archive, data=_make_zip("o_d_08_2025.csv", row + header))
         )

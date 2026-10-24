@@ -36,6 +36,7 @@ from imgwtools.exceptions import (
     io_error,
 )
 from imgwtools.fetch import DownloadResult
+from imgwtools.messages import message, reason
 from imgwtools.store.content import CONTENT_FORMS, content_sha256
 from imgwtools.store.types import (
     Cancel,
@@ -147,8 +148,7 @@ def _link(source: Path, target: Path) -> None:
     except (OSError, NotImplementedError) as exc:
         if isinstance(exc, NotImplementedError) or exc.errno in _NO_HARDLINK:
             raise IMGWStoreConflictError(
-                "Magazyn wymaga systemu plików z dowiązaniami twardymi "
-                f"(wyłączna publikacja bez zastąpienia): {target}",
+                message("writer.store_needs_file_system_hard", target=target),
                 details={"reason": "not_atomic"},
             ) from exc
         raise
@@ -254,11 +254,11 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
 def _safe_root(root: PathArg) -> Path:
     supplied = Path(root).expanduser().absolute()
     if ".." in supplied.parts:
-        raise IMGWValidationError("Ścieżka magazynu nie może zawierać '..'")
+        raise IMGWValidationError(message("writer.store_path_must_not_contain"))
     for part in (supplied, *supplied.parents):
         if part.is_symlink():
             raise IMGWStoreError(
-                f"Dowiązanie symboliczne w ścieżce magazynu: {part}",
+                message("writer.symbolic_link_store_path", part=part),
                 code="validation_error",
             )
     return supplied
@@ -271,10 +271,10 @@ def _marker(path: Path) -> str | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         schema = payload["schema"]
         if not isinstance(schema, str):
-            raise ValueError("nieprawidłowy schemat")
+            raise ValueError("invalid schema")
         return schema
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise IMGWStoreError(f"Nieczytelny znacznik: {path}") from exc
+        raise IMGWStoreError(message("writer.unreadable_marker", path=path)) from exc
 
 
 def _kartograf_project(path: Path) -> Path | None:
@@ -284,10 +284,12 @@ def _kartograf_project(path: Path) -> Path | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         output = payload.get("output_dir")
         if not isinstance(output, str) or not output:
-            raise ValueError("brak output_dir")
+            raise ValueError("no output_dir")
         return (path.parent / output).resolve()
     except (OSError, ValueError, TypeError, AttributeError) as exc:
-        raise IMGWStoreError(f"Nieczytelny manifest Kartografa: {path}") from exc
+        raise IMGWStoreError(
+            message("writer.unreadable_kartograf_manifest", path=path)
+        ) from exc
 
 
 def _overlaps(left: Path, right: Path) -> bool:
@@ -302,19 +304,21 @@ def _check_kartograf(path: Path) -> None:
     for ancestor in (path, *path.parents):
         if ancestor != path and (ancestor / _MARKER).exists():
             raise IMGWStoreConflictError(
-                f"Magazyn IMGW jest już przodkiem katalogu: {ancestor}",
+                message(
+                    "writer.imgw_store_already_ancestor_directory", ancestor=ancestor
+                ),
                 details=_PATH_CONFLICT,
             )
         output = _kartograf_project(ancestor / "kartograf-project.json")
         if output is not None and _overlaps(path, output):
             raise IMGWStoreConflictError(
-                f"Ścieżka koliduje z magazynem Kartografa: {output}",
+                message("writer.path_collides_kartograf_store", output=output),
                 details=_PATH_CONFLICT,
             )
         versions = ancestor / "versions"
         if versions.is_dir() and _has_kartograf_meta(versions):
             raise IMGWStoreConflictError(
-                f"Ścieżka koliduje z wersjami Kartografa: {versions}",
+                message("writer.path_collides_kartograf_versions", versions=versions),
                 details=_PATH_CONFLICT,
             )
     if path.is_dir():
@@ -324,18 +328,19 @@ def _check_kartograf(path: Path) -> None:
             if folder != path and _MARKER in files:
                 _marker(folder / _MARKER)
                 raise IMGWStoreConflictError(
-                    f"Zagnieżdżony magazyn IMGW: {folder}", details=_PATH_CONFLICT
+                    message("writer.nested_imgw_store", folder=folder),
+                    details=_PATH_CONFLICT,
                 )
             if "kartograf-project.json" in files:
                 output = _kartograf_project(folder / "kartograf-project.json")
                 if output is not None and _overlaps(path, output):
                     raise IMGWStoreConflictError(
-                        f"Ścieżka koliduje z magazynem Kartografa: {output}",
+                        message("writer.path_collides_kartograf_store", output=output),
                         details=_PATH_CONFLICT,
                     )
             if folder.name == "versions" and _has_kartograf_meta(folder):
                 raise IMGWStoreConflictError(
-                    f"Ścieżka koliduje z wersjami Kartografa: {folder}",
+                    message("writer.path_collides_kartograf_versions", versions=folder),
                     details=_PATH_CONFLICT,
                 )
             dirs[:] = [
@@ -350,7 +355,7 @@ def _has_kartograf_meta(versions: Path) -> bool:
     for sidecar in versions.rglob("*.meta.json"):
         if sidecar.is_symlink():
             raise IMGWStoreConflictError(
-                f"Dowiązanie w wersjach: {sidecar}", details=_PATH_CONFLICT
+                message("writer.link_versions", sidecar=sidecar), details=_PATH_CONFLICT
             )
         if _marker(sidecar) == "kartograf-meta/1":
             return True
@@ -365,14 +370,16 @@ def _validate_slot(root: Path, relative: str) -> Path:
         or relative.startswith("/")
         or "\\" in relative
     ):
-        raise IMGWValidationError(f"Niebezpieczna ścieżka archiwum: {relative}")
+        raise IMGWValidationError(
+            message("writer.unsafe_archive_path", relative=relative)
+        )
     result = root.joinpath(*parts)
     for path in (result, *result.parents):
         if path == root.parent:
             break
         if path.is_symlink():
             raise IMGWStoreError(
-                f"Dowiązanie w ścieżce slotu: {path}", code="validation_error"
+                message("writer.link_slot_path", path=path), code="validation_error"
             )
     return result
 
@@ -422,7 +429,8 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
         return open_store(path)
     if path.exists() and (not path.is_dir() or any(path.iterdir())):
         raise IMGWStoreConflictError(
-            f"Katalog nie jest pustym magazynem IMGW: {path}", details=_PATH_CONFLICT
+            message("writer.directory_not_empty_imgw_store", path=path),
+            details=_PATH_CONFLICT,
         )
     path.mkdir(parents=True, exist_ok=True)
     payload: dict[str, str] = {
@@ -442,8 +450,11 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
             return open_store(path)
         except OSError as exc:
             raise IMGWStoreConflictError(
-                "System plików nie obsługuje atomowego zapisu znacznika magazynu "
-                f"(dowiązanie twarde): {path} ({exc.strerror})",
+                message(
+                    "writer.file_system_does_not_support",
+                    path=path,
+                    strerror=exc.strerror,
+                ),
                 details={"reason": "not_atomic"},
             ) from exc
         _fsync_dir(path)
@@ -477,7 +488,7 @@ def open_store(root: PathArg, /) -> StoreHandle:
     path = _safe_root(root)
     if _marker(path / _MARKER) != "imgw-store/1":
         raise IMGWStoreError(
-            f"Brak znacznika lub nieobsługiwany magazyn IMGW: {path}",
+            message("writer.no_marker_unsupported_imgw_store", path=path),
             details={"reason": "unsupported"},
         )
     return StoreHandle(path, "imgw-store/1")
@@ -485,7 +496,7 @@ def open_store(root: PathArg, /) -> StoreHandle:
 
 def _utc(moment: datetime) -> str:
     if moment.tzinfo is None:
-        raise IMGWValidationError("Data musi mieć strefę czasową")
+        raise IMGWValidationError(message("writer.date_must_have_time_zone"))
     return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
@@ -599,14 +610,16 @@ def _existing(
         ):
             continue
         if directory.is_symlink() or not directory.is_dir():
-            raise IMGWStoreConflictError(f"Nieprawidłowa wersja archiwum: {directory}")
+            raise IMGWStoreConflictError(
+                message("writer.invalid_archive_version", directory=directory)
+            )
         meta_path = directory / f"{name}.meta.json"
         if not meta_path.exists() and not meta_path.is_symlink():
             continue
         try:
             source = directory / name
             if source.is_symlink() or meta_path.is_symlink():
-                raise ValueError("dowiązanie w wersji")
+                raise ValueError("link in the version")
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             digest = hashlib.sha256()
             with source.open("rb") as stream:
@@ -617,10 +630,10 @@ def _existing(
                 or digest.hexdigest() != meta["sha256"]
                 or not isinstance(meta["extra"]["version"]["label"], str)
             ):
-                raise ValueError("niespójna suma, schemat lub etykieta")
+                raise ValueError("inconsistent checksum, schema or label")
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWStoreConflictError(
-                f"Uszkodzona wersja archiwum: {directory}"
+                message("writer.corrupt_archive_version", directory=directory)
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
@@ -651,7 +664,9 @@ def _archive_signal(version: Path, meta: dict[str, Any]) -> tuple[Any, Any]:
     """
     http = meta["extra"].get("http")
     if not isinstance(http, dict):
-        raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {version}")
+        raise IMGWStoreConflictError(
+            message("writer.corrupt_archive_version", directory=version)
+        )
     return http.get("etag"), http.get("last_modified")
 
 
@@ -755,7 +770,9 @@ def _publish_observation(
     """
     if not _is_seen_at(observation.seen_at):
         raise IMGWValidationError(
-            f"Czas obserwacji musi mieć postać RRRR-MM-DDTGG:MM:SSZ: {observation.seen_at!r}"
+            message(
+                "writer.observation_time_must_have_form", seen_at=observation.seen_at
+            )
         )
     name = _observation_name(observation)
     register = _validate_slot(root, f"{slot}/{_OBSERVATIONS}")
@@ -776,13 +793,15 @@ def _publish_observation(
         )
         _fsync_dir(staging)
         if cancel is not None and cancel():
-            raise IMGWCancelledError("Anulowano zapis obserwacji")
+            raise IMGWCancelledError(message("writer.observation_write_cancelled"))
         try:
             register.mkdir()
         except FileExistsError:
             if not _is_register(register):
                 raise IMGWStoreConflictError(
-                    f"Rejestr obserwacji nie jest katalogiem: {register}"
+                    message(
+                        "writer.observation_register_not_directory", register=register
+                    )
                 ) from None
         else:
             _fsync_dir(register.parent)
@@ -792,7 +811,7 @@ def _publish_observation(
             # The same signal on the same day is already recorded; keep that file.
             if target.is_symlink() or not target.is_file():
                 raise IMGWStoreConflictError(
-                    f"Kolizja pliku obserwacji: {target}"
+                    message("writer.observation_file_collision", target=target)
                 ) from None
         else:
             _fsync_dir(register)
@@ -808,7 +827,12 @@ def _content_of(data: bytes, *, form: str, filename: str) -> str:
         return content_sha256(data, form=form)
     except IMGWDataError as exc:
         raise IMGWDataError(
-            f"Plik {filename} nie spełnia formy treści {form}: {exc}"
+            message(
+                "writer.file_does_not_meet_content",
+                filename=filename,
+                form=form,
+                exc=reason(exc),
+            )
         ) from exc
 
 
@@ -1055,9 +1079,13 @@ def write_archive(
     if descriptor.server_dir is None or not archive.server_path.startswith(
         descriptor.server_dir + "/"
     ):
-        raise IMGWValidationError(f"Ścieżka nie odpowiada zbiorowi {archive.dataset}")
+        raise IMGWValidationError(
+            message("writer.path_does_not_belong_dataset", dataset=archive.dataset)
+        )
     if relative.suffix.lower() not in _SUFFIXES.get(provider.id, ()):
-        raise IMGWValidationError(f"Niedozwolony typ archiwum: {relative}")
+        raise IMGWValidationError(
+            message("writer.disallowed_type_archive", relative=relative)
+        )
     slot_dir = f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
     slot = _validate_slot(path, slot_dir)
     filename = relative.name
@@ -1069,7 +1097,7 @@ def write_archive(
         else _content_of(response.data, form=form, filename=archive.server_path)
     )
     if cancel is not None and cancel():
-        raise IMGWCancelledError("Anulowano zapis archiwum")
+        raise IMGWCancelledError(message("writer.archive_write_cancelled"))
     incoming = path / ".incoming"
     incoming.mkdir(exist_ok=True)
     _cleanup(incoming, on_notice=on_notice)
@@ -1096,7 +1124,7 @@ def write_archive(
                 )
             except (TypeError, ValueError, OverflowError) as exc:
                 raise IMGWValidationError(
-                    "Nieprawidłowy nagłówek Last-Modified"
+                    message("writer.invalid_last_modified_header")
                 ) from exc
             label = published.date().isoformat()
             label_source = "last_modified"
@@ -1138,7 +1166,7 @@ def write_archive(
         ):
             label += "+" + hashlib.sha256(_canonical(signal)).hexdigest()[:8]
         if cancel is not None and cancel():
-            raise IMGWCancelledError("Anulowano zapis archiwum")
+            raise IMGWCancelledError(message("writer.archive_write_cancelled"))
         request: dict[str, object] = {
             "server_path": archive.server_path,
             "year": archive.year,
@@ -1194,7 +1222,9 @@ def write_archive(
                     and signal == _archive_signal(old_file.parent, old_meta)
                 ):
                     return VersionResult("unchanged", old_file, sha, label)
-            raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
+            raise IMGWStoreConflictError(
+                message("writer.version_directory_collision", target=target)
+            ) from exc
         if on_progress is not None:
             on_progress(
                 Progress(1, 1, "archive", "created", f"Zapisano archiwum {filename}")

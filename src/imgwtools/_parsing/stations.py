@@ -8,6 +8,7 @@ from typing import Literal
 
 from imgwtools._parsing.common import IMGW_ENCODING, _decode_content
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import message
 from imgwtools.models import StationListEntry
 
 _RIVER = re.compile(r"^(.+?)\s*\((\d+)\)$")
@@ -55,7 +56,7 @@ def parse_stations_csv(
     """
     if kind not in ("hydro", "meteo"):
         raise IMGWValidationError(
-            f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo"
+            message("parsing.unknown_kind_station_list_allowed", kind=kind)
         )
     text = content if isinstance(content, str) else _decode_content(content, encoding)
     for row in csv.reader(io.StringIO(text.lstrip("\ufeff"))):

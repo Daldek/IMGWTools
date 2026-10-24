@@ -54,6 +54,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.fetch import UNPUBLISHED
+from imgwtools.messages import message, reason
 from imgwtools.store import (
     build_series,
     check_series,
@@ -296,7 +297,7 @@ def _object(
     value: object, keys: tuple[tuple[str, ...], tuple[str, ...]], where: str
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise _invalid(where, "oczekiwano obiektu JSON")
+        raise _invalid(where, message("project.json_object_was_expected"))
     required, optional = keys
     unknown = [
         repr(key) for key in value if key not in required and key not in optional
@@ -304,11 +305,16 @@ def _object(
     if unknown:
         raise _invalid(
             where,
-            f"nieznane klucze {', '.join(unknown)}; dodatki wyłącznie w extensions",
+            message(
+                "project.unknown_keys_extras_only_extensions",
+                unknown=", ".join(unknown),
+            ),
         )
     missing = [key for key in required if key not in value]
     if missing:
-        raise _invalid(where, f"brak kluczy {', '.join(missing)}")
+        raise _invalid(
+            where, message("project.missing_keys", missing=", ".join(missing))
+        )
     return value
 
 
@@ -324,13 +330,13 @@ def _relative(value: object, base: Path, name: str) -> str:
         or _DRIVE.match(text)
     ):
         raise IMGWValidationError(
-            f"{name} musi być ścieżką względną POSIX: {value!r}",
+            message("project.must_relative_posix_path", name=name, value=value),
             details={"option": name},
         )
     parts = text.split("/")
     if any(part in ("", ".", "..") for part in parts):
         raise IMGWValidationError(
-            f"{name} nie może zawierać '..', '.' ani pustych segmentów: {text!r}",
+            message("project.must_not_contain_empty_segments", name=name, text=text),
             details={"option": name, "value": text},
         )
     path = base.joinpath(*parts)
@@ -339,7 +345,7 @@ def _relative(value: object, base: Path, name: str) -> str:
             break
         if step.is_symlink():
             raise IMGWValidationError(
-                f"Dowiązanie symboliczne w ścieżce {name}: {step}",
+                message("project.symbolic_link_path", name=name, step=step),
                 details={"option": name, "value": text},
             )
     return text
@@ -351,13 +357,16 @@ def _input_relative(value: PathArg, base: Path, name: str) -> str:
     if path.is_absolute():
         if ".." in path.parts:
             raise IMGWValidationError(
-                f"{name} nie może zawierać '..': {value}", details={"option": name}
+                message("project.must_not_contain", name=name, value=value),
+                details={"option": name},
             )
         try:
             path = path.relative_to(base)
         except ValueError:
             raise IMGWValidationError(
-                f"{name} musi leżeć w katalogu {base}: {value}",
+                message(
+                    "project.must_lie_directory", name=name, base=base, value=value
+                ),
                 details={"option": name},
             ) from None
     return _relative(path.as_posix(), base, name)
@@ -390,7 +399,8 @@ def _stored_options(
     """Opcje zadania zapisane w manifeście: walidator katalogu komend + jawne opcje series select."""
     if not isinstance(raw, dict):
         raise IMGWValidationError(
-            "Opcje zadania muszą być obiektem JSON", details={"option": "options"}
+            message("project.options_task_must_json_object"),
+            details={"option": "options"},
         )
     options = dict(raw)
     area = "geometry" in options
@@ -401,13 +411,16 @@ def _stored_options(
         missing = [name for name in _EXPLICIT if name not in normalized]
         if missing:
             raise IMGWValidationError(
-                f"Zadanie series select wymaga jawnych opcji: {', '.join(missing)}",
+                message(
+                    "project.series_select_task_needs_explicit",
+                    missing=", ".join(missing),
+                ),
                 details={"option": missing[0]},
             )
     if area:
         if command != _SELECT:
             raise IMGWValidationError(
-                "Opcja geometry dotyczy wyłącznie zadań series select",
+                message("project.option_geometry_applies_only_series"),
                 details={"option": "geometry"},
             )
         result["geometry"] = _relative(geometry, directory, "geometry")
@@ -419,12 +432,12 @@ def _moment(value: object, where: str) -> datetime | None:
         return None
     try:
         if not isinstance(value, str):
-            raise ValueError("oczekiwano tekstu ISO 8601")
+            raise ValueError(message("project.iso_8601_text_was_expected"))
         moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise _invalid(where, f"nieprawidłowa data: {exc}") from exc
+        raise _invalid(where, message("project.invalid_date", exc=reason(exc))) from exc
     if moment.tzinfo is None:
-        raise _invalid(where, "data musi zawierać strefę czasową (UTC)")
+        raise _invalid(where, message("project.date_must_contain_time_zone"))
     return moment.astimezone(UTC)
 
 
@@ -433,7 +446,8 @@ def _parse_file(raw: object, where: str, root: Path) -> ProjectFile:
     role = data["role"]
     if role not in _ROLES:
         raise _invalid(
-            f"{where}.role", f"nieznana rola {role!r}; dozwolone: {', '.join(_ROLES)}"
+            f"{where}.role",
+            message("project.unknown_role_allowed", role=role, roles=", ".join(_ROLES)),
         )
     try:
         path = _relative(data["path"], root, "path")
@@ -441,41 +455,35 @@ def _parse_file(raw: object, where: str, root: Path) -> ProjectFile:
         raise _invalid(f"{where}.path", str(exc)) from exc
     sha = data["sha256"]
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
-        raise _invalid(
-            f"{where}.sha256", "oczekiwano pełnej sumy SHA-256 (64 małe cyfry hex)"
-        )
+        raise _invalid(f"{where}.sha256", message("project.full_sha_256_was_expected"))
     station = data.get("station_code")
     if "station_code" in data and (
         not isinstance(station, str) or not _STATION.fullmatch(station)
     ):
         raise _invalid(
             f"{where}.station_code",
-            "kod stacji musi mieć 9 cyfr (IMGW-PIB) albo postać identyfikatora "
-            f"WIGOS: {station!r}",
+            message("project.station_code_must_have_9", station=station),
         )
     if role == "station_series" and station is None:
-        raise _invalid(where, "plik station_series wymaga kodu station_code")
+        raise _invalid(where, message("project.station_series_file_needs_station"))
     if _pin_slot(Path(path), station) is None:
         raise _invalid(
             f"{where}.path",
-            "oczekiwano pliku opublikowanej wersji magazynu (<rodzaj>/versions/…) "
-            f"o slocie §13.7 (plik stacji szeregu: stations/<station_code>.parquet): {path}",
+            message("project.file_published_store_version_kind", path=path),
         )
     content, form = data.get("content_sha256"), data.get("content_form")
     if ("content_sha256" in data) != ("content_form" in data):
-        raise _invalid(
-            where, "pola content_sha256 i content_form występują razem albo wcale"
-        )
+        raise _invalid(where, message("project.fields_content_sha256_content_form"))
     if "content_sha256" in data and (
         not isinstance(content, str) or not _SHA.fullmatch(content)
     ):
         raise _invalid(
             f"{where}.content_sha256",
-            "oczekiwano pełnej sumy SHA-256 (64 małe cyfry hex)",
+            message("project.full_sha_256_was_expected"),
         )
     if "content_form" in data and (not isinstance(form, str) or not form):
         raise _invalid(
-            f"{where}.content_form", "oczekiwano niepustego identyfikatora formy"
+            f"{where}.content_form", message("project.non_empty_form_identifier_was")
         )
     return ProjectFile(role, Path(path), sha, station, content, form)
 
@@ -486,11 +494,12 @@ def _parse_task(raw: object, where: str, directory: Path, root: Path) -> Project
     if not isinstance(name, str) or not commands._TASK_NAME.fullmatch(name):
         raise _invalid(
             f"{where}.name",
-            f"nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra: {name!r}",
+            message("project.task_name_1_64_characters", name=name),
         )
     if command not in commands._TASK_COMMANDS:
         raise _invalid(
-            f"{where}.command", f"komenda {command!r} nie może być zadaniem projektu"
+            f"{where}.command",
+            message("project.command_cannot_project_task", command=command),
         )
     try:
         options = _stored_options(command, data["options"], directory, root)
@@ -509,31 +518,29 @@ def _parse_task(raw: object, where: str, directory: Path, root: Path) -> Project
         ):
             raise _invalid(
                 f"{where}.geometry_sha256",
-                "oczekiwano {<options.geometry>: <SHA-256 pliku wyboru obszaru>}",
+                message("project.expected_options_geometry_sha_256"),
             )
     elif geometry is not None:
-        raise _invalid(
-            where, "wybór obszarem (options.geometry) wymaga geometry_sha256"
-        )
+        raise _invalid(where, message("project.selection_area_options_geometry_needs"))
     pinned_at = _moment(data["pinned_at"], f"{where}.pinned_at")
     version = data["imgwtools_version"]
     if version is not None and (not isinstance(version, str) or not version.strip()):
         raise _invalid(
-            f"{where}.imgwtools_version", "oczekiwano niepustego tekstu albo null"
+            f"{where}.imgwtools_version", message("project.non_empty_text_null_was")
         )
     if (pinned_at is None) != (version is None):
         raise _invalid(
             where,
-            "pinned_at i imgwtools_version są oba null (zadanie nieprzypięte) albo oba ustawione",
+            message("project.pinned_imgwtools_version_both_null"),
         )
     if not isinstance(data["files"], list):
-        raise _invalid(f"{where}.files", "oczekiwano listy plików")
+        raise _invalid(f"{where}.files", message("project.list_files_was_expected"))
     pins = tuple(
         _parse_file(entry, f"{where}.files[{index}]", root)
         for index, entry in enumerate(data["files"])
     )
     if len({pin.path for pin in pins}) != len(pins):
-        raise _invalid(f"{where}.files", "powtórzona ścieżka przypiętego pliku")
+        raise _invalid(f"{where}.files", message("project.repeated_path_pinned_file"))
     return ProjectTask(
         name,
         command,
@@ -554,7 +561,9 @@ def _check_store(root: Path, directory: Path) -> None:
     """Projekt poza magazynem; istniejący niepusty ``store_dir`` musi być magazynem IMGW."""
     if root == directory or root in directory.parents:
         raise IMGWProjectError(
-            f"Katalog projektu {directory} nie może leżeć w magazynie {root}",
+            message(
+                "project.project_directory_must_not_lie", directory=directory, root=root
+            ),
             details={"option": "project_dir"},
         )
     if not root.exists() and not root.is_symlink():
@@ -565,13 +574,17 @@ def _check_store(root: Path, directory: Path) -> None:
         info = store_info(root)
     except IMGWError as exc:
         raise IMGWProjectError(
-            f"Nieprawidłowy katalog magazynu {root}: {exc}",
+            message("project.invalid_store_directory", root=root, exc=reason(exc)),
             code=exc.code,
             details={"option": "store_dir", **exc.details},
         ) from exc
     if not info.supported:
         raise IMGWProjectError(
-            f"Katalog {root} nie jest obsługiwanym magazynem IMGW: {'; '.join(info.problems)}",
+            message(
+                "project.directory_not_supported_imgw_store",
+                root=root,
+                problems="; ".join(info.problems),
+            ),
             code="store_unavailable",
             details={"option": "store_dir", "reason": "unsupported"},
         )
@@ -582,24 +595,29 @@ def _parse(directory: Path, document: object) -> _Manifest:
     if data["schema"] != PROJECT_SCHEMA:
         raise _invalid(
             "schema",
-            f"nieobsługiwany schemat {data['schema']!r}; ta wersja IMGWTools czyta {PROJECT_SCHEMA}",
+            message(
+                "project.unsupported_schema_this_version_imgwtools",
+                schema=data["schema"],
+                project_schema=PROJECT_SCHEMA,
+            ),
         )
     text = data["store_dir"]
     if not isinstance(text, str) or not text.strip() or "\0" in text:
-        raise _invalid("store_dir", "oczekiwano niepustej ścieżki magazynu")
+        raise _invalid("store_dir", message("project.non_empty_store_path_was"))
     root = _store_root(directory, text)
     _check_store(root, directory)
     extensions = data.get("extensions", {})
     if not isinstance(extensions, dict):
-        raise _invalid("extensions", "oczekiwano obiektu JSON")
+        raise _invalid("extensions", message("project.json_object_was_expected"))
     if not isinstance(data["tasks"], list):
-        raise _invalid("tasks", "oczekiwano listy zadań")
+        raise _invalid("tasks", message("project.list_tasks_was_expected"))
     tasks: list[ProjectTask] = []
     for index, raw in enumerate(data["tasks"]):
         task = _parse_task(raw, f"tasks[{index}]", directory, root)
         if any(other.name == task.name for other in tasks):
             raise _invalid(
-                f"tasks[{index}].name", f"powtórzona nazwa zadania {task.name!r}"
+                f"tasks[{index}].name",
+                message("project.repeated_task_name", name=task.name),
             )
         tasks.append(task)
     return _Manifest(Project(directory, root, tuple(tasks), dict(extensions)), text)
@@ -609,44 +627,47 @@ def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError(f"powtórzony klucz {key!r}")
+            raise ValueError(message("project.repeated_key", key=key))
         result[key] = value
     return result
 
 
 def _no_constant(name: str) -> Any:
-    raise ValueError(f"niedozwolona wartość {name}")
+    raise ValueError(message("project.disallowed_value", name=name))
 
 
 def _load(directory: Path) -> _Manifest:
     path = directory / PROJECT_FILE
     if path.is_symlink():
         raise IMGWProjectError(
-            f"Manifest projektu nie może być dowiązaniem symbolicznym: {path}",
+            message("project.project_manifest_must_not_symbolic", path=path),
             details={"option": "project_dir"},
         )
     try:
         data = path.read_bytes()
     except FileNotFoundError:
         raise IMGWProjectError(
-            f"Brak manifestu projektu {path}; najpierw imgw project init",
+            message("project.no_project_manifest_run_imgw", path=path),
             code="not_found",
             details={"option": "project_dir"},
         ) from None
     except OSError as exc:
         raise IMGWProjectError(
-            f"Nie można odczytać manifestu projektu {path}: {exc}", code="io_error"
+            message("project.cannot_read_project_manifest", path=path, exc=reason(exc)),
+            code="io_error",
         ) from exc
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise _invalid("", f"manifest nie jest tekstem UTF-8: {exc}") from exc
+        raise _invalid(
+            "", message("project.manifest_not_utf_8_text", exc=reason(exc))
+        ) from exc
     try:
         document = json.loads(
             text, object_pairs_hook=_unique_keys, parse_constant=_no_constant
         )
     except ValueError as exc:
-        raise _invalid("", f"nieprawidłowy JSON: {exc}") from exc
+        raise _invalid("", message("project.invalid_json", exc=reason(exc))) from exc
     return _parse(directory, document)
 
 
@@ -677,16 +698,20 @@ def _locked(directory: Path) -> Iterator[None]:
             if time.monotonic() >= deadline:
                 owner = _owner(lock)
                 raise IMGWProjectError(
-                    f"Manifest projektu jest zablokowany (właściciel: {owner or 'nieznany'}); "
-                    f"jeśli żaden proces IMGWTools nie pracuje na projekcie, usuń ręcznie "
-                    f"katalog {lock}",
+                    message(
+                        "project.manifest_locked",
+                        owner=owner or message("common.unknown"),
+                        lock=lock,
+                    ),
                     code="conflict",
                     details={"reason": "locked", "owner": owner},
                 ) from None
             time.sleep(LOCK_RETRY_S)
         except OSError as exc:
             raise IMGWProjectError(
-                f"Nie można zablokować manifestu projektu ({lock}): {exc}",
+                message(
+                    "project.cannot_lock_project_manifest", lock=lock, exc=reason(exc)
+                ),
                 code="io_error",
             ) from exc
     try:
@@ -720,7 +745,10 @@ def _write(directory: Path, document: Mapping[str, Any]) -> None:
         with suppress(OSError):
             temporary.unlink()
         raise IMGWProjectError(
-            f"Nie można zapisać manifestu projektu {target}: {exc}", code="io_error"
+            message(
+                "project.cannot_write_project_manifest", target=target, exc=reason(exc)
+            ),
+            code="io_error",
         ) from exc
     except BaseException:
         with suppress(OSError):
@@ -753,8 +781,7 @@ def _commit(directory: Path, before: ProjectTask, after: ProjectTask) -> None:
         )
         if index is None:
             raise IMGWProjectError(
-                f"Konflikt: zadanie {before.name} usunięto z manifestu w trakcie pobierania; "
-                "przypięć nie zapisano",
+                message("project.conflict_task_was_removed_from", name=before.name),
                 code="conflict",
                 details={"reason": "task_changed"},
             )
@@ -763,8 +790,7 @@ def _commit(directory: Path, before: ProjectTask, after: ProjectTask) -> None:
             return None
         if existing != _task_json(before):
             raise IMGWProjectError(
-                f"Konflikt: zadanie {before.name} zmienił inny proces w trakcie pobierania; "
-                "przypięć nie zapisano",
+                message("project.conflict_task_was_changed_another", name=before.name),
                 code="conflict",
                 details={"reason": "task_changed"},
             )
@@ -781,20 +807,23 @@ def _path_text(value: object, what: str, option: str) -> str:
     text = os.fspath(value) if isinstance(value, str | os.PathLike) else None
     if not isinstance(text, str) or not text.strip() or "\0" in text:
         raise IMGWValidationError(
-            f"{what} wymaga niepustej ścieżki: {value!r}", details={"option": option}
+            message("project.needs_non_empty_path", what=what, value=value),
+            details={"option": option},
         )
     return os.path.expanduser(text)
 
 
 def _directory(project_dir: PathArg) -> Path:
     return Path(
-        os.path.abspath(_path_text(project_dir, "Katalog projektu", "project_dir"))
+        os.path.abspath(
+            _path_text(project_dir, message("project.project_directory"), "project_dir")
+        )
     )
 
 
 def _store_argument(directory: Path, store_dir: PathArg) -> tuple[str, Path]:
     """``store_dir`` względny wobec projektu zapisuje się względnie, bezwzględny bezwzględnie."""
-    path = Path(_path_text(store_dir, "Katalog magazynu", "store_dir"))
+    path = Path(_path_text(store_dir, message("project.store_directory"), "store_dir"))
     text = str(path) if path.is_absolute() else path.as_posix()
     return text, _store_root(directory, text)
 
@@ -804,14 +833,17 @@ def _selected(project: Project, tasks: Iterable[str] | None) -> tuple[ProjectTas
         return project.tasks
     if isinstance(tasks, str | bytes) or not isinstance(tasks, Iterable):
         raise IMGWValidationError(
-            "Parametr tasks musi być kolekcją nazw zadań", details={"option": "tasks"}
+            message("project.parameter_tasks_must_collection_task"),
+            details={"option": "tasks"},
         )
     names = list(dict.fromkeys(tasks))
     known = {task.name for task in project.tasks}
     unknown = [name for name in names if name not in known]
     if unknown:
         raise IMGWProjectError(
-            f"Nieznane zadania projektu: {', '.join(map(repr, unknown))}",
+            message(
+                "project.unknown_project_tasks", unknown=", ".join(map(repr, unknown))
+            ),
             code="not_found",
             details={"option": "tasks", "value": unknown},
         )
@@ -822,7 +854,9 @@ def _store_path(root: Path, path: Path) -> str:
     try:
         return Path(path).relative_to(root).as_posix()
     except ValueError:
-        raise IMGWStoreError(f"Wersja {path} leży poza magazynem {root}") from None
+        raise IMGWStoreError(
+            message("project.version_lies_outside_store", path=path, root=root)
+        ) from None
 
 
 def _notice(
@@ -878,7 +912,11 @@ def init_project(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise IMGWProjectError(
-            f"Nie można utworzyć katalogu projektu {directory}: {exc}",
+            message(
+                "project.cannot_create_project_directory",
+                directory=directory,
+                exc=reason(exc),
+            ),
             code="io_error",
         ) from exc
     with _locked(directory):
@@ -887,8 +925,11 @@ def init_project(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
             existing = _load(directory).project
             if existing.store_dir != root:
                 raise IMGWProjectError(
-                    f"Manifest projektu {manifest} już istnieje i wskazuje magazyn "
-                    f"{existing.store_dir}; zmiana magazynu: set_project_store",
+                    message(
+                        "project.project_manifest_already_exists_points",
+                        manifest=manifest,
+                        store_dir=existing.store_dir,
+                    ),
                     code="conflict",
                     details={"option": "store_dir"},
                 )
@@ -996,8 +1037,12 @@ def set_project_store(
     if problems and not _empty_store(root):
         shown = "; ".join(problems[:5]) + (" …" if len(problems) > 5 else "")
         raise IMGWProjectError(
-            f"Magazyn {root} nie zawiera identycznych przypiętych plików ({len(problems)}): "
-            f"{shown}; manifest bez zmian",
+            message(
+                "project.store_does_not_contain_identical",
+                root=root,
+                count=len(problems),
+                shown=shown,
+            ),
             code="conflict",
             details={"option": "store_dir"},
         )
@@ -1005,7 +1050,7 @@ def set_project_store(
     def change(current: _Manifest) -> _Manifest:
         if current.document() != before.document():
             raise IMGWProjectError(
-                "Manifest projektu zmienił się w trakcie weryfikacji magazynu; powtórz set-store",
+                message("project.project_manifest_changed_during_verification"),
                 code="conflict",
                 details={"reason": "task_changed"},
             )
@@ -1074,7 +1119,7 @@ def _area(data: bytes, name: str) -> _Border:
 
     def ring(value: object) -> list[list[float]]:
         if not isinstance(value, list) or len(value) < 4:
-            raise ValueError("pierścień wielokąta wymaga co najmniej 4 pozycji")
+            raise ValueError(message("project.polygon_ring_needs_least_4"))
         points: list[list[float]] = []
         for position in value:
             if (
@@ -1087,15 +1132,15 @@ def _area(data: bytes, name: str) -> _Border:
                     for number in position[:2]
                 )
             ):
-                raise ValueError(f"nieprawidłowa pozycja {position!r}")
+                raise ValueError(message("project.invalid_position", position=position))
             points.append([float(position[0]), float(position[1])])
         if points[0] != points[-1]:
-            raise ValueError("pierścień wielokąta musi być zamknięty")
+            raise ValueError(message("project.polygon_ring_must_closed"))
         return points
 
     def geometry(value: object) -> None:
         if not isinstance(value, dict):
-            raise ValueError("oczekiwano obiektu geometrii")
+            raise ValueError(message("project.geometry_object_was_expected"))
         kind = value.get("type")
         if kind == "GeometryCollection":
             for item in value.get("geometries") or []:
@@ -1108,21 +1153,24 @@ def _area(data: bytes, name: str) -> _Border:
         )
         if kind not in ("Polygon", "MultiPolygon") or not isinstance(polygons, list):
             raise ValueError(
-                f"nieobsługiwana geometria {kind!r}; oczekiwano Polygon lub MultiPolygon"
+                message(
+                    "project.unsupported_geometry_expected_polygon_multipolygon",
+                    kind=kind,
+                )
             )
         for polygon in polygons:
             if not isinstance(polygon, list) or not polygon:
-                raise ValueError("pusty wielokąt")
+                raise ValueError(message("project.empty_polygon"))
             rings.extend(ring(item) for item in polygon)
 
     try:
         document = json.loads(data.decode("utf-8-sig"), parse_constant=_no_constant)
         if not isinstance(document, dict):
-            raise ValueError("oczekiwano obiektu GeoJSON")
+            raise ValueError(message("project.geojson_object_was_expected"))
         if document.get("type") == "FeatureCollection":
             features = document.get("features")
             if not isinstance(features, list):
-                raise ValueError("features musi być listą")
+                raise ValueError(message("project.features_must_list"))
             for feature in features:
                 geometry(feature.get("geometry") if isinstance(feature, dict) else None)
         else:
@@ -1132,11 +1180,13 @@ def _area(data: bytes, name: str) -> _Border:
                 else document
             )
         if not rings:
-            raise ValueError("brak wielokątów")
+            raise ValueError(message("project.no_polygons"))
         return _Border(rings)
     except (ValueError, IMGWDataError) as exc:
         raise IMGWValidationError(
-            f"Plik wyboru obszaru {name} nie jest poprawnym wielokątem GeoJSON: {exc}",
+            message(
+                "project.area_selection_file_not_valid", name=name, exc=reason(exc)
+            ),
             details={"option": "geometry", "value": name},
         ) from exc
 
@@ -1157,8 +1207,12 @@ def _area_stations(
     if entry is None or entry.version is None or entry.meta is None:
         option = "" if provider.id == "IMGW-PIB" else f" --provider {provider.id}"
         raise IMGWStoreError(
-            f"Brak katalogu stacji {provider.short_name} w magazynie {root}; "
-            f"najpierw imgw store catalog{option}",
+            message(
+                "project.no_station_catalog_store_run",
+                short_name=provider.short_name,
+                root=root,
+                option=option,
+            ),
             code="not_found",
         )
     family = descriptor.kind
@@ -1191,12 +1245,16 @@ def _new_task(directory: Path, root: Path, request: Mapping[str, Any]) -> Projec
             data = directory.joinpath(*relative.split("/")).read_bytes()
         except FileNotFoundError:
             raise IMGWValidationError(
-                f"Brak pliku wyboru obszaru {relative}",
+                message("project.no_area_selection_file", relative=relative),
                 details={"option": "geometry", "value": relative},
             ) from None
         except OSError as exc:
             raise IMGWProjectError(
-                f"Nie można odczytać pliku wyboru obszaru {relative}: {exc}",
+                message(
+                    "project.cannot_read_area_selection_file",
+                    relative=relative,
+                    exc=reason(exc),
+                ),
                 code="io_error",
                 details={"option": "geometry", "value": relative},
             ) from exc
@@ -1208,8 +1266,11 @@ def _new_task(directory: Path, root: Path, request: Mapping[str, Any]) -> Projec
         options["stations"] = tuple(sorted({*options.get("stations", ()), *codes}))
         if not options["stations"]:
             raise IMGWValidationError(
-                f"Wybór obszarem {relative} nie objął żadnej stacji katalogu "
-                f"{catalog.path.as_posix()}",
+                message(
+                    "project.area_selection_covered_no_station",
+                    relative=relative,
+                    path=catalog.path.as_posix(),
+                ),
                 details={"option": "geometry", "value": relative},
             )
         pins = (catalog,)
@@ -1303,7 +1364,7 @@ def add_project_task(
 
 def _task_exists(name: str) -> IMGWProjectError:
     return IMGWProjectError(
-        f"Zadanie {name!r} już istnieje w projekcie",
+        message("project.task_already_exists_project", name=name),
         code="conflict",
         details={"option": "name", "value": name},
     )
@@ -1340,7 +1401,7 @@ def remove_project_task(project_dir: PathArg, /, *, name: str) -> Project:
     def change(current: _Manifest) -> _Manifest:
         if not any(task.name == name for task in current.project.tasks):
             raise IMGWProjectError(
-                f"Brak zadania {name!r} w projekcie",
+                message("project.no_task_project", name=name),
                 code="not_found",
                 details={"option": "name", "value": name},
             )
@@ -2201,11 +2262,11 @@ def _series_pins(
     try:
         sources = meta.extra["source_files"]
         if not isinstance(sources, Iterable):
-            raise TypeError(f"source_files nie jest listą: {sources!r}")
+            raise TypeError(f"source_files is not a list: {sources!r}")
         pins.extend(_input_pin(source) for source in sources)
     except (KeyError, TypeError) as exc:
         raise IMGWDataError(
-            f"Sidecar szeregu {version} nie wymienia poprawnie plików wejściowych"
+            message("project.series_sidecar_does_not_list", version=version)
         ) from exc
     return pins
 
@@ -2219,7 +2280,7 @@ def _input_pin(source: object) -> ProjectFile:
     restored by content.
     """
     if not isinstance(source, Mapping):
-        raise TypeError(f"wpis source_files nie jest obiektem: {source!r}")
+        raise TypeError(f"a source_files entry is not an object: {source!r}")
     content, form = source.get("content_sha256"), source.get("content_form")
     if (content is None) != (form is None) or (
         content is not None
@@ -2230,7 +2291,7 @@ def _input_pin(source: object) -> ProjectFile:
             and form
         )
     ):
-        raise TypeError(f"niepoprawna para content_sha256 i content_form: {source!r}")
+        raise TypeError(f"an invalid pair content_sha256 and content_form: {source!r}")
     return ProjectFile(
         "input",
         Path(str(source["file"])),
@@ -2333,8 +2394,11 @@ def _subplan(plan: StorePlan, archives: Iterable[ArchiveFile]) -> StorePlan:
     absent = sorted(wanted - {item.archive.server_path for item in items})
     if absent:
         raise IMGWValidationError(
-            f"Plan nie obejmuje archiwów zadania ({', '.join(absent[:3])}"
-            f"{' …' if len(absent) > 3 else ''}); uruchom ponownie project check"
+            message(
+                "project.plan_does_not_cover_archives",
+                absent=", ".join(absent[:3]),
+                value=" …" if len(absent) > 3 else "",
+            )
         )
     return replace(plan, items=items, series_state={}, actions=())
 
@@ -2511,8 +2575,7 @@ def _archive_of(path: Path) -> ArchiveFile:
     )
     if archive is None:
         raise IMGWProjectError(
-            f"Przypięty plik {path.as_posix()} nie odpowiada archiwum zbioru szeregów "
-            "z rejestru",
+            message("project.pinned_file_does_not_match", path=path.as_posix()),
             code="not_found",
         )
     return archive
@@ -2866,7 +2929,7 @@ def download_project(
     """
     if update not in ("pinned", "upgrade"):
         raise IMGWValidationError(
-            f'Nieprawidłowy tryb update {update!r}; dozwolone: "pinned", "upgrade"',
+            message("project.invalid_update_mode_allowed_pinned", update=update),
             details={
                 "option": "update",
                 "value": update,
@@ -2880,7 +2943,9 @@ def download_project(
         plan = StorePlan.from_json(plan)
     if plan is not None and Path(plan.root).expanduser().absolute() != root:
         raise IMGWValidationError(
-            f"Plan dotyczy innego magazynu ({plan.root}) niż projekt ({root})",
+            message(
+                "project.plan_concerns_another_store_than", root=plan.root, root_2=root
+            ),
             details={"option": "plan"},
         )
     hooks = {"on_progress": on_progress, "on_notice": on_notice, "cancel": cancel}

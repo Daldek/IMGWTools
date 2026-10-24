@@ -176,7 +176,7 @@ def test_find_stations_store_filters_like_live(fixture_store):
 
 def test_find_stations_store_without_lists_is_store_error(tmp_path):
     root = init_store(tmp_path / "store").root
-    with pytest.raises(IMGWStoreError, match="listy stacji"):
+    with pytest.raises(IMGWStoreError, match="has no station list"):
         find_stations(source="store", root=root)
 
 
@@ -244,5 +244,5 @@ def test_fetch_hydro_states_accepts_list_and_empty_wrapper(
 
 def test_fetch_hydro_states_rejects_non_list_stations(respx_mock):
     respx_mock.get(HYDRO_MAP_API_URL).respond(json={"stations": "brak"})
-    with pytest.raises(IMGWDataError, match="oczekiwano listy stacji"):
+    with pytest.raises(IMGWDataError, match="a list of stations was expected"):
         fetch_hydro_states()

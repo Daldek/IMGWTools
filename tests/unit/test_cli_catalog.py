@@ -768,8 +768,8 @@ def test_cli_catalog_installed_imgw_reports_the_error_line_of_the_spec():
     )
     assert (result.returncode, result.stdout) == (2, b"")
     assert result.stderr.decode("utf-8").splitlines()[-1] == (
-        '{"code":"validation_error","detail":"Szerokość geograficzna 1.0 poza zakresem '
-        'Polski (49.0–55.0)","details":{"option":"latitude","value":1.0}}'
+        '{"code":"validation_error","detail":"Latitude 1.0 is outside Poland '
+        '(49.0–55.0)","details":{"option":"latitude","value":1.0}}'
     )
     unknown = run_installed("store", "info", "--colour", "red", capture_output=True)
     assert unknown.returncode == 2

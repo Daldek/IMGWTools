@@ -150,7 +150,7 @@ def test_interrupted_publication_with_other_bytes_is_never_replaced(tmp_path):
     target = _version_dir(root)
     target.mkdir(parents=True)
     (target / "codz_2024.zip").write_bytes(CHANGED)
-    with pytest.raises(IMGWStoreConflictError, match="Kolizja"):
+    with pytest.raises(IMGWStoreConflictError, match="collision"):
         write_archive(root, archive=ARCHIVE, response=response())
     assert [p.name for p in target.iterdir()] == ["codz_2024.zip"]
     assert (target / "codz_2024.zip").read_bytes() == CHANGED
@@ -202,7 +202,7 @@ def test_file_system_without_hard_links_is_explicit(tmp_path, monkeypatch):
         raise OSError(errno.EXDEV, os.strerror(errno.EXDEV))
 
     monkeypatch.setattr(writer.os, "link", no_links)
-    with pytest.raises(IMGWStoreConflictError, match="dowiązaniami") as error:
+    with pytest.raises(IMGWStoreConflictError, match="hard links") as error:
         write_archive(root, archive=ARCHIVE, response=response())
     assert error.value.details == {"reason": "not_atomic"}
     assert not list((root.root / "archives").rglob("*.zip"))
@@ -227,7 +227,7 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
         return original(fd)
 
     monkeypatch.setattr(writer.os, "fsync", record)
-    with pytest.raises(IMGWCancelledError, match="Anulowano"):
+    with pytest.raises(IMGWCancelledError, match="cancelled"):
         write_archive(root, archive=ARCHIVE, response=response(), cancel=lambda: True)
     assert old.exists()  # no operation began, so nothing was cleaned
     write_archive(root, archive=ARCHIVE, response=response())
@@ -259,7 +259,7 @@ def test_nested_kartograf_detection_without_import(tmp_path):
     (foreign / "kartograf-project.json").write_text(
         json.dumps({"output_dir": "results"})
     )
-    with pytest.raises(IMGWStoreError, match="Kartografa"):
+    with pytest.raises(IMGWStoreError, match="Kartograf"):
         init_store(foreign / "results" / "imgw")
     unrelated = init_store(foreign / "separate")
     assert unrelated.root.exists()
@@ -267,9 +267,9 @@ def test_nested_kartograf_detection_without_import(tmp_path):
     sidecar = other / "versions" / "item" / "sample.meta.json"
     sidecar.parent.mkdir(parents=True)
     sidecar.write_text('{"schema":"kartograf-meta/1"}')
-    with pytest.raises(IMGWStoreError, match="Kartografa"):
+    with pytest.raises(IMGWStoreError, match="Kartograf"):
         init_store(other / "child")
-    with pytest.raises(IMGWStoreError, match="Kartografa"):
+    with pytest.raises(IMGWStoreError, match="Kartograf"):
         init_store(other)
 
 
@@ -282,13 +282,13 @@ def test_foreign_or_nested_store_and_path_escape(tmp_path):
     busy = tmp_path / "busy"
     busy.mkdir()
     (busy / "notes.txt").write_text("x")
-    with pytest.raises(IMGWStoreError, match="pustym") as not_empty:
+    with pytest.raises(IMGWStoreError, match="not an empty IMGW store") as not_empty:
         init_store(busy)
     for error in (inside, around, not_empty):
         assert error.value.code == "conflict"
         assert error.value.details == {"reason": "path_conflict"}
     unsafe = replace(ARCHIVE, server_path="dane_hydrologiczne/dobowe/../escape.zip")
-    with pytest.raises(Exception, match="Niebezpieczna"):
+    with pytest.raises(Exception, match="unsafe archive path"):
         write_archive(root, archive=unsafe, response=response())
 
 
@@ -299,7 +299,7 @@ def test_symbolic_link_in_store_path_is_a_validation_error(tmp_path):
         lambda: init_store(tmp_path / "link" / "inner"),
         lambda: open_store(tmp_path / "link"),
     ):
-        with pytest.raises(IMGWStoreError, match="Dowiązanie") as error:
+        with pytest.raises(IMGWStoreError, match="symbolic link") as error:
             call()
         assert error.value.code == "validation_error"
 
@@ -325,7 +325,7 @@ def test_archive_sidecar_without_http_is_conflict(tmp_path):
     meta = json.loads(sidecar.read_text())
     del meta["extra"]["http"]
     sidecar.write_text(json.dumps(meta))
-    with pytest.raises(IMGWStoreConflictError, match="Uszkodzona wersja"):
+    with pytest.raises(IMGWStoreConflictError, match="A corrupt archive version"):
         write_archive(root, archive=ARCHIVE, response=response())
 
 
@@ -391,7 +391,7 @@ def test_kartograf_versions_inside_store_still_detected(tmp_path):
     sidecar = root.root / "foreign" / "versions" / "item" / "x.meta.json"
     sidecar.parent.mkdir(parents=True)
     sidecar.write_text('{"schema":"kartograf-meta/1"}')
-    with pytest.raises(IMGWStoreError, match="Kartografa"):
+    with pytest.raises(IMGWStoreError, match="Kartograf"):
         write_archive(root, archive=ARCHIVE, response=response())
 
 
@@ -401,7 +401,7 @@ def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(writer.os, "link", refuse)
     path = tmp_path / "store"
-    with pytest.raises(IMGWStoreError, match="dowiązanie twarde") as error:
+    with pytest.raises(IMGWStoreError, match="a hard link") as error:
         init_store(path)
     assert error.value.code == "conflict"
     assert not (path / "imgw-store.json").exists()
@@ -447,7 +447,7 @@ def test_publish_observation_writes_the_spec_example_once_without_traces(tmp_pat
     assert list(path.parent.iterdir()) == [path]
     assert list((root / fresh).iterdir()) == []
     assert list((root / ".incoming").iterdir()) == []
-    with pytest.raises(IMGWValidationError, match="RRRR-MM-DDTGG:MM:SSZ"):
+    with pytest.raises(IMGWValidationError, match="YYYY-MM-DDTHH:MM:SSZ"):
         writer._publish_observation(
             root,
             slot=fresh,

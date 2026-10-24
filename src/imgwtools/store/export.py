@@ -16,6 +16,7 @@ from typing import Literal, overload
 from imgwtools._parsing.meteo import DATASET_ATTRIBUTES
 from imgwtools.datasets import DatasetDescriptor, get_dataset, get_provider
 from imgwtools.exceptions import IMGWCancelledError, IMGWDataError, IMGWValidationError
+from imgwtools.messages import message
 from imgwtools.models import Measurement, NormalizedRecord
 from imgwtools.store.catalog import RootArg
 from imgwtools.store.reader import (
@@ -42,7 +43,7 @@ _SERIES_FORMATS = ("csv",)
 _ARCHIVE_FORMATS = ("csv", "jsonl")
 _YEAR_TYPES = ("hydrological", "calendar")
 _PROGRESS_ROWS = 256
-_CANCELLED = "Anulowano eksport; plik docelowy pozostaje nietknięty"
+_CANCELLED = message("export.cancelled")
 
 
 def _number(value: float) -> str:
@@ -63,7 +64,11 @@ def _check_cancel(cancel: Cancel | None) -> None:
 def _format(value: object, allowed: tuple[str, ...]) -> None:
     if value not in allowed:
         raise IMGWValidationError(
-            f"Nieobsługiwany format eksportu {value!r}; dostępne: {', '.join(allowed)}",
+            message(
+                "export.unsupported_export_format_available",
+                value=value,
+                allowed=", ".join(allowed),
+            ),
             details={"option": "format", "value": str(value), "allowed": list(allowed)},
         )
 
@@ -74,18 +79,22 @@ def _target(path: PathArg) -> Path:
     details = {"option": "path", "value": str(target)}
     if target.is_dir():
         raise IMGWValidationError(
-            f"Ścieżka eksportu wskazuje katalog: {target}", details=details
+            message("export.export_path_points_directory", target=target),
+            details=details,
         )
     if not target.parent.is_dir():
         raise IMGWValidationError(
-            f"Katalog docelowy eksportu nie istnieje: {target.parent}", details=details
+            message("export.target_directory_export_does_not", parent=target.parent),
+            details=details,
         )
     store = next(
         (item for item in target.resolve().parents if (item / _MARKER).is_file()), None
     )
     if store is not None:
         raise IMGWValidationError(
-            f"Eksport musi być zapisany poza magazynem IMGW ({store}): {target}",
+            message(
+                "export.export_must_written_outside_imgw", store=store, target=target
+            ),
             details=details,
         )
     return target
@@ -269,8 +278,13 @@ def _archive_row(
     )
     if unknown:
         raise IMGWDataError(
-            f"Rekord stacji {record.station_code} z {record.date} ma kolumny "
-            f"spoza zbioru {record.dataset}: {', '.join(unknown)}"
+            message(
+                "export.record_station_from_has_columns",
+                station_code=record.station_code,
+                date=record.date,
+                dataset=record.dataset,
+                unknown=", ".join(unknown),
+            )
         )
     half_year = descriptor.time_unit == "half_year"
     cells = [
@@ -593,7 +607,11 @@ def export_series(
     _format(format, _SERIES_FORMATS)
     if year_type is not None and year_type not in _YEAR_TYPES:
         raise IMGWValidationError(
-            f"Nieznany year_type {year_type!r}; dozwolone: {', '.join(_YEAR_TYPES)}",
+            message(
+                "export.unknown_year_type_allowed",
+                year_type=year_type,
+                year_types=", ".join(_YEAR_TYPES),
+            ),
             details={
                 "option": "year_type",
                 "value": str(year_type),
@@ -608,8 +626,9 @@ def export_series(
     chosen = year_type or index.year_type
     if half_year and chosen == "calendar":
         raise IMGWValidationError(
-            f"Charakterystyki półroczne i roczne ({index.dataset}) mają tylko lata "
-            "hydrologiczne; year_type='calendar' niedozwolony",
+            message(
+                "export.semi_annual_annual_characteristics_have", dataset=index.dataset
+            ),
             details={"option": "year_type", "value": "calendar"},
         )
     target = None if path is None else _target(path)
@@ -618,8 +637,11 @@ def export_series(
     )
     if not records:
         raise IMGWDataError(
-            f"Szereg stacji {station} w {index.dataset} jest pusty w wybranym zakresie; "
-            "eksport odrzucono, by nie utracić formuł atrybucji"
+            message(
+                "export.series_station_empty_chosen_range",
+                station=station,
+                dataset=index.dataset,
+            )
         )
     _check_cancel(cancel)
     _license(descriptor, on_notice)

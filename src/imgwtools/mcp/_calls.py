@@ -56,7 +56,7 @@ from imgwtools.exceptions import (
     describe_os_error,
 )
 from imgwtools.mcp._tools import CatalogTool
-from imgwtools.messages import Lang, localize
+from imgwtools.messages import Lang, localize, message
 from imgwtools.store.types import CommandResult, Progress
 
 __all__ = ["STREAM_LIMIT", "Report", "call_tool"]
@@ -68,14 +68,9 @@ Report = Callable[[float, float | None, str | None], Coroutine[Any, Any, None]]
 """Progress of the request: ``(progress, total, message)``."""
 
 _LOG = logging.getLogger(__name__)
-_INTERNAL = "Błąd wewnętrzny serwera MCP; szczegóły w dzienniku serwera"
-_TOO_LARGE = (
-    "Wynik przekracza 256 KiB; zawęź wybór, czytaj stronami series read albo "
-    "zapisz plik opcją path"
-)
-_ENABLE_WRITES = (
-    "zapis włącza użytkownik: imgw mcp --allow-writes albo IMGW_MCP_ALLOW_WRITES=true"
-)
+_INTERNAL = message("mcp.internal_error")
+_TOO_LARGE = message("mcp.result_exceeds_256_kib_narrow")
+_ENABLE_WRITES = message("mcp.user_enables_writes_imgw_mcp")
 
 
 # --- wyniki ----------------------------------------------------------------------------------
@@ -175,15 +170,18 @@ def _stream(
 
 def _writes_disabled(tool: CatalogTool, option: str) -> IMGWError:
     if option == "check":
-        what = (
-            f"komenda {tool.command.name} zwraca wyłącznie plan imgw-plan/1 "
-            "(check=true)"
-        )
+        what = message("mcp.command_returns_only_imgw_plan", name=tool.command.name)
     else:
-        what = f"opcja {option} komendy {tool.command.name} zapisuje plik"
-    how = "zapis przez HTTP nie istnieje" if tool.mode == "http" else _ENABLE_WRITES
+        what = message(
+            "mcp.option_command_writes_file", option=option, name=tool.command.name
+        )
+    how = (
+        message("mcp.writing_over_http_does_not")
+        if tool.mode == "http"
+        else _ENABLE_WRITES
+    )
     return IMGWError(
-        f"Serwer MCP działa bez zapisu: {what}; {how}",
+        message("mcp.mcp_server_runs_without_writes", what=what, how=how),
         code="forbidden",
         details={"reason": "writes_disabled", "option": option},
     )
@@ -196,7 +194,7 @@ def _flag(value: object) -> bool:
     if isinstance(value, str) and value.strip().lower() in ("true", "false"):
         return value.strip().lower() == "true"
     raise IMGWValidationError(
-        f"Argument check musi mieć wartość logiczną true albo false: {value!r}",
+        message("mcp.argument_check_must_true_false", value=value),
         details={"option": "check", "value": value, "allowed": [True, False]},
     )
 
@@ -260,8 +258,7 @@ def _page_limit(tool: CatalogTool, options: Mapping[str, object]) -> None:
     maximum = tool.limit[1]
     if limit > maximum:
         raise IMGWValidationError(
-            f"Opcja limit może wynosić co najwyżej {maximum} (IMGW_API_MAX_LIMIT): "
-            f"{limit}",
+            message("mcp.option_limit_may_most_imgw", maximum=maximum, limit=limit),
             details={"option": "limit", "value": limit, "maximum": maximum},
         )
 
@@ -445,7 +442,7 @@ async def _route(
         problem = json.loads(data)
         return _error(problem["code"], problem["detail"], problem["details"], tool.lang)
     if status != 200:
-        raise RuntimeError(f"Trasa REST {method} {path} odpowiedziała {status} {media}")
+        raise RuntimeError(f"The REST route {method} {path} answered {status} {media}")
     if media.startswith("application/json"):
         text = data.decode("utf-8")
         return _answer(json.loads(text), text)

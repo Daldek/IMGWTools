@@ -7,6 +7,7 @@ from imgwtools._parsing.hydro import normalize_hydro_archive
 from imgwtools._parsing.meteo import normalize_meteo_archive
 from imgwtools.datasets import ArchiveFile
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import message
 from imgwtools.models import NormalizedRecord
 
 
@@ -73,4 +74,6 @@ def normalize_archive(
     elif archive.dataset == "cz.chmi.meteo_daily":
         yield from parse_chmi_meteo_daily(data, filename=archive.server_path)
     else:
-        raise IMGWValidationError(f"Brak parsera archiwum: {archive.dataset}")
+        raise IMGWValidationError(
+            message("parsing.no_parser_archive", dataset=archive.dataset)
+        )

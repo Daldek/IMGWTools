@@ -53,7 +53,7 @@ from imgwtools.exceptions import (
     IMGWError,
     IMGWValidationError,
 )
-from imgwtools.messages import LANGS, Lang, localize
+from imgwtools.messages import LANGS, Lang, localize, message, reason
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
 from imgwtools.store.types import (
@@ -1624,7 +1624,11 @@ def _spec(command: object) -> DataCommand:
     spec = _BY_NAME.get(command) if isinstance(command, str) else None
     if spec is None:
         _fail(
-            f"Nieznana komenda {command!r}; dostępne: {', '.join(_BY_NAME)}",
+            message(
+                "commands.unknown_command_available",
+                command=command,
+                available=", ".join(_BY_NAME),
+            ),
             option="command",
             value=command,
             allowed=list(_BY_NAME),
@@ -1637,7 +1641,9 @@ def _boolean(option: CommandOption, value: object) -> bool | None:
         value = value.strip().lower() == "true"
     if not isinstance(value, bool):
         _fail(
-            f"Opcja {option.name} musi mieć wartość logiczną true albo false: {value!r}",
+            message(
+                "commands.option_must_boolean_true_false", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
@@ -1648,14 +1654,24 @@ def _boolean(option: CommandOption, value: object) -> bool | None:
 def _bounds(option: CommandOption, number: int) -> int:
     if option.minimum is not None and number < option.minimum:
         _fail(
-            f"Opcja {option.name} musi wynosić co najmniej {option.minimum:g}: {number}",
+            message(
+                "commands.option_must_least",
+                name=option.name,
+                minimum=option.minimum,
+                number=number,
+            ),
             option=option.name,
             value=number,
             minimum=option.minimum,
         )
     if option.maximum is not None and number > option.maximum:
         _fail(
-            f"Opcja {option.name} musi wynosić co najwyżej {option.maximum:g}: {number}",
+            message(
+                "commands.option_must_most",
+                name=option.name,
+                maximum=option.maximum,
+                number=number,
+            ),
             option=option.name,
             value=number,
             maximum=option.maximum,
@@ -1669,7 +1685,7 @@ def _integer(option: CommandOption, value: object) -> int:
     if isinstance(value, str) and _INTEGER.fullmatch(text := value.strip()):
         return _bounds(option, int(text))
     _fail(
-        f"Opcja {option.name} musi być liczbą całkowitą: {value!r}",
+        message("commands.option_must_integer", name=option.name, value=value),
         option=option.name,
         value=value,
     )
@@ -1683,7 +1699,9 @@ def _number(option: CommandOption, value: object) -> float:
             number = float(value)
     if not math.isfinite(number):
         _fail(
-            f"Opcja {option.name} musi być skończoną liczbą: {value!r}",
+            message(
+                "commands.option_must_finite_number", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
@@ -1694,14 +1712,21 @@ def _text(option: CommandOption, value: object) -> str:
     text = value.strip() if isinstance(value, str) else ""
     if not text:
         _fail(
-            f"Opcja {option.name} wymaga niepustego tekstu: {value!r}",
+            message(
+                "commands.option_needs_non_empty_text", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
     if option.pattern is not None and not re.search(option.pattern, text):
         expected = _PATTERN_TEXT.get(option.pattern, f"wzorzec {option.pattern}")
         _fail(
-            f"Opcja {option.name}: oczekiwano {expected}: {text!r}",
+            message(
+                "commands.option_expected",
+                name=option.name,
+                expected=expected,
+                text=text,
+            ),
             option=option.name,
             value=text,
             pattern=option.pattern,
@@ -1716,7 +1741,7 @@ def _date(option: CommandOption, value: object) -> date:
         with suppress(ValueError):
             return date.fromisoformat(text)
     _fail(
-        f"Opcja {option.name} wymaga daty ISO RRRR-MM-DD: {value!r}",
+        message("commands.option_needs_iso_date_yyyy", name=option.name, value=value),
         option=option.name,
         value=value,
     )
@@ -1726,7 +1751,7 @@ def _path(option: CommandOption, value: object) -> Path:
     text = os.fspath(value) if isinstance(value, str | os.PathLike) else None
     if not isinstance(text, str) or not text.strip() or "\0" in text:
         _fail(
-            f"Opcja {option.name} wymaga ścieżki: {value!r}",
+            message("commands.option_needs_path", name=option.name, value=value),
             option=option.name,
             value=value,
         )
@@ -1746,8 +1771,12 @@ def _choice_text(option: CommandOption, text: str) -> str:
         text = get_provider(text).id
     if text not in option.choices:
         _fail(
-            f"Nieprawidłowa wartość {text!r} opcji {option.name}; dozwolone: "
-            f"{', '.join(option.choices)}",
+            message(
+                "commands.invalid_value_option_allowed",
+                text=text,
+                name=option.name,
+                choices=", ".join(option.choices),
+            ),
             option=option.name,
             value=text,
             allowed=list(option.choices),
@@ -1758,8 +1787,12 @@ def _choice_text(option: CommandOption, text: str) -> str:
 def _choice(option: CommandOption, value: object) -> str:
     if not isinstance(value, str):
         _fail(
-            f"Opcja {option.name} wymaga jednej z wartości "
-            f"{', '.join(option.choices)}: {value!r}",
+            message(
+                "commands.option_needs_one_values",
+                name=option.name,
+                choices=", ".join(option.choices),
+                value=value,
+            ),
             option=option.name,
             value=value,
             allowed=list(option.choices),
@@ -1775,7 +1808,7 @@ def _texts(option: CommandOption, value: object) -> list[str]:
         raw = list(value)
     else:
         _fail(
-            f"Opcja {option.name} musi być listą wartości: {value!r}",
+            message("commands.option_must_list_values", name=option.name, value=value),
             option=option.name,
             value=value,
         )
@@ -1783,14 +1816,16 @@ def _texts(option: CommandOption, value: object) -> list[str]:
     for item in raw:
         if not isinstance(item, str):
             _fail(
-                f"Opcja {option.name} wymaga wartości tekstowych: {item!r}",
+                message(
+                    "commands.option_needs_text_values", name=option.name, item=item
+                ),
                 option=option.name,
                 value=item,
             )
         texts.extend(part.strip() for part in item.split(","))
     if not texts or "" in texts:
         _fail(
-            f"Opcja {option.name} wymaga niepustej listy wartości",
+            message("commands.option_needs_non_empty_list", name=option.name),
             option=option.name,
             value=value,
         )
@@ -1816,11 +1851,18 @@ def _object(option: CommandOption, value: object) -> dict[str, object]:
             value = json.loads(value)
         except ValueError as exc:
             _fail(
-                f"Opcja {option.name} musi być obiektem JSON: {exc}", option=option.name
+                message(
+                    "commands.option_must_json_object",
+                    name=option.name,
+                    exc=reason(exc),
+                ),
+                option=option.name,
             )
     if not isinstance(value, Mapping):
         _fail(
-            f"Opcja {option.name} musi być obiektem JSON: {value!r}",
+            message(
+                "commands.option_must_json_object_2", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
@@ -1873,7 +1915,7 @@ def _store_root(version: Path) -> Path:
 def _outside_store(path: object) -> None:
     if isinstance(path, Path) and (store := _store_of(path)) is not None:
         _fail(
-            f"Plik wyniku musi leżeć poza magazynem IMGW ({store}): {path}",
+            message("commands.result_file_must_lie_outside", store=store, path=path),
             option="path",
             value=path,
         )
@@ -1882,7 +1924,7 @@ def _outside_store(path: object) -> None:
 def _half_year(descriptor: DatasetDescriptor, year_type: object) -> None:
     if descriptor.time_unit == "half_year" and year_type == "calendar":
         _fail(
-            "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
+            message("commands.semi_annual_series_supports_only"),
             option="year_type",
             value=year_type,
         )
@@ -1911,7 +1953,7 @@ def _rules_store_sync(options: Options, task: bool) -> None:
     given = [name for name in selectors if name in options]
     if given:
         _fail(
-            "Plan imgw-plan/1 wyklucza opcje datasets, years, months i stations",
+            message("commands.imgw_plan_1_plan_excludes"),
             option=given[0],
         )
 
@@ -1945,9 +1987,13 @@ def _rules_series_select(options: Options, task: bool) -> None:
     if foreign:
         # The codes as a list, like every other stations error (not a repr).
         raise IMGWValidationError(
-            f"Kody stacji spoza gramatyki {provider.short_name} zbioru "
-            f"{descriptor.key}: {', '.join(foreign)}; oczekiwano "
-            f"{provider.station_code_pattern}",
+            message(
+                "commands.station_codes_outside_grammar_dataset",
+                short_name=provider.short_name,
+                key=descriptor.key,
+                foreign=", ".join(foreign),
+                station_code_pattern=provider.station_code_pattern,
+            ),
             details={"option": "stations", "value": foreign},
         )
 
@@ -1961,7 +2007,7 @@ def _rules_series(options: Options, task: bool) -> None:
     start, end = options.get("start"), options.get("end")
     if isinstance(start, date) and isinstance(end, date) and start > end:
         _fail(
-            f"Początek zakresu {start} jest późniejszy niż koniec {end}",
+            message("commands.start_range_later_than_end", start=start, end=end),
             option="end",
             value=end.isoformat(),
         )
@@ -1978,7 +2024,7 @@ def _rules_project_add(options: Options, task: bool) -> None:
     area = "geometry" in options
     if area and command != "series select":
         _fail(
-            "Wybór obszarem (geometry) dotyczy wyłącznie zadań series select",
+            message("commands.selection_area_geometry_applies_only"),
             option="geometry",
         )
     try:
@@ -1986,12 +2032,12 @@ def _rules_project_add(options: Options, task: bool) -> None:
         nested = _validate(command, options["options"], task=True, area=area)
     except IMGWValidationError as exc:
         raise IMGWValidationError(
-            f"Opcje zadania {command}: {exc.detail}",
+            message("commands.options_task", command=command, detail=exc.detail),
             details={**exc.details, "option": "options"},
         ) from exc
     if command == "series select" and "years" not in nested:
         _fail(
-            "Zadanie series select w projekcie wymaga jawnej opcji years",
+            message("commands.series_select_task_project_needs"),
             option="options",
         )
     options["options"] = nested
@@ -2030,21 +2076,25 @@ def _validate(
     spec = _spec(command)
     if not isinstance(options, Mapping):
         _fail(
-            f"Opcje komendy {spec.name} muszą być mapowaniem nazwa → wartość",
+            message("commands.options_command_must_mapping_name", name=spec.name),
             option="options",
         )
     known = {option.name: option for option in spec.options}
     for key in options:
         if key not in known:
             _fail(
-                f"Nieznana opcja {key!r} komendy {spec.name}; dostępne: "
-                f"{', '.join(known)}",
+                message(
+                    "commands.unknown_option_command_available",
+                    key=key,
+                    name=spec.name,
+                    known=", ".join(known),
+                ),
                 option=str(key),
                 allowed=list(known),
             )
     if task and "root" in options:
         _fail(
-            "Zadanie projektu nie podaje root: magazyn wynika ze store_dir projektu",
+            message("commands.project_task_does_not_give"),
             option="root",
         )
     result: Options = {}
@@ -2061,15 +2111,24 @@ def _validate(
             and not (area and option.name == "stations")
         ):
             _fail(
-                f"Brak wymaganej opcji {option.name} ({option.flag}) komendy "
-                f"{spec.name}",
+                message(
+                    "commands.missing_required_option_command",
+                    name=option.name,
+                    flag=option.flag,
+                    name_2=spec.name,
+                ),
                 option=option.name,
             )
     for key, needed in spec.requires.items():
         missing = [name for name in needed if name not in present]
         if key in present and missing:
             _fail(
-                f"Opcja {key} komendy {spec.name} wymaga także {', '.join(missing)}",
+                message(
+                    "commands.option_command_also_needs",
+                    key=key,
+                    name=spec.name,
+                    missing=", ".join(missing),
+                ),
                 option=missing[0],
             )
     if spec.one_of:
@@ -2077,7 +2136,11 @@ def _validate(
         if len(matched) != 1:
             groups = " albo ".join("+".join(group) for group in spec.one_of)
             _fail(
-                f"Komenda {spec.name} wymaga dokładnie jednej grupy opcji: {groups}",
+                message(
+                    "commands.command_needs_exactly_one_group",
+                    name=spec.name,
+                    groups=groups,
+                ),
                 option=(matched[1] if matched else spec.one_of[0])[0],
             )
     if not task:
@@ -2238,7 +2301,7 @@ def _call(name: str, options: Mapping[str, object], hooks: Mapping[str, object])
     for key, value in options.items():
         parameter = parameters.get(key)
         if parameter is None:
-            raise TypeError(f"Funkcja {name} nie ma parametru {key}")
+            raise TypeError(f"The function {name} has no parameter {key}")
         if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
             args.append(value)
         else:
@@ -2569,7 +2632,7 @@ def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
     plan = StorePlan.from_json(options["plan"])
     if Path(plan.root).absolute() != root:
         _fail(
-            f"Plan dotyczy innego magazynu: {plan.root}",
+            message("commands.plan_concerns_another_store", root=plan.root),
             option="plan",
             value=options["plan"],
         )
