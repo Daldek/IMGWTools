@@ -9,8 +9,8 @@ wrong methods (405 ``method_not_allowed``), file-system errors (``io_error``)
 and program errors (``internal_error``). Code, title and HTTP status come from
 the error registry `ERROR_CODES`, so REST reports an error exactly as the CLI
 and the web GUI do. The title and the detail of a catalog message are in the
-language of ``Accept-Language`` (`accept_language`, Polish by default); any other
-detail stays as the raiser wrote it. Texts and details never contain absolute
+language of ``Accept-Language`` (`accept_language`, English by default, AGI-6.4);
+any other detail stays as the raiser wrote it. Texts and details never contain absolute
 server paths (rule T21): `hide_server_paths` writes them relative to the server
 directory that contains them.
 """
@@ -29,7 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from imgwtools._jsonable import jsonable
 from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
-from imgwtools.messages import LANGS, Lang, localize
+from imgwtools.messages import LANGS, Lang, localize, message
 
 __all__ = [
     "EXCEPTION_HANDLERS",
@@ -65,15 +65,13 @@ PROBLEM_SCHEMA: dict[str, object] = {
 
 PROBLEM_RESPONSES: dict[int | str, dict[str, Any]] = {
     "4XX": {
-        "description": "Błąd żądania: walidacja (400), brak uprawnień do zapisu "
-        "(403), brak obiektu lub trasy (404), niedozwolona metoda (405), "
-        "konflikt (409)",
+        "description": "Request error: validation (400), no permission to write "
+        "(403), no object or route (404), method not allowed (405), conflict (409)",
         "content": {PROBLEM_MEDIA_TYPE: {"schema": PROBLEM_SCHEMA}},
     },
     "5XX": {
-        "description": "Błąd serwera: niepoprawne dane lub system plików (500), "
-        "źródło IMGW niedostępne (502), magazyn niedostępny lub brak "
-        "zależności (503)",
+        "description": "Server error: invalid data or file system (500), the IMGW "
+        "source unavailable (502), the store unavailable or a missing dependency (503)",
         "content": {PROBLEM_MEDIA_TYPE: {"schema": PROBLEM_SCHEMA}},
     },
 }
@@ -88,8 +86,8 @@ _HTTP_CODES: dict[int, ErrorCode] = {
     409: "conflict",
     502: "source_unavailable",
 }
-_VALIDATION_DETAIL = "Niepoprawne parametry lub ciało żądania"
-_INTERNAL_DETAIL = "Nieoczekiwany błąd serwera IMGWTools; szczegóły w dzienniku serwera"
+_VALIDATION_DETAIL = message("api.invalid_parameters_or_body")
+_INTERNAL_DETAIL = message("api.unexpected_server_error")
 
 
 def _weight(parameters: list[str]) -> float | None:
@@ -113,7 +111,8 @@ def accept_language(header: str | None, /) -> Lang:
     RFC 9110 §12.5.4); a language range matches by its first subtag
     (``en-GB`` → ``en``). The highest positive weight among ``pl`` and ``en``
     wins, the item listed first on a tie. The header is only a hint: no
-    header, no matching item and malformed items give Polish, never an error.
+    header, no matching item and malformed items give English (AGI-6.4,
+    AGI-9.2), never an error.
 
     Parameters
     ----------
@@ -125,7 +124,7 @@ def accept_language(header: str | None, /) -> Lang:
     {"pl", "en"}
         Language of the texts of the answer.
     """
-    chosen: Lang = "pl"
+    chosen: Lang = "en"
     best = 0.0
     for item in (header or "").split(","):
         tag, *parameters = item.split(";")
@@ -277,10 +276,13 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> Response
     code = _HTTP_CODES.get(
         status, "validation_error" if status < 500 else "internal_error"
     )
+    detail: str
     if status == 404 and exc.detail == HTTPStatus.NOT_FOUND.phrase:
-        detail = "Nieznana trasa"
+        detail = message("api.unknown_route")
     elif status == 405:
-        detail = f"Metoda {request.method} jest niedozwolona dla {request.url.path}"
+        detail = message(
+            "api.method_not_allowed", method=request.method, path=request.url.path
+        )
     else:
         detail = str(exc.detail)
     return problem_response(request, code, detail, headers=exc.headers)

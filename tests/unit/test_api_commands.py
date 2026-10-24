@@ -19,6 +19,7 @@ from imgwtools.api.main import app
 from imgwtools.commands import check_command, command_schema, run_command
 from imgwtools.config import Settings, settings
 from imgwtools.exceptions import ERROR_CODES
+from imgwtools.messages import localize
 from imgwtools.stations import HYDRO_MAP_API_URL
 from imgwtools.store import current_version, init_store
 from imgwtools.testing import build_fixture_store
@@ -132,7 +133,7 @@ def problem(response, status, code):
         code,
         status,
     )
-    assert body["title"] == ERROR_CODES[code].title.localized("pl")
+    assert body["title"] == ERROR_CODES[code].title
     assert body["instance"] == response.request.url.path
     assert body["detail"]
     return body
@@ -331,20 +332,23 @@ def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("header", "query", "lang"),
     [
-        (None, None, "pl"),
+        (None, None, "en"),
         ("en", None, "en"),
         ("en-GB", None, "en"),
         ("de-AT, en-US;q=0.8, pl;q=0.7", None, "en"),
         ("pl;q=0.5, en;q=0.9", None, "en"),
         ("en;q=0.5, pl", None, "pl"),
         ("en, pl", None, "en"),  # equal weights: the item listed first
-        ("en;q=0, de", None, "pl"),
-        ("en;q=abc, fr", None, "pl"),
+        ("pl, en", None, "pl"),
+        ("pl;q=0, de", None, "en"),  # pl refused, de unknown: the default
+        ("en;q=0, pl;q=0.1", None, "pl"),
+        ("pl;q=abc, fr", None, "en"),  # a malformed weight is ignored
         ("en", "pl", "pl"),
+        (None, "pl", "pl"),
         (None, "en", "en"),
     ],
 )
-def test_api_lang_comes_from_the_query_then_accept_language_then_polish(
+def test_api_lang_comes_from_the_query_then_accept_language_then_english(
     client, header, query, lang
 ):
     headers = {} if header is None else {"Accept-Language": header}
@@ -423,9 +427,7 @@ def test_api_get_route_answers_the_run_command_envelope(
     if command_schema(command)["x-imgw"]["result"] == "list":
         options.setdefault("limit", 1000)
 
-    response = client.get(
-        path_of(command), params=query, headers={"Accept-Language": "en"}
-    )
+    response = client.get(path_of(command), params=query)
 
     assert response.status_code == 200, response.text
     expected = run_command(command, options=options).to_json(root=served, server=True)
@@ -558,11 +560,11 @@ def test_api_checked_plan_syncs_and_a_stale_item_makes_the_envelope_partial(
 @pytest.mark.parametrize(
     ("plan", "fragment"),
     [
-        ({"schema": "imgw-plan/1", "root": "/elsewhere"}, "innego magazynu"),
-        ({"schema": "imgw-plan/9", "root": "."}, "Niepoprawny plan"),
+        ({"schema": "imgw-plan/1", "root": "/elsewhere"}, "another store"),
+        ({"schema": "imgw-plan/9", "root": "."}, "Invalid imgw-plan/1 plan"),
         (
             {"schema": "imgw-plan/1", "root": ".", "items": [{"archive": {}}]},
-            "Niepoprawny plan",
+            "Invalid imgw-plan/1 plan",
         ),
     ],
 )
@@ -642,6 +644,57 @@ def test_api_exports_stream_the_cli_lines_with_status_and_notice_headers(
     assert "license_terms" in {notice["code"] for notice in json.loads(notices)}
 
 
+def test_api_texts_of_a_command_answer_follow_accept_language(
+    client, served, live, frozen
+):
+    query = {"latitude": "52.23", "longitude": "21.01", "ind_x": "751", "ind_y": "317"}
+    expected = run_command("pmaxtp check", options={**query, "root": served})
+
+    english = client.get("/api/v1/pmaxtp/check", params=query)
+    polish = client.get(
+        "/api/v1/pmaxtp/check", params=query, headers={"Accept-Language": "pl"}
+    )
+
+    assert english.json() == expected.to_json(root=served, server=True)
+    assert polish.json() == expected.to_json(root=served, server=True, lang="pl")
+    assert polish.json() != english.json()
+    for response, lang in ((english, "en"), (polish, "pl")):
+        assert response.headers["content-language"] == lang
+        assert "accept-language" in response.headers["vary"].lower()
+
+
+def test_api_stream_notices_follow_accept_language_and_the_data_does_not(
+    client, served
+):
+    slot = f"archive:{DAILY}:2024/codz_2024.zip"
+    query = {"version": relative(current_version(served, slot=slot), served)}
+    expected = run_command("store export", options={**query, "root": served})
+    lines = "".join(expected.result)
+
+    english = client.get(path_of("store export"), params=query)
+    polish = client.get(
+        path_of("store export"), params=query, headers={"Accept-Language": "pl"}
+    )
+
+    assert english.text == polish.text == lines
+    notices = {
+        "en": json.loads(english.headers["x-imgw-notices"]),
+        "pl": json.loads(polish.headers["x-imgw-notices"]),
+    }
+    assert polish.headers["x-imgw-notices"].isascii()
+    assert notices["pl"] == [
+        {"level": n.level, "code": n.code, "text": localize(n.text, "pl")}
+        for n in expected.notices
+    ]
+    assert [item["text"] for item in notices["en"]] == [
+        n.text for n in expected.notices
+    ]
+    assert notices["pl"] != notices["en"]
+    for response, lang in ((english, "en"), (polish, "pl")):
+        assert response.headers["content-language"] == lang
+        assert "accept-language" in response.headers["vary"].lower()
+
+
 # --------------------------------------------------------------------------
 # Errors as problem+json
 # --------------------------------------------------------------------------
@@ -653,9 +706,7 @@ def test_api_catalog_validation_is_400_with_the_library_detail(client):
     )
 
     body = problem(response, 400, "validation_error")
-    assert (
-        body["detail"] == "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)"
-    )
+    assert body["detail"] == "Latitude 1.0 is outside Poland (49.0–55.0)"
     assert body["details"] == {"option": "latitude", "value": 1.0}
 
 
@@ -683,7 +734,7 @@ def test_api_unknown_route_and_wrong_method_are_problem_documents(client):
     unknown = client.get("/api/v1/nothing/here")
     wrong = client.delete("/api/v1/store/info")
 
-    assert problem(unknown, 404, "not_found")["detail"] == "Nieznana trasa"
+    assert problem(unknown, 404, "not_found")["detail"] == "Unknown route"
     problem(wrong, 405, "method_not_allowed")
     assert wrong.headers["allow"] == "GET"
 
@@ -874,7 +925,7 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
         "/api/v1/series/summary", params={"version": "series/versions/linked/x"}
     )
 
-    assert "dowiązanie" in problem(response, 400, "validation_error")["detail"]
+    assert "through a link" in problem(response, 400, "validation_error")["detail"]
 
 
 @pytest.mark.parametrize(

@@ -46,7 +46,7 @@ def test_api_main_info_names_the_api_and_links_the_catalog_schema(client):
 
 @pytest.mark.parametrize(
     ("header", "lang"),
-    [(None, "pl"), ("en-GB,en;q=0.9", "en"), ("de, en;q=0.5, pl", "pl")],
+    [(None, "en"), ("en-GB,en;q=0.9", "en"), ("de, en;q=0.5, pl", "pl")],
 )
 def test_api_main_llms_txt_is_the_llms_guide_in_the_accepted_language(
     client, header, lang

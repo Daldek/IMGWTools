@@ -103,12 +103,12 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   a catalog message (`imgwtools.messages.<area>`, about 570 entries) instead of an inline Polish
   sentence, so `str(exc)`, `exc.detail`, the `--json` error line, the plan and item errors of
   a failed unit and every caller of the library read the same English text. `details` stay
-  unchanged. Polish is `exc.localized("pl")`; REST (`Accept-Language: pl`, still the default
-  until its own change), MCP (`--lang pl`) and the web GUI render both the `title` and the
-  `detail` in the language of their caller (the `detail` used to stay Polish next to an English
-  `title`). `imgwtools.messages.reason(exc)` gives the catalog message an exception carries, so a
-  message that embeds a caught error stays translatable. Migration: tests and clients that
-  matched Polish `detail` text match the English text or `exc.detail.key`.
+  unchanged. Polish is `exc.localized("pl")`; REST (`Accept-Language: pl`) and the web GUI render
+  both the `title` and the `detail` in the language of their caller (the `detail` used to stay
+  Polish next to an English `title`). `imgwtools.messages.reason(exc)` gives the catalog message
+  an exception carries, so a message that embeds a caught error stays translatable. Migration:
+  tests and clients that matched Polish `detail` text match the English text or
+  `exc.detail.key`.
 - The text of a cancelled plan item and of a cancelled version write is English (`cancelled`, "The
   write of the archive was cancelled"); the plan item error `anulowano` became `cancelled`.
 - **Breaking — notices, progress lines and plan lines are English (AGI-9.2, ADR-006):** the
@@ -145,8 +145,8 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   configurations.
 - **Breaking — the description commands default to English (AGI-9.2, ADR-006):**
   `command_schema()`, `list_commands()`, `agent_guide()` and the `lang` option of `commands list`,
-  `commands schema` and `commands guide` default to `en` in Python and the CLI (REST still follows
-  `Accept-Language`, Polish without it, until its own change). `IMGW_LANG` is no longer the default of
+  `commands schema` and `commands guide` default to `en` in Python and the CLI (REST answers
+  follow `Accept-Language`, English without it). `IMGW_LANG` is no longer the default of
   `--lang`: it keeps the language of the CLI help and human lines, and `imgw <command> --schema`
   prints the English schema. The committed `AGENTS.md` (175 lines, 16,174 bytes) and `llms.txt` are
   English, and `--lang pl` generates the Polish guide (16,262 bytes). The guide's own texts (column
@@ -155,6 +155,19 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   entries) instead of Polish and English literals in `agent_guide.py`. Migration: pass `lang="pl"`
   or `--lang pl` where the Polish descriptions were meant; regenerate the guide files with
   `imgw commands guide --format agents --path AGENTS.md` (and `--format llms --path llms.txt`).
+- **Breaking — REST answers in English by default and the OpenAPI document is English (AGI-6.4,
+  AGI-9.2, ADR-006):** without `Accept-Language`, or with one that names neither `en` nor `pl`, a
+  REST answer is English: the `title` and `detail` of problem+json, the notices, the texts of
+  failed items and plan actions, and the `lang` of the three description commands (it was Polish).
+  `Accept-Language: pl` gives Polish. The language now decides every command answer, not only
+  those of commands with a `lang` option: the notices and item texts of the JSON envelope and the
+  `X-IMGW-Notices` header of an export are rendered in it, every command answer has
+  `Content-Language`, and `Vary: Accept-Language` when the header (not `?lang=`) decided. The
+  texts of the generated routes (summaries, descriptions, options, rules, tags, responses) come
+  from the English catalog, so `/openapi.json`, `/docs` and `/redoc` are English; only the field
+  descriptions of the result models (`models.py`) still wait for their own change. The `api/*`
+  modules leave the pending files of the message guard. Migration: REST clients that relied on the
+  Polish default send `Accept-Language: pl`.
 
 ## [3.0.0] — 2026-10-19
 

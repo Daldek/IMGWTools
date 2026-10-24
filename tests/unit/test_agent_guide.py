@@ -262,9 +262,7 @@ def test_commands_guide_gives_the_same_bytes_in_python_cli_and_rest():
 
     printed = RUNNER.invoke(cli_app, ["commands", "guide", "--format", "llms"])
     answered = TestClient(rest_app).get(
-        "/api/v1/commands/guide",
-        params={"format": "llms"},
-        headers={"Accept-Language": "en"},
+        "/api/v1/commands/guide", params={"format": "llms"}
     )
 
     assert printed.exit_code == 0, printed.output

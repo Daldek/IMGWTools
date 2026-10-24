@@ -55,10 +55,6 @@ _PENDING = frozenset(
         "commands.py",
         "datasets.py",
         "models.py",
-        # REST API.
-        "api/errors.py",
-        "api/main.py",
-        "api/routes/commands.py",
         # Web GUI.
         "web/app.py",
     }

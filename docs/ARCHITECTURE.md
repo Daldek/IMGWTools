@@ -21,7 +21,7 @@ System consists of six main components:
    - Routes `/api/v1/<group>/<command>` generated from the command catalog (28 commands; local-only commands have no route)
    - URL generation for IMGW-PIB and ČHMÚ downloads and live IMGW data
    - Store commands only with an explicit server-side `IMGW_STORE_ROOT`
-   - Errors as `application/problem+json`; language negotiation (`Accept-Language`); `GET /llms.txt`; optional MCP endpoint `/mcp`; rate limiting via Nginx
+   - Errors as `application/problem+json`; language negotiation (`Accept-Language`, English by default); `GET /llms.txt`; optional MCP endpoint `/mcp`; rate limiting via Nginx
 
 4. **MCP Server** [optional: `imgwtools[mcp]`]
    - `imgw mcp` (stdio) and `/mcp` (Streamable HTTP inside the REST app); tools generated from the command catalog
@@ -109,10 +109,10 @@ Data is written only after explicit configuration: an absolute `IMGW_STORE_ROOT`
 
 ### Implemented Features
 - Routes generated from `command_schema()` (`x-imgw.rest`) by `api/routes/commands.py`: `GET` for reads (options in the query; lists comma-separated or repeated), `POST` for `store sync`, `store catalog`, `series build`, `pmaxtp sync` (options in a JSON body; `?check=true` returns the plan without writing)
-- Response body = `CommandResult.to_json(root, server=True)`, identical to the CLI envelope except hidden server paths; list commands page with `limit` (default/maximum `IMGW_API_MAX_LIMIT`) and `offset`; `store export`/`series export` stream CSV/JSONL with `X-IMGW-Notices`/`X-IMGW-Status` headers
+- Response body = `CommandResult.to_json(root, server=True, lang=)`, identical to the CLI envelope except hidden server paths and the language of the texts; list commands page with `limit` (default/maximum `IMGW_API_MAX_LIMIT`) and `offset`; `store export`/`series export` stream CSV/JSONL with `X-IMGW-Notices`/`X-IMGW-Status` headers
 - Errors: `api/errors.py` turns every `IMGWError`, request validation error, HTTP error, `OSError` and unexpected exception into `application/problem+json` with `code`, `details` and the status of `ERROR_CODES` (validation always 400)
-- `GET /api/v1` (name, version, schema route, catalog routes), `GET /health`, `GET /llms.txt` (agent guide in the language of `Accept-Language`), OpenAPI/Swagger documentation (`/docs`; HTML pages are not part of it)
-- Language: a command with the option `lang` (`commands schema`, `commands guide`) takes it from the query, else from `Accept-Language` (RFC 9110 weights, first subtag), else `pl`; problem+json `title` follows `Accept-Language`, `detail` stays Polish; `Content-Language` and `Vary: Accept-Language` on negotiated answers
+- `GET /api/v1` (name, version, schema route, catalog routes), `GET /health`, `GET /llms.txt` (agent guide in the language of `Accept-Language`, English by default), OpenAPI/Swagger documentation (`/docs`, English; HTML pages are not part of it)
+- Language (AGI-6.4, AGI-9.2): the texts of an answer (notices, item and plan texts, the `title` and `detail` of problem+json) follow `?lang=` of a command with the option `lang` (`commands list`, `commands schema`, `commands guide`), else `Accept-Language` (RFC 9110 weights, first subtag), else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided
 - Optional `/mcp` (MCP Streamable HTTP, `IMGW_MCP_ENABLED=true`): the SDK session manager runs in the app lifespan, tools call the REST routes in process (section 7)
 
 ### Security (Current State)

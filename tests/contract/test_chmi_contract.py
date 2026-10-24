@@ -1345,9 +1345,7 @@ def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
 
     printed = cli(*cli_words(command, rooted(options, root)))
     line = json.loads(printed.stderr.splitlines()[-1])
-    answered = rest.request(
-        **rest_request(command, options), headers={"Accept-Language": "en"}
-    )
+    answered = rest.request(**rest_request(command, options))
     body = answered.json()
 
     assert (error.details["option"], error.details.get("value")) == (option, value)
