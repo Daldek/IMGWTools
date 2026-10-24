@@ -27,6 +27,8 @@ from rich.console import Console
 from imgwtools._version import __version__
 from imgwtools.cli import admin, config_cmd
 from imgwtools.cli._dispatch import (
+    _HELP,
+    _LANG,
     ImgwCommand,
     ImgwGroup,
     _error_line,
@@ -34,17 +36,11 @@ from imgwtools.cli._dispatch import (
 )
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWError
-from imgwtools.messages import Lang
-
-_NO_MCP = "Serwer MCP wymaga dodatku: pip install imgwtools[mcp]"
+from imgwtools.messages import Lang, message
 
 app = typer.Typer(
     name="imgw",
-    help=(
-        "Narzędzie do pobierania danych publicznych IMGW-PIB i ČHMÚ. Wynik komend "
-        "katalogu to koperta JSON imgw-result/1 na standardowym wyjściu; błąd to "
-        "JSON w ostatniej linii standardowego wyjścia błędów."
-    ),
+    help=message("cli.app_help", lang=_LANG),
     add_completion=False,
     cls=ImgwGroup,
 )
@@ -53,32 +49,40 @@ app = typer.Typer(
 console = Console()
 
 register_catalog(app)
-app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
+app.add_typer(admin.app, name="admin", help=message("cli.admin_group_help", lang=_LANG))
 app.add_typer(config_cmd.app, name="config")
 
 
-@app.command(cls=ImgwCommand)
+@app.command(cls=ImgwCommand, help=message("cli.version_help", lang=_LANG))
 def version() -> None:
-    """Wyświetl wersję programu."""
+    """Print the version of the program."""
     console.print(f"[bold]IMGWTools[/bold] v{__version__}")
 
 
-@app.command(cls=ImgwCommand)
+@app.command(cls=ImgwCommand, help=message("cli.server_help", lang=_LANG))
 def server(
     host: str = typer.Option(
-        settings.host, metavar="ADRES", help="Adres nasłuchu (IMGW_HOST)"
+        settings.host,
+        metavar=message("cli.metavar_address", lang=_LANG),
+        help=message("cli.server_host_help", lang=_LANG),
     ),
     port: int = typer.Option(
-        settings.port, metavar="LICZBA", help="Port nasłuchu (IMGW_PORT)"
+        settings.port,
+        metavar=_HELP.metavars["int"],
+        help=message("cli.server_port_help", lang=_LANG),
     ),
     reload: bool = typer.Option(
-        False, help="Przeładuj serwer po zmianie kodu (tryb deweloperski)"
+        False, help=message("cli.server_reload_help", lang=_LANG)
     ),
 ) -> None:
-    """Uruchom serwer API: REST, web GUI i /mcp (przy IMGW_MCP_ENABLED=true)."""
+    """Start the API server: REST, the web GUI and /mcp (with IMGW_MCP_ENABLED=true)."""
     import uvicorn
 
-    console.print(f"[bold green]Uruchamiam serwer na {host}:{port}[/bold green]")
+    console.print(
+        message("cli.server_starting", lang=_LANG, host=host, port=port),
+        style="bold green",
+        markup=False,
+    )
     uvicorn.run(
         "imgwtools.api.main:app",
         host=host,
@@ -87,32 +91,33 @@ def server(
     )
 
 
-@app.command(cls=ImgwCommand)
+@app.command(cls=ImgwCommand, help=message("cli.mcp_help", lang=_LANG))
 def mcp(
     allow_writes: bool = typer.Option(
         settings.mcp_allow_writes,
         "--allow-writes/--no-allow-writes",
-        help="Zezwól na zapis (IMGW_MCP_ALLOW_WRITES): komendy zapisujące "
-        "domyślnie zwracają plan (check=true), a zapisują przy check=false",
+        help=message("cli.mcp_allow_writes_help", lang=_LANG),
     ),
     lang: str = typer.Option(
         "pl",
         "--lang",
         envvar="IMGW_LANG",
         metavar="pl|en",
-        help="Język opisów narzędzi, instrukcji i tytułów błędów",
+        help=message("cli.mcp_lang_help", lang=_LANG),
     ),
 ) -> None:
     """
-    Uruchom serwer MCP dla agentów AI na standardowym wejściu i wyjściu.
+    Run the MCP server for AI agents on the standard input and output.
 
-    Narzędzia serwera to komendy katalogu. Bez --allow-writes serwer nie
-    zapisuje: komendy zapisujące zwracają plan imgw-plan/1.
+    The tools of the server are the catalog commands. Without --allow-writes the
+    server does not write: the writing commands return an imgw-plan/1 plan.
     """
     try:
         from imgwtools.mcp.server import run_stdio
     except ImportError:
-        raise typer.Exit(_error_line("missing_dependency", _NO_MCP, {})) from None
+        raise typer.Exit(
+            _error_line("missing_dependency", message("cli.mcp_needs_extra"), {})
+        ) from None
     try:
         run_stdio(allow_writes=allow_writes, lang=cast(Lang, lang))
     except IMGWError as exc:  # --lang outside pl and en

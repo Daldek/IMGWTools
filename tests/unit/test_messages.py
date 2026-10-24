@@ -62,12 +62,6 @@ _PENDING = frozenset(
         "api/errors.py",
         "api/main.py",
         "api/routes/commands.py",
-        # CLI.
-        "cli/_dispatch.py",
-        "cli/admin.py",
-        "cli/config_cmd.py",
-        "cli/main.py",
-        "reference_data.py",
         # Web GUI.
         "web/app.py",
     }

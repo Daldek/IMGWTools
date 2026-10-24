@@ -31,7 +31,14 @@ from imgwtools.commands import (
 )
 from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, IMGWError
-from imgwtools.store.types import CommandResult, Notice, SeriesReport, SyncReport
+from imgwtools.messages import message
+from imgwtools.store.types import (
+    CommandResult,
+    Notice,
+    Progress,
+    SeriesReport,
+    SyncReport,
+)
 from imgwtools.testing import build_fixture_store
 from imgwtools.urls import IMGW_API_URL
 from tests.contract.support import (
@@ -531,6 +538,30 @@ def test_cli_catalog_prints_each_distinct_notice_once(monkeypatch, tmp_path):
     assert result.stderr.count("Ostrzeżenie: Licencja IMGW-PIB") == 1
 
 
+@pytest.mark.parametrize(
+    ("lang", "label", "text"),
+    [("pl", "Ostrzeżenie", "brak wersji"), ("en", "Warning", "no version")],
+)
+def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english(
+    monkeypatch, tmp_path, lang, label, text
+):
+    monkeypatch.setattr(_dispatch, "_LANG", lang)
+
+    @functools.wraps(store.sync_store)
+    def sync_store(root, /, *, on_notice, on_progress, **kwargs):
+        on_progress(Progress(1, 1, "archive", "created", message("catalog.no_version")))
+        on_notice(Notice("warning", "other", message("catalog.no_version")))
+        return SyncReport((), (), cancelled=False)
+
+    monkeypatch.setattr(store, "sync_store", sync_store)
+
+    result = invoke("store", "sync", "-r", tmp_path, "-d", DAILY, "-y", 2024)
+
+    assert f"[1/1] {text}" in result.stderr
+    assert f"{label}: {text}" in result.stderr
+    assert [notice["text"] for notice in envelope(result)["notices"]] == ["no version"]
+
+
 # --- --root z IMGW_STORE_ROOT ----------------------------------------------------------------
 
 
@@ -680,13 +711,17 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     assert document["details"]["click"]
 
 
-def test_cli_catalog_unknown_flag_is_reported_in_polish():
+def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_imgw_lang():
+    detail = "Unknown option --colour of the command imgw datasets list"
     document = error_line(
         invoke("datasets", "list", "--colour", "red"), "validation_error"
     )
-    assert document["detail"].startswith(
-        "Nieznana opcja --colour komendy imgw datasets list"
+    assert document["detail"].startswith(detail)
+    polish = run_installed(
+        "datasets", "list", "--colour", "red", lang="pl", capture_output=True
     )
+    line = json.loads(polish.stderr.decode("utf-8").splitlines()[-1])
+    assert (polish.returncode, line["detail"].startswith(detail)) == (2, True)
     assert document["details"]["click"] == "No such option: --colour"
 
 

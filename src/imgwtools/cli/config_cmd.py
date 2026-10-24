@@ -4,21 +4,16 @@ from typing import Any
 
 import typer
 
-from imgwtools.cli._dispatch import ImgwCommand, ImgwSubgroup, _json, _localized
+from imgwtools.cli._dispatch import _LANG, ImgwCommand, ImgwSubgroup, _json
 from imgwtools.config import environment_report
+from imgwtools.messages import message
 
-app = typer.Typer(
-    help=_localized(
-        "Ustawienia użytkownika: nogat.toml i zmienne środowiskowe",
-        "User settings: nogat.toml and environment variables",
-    ),
-    cls=ImgwSubgroup,
-)
+app = typer.Typer(help=message("cli.config_help", lang=_LANG), cls=ImgwSubgroup)
 
 
 def _origin(entry: dict[str, Any]) -> str:
     if entry["source"] == "default":
-        return _localized("domyślnie", "default")
+        return message("cli.config_default", lang=_LANG)
     return f"{entry['source']} {entry['name']}"
 
 
@@ -26,60 +21,54 @@ def _render(report: dict[str, Any]) -> str:
     """Human-readable form of the report, in the language of the CLI."""
     file = report["config_file"]
     if file["error"] is not None:
-        state = f"{_localized('błąd', 'error')}: {file['error']}"
+        state = f"{message('cli.config_file_error', lang=_LANG)}: {file['error']}"
     else:
-        state = (
-            _localized("istnieje", "exists")
-            if file["exists"]
-            else _localized("brak", "absent")
+        state = message(
+            "cli.config_file_exists" if file["exists"] else "cli.config_file_absent",
+            lang=_LANG,
         )
-    lines = [
-        f"{_localized('Plik ustawień', 'Settings file')}: {file['path']} ({state})",
-        f"{_localized('Ustawienia', 'Settings')}:",
+    lines: list[str] = [
+        message("cli.config_file_line", lang=_LANG, path=file["path"], state=state),
+        message("cli.config_settings_title", lang=_LANG),
     ]
     for key, entry in report["keys"].items():
         lines.append(f"  {key} = {_json(entry['value'])}  [{_origin(entry)}]")
-    lines.append(
-        f"{_localized('Dane uwierzytelniające (tylko środowisko)', 'Credentials (environment only)')}:"
-    )
+    lines.append(message("cli.config_credentials_title", lang=_LANG))
     for name, state in report["credentials"].items():
-        lines.append(
-            f"  {name}: {_localized('ustawiony', 'present') if state == 'present' else _localized('brak', 'missing')}"
+        shown = message(
+            "cli.config_credential_present"
+            if state == "present"
+            else "cli.config_credential_missing",
+            lang=_LANG,
         )
+        lines.append(f"  {name}: {shown}")
     store = report["store"]
     if store["root"] is None:
-        lines.append(
-            f"{_localized('Magazyn', 'Store')}: {_localized('nie ustawiono', 'not set')}"
-        )
+        lines.append(message("cli.config_store_unset", lang=_LANG))
     else:
         size = store["size_bytes"]
-        shown = (
-            _localized("brak katalogu", "no directory") if size is None else f"{size} B"
-        )
         lines.append(
-            f"{_localized('Magazyn', 'Store')}: {store['root']}  [{_origin(store)}]  {shown}"
+            message(
+                "cli.config_store",
+                lang=_LANG,
+                root=store["root"],
+                origin=_origin(store),
+                size=(
+                    message("cli.config_store_no_directory", lang=_LANG)
+                    if size is None
+                    else f"{size} B"
+                ),
+            )
         )
     return "\n".join(lines)
 
 
-@app.command(
-    "show",
-    cls=ImgwCommand,
-    help=_localized(
-        "Pokaż każde ustawienie z wartością i źródłem, dane uwierzytelniające "
-        "(ustawione albo brak) oraz katalog magazynu z rozmiarem.",
-        "Show every setting with its value and source, the credentials (present "
-        "or missing) and the store root with its size.",
-    ),
-)
+@app.command("show", cls=ImgwCommand, help=message("cli.config_show_help", lang=_LANG))
 def show(
     as_json: bool = typer.Option(
         False,
         "--json",
-        help=_localized(
-            "Wypisz jeden dokument JSON imgw-config/1 (bez opisów)",
-            "Print one imgw-config/1 JSON document (no prose)",
-        ),
+        help=message("cli.config_json_help", lang=_LANG),
     ),
 ) -> None:
     """Show the settings in force (``imgw-config/1`` with ``--json``)."""

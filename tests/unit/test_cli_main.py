@@ -66,7 +66,7 @@ def test_cli_main_server_rejects_non_numeric_port_with_the_json_error_line(
     assert result.stdout == ""
     error = json.loads(result.stderr.splitlines()[-1])
     assert (error["code"], error["details"]["option"]) == ("validation_error", "port")
-    assert error["detail"].startswith("Nieprawidłowa wartość opcji --port")
+    assert error["detail"].startswith("Invalid value of the option --port")
     assert uvicorn_calls == []
 
 

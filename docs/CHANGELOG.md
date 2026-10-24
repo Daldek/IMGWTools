@@ -125,6 +125,15 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `HTTP error`, `Connection error to`; `check_failed` items of a saved plan are classified by
   that English text. Migration: match `not published` and the English texts, or the language-free
   `Message.key` of an item that has one.
+- **Breaking — the `detail` of the CLI error line is English (AGI-9.2, ADR-006):** the last line of
+  stderr was Polish for a syntax error (unknown option or command, a missing option or value), an
+  interrupt, a program error and `IMGW_LANG` outside `pl` and `en`; it is English whatever
+  `IMGW_LANG` says, like the envelope on stdout. The human-readable output follows `IMGW_LANG`
+  (`pl` by default): the help, the progress lines, the notice lines and their labels (`Informacja`
+  or `Info`), `imgw admin`, `imgw config show` and `python -m imgwtools.reference_data`; their texts
+  are catalog messages (`imgwtools.messages.cli`, `imgwtools.messages.reference`), and
+  `imgwtools.config.human_language()` is the one reader of the setting. Migration: clients that
+  matched the Polish `detail` of a usage error match the English text or `details.option`.
 
 ## [3.0.0] — 2026-10-19
 
