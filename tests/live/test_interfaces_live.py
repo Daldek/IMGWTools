@@ -255,7 +255,7 @@ CASES: dict[str, list[Case]] = {
     ],
     "datasets download": [
         Case(
-            {"dataset": PHENOMENA, "years": YEAR, "output": WORK + "pobrane"},
+            {"dataset": PHENOMENA, "years": YEAR, "output_dir": WORK + "pobrane"},
             clean=("pobrane",),
         )
     ],

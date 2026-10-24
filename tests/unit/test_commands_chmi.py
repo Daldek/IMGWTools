@@ -279,7 +279,7 @@ VALID = [
     ("datasets files", {"dataset": "chmi_meteo_daily", "stations": FULL}),
     (
         "datasets download",
-        {"dataset": METEO, "stations": [FULL], "output": "/tmp/pobrane dane"},
+        {"dataset": METEO, "stations": [FULL], "output_dir": "/tmp/pobrane dane"},
     ),
     ("datasets providers", {"limit": 1}),
     ("stations find", {"provider": "cz.chmi", "kind": "hydro", "query": "spindleruv"}),
@@ -374,7 +374,7 @@ def test_unpublished_files_count_as_successful_items_of_a_download(tmp_path):
         "dataset": HYDRO,
         "stations": [S2],
         "years": "2004-2005",
-        "output": tmp_path / "pobrane",
+        "output_dir": tmp_path / "pobrane",
     }
     with respx.mock(assert_all_called=False) as router:
         serve_files(router, "h900002_2005_get")

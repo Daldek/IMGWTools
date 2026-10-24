@@ -30,7 +30,7 @@ TOOL_NAME = re.compile(r"imgw_[a-z0-9_]{1,43}")
 EFFECTS = {
     "datasets list": ("none", False, {}),
     "datasets files": ("none", False, {}),
-    "datasets download": ("replace", True, {}),
+    "datasets download": ("add", True, {"output_dir": "add", "force": "replace"}),
     "datasets providers": ("none", False, {}),
     "stations find": ("none", True, {}),
     "current hydro": ("none", True, {}),
@@ -67,8 +67,13 @@ EFFECTS = {
     "commands schema": ("none", False, {}),
     "commands guide": ("none", False, {"path": "replace"}),
 }
-# Writing options of local commands (without a contract case).
-LOCAL_WRITES = {("project check", "plan")}
+# Writing options of local commands (without a contract case); the plain ones are
+# held by tests/unit/test_plain_output.py.
+LOCAL_WRITES = {
+    ("project check", "plan"),
+    ("datasets download", "output_dir"),
+    ("datasets download", "force"),
+}
 
 
 @pytest.fixture(scope="module")
@@ -142,7 +147,7 @@ def writing_cases() -> list[tuple[str, Case, str]]:
         (command, cases[0], option.name)
         for command, cases in CASES.items()
         for option in SPECS[command].options
-        if option.writes != "none"
+        if option.writes != "none" and option.type == "path"
     ]
 
 

@@ -115,8 +115,9 @@ VALID: dict[str, list[dict[str, object]]] = {
         {
             "dataset": "pl.imgw.meteo_synop_monthly",
             "years": [1998],
-            "output": "/tmp/pobrane dane",
-        }
+            "output_dir": "/tmp/pobrane dane",
+        },
+        {"dataset": DAILY, "years": [2024], "root": ROOT, "force": True},
     ],
     "stations find": [
         {"kind": "hydro", "query": "raba", "limit": 20},
@@ -480,7 +481,7 @@ def test_each_option_name_has_one_type_and_each_short_alias_one_meaning():
         "-s": {"station", "stations"},
         "-y": {"years"},
         "-m": {"months"},
-        "-o": {"output"},
+        "-o": {"output_dir"},
         "-p": {"path"},
         "-f": {"format"},
         "--lat": {"latitude"},
@@ -832,7 +833,7 @@ def _download(*statuses, cancelled=False):
         DownloadItem(f"archive:{DAILY}:2024/{n}.zip", "https://x", s, None, None, None)
         for n, s in enumerate(statuses)
     )
-    return DownloadReport(Path("/o"), items, cancelled)
+    return DownloadReport("plain", Path("/o"), None, items, (), cancelled)
 
 
 def _plan(*statuses):
@@ -1021,7 +1022,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
         "datasets download": {
             "dataset": DAILY,
             "years": 2024,
-            "output": tmp_path / "out",
+            "output_dir": tmp_path / "out",
         },
         "datasets providers": {},
         "stations find": {"source": "store", "root": root},
@@ -1092,34 +1093,71 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
     assert stamps(tmp_path) == untouched
 
 
-def test_check_of_datasets_download_plans_each_server_path(tmp_path):
+def test_check_of_datasets_download_plans_each_target_as_write_replace_or_conflict(
+    tmp_path,
+):
     output = tmp_path / "out"
     files = archive_files(SEMIANNUAL, years=2024, params="H,Q")
     existing = output.joinpath(*files[0].server_path.split("/"))
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"PK")
-    plan = check_command(
-        "datasets download",
-        options={
-            "dataset": SEMIANNUAL,
-            "years": 2024,
-            "params": "H,Q",
-            "output": output,
-        },
-    ).result
-    assert plan.root == output
+    options = {
+        "dataset": SEMIANNUAL,
+        "years": 2024,
+        "params": "H,Q",
+        "output_dir": output,
+    }
 
     def target(file):
         return output.joinpath(*file.server_path.split("/"))
 
-    assert [(action.status, action.detail) for action in plan.actions] == [
-        (
-            "unverifiable",
-            f"Download {files[0].url} to {target(files[0])}, "
-            "replacing the existing file",
-        ),
-        ("missing", f"Download {files[1].url} to {target(files[1])}"),
+    refused = check_command("datasets download", options=options)
+    forced = check_command("datasets download", options={**options, "force": True})
+
+    # A conflict is an entry of the plan, not a failure of it (DEV-19.10).
+    assert (refused.status, refused.result.root) == ("ok", output)
+    assert [
+        (action.action, action.path, action.reason, action.status)
+        for action in refused.result.actions
+    ] == [
+        ("conflict", target(files[0]), "output_exists", "unverifiable"),
+        ("write", target(files[1]), None, "missing"),
     ]
+    assert refused.result.actions[0].detail == (
+        f"{target(files[0])} exists, so {files[0].url} is not written; "
+        "--force replaces it"
+    )
+    assert refused.result.actions[1].detail == (
+        f"Write {files[1].url} to {target(files[1])}"
+    )
+    assert [(a.action, a.status) for a in forced.result.actions] == [
+        ("replace", "unverifiable"),
+        ("write", "missing"),
+    ]
+    document = refused.to_json()["result"]["actions"]
+    assert document[0]["action"] == "conflict"
+    assert document[0]["path"] == str(target(files[0]))
+    assert document[0]["reason"] == "output_exists"
+    assert not (output / ".imgw-incoming").exists()
+
+
+def test_check_of_datasets_download_into_the_store_says_what_it_holds(
+    tmp_path, fixture_root
+):
+    held = check_command(
+        "datasets download",
+        options={"dataset": DAILY, "years": 2024, "root": fixture_root},
+    )
+    fresh = check_command(
+        "datasets download",
+        options={"dataset": DAILY, "years": 2024, "root": tmp_path / "new"},
+    )
+
+    assert [(a.status, a.action) for a in held.result.actions] == [
+        ("unverifiable", None)
+    ]
+    assert [(a.status, a.action) for a in fresh.result.actions] == [("missing", None)]
+    assert not (tmp_path / "new").exists()
 
 
 def test_check_of_store_sync_with_a_plan_returns_it_for_the_same_store(
@@ -1206,5 +1244,5 @@ def test_failed_download_of_a_datasets_download_task_fails_the_task(tmp_path, im
     report = download_project(project)
     assert report.tasks == {"pobranie": "failed"}
     assert [result.status for result in report.files] == ["failed"]
-    downloaded = project / "data" / "downloaded"
-    assert downloaded.joinpath(*stored.server_path.split("/")).is_file()
+    # The task runs in the project store: the first file is a version there.
+    assert store.current_version(root, slot=fetch._archive_slot(stored)) is not None

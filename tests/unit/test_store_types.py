@@ -19,6 +19,7 @@ from imgwtools.exceptions import (
     IMGWStoreDependencyError,
     IMGWStoreError,
 )
+from imgwtools.output import FileResult
 from imgwtools.store.types import (
     CatalogReport,
     CommandOption,
@@ -82,7 +83,7 @@ def test_frozen_contracts():
             None,
             None,
         ),
-        DownloadReport(Path("/tmp/out"), (), False),
+        DownloadReport("plain", Path("/tmp/out"), None, (), (), False),
         CommandResult("store info", False, "ok", None, ()),
         PMaXTPStoreResult("unchanged", None, None, None, None),
         ProjectReport({}, (), False),
@@ -166,6 +167,8 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     root = tmp_path / "store"
     outside = tmp_path / "out" / "codz_2023.zip"
     result = DownloadReport(
+        "store",
+        None,
         root,
         (
             DownloadItem(
@@ -185,6 +188,10 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
                 "io_error",
             ),
         ),
+        (
+            FileResult(root / "archives" / "codz_2023.zip", 3, "ab" * 32, "new"),
+            FileResult(outside, 4, "cd" * 32, "written"),
+        ),
         False,
     )
     notice = Notice("info", "license_terms", f"Magazyn {root}")
@@ -195,7 +202,9 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     assert list(local) == ["schema", "command", "check", "status", "result", "notices"]
     assert local["schema"] == "imgw-result/1"
     assert local["result"] == {
-        "output": str(root),
+        "mode": "store",
+        "output_dir": None,
+        "root": str(root),
         "items": [
             {
                 "slot": "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
@@ -214,6 +223,20 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
                 "error_code": "io_error",
             },
         ],
+        "files": [
+            {
+                "path": "archives/codz_2023.zip",
+                "size_bytes": 3,
+                "sha256": "ab" * 32,
+                "status": "new",
+            },
+            {
+                "path": str(outside),
+                "size_bytes": 4,
+                "sha256": "cd" * 32,
+                "status": "written",
+            },
+        ],
         "cancelled": False,
     }
     assert local["notices"] == [
@@ -222,7 +245,8 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
 
     served = envelope.to_json(root=root, server=True)
 
-    assert served["result"]["output"] == "."
+    assert served["result"]["root"] == "."
+    assert served["result"]["files"][0]["path"] == "archives/codz_2023.zip"
     assert served["result"]["items"][0]["path"] == "archives/codz_2023.zip"
     assert served["result"]["items"][1]["error"] == (
         f"Nie można zapisać archives/x.zip ani {root}2/y"

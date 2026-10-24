@@ -95,4 +95,10 @@ MESSAGES = {
         "Not downloaded {server_path}: {error}",
         "Nie pobrano {server_path}: {error}",
     ),
+    "not_in_store": Text(
+        "The dataset {dataset} is not kept in the store (download only): use "
+        "--output-dir to write plain files",
+        "Zbiór {dataset} nie ma miejsca w magazynie (tylko do pobrania): użyj "
+        "--output-dir, aby zapisać zwykłe pliki",
+    ),
 }

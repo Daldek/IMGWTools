@@ -239,7 +239,7 @@ def _store_init(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
 def _datasets_download(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
     imgw.publish(H2024, V3, NEW)
     output = tmp_path / "pobrane"
-    options = {"dataset": "hydro/dobowe", "years": [2024], "output": output}
+    options = {"dataset": "hydro/dobowe", "years": [2024], "output_dir": output}
     return Local(options, output, _gone(output))
 
 

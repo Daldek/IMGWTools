@@ -950,9 +950,9 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
         (
             "GET",
             "datasets files",
-            {"dataset": DAILY, "years": "2024", "output": "/tmp"},
+            {"dataset": DAILY, "years": "2024", "output_dir": "/tmp"},
             None,
-            "output",
+            "output_dir",
         ),
         ("GET", "datasets list", {"check": "true"}, None, "check"),
         ("GET", "datasets list", {"kind": ["hydro", "meteo"]}, None, "kind"),

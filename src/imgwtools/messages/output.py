@@ -3,6 +3,12 @@
 from imgwtools.messages import Text
 
 MESSAGES = {
+    "exclusive_options": Text(
+        "output_dir and root exclude each other: write plain files (--output-dir) "
+        "or the store (--root), not both",
+        "output_dir i root wykluczają się: zapisz zwykłe pliki (--output-dir) albo "
+        "magazyn (--root), nie oba naraz",
+    ),
     "duplicate_output_name": Text(
         "Output paths of this request share a name ({count} in conflict, the first: "
         "{first}); give each file its own name (details.paths lists them)",
