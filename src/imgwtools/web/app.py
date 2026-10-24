@@ -34,7 +34,7 @@ from imgwtools import (
 )
 from imgwtools._version import __version__
 from imgwtools.api.errors import hide_server_paths
-from imgwtools.messages import Lang, localize
+from imgwtools.messages import Lang, localize, message
 
 if TYPE_CHECKING:
     from imgwtools import StationListEntry
@@ -47,7 +47,13 @@ templates.env.globals["version"] = __version__
 # HTML pages are not part of the API: they stay out of the OpenAPI document.
 router = APIRouter(include_in_schema=False)
 
-_KIND_TITLES = {"hydro": "Dane hydrologiczne", "meteo": "Dane meteorologiczne"}
+# The templates are Polish, so are the page titles and the titles and details of
+# the errors they show.
+_LANG: Lang = "pl"
+_KIND_TITLES = {
+    "hydro": message("web.kind_hydro", lang=_LANG),
+    "meteo": message("web.kind_meteo", lang=_LANG),
+}
 # The only provider of the GUI (spec 2026-10-18 §9.3).
 _PROVIDER = "IMGW-PIB"
 _PMAXTP_METHODS = (
@@ -55,8 +61,6 @@ _PMAXTP_METHODS = (
     ("AMP", "Annual Max Precipitation"),
 )
 _STATION_PAGE_SIZE = "50"
-# The templates are Polish, so are the titles and details of the errors they show.
-_LANG: Lang = "pl"
 
 
 def _error(request: Request, error: IMGWError) -> HTMLResponse:
@@ -104,7 +108,7 @@ def _archive_datasets() -> tuple[DatasetDescriptor, ...]:
 async def index(request: Request) -> HTMLResponse:
     """Render the dashboard."""
     return templates.TemplateResponse(
-        request, "index.html", {"title": "IMGWTools - Pobieranie danych IMGW"}
+        request, "index.html", {"title": message("web.title_index", lang=_LANG)}
     )
 
 
@@ -112,7 +116,9 @@ async def index(request: Request) -> HTMLResponse:
 async def download_page(request: Request) -> HTMLResponse:
     """Render the choice of downloadable data."""
     return templates.TemplateResponse(
-        request, "download/index.html", {"title": "Pobieranie danych"}
+        request,
+        "download/index.html",
+        {"title": message("web.title_download", lang=_LANG)},
     )
 
 
@@ -127,7 +133,11 @@ async def download_archives_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "download/archives.html",
-        {"title": "Dane archiwalne", "groups": groups, "archives": archives},
+        {
+            "title": message("web.title_archives", lang=_LANG),
+            "groups": groups,
+            "archives": archives,
+        },
     )
 
 
@@ -236,7 +246,9 @@ async def generate_pmaxtp(
 async def stations_page(request: Request) -> HTMLResponse:
     """Render the station search page."""
     return templates.TemplateResponse(
-        request, "stations/list.html", {"title": "Lista stacji"}
+        request,
+        "stations/list.html",
+        {"title": message("web.title_stations", lang=_LANG)},
     )
 
 
@@ -317,4 +329,6 @@ def find_stations_partial(
 @router.get("/map", response_class=HTMLResponse)
 async def map_page(request: Request) -> HTMLResponse:
     """Render the station map; markers come from ``current hydro-states``."""
-    return templates.TemplateResponse(request, "map.html", {"title": "Mapa stacji"})
+    return templates.TemplateResponse(
+        request, "map.html", {"title": message("web.title_map", lang=_LANG)}
+    )
