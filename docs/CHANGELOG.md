@@ -143,6 +143,18 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   (an explicit `lang: "pl"` still gives Polish texts). `docker-compose.yml` no longer passes
   `IMGW_LANG` to the server. Migration: drop `--lang` and `IMGW_LANG` from MCP client
   configurations.
+- **Breaking — the description commands default to English (AGI-9.2, ADR-006):**
+  `command_schema()`, `list_commands()`, `agent_guide()` and the `lang` option of `commands list`,
+  `commands schema` and `commands guide` default to `en` in Python and the CLI (REST still follows
+  `Accept-Language`, Polish without it, until its own change). `IMGW_LANG` is no longer the default of
+  `--lang`: it keeps the language of the CLI help and human lines, and `imgw <command> --schema`
+  prints the English schema. The committed `AGENTS.md` (175 lines, 16,174 bytes) and `llms.txt` are
+  English, and `--lang pl` generates the Polish guide (16,262 bytes). The guide's own texts (column
+  titles, effect classes, flow titles and notes, the rules shared with the MCP instructions, the
+  value syntax of the flags) are catalog messages (`imgwtools.messages.agent_guide`, 52
+  entries) instead of Polish and English literals in `agent_guide.py`. Migration: pass `lang="pl"`
+  or `--lang pl` where the Polish descriptions were meant; regenerate the guide files with
+  `imgw commands guide --format agents --path AGENTS.md` (and `--format llms --path llms.txt`).
 
 ## [3.0.0] — 2026-10-19
 

@@ -1,56 +1,57 @@
-# IMGWTools — przewodnik dla agentów (wersja 3.0.0)
+# IMGWTools — guide for agents (version 3.0.0)
 
-> Plik generowany z katalogu komend: `imgw commands guide --format agents --lang pl`. Nie edytuj ręcznie.
+> Generated from the command catalog: `imgw commands guide --format agents`. Do not edit by hand.
 
-## Czym jest IMGWTools
+## What IMGWTools is
 
-IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: archiwów, danych bieżących i opadów maksymalnych prawdopodobnych PMAXTP. Archiwa trafiają do wersjonowanego magazynu — zwykłego katalogu, w którym wersje są niezmienne, a ich tożsamością jest SHA-256 — i z niego, offline, czyta się szeregi stacji. Wszystkie interfejsy powstają z jednego katalogu komend.
+IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store — a plain directory whose versions never change and are identified by SHA-256 — from which station series are read offline. All interfaces are generated from one command catalog.
 
-Używaj go do odczytu archiwalnych i bieżących danych stacji IMGW-PIB i ČHMÚ, do odtwarzalnych lokalnych kopii i do wartości PMAXTP. Nieobsługiwane: prognozy, dane operacyjne ČHMÚ (`now`, `recent`), dobowe archiwa synoptyczne IMGW-PIB, PMAXTP poza Polską. Instalacja: `pip install imgwtools[cli]` (`[mcp]` dodaje serwer MCP, `[store]` szeregi Parquet).
+Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep reproducible local copies and to get PMAXTP values. Not supported: forecasts, ČHMÚ operational data (`now`, `recent`), IMGW-PIB daily synoptic archives, PMAXTP outside Poland. Install: `pip install imgwtools[cli]` (`[mcp]` adds the MCP server, `[store]` the Parquet series).
 
-- `IMGW-PIB` — Polska: klucze `pl.imgw.*`, kod stacji `^[0-9]{9}$`, licencja [IMGW-PIB](https://danepubliczne.imgw.pl/regulations)
-- `CHMI` (ČHMÚ) — Czechy: klucze `cz.chmi.*`, kod stacji `^0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16}$`, licencja [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)
+- `IMGW-PIB` — Poland: keys `pl.imgw.*`, station code `^[0-9]{9}$`, license [IMGW-PIB](https://danepubliczne.imgw.pl/regulations)
+- `CHMI` (ČHMÚ) — Czechia: keys `cz.chmi.*`, station code `^0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16}$`, license [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)
 
-## Zasady: sprawdź → uruchom → przeczytaj
+## Rules: check → run → read
 
-1. **Poznaj komendy:** `imgw commands list` (spis z opisem jednego zdania), potem `imgw commands schema --command … [--lang en]` albo `imgw <grupa> <komenda> --schema`; REST `GET /api/v1/commands/list` i `/schema`; w MCP `imgw_commands_list` i `imgw_commands_schema`. Opcje to właściwości JSON Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w `x-imgw.writes`, `x-imgw.network` i `x-imgw.idempotent`.
-2. **Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; domyślne dla komend zapisujących), `check_command()` (Python) → plan `imgw-plan/1` bez zapisu i bez pobierania treści. `store check` i `project check` same są sprawdzeniem. Przy dużym planie zapytaj użytkownika.
-3. **Uruchom:** bez `check`; czytaj `status` koperty, nie tylko kod wyjścia.
-4. **Czytaj offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — bez ponownego pobierania.
-5. **Decyduj po kodach:** `code`, `status`, `items[].status`, `error_code`; tekst `detail` jest dla człowieka.
+1. **Learn the commands:** `imgw commands list` (a one-sentence summary of each), then `imgw commands schema --command …` or `imgw <group> <command> --schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `imgw_commands_list` and `imgw_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-imgw.rules`, effects in `x-imgw.writes`, `x-imgw.network` and `x-imgw.idempotent`.
+2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `imgw-plan/1` plan without writing and without downloading content. `store check` and `project check` are checks themselves. Ask the user about a large plan.
+3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
+4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — without downloading again.
+5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `detail` text is for humans.
 
-## Interfejsy
+## Interfaces
 
-| Interfejs | Plan | Wynik | Błąd |
+| Interface | Plan | Result | Error |
 |---|---|---|---|
 | Python | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
-| CLI `imgw` | `--check` | koperta JSON w jednej linii stdout | ostatnia linia stderr `{"code", "detail", "details"}`; kod wyjścia |
-| REST `/api/v1` | `?check=true` (POST) | 200 + koperta | `application/problem+json` |
-| MCP | `check: true` | `structuredContent` = koperta | `isError: true` + `{"code", "title", "detail", "details"}` |
+| CLI `imgw` | `--check` | one-line JSON envelope on stdout | last stderr line `{"code", "detail", "details"}`; exit code |
+| REST `/api/v1` | `?check=true` (POST) | 200 + envelope | `application/problem+json` |
+| MCP | `check: true` | `structuredContent` = envelope | `isError: true` + `{"code", "title", "detail", "details"}` |
 
-Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={...})`; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, POST: ciało JSON); narzędzie MCP `imgw_<grupa>_<komenda>`.
+One command in every interface: CLI `imgw <group> <command> --option value` (flag = `--` + the option name with `-` for `_`); Python `run_command("<group> <command>", options={...})`; REST `/api/v1/<group>/<command>` (GET: query parameters, POST: JSON body); MCP tool `imgw_<group>_<command>`.
 
-- **REST:** korzeń magazynu ustawia serwer (`IMGW_STORE_ROOT`), `version` jest względna do niego, opcji lokalnych nie ma; zapis (POST bez `?check=true`) wymaga włączenia na serwerze i nagłówka `X-API-Key`.
-- **MCP:** `imgw mcp` (stdio) startuje bez zapisu — komendy zapisujące zwracają plan (`check` stałe `true`); zapis włącza użytkownik (`--allow-writes`), a i wtedy `check` jest domyślnie `true`. `/mcp` serwera REST (`IMGW_MCP_ENABLED=true`) tylko czyta i planuje.
+- **REST:** the server sets the store root (`IMGW_STORE_ROOT`), `version` is relative to it, local options do not exist; writing (POST without `?check=true`) must be enabled on the server and needs the `X-API-Key` header.
+- **MCP:** `imgw mcp` (stdio) starts without writes — writing commands return a plan (`check` fixed to `true`); the user enables writes (`--allow-writes`), and even then `check` is `true` by default. `/mcp` of the REST server (`IMGW_MCP_ENABLED=true`) reads and plans only.
+- **Language:** machine output is English (this guide, the envelope, error lines, MCP, REST). Polish only on request: `--lang pl` (`commands list|schema|guide`), `lang: "pl"` (MCP), `Accept-Language: pl` (REST).
 
-## Koperta, statusy i błędy
+## Envelope, statuses and errors
 
-Komenda zwraca kopertę `imgw-result/1` `{"schema", "command", "check", "status", "result", "notices"}`; `notices` to lista `{"level", "code", "text"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają stronę `{"items", "total", "limit", "offset"}`, sprawdzenie — plan `imgw-plan/1`. Komendy strumieniowe bez `path` dają same linie danych: CLI pisze je na stdout, REST odpowiada załącznikiem (status i komunikaty w `X-IMGW-Status`, `X-IMGW-Notices`). REST odpowiada 200 także dla `partial` i `failed` — decyduje `status` w treści.
+A command returns the `imgw-result/1` envelope `{"schema", "command", "check", "status", "result", "notices"}`; `notices` is a list of `{"level", "code", "text"}` (each once, e.g. `license_terms`). List commands return a page `{"items", "total", "limit", "offset"}`, a check an `imgw-plan/1` plan. Stream commands without `path` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-IMGW-Status`, `X-IMGW-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
 
-| Status | Kod wyjścia CLI | Znaczenie |
+| Status | CLI exit code | Meaning |
 |---|---|---|
-| `ok` | 0 | bez porażek |
-| `partial` | 10 | część pozycji nieudana — przeczytaj `items[].status` i `error_code`; pozostałe są gotowe |
-| `failed` | 11 | żadna pozycja się nie udała (w planie: `check_failed`); koperta jest pełna |
-| `cancelled` | 130 | przerwano (Ctrl+C, anulowanie żądania); `result` częściowy albo `null` |
+| `ok` | 0 | no failures |
+| `partial` | 10 | some items failed — read `items[].status` and `error_code`; the others are done |
+| `failed` | 11 | no item succeeded (in a plan: `check_failed`); the envelope is complete |
+| `cancelled` | 130 | cancelled (Ctrl+C, a cancelled request); a partial `result` or `null` |
 
-Błąd ma kod z zamkniętego rejestru, ten sam w Pythonie, CLI, REST (problem+json) i MCP (`isError`); `details.option` wskazuje błędną opcję. Kody z kodem wyjścia CLI i statusem HTTP (`—`: nigdy nie zgłaszany): `validation_error` (2/400), `not_found` (3/404), `conflict` (4/409), `source_unavailable` (5/502), `missing_dependency` (6/503), `data_error` (7/500), `store_unavailable` (8/503), `io_error` (9/500), `cancelled` (130/—), `forbidden` (12/403), `method_not_allowed` (—/405), `internal_error` (1/500).
+An error has a code from a closed registry, the same in Python, the CLI, REST (problem+json) and MCP (`isError`); `details.option` names the wrong option. Codes with the CLI exit code and the HTTP status (`—`: never reported): `validation_error` (2/400), `not_found` (3/404), `conflict` (4/409), `source_unavailable` (5/502), `missing_dependency` (6/503), `data_error` (7/500), `store_unavailable` (8/503), `io_error` (9/500), `cancelled` (130/—), `forbidden` (12/403), `method_not_allowed` (—/405), `internal_error` (1/500).
 
-## Zbiory danych
+## Datasets
 
-Klucz zbioru ma postać `<kraj>.<dostawca>.<zbiór>`; slug (`hydro_daily`) i alias legacy (`hydro/dobowe`, patrz `imgw datasets list`) są przyjmowane wyłącznie na wejściu. Zbiory magazynu:
+A dataset key reads `<country>.<provider>.<dataset>`; a slug (`hydro_daily`) and a legacy alias (`hydro/dobowe`, see `imgw datasets list`) are accepted on input only. Datasets of the store:
 
-| Klucz | Zmienne | Od roku |
+| Key | Variables | First year |
 |---|---|---|
 | `pl.imgw.hydro_daily` | `H`, `Q`, `T` | 1951 |
 | `pl.imgw.hydro_monthly` | `{H,Q,T}_{min,mean,max}` | 1951 |
@@ -65,110 +66,110 @@ Klucz zbioru ma postać `<kraj>.<dostawca>.<zbiór>`; slug (`hydro_daily`) i ali
 | `cz.chmi.hydro_stations` | — | — |
 | `cz.chmi.meteo_stations` | — | — |
 
-Poza magazynem (tylko `datasets files` i `datasets download`): `pl.imgw.hydro_phenomena`, `pl.imgw.meteo_climate_monthly`, `pl.imgw.meteo_precip_monthly`, `pl.imgw.meteo_synop_monthly`, `pl.imgw.meteo_climate_terms`.
+Outside the store (`datasets files` and `datasets download` only): `pl.imgw.hydro_phenomena`, `pl.imgw.meteo_climate_monthly`, `pl.imgw.meteo_precip_monthly`, `pl.imgw.meteo_synop_monthly`, `pl.imgw.meteo_climate_terms`.
 
-- `stations` (identyfikatory WIGOS): wymagane dla `cz.chmi.*`, niedozwolone dla `pl.imgw.*` w `datasets files`, `datasets download`, `store check` i `store sync`; jedno wywołanie obejmuje zbiory jednego rodzaju (`pl.imgw.*` albo `cz.chmi.*`).
-- `years`: wymagane w `datasets files`, `datasets download` (poza `cz.chmi.meteo_daily`) i, dla `pl.imgw.*`, w `store check` i `store sync`; tam opcjonalne dla `cz.chmi.hydro_daily` (brak = lata opublikowane); nigdy dla `cz.chmi.meteo_daily`; nie wcześniej niż „Od roku”. `months` wyłącznie dla `pl.imgw.*`, `params` wyłącznie dla `pl.imgw.hydro_semiannual`.
+- `stations` (WIGOS identifiers): required for `cz.chmi.*`, not allowed for `pl.imgw.*` in `datasets files`, `datasets download`, `store check` and `store sync`; one call covers datasets of one kind (`pl.imgw.*` or `cz.chmi.*`).
+- `years`: required in `datasets files`, `datasets download` (except `cz.chmi.meteo_daily`) and, for `pl.imgw.*`, in `store check` and `store sync`; optional there for `cz.chmi.hydro_daily` (none = the published years); never for `cz.chmi.meteo_daily`; not before "First year". `months` only for `pl.imgw.*`, `params` only for `pl.imgw.hydro_semiannual`.
 
-## Komendy
+## Commands
 
-Jedna linia na komendę, według skutku; opcje, reguły i skutki opcji: `imgw commands schema --command "<komenda>"`. Znaczniki: `[path: …]` — opcja zapisuje plik, gdy ją podasz; `[jest sprawdzeniem]` — komenda sama planuje; `[lokalna]` — bez trasy REST.
+One line per command, by effect; options, rules and per-option effects: `imgw commands schema --command "<command>"`. Marks: `[path: …]` — the option writes a file when given; `[is a check]` — the command plans itself; `[local]` — no REST route.
 
-**Odczyt — bez sieci i bez zapisu**
+**Read — no network, no writes**
 
-- `datasets list` — Wypisz zbiory z rejestru: klucze, dostawców, aliasy legacy, zmienne i pierwszy rocznik.
-- `datasets files` — Wypisz pliki źródłowe zbioru dla wybranych roczników albo stacji (offline, bez pobierania).
-- `datasets providers` — Wypisz dostawców danych z rejestru: identyfikatory, kraje, licencje, wzorce kodów stacji i zbiory.
-- `pmaxtp url` — Zbuduj adres URL API PMAXTP dla punktu (offline, bez pobierania).
-- `pmaxtp check` — Sprawdź komórkę PMAXTP w magazynie bez pobierania danych. [jest sprawdzeniem]
-- `pmaxtp read` — Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).
-- `store info` — Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu).
-- `store scan` — Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu).
-- `store export` — Wyeksportuj rekordy jednej wersji archiwum jako CSV albo JSONL (offline, z weryfikacją SHA-256). [`path`: nadpisanie]
-- `series select` — Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście projektu).
-- `series read` — Odczytaj wartości i flagi szeregu jednej stacji z magazynu.
-- `series summary` — Pokaż pokrycie stacji i zmiennych szeregu ze spisu series.json (bez pyarrow).
-- `series export` — Wyeksportuj szereg jednej stacji jako CSV z atrybucją dostawcy danych. [`path`: nadpisanie]
-- `project status` — Pokaż stan przypiętych plików zadań projektu (offline). [lokalna]
-- `project verify` — Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline). [lokalna]
-- `commands list` — Wypisz komendy katalogu: nazwy narzędzi, skutki i trasy.
-- `commands schema` — Pokaż schemat JSON opcji komendy albo cały katalog komend imgw-commands/1.
-- `commands guide` — Wygeneruj przewodnik dla agentów AI: AGENTS.md albo llms.txt, po polsku albo angielsku. [`path`: nadpisanie]
+- `datasets list` — List the datasets of the registry: keys, providers, legacy aliases, variables and first year.
+- `datasets files` — List the source files of a dataset for given years or stations (offline, no download).
+- `datasets providers` — List the data providers: identifiers, countries, licenses, station code patterns, datasets.
+- `pmaxtp url` — Build the PMAXTP API URL of a point (offline, without downloading).
+- `pmaxtp check` — Check the PMAXTP cell in the store without downloading data. [is a check]
+- `pmaxtp read` — Read a saved PMAXTP cell from the store (offline).
+- `store info` — Show the state of an IMGW store and the supported contracts (offline, without writing).
+- `store scan` — List the versions and problems of an IMGW store (offline, without writing).
+- `store export` — Export the records of one archive version as CSV or JSONL (offline, SHA-256 verified). [`path`: overwrite]
+- `series select` — Select stations, variables and years of the current series (without writing; an input of a project).
+- `series read` — Read the values and flags of one station's series from the store.
+- `series summary` — Show the coverage of stations and variables of a series from series.json (without pyarrow).
+- `series export` — Export the series of one station as CSV with the attribution of the data provider. [`path`: overwrite]
+- `project status` — Show the state of the pinned files of the project tasks (offline). [local]
+- `project verify` — Verify the SHA-256 sums of the pinned files of a project (offline). [local]
+- `commands list` — List the catalog commands: tool names, effects and routes.
+- `commands schema` — Show the JSON Schema of the options of a command or the whole imgw-commands/1 command catalog.
+- `commands guide` — Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. [`path`: overwrite]
 
-**Sieć — łączy się ze źródłem, nic nie zapisuje**
+**Network — connects to a source, writes nothing**
 
-- `stations find` — Znajdź stacje IMGW-PIB i ČHMÚ po nazwie, rzece albo prefiksie kodu.
-- `current hydro` — Pobierz bieżące dane hydrologiczne z API IMGW.
-- `current meteo` — Pobierz bieżące dane meteorologiczne z API IMGW.
-- `current synop` — Pobierz bieżące dane synoptyczne z API IMGW.
-- `current warnings` — Pobierz bieżące ostrzeżenia hydrologiczne i meteorologiczne IMGW.
-- `current hydro-states` — Pobierz stany wód stacji hydrologicznych ze współrzędnymi (mapa hydro.imgw.pl).
-- `pmaxtp fetch` — Pobierz opady maksymalne PMAXTP dla punktu (na żywo, bez zapisu).
-- `store check` — Sprawdź aktualność archiwów zbiorów bez pobierania danych. [`plan`: nadpisanie; jest sprawdzeniem]
-- `project check` — Sprawdź aktualność danych zadań projektu bez zapisu do magazynu. [`plan`: nadpisanie; jest sprawdzeniem; lokalna]
+- `stations find` — Find IMGW-PIB and ČHMÚ stations by name, river or code prefix.
+- `current hydro` — Fetch current hydrological data from the IMGW API.
+- `current meteo` — Fetch current meteorological data from the IMGW API.
+- `current synop` — Fetch current synoptic data from the IMGW API.
+- `current warnings` — Fetch the current IMGW hydrological and meteorological warnings.
+- `current hydro-states` — Fetch the water states of hydrological stations with coordinates (hydro.imgw.pl map).
+- `pmaxtp fetch` — Fetch the PMAXTP maximum precipitation of a point (live, without saving).
+- `store check` — Check the freshness of the dataset archives without downloading data. [`plan`: overwrite; is a check]
+- `project check` — Check the freshness of the data of the project tasks without writing to the store. [`plan`: overwrite; is a check; local]
 
-**Zapis — nowe pliki, wersje albo zadania; najpierw `--check`**
+**Write — new files, versions or tasks; `--check` first**
 
-- `pmaxtp sync` — Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.
-- `store init` — Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu. [lokalna]
-- `store sync` — Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru zbiorów i stacji.
-- `store catalog` — Zbuduj wersjonowany katalog stacji stations.geojson jednego dostawcy.
-- `series build` — Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.
-- `project init` — Utwórz manifest projektu imgw-project.json wskazujący magazyn. [lokalna]
-- `project add` — Dodaj zadanie do manifestu projektu. [lokalna]
+- `pmaxtp sync` — Download the PMAXTP cell of a point and save it as a version in the store.
+- `store init` — Create an empty IMGW store (imgw-store.json marker) in the given directory. [local]
+- `store sync` — Download new or missing archives into the store, by plan or by datasets and stations.
+- `store catalog` — Build the versioned station catalog stations.geojson of one provider.
+- `series build` — Build the Parquet series of a dataset from the current archive versions of the store.
+- `project init` — Create the imgw-project.json manifest of a project pointing to a store. [local]
+- `project add` — Add a task to the project manifest. [local]
 
-**Nadpisanie — może zastąpić istniejący plik albo manifest; najpierw `--check`**
+**Overwrite — may replace an existing file or manifest; `--check` first**
 
-- `datasets download` — Pobierz pliki źródłowe zbioru do katalogu odzwierciedlającego ścieżki serwera dostawcy. [lokalna]
-- `project remove` — Usuń zadanie z manifestu projektu. [lokalna]
-- `project set-store` — Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików. [lokalna]
-- `project download` — Pobierz i przypnij dane zadań projektu. [lokalna]
+- `datasets download` — Download the source files of a dataset to a directory mirroring the provider's server paths. [local]
+- `project remove` — Remove a task from the project manifest. [local]
+- `project set-store` — Point the project to a new store directory after verifying the pinned files. [local]
+- `project download` — Download and pin the data of the project tasks. [local]
 
-## Flagi i wartości
+## Flags and values
 
-- Listy (`--datasets`, `--months`, `--params`, `--stations`, `--tasks`, `--variables`, `--years`): wartości po przecinku (`--months 1,2`) albo powtórzona flaga (`-s A -s B`). Roczniki (`--years`): `2024`, `2020-2023`, `2020,2022` albo `2018,2020-2023`. Daty (`--end`, `--start`): ISO `RRRR-MM-DD`.
-- Przełączniki domyślnie włączone: `--series/--no-series` (`--no-…` wyłącza); pozostałe flagi logiczne (`--main-only`) nie mają wartości i włączają swoją opcję.
-- Zmienne środowiskowe: `IMGW_STORE_ROOT` — domyślne `--root` (CLI, MCP stdio; `stations find` — tylko przy `source=store`); `IMGW_LANG` — język pomocy CLI i domyślne `--lang` (`pl`, `en`).
+- Lists (`--datasets`, `--months`, `--params`, `--stations`, `--tasks`, `--variables`, `--years`): comma-separated values (`--months 1,2`) or a repeated flag (`-s A -s B`). Years (`--years`): `2024`, `2020-2023`, `2020,2022` or `2018,2020-2023`. Dates (`--end`, `--start`): ISO `YYYY-MM-DD`.
+- Switches on by default: `--series/--no-series` (`--no-…` turns it off); the other boolean flags (`--main-only`) take no value and turn their option on.
+- Environment: `IMGW_STORE_ROOT` — the default `--root` (CLI, MCP stdio; `stations find` — only with `source=store`); `IMGW_LANG` — the language of the CLI help and of the progress lines (`pl`, `en`).
 
-## Typowe przepływy
+## Typical flows
 
-Symbole pisane wielkimi literami (`KOD_STACJI`, `KOD_WIGOS`, `PROJEKT`) zastąp wartościami z wcześniejszych kroków.
+Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`, `PROJECT`) with the values of earlier steps.
 
-### 1. Opady dobowe ze stacji Poznań, 2010–2020
+### 1. Daily precipitation at the Poznań station, 2010–2020
 
-1. `imgw stations find --kind meteo --query poznan` — kilka trafień → zapytaj użytkownika; kod wybranej stacji to `KOD_STACJI`.
-2. Wybierz zbiór: `pl.imgw.meteo_precip_daily` (stacje opadowe, `P`) albo `pl.imgw.meteo_climate_daily` (stacje klimatyczne, `P` i temperatury) — lista stacji nie mówi, w której sieci jest stacja.
-3. `imgw store check --root /dane/imgw --datasets pl.imgw.meteo_precip_daily --years 2010-2020` — plan: liczba plików i bajtów; archiwa obejmują cały kraj, więc podaj użytkownikowi rozmiar.
-4. `imgw store sync --root /dane/imgw --datasets pl.imgw.meteo_precip_daily --years 2010-2020` — po zgodzie użytkownika; szeregi stacji budują się same.
-5. `imgw series summary --root /dane/imgw --dataset pl.imgw.meteo_precip_daily --stations KOD_STACJI` — brak stacji → powtórz kroki 3–5 z `pl.imgw.meteo_climate_daily`; brak w obu → powiedz to użytkownikowi, nie podstawiaj innej stacji.
-6. `imgw series read --root /dane/imgw --dataset pl.imgw.meteo_precip_daily --station KOD_STACJI --variables P --start 2010-01-01 --end 2020-12-31 --limit 500` — kolejne strony: `--offset`.
+1. `imgw stations find --kind meteo --query poznan` — several hits → ask the user; the code of the chosen station is `STATION_CODE`.
+2. Choose the dataset: `pl.imgw.meteo_precip_daily` (precipitation stations, `P`) or `pl.imgw.meteo_climate_daily` (climate stations, `P` and temperatures) — the station list does not tell the network of a station.
+3. `imgw store check --root /data/imgw --datasets pl.imgw.meteo_precip_daily --years 2010-2020` — plan: the number of files and bytes; the archives cover the whole country, so tell the user the size.
+4. `imgw store sync --root /data/imgw --datasets pl.imgw.meteo_precip_daily --years 2010-2020` — after the user agrees; the station series are built as well.
+5. `imgw series summary --root /data/imgw --dataset pl.imgw.meteo_precip_daily --stations STATION_CODE` — the station is missing → repeat steps 3–5 with `pl.imgw.meteo_climate_daily`; missing from both → tell the user, do not substitute another station.
+6. `imgw series read --root /data/imgw --dataset pl.imgw.meteo_precip_daily --station STATION_CODE --variables P --start 2010-01-01 --end 2020-12-31 --limit 500` — next pages: `--offset`.
 
-### 2. Przepływy dobowe stacji czeskiej (ČHMÚ)
+### 2. Daily discharge of a Czech station (ČHMÚ)
 
-1. `imgw stations find --kind hydro --query spindleruv --provider CHMI` — identyfikator WIGOS wybranej stacji to `KOD_WIGOS`.
-2. `imgw store check --root /dane/imgw --datasets cz.chmi.hydro_daily --years 2020-2025 --stations KOD_WIGOS` — plan: pliki stacji po latach.
-3. `imgw store sync --root /dane/imgw --datasets cz.chmi.hydro_daily --years 2020-2025 --stations KOD_WIGOS` — po zgodzie użytkownika.
-4. `imgw series read --root /dane/imgw --dataset cz.chmi.hydro_daily --station KOD_WIGOS --variables Q --limit 500` — kolejne strony: `--offset`.
+1. `imgw stations find --kind hydro --query spindleruv --provider CHMI` — the WIGOS identifier of the chosen station is `WIGOS_ID`.
+2. `imgw store check --root /data/imgw --datasets cz.chmi.hydro_daily --years 2020-2025 --stations WIGOS_ID` — plan: the station files by year.
+3. `imgw store sync --root /data/imgw --datasets cz.chmi.hydro_daily --years 2020-2025 --stations WIGOS_ID` — after the user agrees.
+4. `imgw series read --root /data/imgw --dataset cz.chmi.hydro_daily --station WIGOS_ID --variables Q --limit 500` — next pages: `--offset`.
 
-### 3. Odtwarzalny projekt
+### 3. Reproducible project
 
-1. `imgw project init --project-dir PROJEKT --store-dir ../magazyn` — manifest `imgw-project.json`; `store_dir` względem katalogu projektu.
-2. `imgw project add --project-dir PROJEKT --name opady --command 'series select' --options '{"dataset":"pl.imgw.meteo_precip_daily","stations":["KOD_STACJI"],"years":"2010-2020"}'` — zadanie zapamiętuje komendę i jej opcje (bez `root`).
-3. `imgw project download --project-dir PROJEKT --check` — plan…
-4. `imgw project download --project-dir PROJEKT` — …potem pobranie i przypięcie plików (SHA-256) po zgodzie użytkownika.
-5. `imgw project verify --project-dir PROJEKT` — sumy SHA-256 przypiętych plików (offline).
+1. `imgw project init --project-dir PROJECT --store-dir ../store` — the `imgw-project.json` manifest; `store_dir` relative to the project directory.
+2. `imgw project add --project-dir PROJECT --name precipitation --command 'series select' --options '{"dataset":"pl.imgw.meteo_precip_daily","stations":["STATION_CODE"],"years":"2010-2020"}'` — the task keeps the command and its options (without `root`).
+3. `imgw project download --project-dir PROJECT --check` — the plan…
+4. `imgw project download --project-dir PROJECT` — …then the files are downloaded and pinned (SHA-256) after the user agrees.
+5. `imgw project verify --project-dir PROJECT` — the SHA-256 sums of the pinned files (offline).
 
-## Czego nie robić
+## What not to do
 
-1. Nie buduj URL-i serwerów IMGW-PIB i ČHMÚ ręcznie ani ich nie przeszukuj — `datasets files`, `datasets download`, `store sync`.
-2. Kody wyjścia 10 i 11 nie oznaczają awarii programu — przeczytaj kopertę (`items[].status`, `error_code`).
-3. Nie uruchamiaj zapisu (`store sync`, `series build`, `datasets download`, `project download`) bez planu i zgody użytkownika; w MCP zapis włącza użytkownik, nie agent.
-4. Nie zgaduj stacji ani zbioru: przy kilku trafieniach `stations find` zapytaj; obecność stacji w zbiorze sprawdź `series summary`.
-5. Nie edytuj, nie przenoś i nie usuwaj plików magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — magazyn jest tylko przyrostowy.
-6. Nie pobieraj „na zapas”: zawężaj `years`, `months` i `stations`; nie mieszaj dostawców w jednym wywołaniu ze `stations`.
-7. Długie listy czytaj stronami (`limit`, `offset`); używaj `series read` albo `series export --path`, nie CSV w kontekście.
-8. Nie odpytuj `current …` w pętli — to API na żywo; zachowaj wynik.
-9. Przekaż użytkownikowi komunikat `license_terms` i atrybucję (IMGW-PIB: warunki celu użycia; ČHMÚ: CC BY 4.0).
-10. `version` wskazuj wyłącznie pod `*/versions/` magazynu, bez `..`; w REST i MCP przez HTTP — względnie do magazynu serwera.
+1. Do not build or crawl IMGW-PIB and ČHMÚ server URLs by hand — use `datasets files`, `datasets download`, `store sync`.
+2. Exit codes 10 and 11 are not program failures — read the envelope (`items[].status`, `error_code`).
+3. Do not run writes (`store sync`, `series build`, `datasets download`, `project download`) without a plan and the user's consent; in MCP the user, not the agent, enables writes.
+4. Do not guess a station or a dataset: with several `stations find` hits, ask; check with `series summary` that a dataset has the station.
+5. Do not edit, move or delete store files (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — the store only grows.
+6. Do not download "just in case": narrow `years`, `months` and `stations`; do not mix providers in one call with `stations`.
+7. Read long lists in pages (`limit`, `offset`); use `series read` or `series export --path`, not CSV in the context.
+8. Do not poll `current …` in a loop — it is a live API; keep the result.
+9. Pass the `license_terms` notice and the attribution on to the user (IMGW-PIB: terms of the purpose of use; ČHMÚ: CC BY 4.0).
+10. Point `version` only below `*/versions/` of the store, without `..`; over REST and MCP over HTTP — relative to the server's store.
 
-Rozwijasz to repozytorium? Przeczytaj CLAUDE.md.
+Developing this repository? Read CLAUDE.md.

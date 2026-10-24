@@ -590,12 +590,10 @@ _TASK_NAME_OPTION = _option(
 _LANGUAGE = _option(
     "lang",
     "choice",
-    "Język opisów: pl albo en (CLI: domyślnie $IMGW_LANG; REST: według "
-    "Accept-Language)",
-    "Language of the descriptions: pl or en (CLI: defaults to $IMGW_LANG; REST: by "
-    "Accept-Language)",
+    "Język opisów: en (domyślnie) albo pl (REST: według Accept-Language)",
+    "Language of the descriptions: en (default) or pl (REST: by Accept-Language)",
     choices=LANGS,
-    default="pl",
+    default="en",
 )
 _LIMIT = _option("limit", "int", "Rozmiar strony", "Page size", minimum=1)
 _OFFSET = _option(
@@ -2811,7 +2809,7 @@ def _check_commands_guide(options: Options, hooks: Hooks) -> StorePlan:
     detail = message(
         "commands.guide_plan",
         format=options.get("format", "agents"),
-        language=options.get("lang", "pl"),
+        language=options.get("lang", "en"),
         target=target,
     )
     return _reading("commands guide", detail)
@@ -3036,7 +3034,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
 
 
 def command_schema(
-    command: str | None = None, /, *, lang: Lang = "pl"
+    command: str | None = None, /, *, lang: Lang = "en"
 ) -> dict[str, object]:
     """
     Describe the options of one command, or the whole catalog, as JSON Schema.
@@ -3062,7 +3060,7 @@ def command_schema(
     ----------
     command : str or None, optional
         Catalog command name; ``None`` returns the whole catalog.
-    lang : {"pl", "en"}, optional
+    lang : {"en", "pl"}, optional
         Language of the texts: command and option descriptions, rules,
         group descriptions and error titles. Everything else (properties,
         types, enumerations, bounds, required groups, ``x-imgw`` fields
@@ -3110,7 +3108,7 @@ def _summary(text: str) -> str:
     return _SENTENCE_END.split(text, maxsplit=1)[0]
 
 
-def list_commands(*, lang: Lang = "pl") -> dict[str, object]:
+def list_commands(*, lang: Lang = "en") -> dict[str, object]:
     """
     Summarize the command catalog: one short entry per command.
 
@@ -3120,7 +3118,7 @@ def list_commands(*, lang: Lang = "pl") -> dict[str, object]:
 
     Parameters
     ----------
-    lang : {"pl", "en"}, optional
+    lang : {"en", "pl"}, optional
         Language of the group titles and of the summaries.
 
     Returns

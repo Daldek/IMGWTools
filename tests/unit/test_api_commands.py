@@ -423,7 +423,9 @@ def test_api_get_route_answers_the_run_command_envelope(
     if command_schema(command)["x-imgw"]["result"] == "list":
         options.setdefault("limit", 1000)
 
-    response = client.get(path_of(command), params=query)
+    response = client.get(
+        path_of(command), params=query, headers={"Accept-Language": "en"}
+    )
 
     assert response.status_code == 200, response.text
     expected = run_command(command, options=options).to_json(root=served, server=True)

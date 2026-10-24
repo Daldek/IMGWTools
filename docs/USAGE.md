@@ -338,10 +338,11 @@ imgw store catalog --provider CHMI                    # stations/versions/chmi_s
 imgw series read -d cz.chmi.hydro_daily -s 0-203-1-001000 --variables Q --limit 5
 imgw store scan --provider CHMI -k observation
 
-# Agenci AI: przewodnik, opisy po angielsku, serwer MCP (dodatek imgwtools[mcp])
-imgw commands guide --format llms --lang en
-imgw commands schema --command "store sync" --lang en
-IMGW_LANG=en imgw store sync --help
+# Agenci AI: przewodnik i opisy (domyślnie po angielsku), serwer MCP (dodatek imgwtools[mcp])
+imgw commands guide --format llms
+imgw commands schema --command "store sync"
+imgw commands schema --command "store sync" --lang pl   # opisy po polsku
+IMGW_LANG=en imgw store sync --help                      # pomoc CLI po angielsku
 imgw mcp                                              # stdio — uruchamia go klient MCP
 
 # Plan bez zapisu i bez pobierania; opis opcji komendy
@@ -454,7 +455,7 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
 
 ## Agenci AI: język, skutki komend i serwer MCP
 
-**Język.** Domyślnie wszystko jest po polsku. Teksty katalogu (opisy komend, pomoc opcji, reguły, grupy, tytuły błędów i zbiorów) mają wariant angielski: `command_schema(lang="en")`, `--lang en`, `IMGW_LANG=en` (CLI i `imgw mcp`), `Accept-Language: en` (REST). `detail` błędów i treść komunikatów pozostają polskie; agent decyduje po `code`, `status` i polach JSON. Język nie zmienia kontraktu.
+**Język.** Wynik maszynowy jest po angielsku (AGI-9.2): koperta, `detail` błędów, powiadomienia, linie planu, opisy `commands list|schema|guide` (`command_schema()`, `list_commands()`, `agent_guide()`), `AGENTS.md`, `llms.txt` i serwer MCP; REST odpowiada w języku `Accept-Language` (do osobnej zmiany: domyślnie po polsku). Polskie teksty katalogu (opisy komend, pomoc opcji, reguły, grupy, tytuły błędów i zbiorów) dostaje się na jawną prośbę: `lang="pl"`, `--lang pl`, `Accept-Language: pl`. `IMGW_LANG` (domyślnie `pl`) dotyczy wyłącznie tekstu dla człowieka w CLI: pomocy, linii postępu i powiadomień na stderr; ostatnia linia błędu i koperta są zawsze po angielsku, a `IMGW_LANG` nie jest domyślną wartością `--lang`. Agent decyduje po `code`, `status` i polach JSON; język nie zmienia kontraktu.
 
 **Skutki komend.** `x-imgw.writes` (`none`, `add` — tylko nowe pliki i wersje, `replace` — może zastąpić plik użytkownika), `x-imgw.network` i `x-imgw-writes` opcji (np. `path`, `plan` w `store check`) mówią, co komenda zrobi, zanim zostanie uruchomiona; każda komenda zapisująca ma plan (`--check`, `?check=true`, `check: true`).
 
@@ -553,7 +554,7 @@ api_max_limit = 500
 | `IMGW_DATA_DIR` (też `NOGAT_DATA_DIR`) | `data_dir` | katalog danych użytkownika `nogat` (`~/.local/share/nogat`) | nadrzędny katalog magazynów (`<data_dir>/imgw`) i stanu serwera; **do 3.0.0 oznaczał dane referencyjne** (patrz `IMGW_REFERENCE_DIR`) |
 | `IMGW_CACHE_DIR` (też `NOGAT_CACHE_DIR`) | `cache_dir` | katalog pamięci podręcznej `nogat` (`~/.cache/nogat`) | pamięć podręczna (`<cache_dir>/imgw`) |
 | `IMGW_REFERENCE_DIR` | `reference_dir` | `<cache_dir>/imgw/reference` | dane referencyjne IMGW-PIB (`python -m imgwtools.reference_data`) |
-| `IMGW_LANG` (też `NOGAT_LANG`) | `lang` | `pl` | `pl` albo `en`: pomoc CLI, linie postępu i powiadomień na stderr oraz domyślna wartość `--lang` (ostatnia linia błędu i koperta są zawsze po angielsku) |
+| `IMGW_LANG` (też `NOGAT_LANG`) | `lang` | `pl` | `pl` albo `en`: pomoc CLI, linie postępu i powiadomień na stderr (ostatnia linia błędu, koperta i opisy komend są zawsze po angielsku; polskie opisy daje `--lang pl`) |
 | `IMGW_STORE_ROOT` | `store_root` | brak | korzeń magazynu serwera REST i `imgw mcp`; domyślne `--root` CLI |
 | `IMGW_STORE_WRITES_ENABLED` | `store_writes_enabled` | `false` | zapis przez REST (POST bez `?check=true`) |
 | `IMGW_STORE_WRITE_TOKEN` | — (tylko środowisko) | brak | token zapisu w nagłówku `X-API-Key` |
@@ -656,7 +657,7 @@ Pełna lista z tabelami migracji: [`docs/CHANGELOG.md`](CHANGELOG.md) (także wc
 - Dostawca ČHMÚ (Czechy): dobowe dane hydrologiczne i meteorologiczne per stacja,
   aktualność z listingu, treść kanoniczna i rejestr obserwacji, katalog stacji z progami SPA,
   jakość i flagi ČHMÚ w szeregach, odtwarzanie przypięć treścią.
-- Agenci AI: `AGENTS.md`, `llms.txt`, `imgw commands guide`, opisy angielskie katalogu
-  (`IMGW_LANG`, `Accept-Language`), metadane skutków komend, serwer MCP `imgw mcp` i `/mcp`.
+- Agenci AI: `AGENTS.md`, `llms.txt`, `imgw commands guide`, opisy katalogu po angielsku
+  (polskie na prośbę: `--lang pl`, `Accept-Language`), metadane skutków komend, serwer MCP `imgw mcp` i `/mcp`.
 - Projekty `imgw-project/1` z przypięciem wersji po SHA-256 i publiczny budowniczy
   magazynu testowego `imgwtools.testing.build_fixture_store` (także wariant PL + CZ).

@@ -16,7 +16,6 @@ from imgwtools.agent_guide import (
     _PRINCIPLES,
     GuideFormat,
     _instructions,
-    _localized,
     _render,
     _Symbol,
 )
@@ -30,7 +29,7 @@ from imgwtools.commands import (
 )
 from imgwtools.datasets import datasets, providers
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
-from imgwtools.messages import Lang
+from imgwtools.messages import Lang, message
 from tests.unit.test_commands import parse
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -53,7 +52,7 @@ def no_environment(monkeypatch):
     monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
 
 
-def text(format: GuideFormat = "agents", lang: Lang = "pl") -> str:
+def text(format: GuideFormat = "agents", lang: Lang = "en") -> str:
     return "".join(agent_guide(format=format, lang=lang))
 
 
@@ -83,8 +82,8 @@ def test_repository_guides_are_the_bytes_of_the_generator(name, format):
     expected = text(format).encode("utf-8")
 
     assert (REPOSITORY / name).read_bytes() == expected, (
-        f"{name} różni się od generatora; zregeneruj plik: imgw commands guide "
-        f"--format {format} --lang pl --path {name}"
+        f"{name} differs from the generator; regenerate it: imgw commands guide "
+        f"--format {format} --path {name}"
     )
 
 
@@ -122,7 +121,7 @@ def test_guide_lists_every_command_once_in_the_class_of_its_effect(lang):
         effect = item["writes"] if item["writes"] != "none" else "read"
         if effect == "read" and item["network"]:
             effect = "network"
-        assert placed[item["command"]] == _localized(_EFFECTS[effect], lang)
+        assert placed[item["command"]] == message(_EFFECTS[effect], lang=lang)
 
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
@@ -187,7 +186,7 @@ def test_agents_md_ends_with_the_pointer_to_claude_md(lang, last):
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
 def test_guides_carry_the_rules_shared_with_the_mcp_instructions(lang):
-    rules = [english if lang == "en" else polish for polish, english in _PRINCIPLES]
+    rules = [message(key, lang=lang) for key in _PRINCIPLES]
     expected = "\n".join(f"{n}. {rule}" for n, rule in enumerate(rules, start=1))
 
     for format in GUIDES.values():
@@ -228,7 +227,7 @@ def test_flow_steps_name_only_known_symbols():
 
     used = {s for flow in _FLOWS for step in flow.steps for s in symbols(step.options)}
 
-    assert {(s.pl, s.en) for s in used} == {
+    assert {(s.name("pl"), s.name("en")) for s in used} == {
         ("KOD_STACJI", "STATION_CODE"),
         ("KOD_WIGOS", "WIGOS_ID"),
         ("PROJEKT", "PROJECT"),
@@ -263,7 +262,9 @@ def test_commands_guide_gives_the_same_bytes_in_python_cli_and_rest():
 
     printed = RUNNER.invoke(cli_app, ["commands", "guide", "--format", "llms"])
     answered = TestClient(rest_app).get(
-        "/api/v1/commands/guide", params={"format": "llms"}
+        "/api/v1/commands/guide",
+        params={"format": "llms"},
+        headers={"Accept-Language": "en"},
     )
 
     assert printed.exit_code == 0, printed.output
@@ -323,7 +324,7 @@ def test_guide_without_path_plans_the_standard_output():
     plan = check_command("commands guide", options={"format": "llms"}).result
 
     assert [(action.status, action.detail) for action in plan.actions] == [
-        ("current", "Guide llms (pl) → the standard output")
+        ("current", "Guide llms (en) → the standard output")
     ]
 
 
@@ -382,8 +383,8 @@ def test_instructions_are_english_and_hold_the_rules_and_the_mode_below_2_kib(
 
     for instructions in (with_store, without):
         assert len(instructions.encode("utf-8")) < 2048
-        for _, english in _PRINCIPLES:
-            assert english in instructions
+        for key in _PRINCIPLES:
+            assert message(key) in instructions
         assert "`imgw_commands_guide`" in instructions and "50" in instructions
         assert instructions.startswith("Rules of IMGWTools:")
     assert with_store != without

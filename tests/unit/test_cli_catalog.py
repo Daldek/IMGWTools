@@ -60,7 +60,7 @@ from tests.unit.test_commands import SAMPLES
 
 RUNNER = CliRunner()
 SPECS = {spec.name: spec for spec in data_commands()}
-CATALOG = command_schema()
+CATALOG = command_schema(lang="pl")
 EXIT_CODES = CATALOG["exit_codes"]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
@@ -393,19 +393,20 @@ def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
         assert document["details"]["option"] == "IMGW_LANG"
 
 
-def test_cli_lang_flag_and_imgw_lang_choose_the_commands_schema_language():
-    english = json.loads(json.dumps(command_schema(lang="en")))
-    polish = json.loads(json.dumps(command_schema()))
+def test_cli_commands_schema_is_english_and_polish_only_on_request():
+    english = json.loads(json.dumps(command_schema()))
+    polish = json.loads(json.dumps(command_schema(lang="pl")))
 
+    assert envelope(invoke("commands", "schema"))["result"] == english
     assert envelope(invoke("commands", "schema", "--lang", "en"))["result"] == english
-    by_variable = invoke("commands", "schema", env={"IMGW_LANG": "en"})
+    assert envelope(invoke("commands", "schema", "--lang", "pl"))["result"] == polish
+    # IMGW_LANG is the language of the human lines, not of the machine output.
+    by_variable = invoke("commands", "schema", env={"IMGW_LANG": "pl"})
     assert envelope(by_variable)["result"] == english
-    flag_first = invoke("commands", "schema", "--lang", "pl", env={"IMGW_LANG": "en"})
-    assert envelope(flag_first)["result"] == polish
-    flag = run_installed("store", "sync", "--schema", lang="en", capture_output=True)
+    flag = run_installed("store", "sync", "--schema", lang="pl", capture_output=True)
     assert flag.returncode == 0, flag.stderr
     assert json.loads(flag.stdout)["result"] == json.loads(
-        json.dumps(command_schema("store sync", lang="en"))
+        json.dumps(command_schema("store sync"))
     )
 
 

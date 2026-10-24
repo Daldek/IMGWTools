@@ -45,7 +45,7 @@ def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes()
         document["version"],
         document["lang"],
         document["result_schema"],
-    ) == ("imgw-commands/1", __version__, "pl", "imgw-result/1")
+    ) == ("imgw-commands/1", __version__, "en", "imgw-result/1")
     assert [schema["title"] for schema in document["commands"]] == SPEC_COMMANDS
     assert list(document["groups"]) == list(
         dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS)
@@ -53,7 +53,7 @@ def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes()
     assert document["errors"] == [
         {
             "code": spec.code,
-            "title": spec.title.localized("pl"),
+            "title": spec.title.localized("en"),
             "exit_code": spec.exit_code,
             "http_status": spec.http_status,
         }

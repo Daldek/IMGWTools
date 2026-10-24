@@ -14,7 +14,7 @@ Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAX
 - **Serwer MCP** - `imgw mcp` (dodatek `imgwtools[mcp]`) i punkt `/mcp` serwera REST: komendy katalogu jako narzędzia dla agentów AI, domyślnie bez zapisu
 - **Web GUI** - formularze pobierania, wyszukiwarka stacji i mapa interaktywna (dane IMGW-PIB)
 
-Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw commands list`, `imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Teksty są domyślnie po polsku; opisy katalogu mają wariant angielski (`IMGW_LANG=en`, `--lang en`, `Accept-Language: en`). Przewodnik dla agentów AI: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) i [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt).
+Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw commands list`, `imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Wynik maszynowy (koperta, błędy, powiadomienia, opisy katalogu, przewodnik dla agentów AI, serwer MCP) jest po angielsku; polskie teksty dostaje się na prośbę (`--lang pl`, `Accept-Language: pl`), a pomoc i linie CLI dla człowieka są po polsku (`IMGW_LANG=en` przełącza je na angielski). Przewodnik dla agentów AI: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) i [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt).
 
 **Obsługiwane dane:**
 - Aktualne dane hydrologiczne, meteorologiczne i synoptyczne przez API IMGW
@@ -128,7 +128,7 @@ Agent (asystent w edytorze, aplikacja czatu, skrypt z modelem językowym) poznaj
 
 - [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) — przewodnik: zasada „sprawdź → uruchom → przeczytaj”, odwzorowanie Python/CLI/REST/MCP, koperta i statusy, kody błędów, zbiory obu dostawców z regułami opcji, tabele komend ze skutkami, typowe przepływy (m.in. „opady dobowe ze stacji Poznań”, stacja ČHMÚ, projekt) i lista „czego nie robić”;
 - [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt) — skrót według llms.txt v2 z odnośnikami do dokumentacji; ten sam plik serwuje `GET /llms.txt`;
-- `imgw commands guide [--format agents|llms] [--lang pl|en] [--path PLIK]` albo `agent_guide()` w Pythonie — oba pliki wygenerowane na bieżąco, także po angielsku; `GET /api/v1/commands/guide`.
+- `imgw commands guide [--format agents|llms] [--lang en|pl] [--path PLIK]` albo `agent_guide()` w Pythonie — oba pliki wygenerowane na bieżąco (domyślnie po angielsku, `--lang pl` daje polski); `GET /api/v1/commands/guide`.
 
 `AGENTS.md` i `llms.txt` to pliki pochodne katalogu komend, rejestrów i szablonów `src/imgwtools/_data/agents/` — nie edytuje się ich ręcznie (zasady pracy nad kodem: `CLAUDE.md`).
 

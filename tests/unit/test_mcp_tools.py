@@ -180,8 +180,6 @@ async def test_input_schema_is_the_command_schema_of_the_offered_options(mode):
                 continue  # as the REST route takes it (next test)
             if name == "limit":
                 expected.update(default=50, maximum=settings.api_max_limit)
-            if name == "lang":
-                expected["default"] = "en"
             assert prop == expected, (schema["x-imgw"]["command"], name)
 
 

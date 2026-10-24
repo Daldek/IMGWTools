@@ -83,7 +83,7 @@ DEFAULT_TIMEOUT = 30
   i `CommandOption.writes` opcji zapisującej; komenda zapisująca ma bliźniaka `check`.
 - Zmiana tekstów katalogu, rejestru zbiorów, dostawców albo kodów błędów lub szablonów
   `src/imgwtools/_data/agents/` regeneruje w tej samej zmianie pliki pochodne `AGENTS.md`
-  i `llms.txt` (`imgw commands guide --format agents|llms --lang pl --path …`); test dryfu
+  i `llms.txt` (`imgw commands guide --format agents|llms --path …`); test dryfu
   porównuje bajty.
 
 ---
