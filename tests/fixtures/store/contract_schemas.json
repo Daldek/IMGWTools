@@ -6,11 +6,25 @@
       "type": "object",
       "required": [
         "schema",
+        "tool",
+        "created_at",
+        "producer_version",
         "created_by"
       ],
       "properties": {
         "schema": {
           "const": "imgw-store/1"
+        },
+        "tool": {
+          "const": "imgw"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "producer_version": {
+          "type": "string",
+          "minLength": 1
         },
         "created_by": {
           "type": "string",
@@ -1165,6 +1179,9 @@
   "examples": {
     "imgw-store/1": {
       "schema": "imgw-store/1",
+      "tool": "imgw",
+      "created_at": "2026-10-17T12:00:00Z",
+      "producer_version": "3.0.0",
       "created_by": "imgwtools 3.0.0"
     },
     "imgw-meta/1": {

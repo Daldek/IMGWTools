@@ -315,6 +315,19 @@ def test_every_kind_of_version_has_the_sidecar_core_of_dev_19_16(
     } | {("pmaxtp", "IMGW-PIB")}
 
 
+def test_the_marker_contract_has_the_fields_of_dev_19_12(fixture_root):
+    marker = load(fixture_root / "imgw-store.json")
+
+    assert {"schema", "tool", "created_at", "producer_version"} <= set(marker)
+    assert schema_errors(marker, "imgw-store/1") == []
+    for name in ("tool", "created_at", "producer_version"):
+        without = {key: value for key, value in marker.items() if key != name}
+        assert schema_errors(without, "imgw-store/1"), name
+    # a marker of another tool is not an imgw store
+    assert schema_errors({**marker, "tool": "kartograf"}, "imgw-store/1")
+    assert schema_errors({**marker, "created_at": "yesterday"}, "imgw-store/1")
+
+
 def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root, imgw):
     root = tmp_path / "store"
     shutil.copytree(fixture_root, root)

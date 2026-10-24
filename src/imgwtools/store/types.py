@@ -1075,9 +1075,10 @@ class CommandOption:
         REST role: request parameter, server configuration value, or absent
         from REST (local only).
     writes : {"none", "add", "replace"}, optional
-        Effect of giving the option: ``"add"`` writes only new files,
-        ``"replace"`` may overwrite an existing file (e.g. ``path`` of an
-        export or ``plan`` of ``store check``); ``"none"`` writes nothing.
+        Effect of giving the option: ``"add"`` writes only new files
+        (``output_dir``, ``output`` of an export), ``"replace"`` may overwrite
+        an existing file (``force``, ``plan`` of ``store check``); ``"none"``
+        writes nothing.
     path_role : {"input", "output", "root"} or None, optional
         Role of a ``"path"`` option (AGI-2.3): ``"input"`` a file or directory
         that is read, ``"output"`` where plain files or an export are written
