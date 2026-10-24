@@ -256,7 +256,7 @@ def _refuse(route: _Route, name: str) -> NoReturn:
     option = next((o for o in route.spec.options if o.name == name), None)
     details: dict[str, object] = {"option": name}
     if option is not None and option.rest == "server":
-        detail = message("api.server_sets_option_imgw_store", name=name)
+        detail = message("api.server_sets_option_imgw_root", name=name)
     elif option is not None and option.rest == "local":
         detail = message(
             "api.option_command_available_only_locally",
@@ -372,12 +372,12 @@ def _server_root(route: _Route, options: Mapping[str, object]) -> Path | None:
             "not_configured",
         )
     if not root.is_absolute():
-        raise _unavailable(message("api.imgw_store_root_must_absolute"), "root_invalid")
+        raise _unavailable(message("api.imgw_root_must_absolute"), "root_invalid")
     try:
         info = store_info(root)
     except IMGWError as exc:
         raise _unavailable(
-            message("api.invalid_imgw_store_root", detail=exc.detail), "root_invalid"
+            message("api.invalid_imgw_root", detail=exc.detail), "root_invalid"
         ) from exc
     if not info.supported and route.spec.name not in _DIAGNOSTIC:
         raise _unavailable(

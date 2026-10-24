@@ -976,7 +976,7 @@ def build_series(
         dataset.
     on_progress : ProgressHook or None, optional
         Called after each parsed archive and each written station file, or once
-        for a reused version.
+        for an unchanged version.
     on_notice : NoticeHook or None, optional
         Receives ``archive_failed`` errors for unreadable inputs, a
         ``leftover_incoming`` warning for every removed staging directory older
@@ -991,7 +991,7 @@ def build_series(
     SeriesReport
         Status ``new``, ``unchanged``, ``cancelled`` or ``failed``; ``version`` is
         the path of ``series.json``, ``source_files`` the absolute paths of the input
-        archive versions (for ``reused``, the inputs recorded in the reused
+        archive versions (for ``unchanged``, the inputs recorded in the existing
         current version's sidecar) and ``problems`` the reasons of a failure.
 
     Raises

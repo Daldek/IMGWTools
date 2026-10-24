@@ -3,7 +3,7 @@
 from imgwtools.messages import Text
 
 MESSAGES = {
-    "server_sets_option_imgw_store": Text(
+    "server_sets_option_imgw_root": Text(
         "The server sets the option {name} (IMGW_ROOT); remove it from the request",
         "Opcję {name} ustawia serwer (IMGW_ROOT); usuń ją z żądania",
     ),
@@ -49,11 +49,11 @@ MESSAGES = {
         "Magazyn nie jest skonfigurowany: ustaw IMGW_ROOT na bezwzględną "
         "ścieżkę magazynu na serwerze",
     ),
-    "imgw_store_root_must_absolute": Text(
+    "imgw_root_must_absolute": Text(
         "IMGW_ROOT must be an absolute path",
         "IMGW_ROOT musi być ścieżką bezwzględną",
     ),
-    "invalid_imgw_store_root": Text(
+    "invalid_imgw_root": Text(
         "Invalid IMGW_ROOT: {detail}",
         "Niepoprawny IMGW_ROOT: {detail}",
     ),

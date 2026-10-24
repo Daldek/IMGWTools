@@ -94,7 +94,7 @@ CLI_ERROR = {
 
 
 @pytest.fixture(autouse=True)
-def no_store_root(monkeypatch):
+def no_imgw_root(monkeypatch):
     """The developer's IMGW_ROOT and IMGW_LANG must not reach the commands."""
     monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.delenv("IMGW_LANG", raising=False)
@@ -576,7 +576,7 @@ def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english
 # --- --root z IMGW_ROOT ----------------------------------------------------------------
 
 
-def test_cli_catalog_root_falls_back_to_imgw_store_root(
+def test_cli_catalog_root_falls_back_to_imgw_root(
     monkeypatch, tmp_path, fixture_root, offline
 ):
     env = {"IMGW_ROOT": str(fixture_root)}
