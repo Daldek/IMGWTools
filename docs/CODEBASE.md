@@ -22,7 +22,8 @@ src/imgwtools/
 ├── parsers.py            # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
 ├── testing.py            # PUBLIC: build_fixture_store (complete, complete_pl_cz, ...), fixture_files
 ├── _jsonable.py          # Single JSON converter (envelope, relative store paths)
-├── reference_data.py     # python -m imgwtools.reference_data (data/ reference files)
+├── output.py             # Plain output (ADR-007): resolve_target, plan_plain, refuse, Staging, FileResult, OutputReport, STORE_MARKERS
+├── reference_data.py     # python -m imgwtools.reference_data (reference files in IMGW_REFERENCE_DIR)
 ├── config.py             # Settings (pydantic-settings, IMGW_*)
 ├── _data/                # Poland/Czechia borders (Natural Earth), agents/ guide templates, packaged fixtures
 ├── _parsing/             # common.py, hydro.py, meteo.py, stations.py, chmi.py (ČHMÚ files, listings, metadata)
@@ -35,7 +36,8 @@ src/imgwtools/
 │   ├── catalog.py        # check_catalog, build_catalog (stations.geojson per provider)
 │   ├── pmaxtp.py         # check_pmaxtp, sync_pmaxtp, read_pmaxtp
 │   ├── reader.py         # store_info, iter_store, current_version, read_*, select/summarize_series
-│   └── export.py         # export_archive, export_series (CSV/JSONL, file or line iterator)
+│   ├── export.py         # export_archive, export_series (CSV/JSONL, file or line iterator)
+│   └── plain.py          # plain_actions: the imgw-plan/1 actions of a plain write
 ├── api/                  # FastAPI REST API [optional: imgwtools[api]]
 │   ├── main.py           # App entry point (/health, /api/v1, /llms.txt, /mcp, web router, static)
 │   ├── routes/commands.py# Routes generated from command_schema() (x-imgw.rest), Accept-Language (English by default)
@@ -81,7 +83,7 @@ imgw commands schema --command "store sync"          # JSON Schema of a command
 imgw commands schema --command "store sync" --lang pl   # Same, Polish texts
 imgw store sync --schema                             # Same, via the command itself
 imgw commands guide --format agents --output AGENTS.md --force   # Regenerate AGENTS.md (English)
-imgw mcp [--allow-writes]                            # MCP server on stdio, English (imgwtools[mcp])
+imgw mcp [--allow-writes --allow-dir DIR]            # MCP server on stdio, English; writes only inside --allow-dir (imgwtools[mcp])
 imgw admin keys                                      # List API keys
 imgw admin create --name "User1"                     # Create API key
 imgw admin revoke <key_id>                           # Revoke API key
@@ -103,7 +105,7 @@ The public API is exposed via `from imgwtools import ...` (one `__all__`, also r
 |`fetch_warnings(*, kind=None)`|Hydro/meteo warnings (`WarningData`; `None` = both)|
 |`fetch_hydro_states(*, main_only=False)`|Hydro stations with coordinates and water state (`HydroState`)|
 |`find_stations(*, kind=None, query=None, source="live", root=None, provider=None)`|Search IMGW-PIB and/or ČHMÚ station lists, live or from the store (`StationListEntry`)|
-|`download_archives(dataset, /, *, years, months, params, stations, output)`|Download archives into a server-path tree (`DownloadReport`; ČHMÚ 404 → `not_published`)|
+|`download_archives(dataset, /, *, years, months, params, stations, output_dir, root, force)`|Download archives as plain files named by the provider's server path (`output_dir`) or into the store (`root`; neither = the default root) (`DownloadReport`: `mode`, `output_dir`, `root`, `files[]`; ČHMÚ 404 → `not_published`)|
 |`download_hydro_data(interval, year, month, param)`|One hydro archive as `DownloadResult` (bytes in `.data`)|
 |`download_meteo_data(interval, subtype, year, month)`|One meteo archive as `DownloadResult`|
 
@@ -123,20 +125,20 @@ Every live function has an `*_async` twin with identical arguments.
 |Function|Description|
 |---|---|
 |`init_store`, `open_store`, `store_info`, `iter_store`|Create/open/describe/scan a store|
-|`check_store`, `sync_store`|Freshness plan (IMGW-PIB: listing + HEAD; ČHMÚ: one directory listing, `stations`) and download of new/missing archives|
+|`check_store`, `sync_store`|Freshness plan (IMGW-PIB: listing + HEAD; ČHMÚ: one directory listing, `stations`) and download of new/missing archives; `sync_store(root=None, *, output_dir=None, force=False, ...)` writes plain files with `output_dir` (no `plan`, no series)|
 |`check_series`, `build_series`|Parquet station series|
 |`check_catalog`, `build_catalog`|`stations.geojson` catalog of one provider (`provider="IMGW-PIB"` default, `"CHMI"`)|
 |`check_pmaxtp`, `sync_pmaxtp`, `read_pmaxtp`|PMAXTP grid cells|
 |`current_version(root, /, *, slot)`|Current version of a slot (`archive:<key>:<file>`, `series:<key>`, ...)|
 |`read_meta`, `read_archive`, `read_station_list(root, /, *, kind, provider="IMGW-PIB")`, `read_catalog(version=None, /, *, root=None, provider=None)`, `read_series_index`, `read_series`|Offline readers|
 |`select_series`, `summarize_series`|Series selection and coverage|
-|`export_archive`, `export_series`|CSV/JSONL export to a file or as a line iterator|
+|`export_archive`, `export_series`|CSV/JSONL export as a line iterator, or with `output` (+ `force`) one plain file and its `OutputReport`|
 
 **Command Catalog:**
 |Function|Description|
 |---|---|
-|`command_schema(command=None, /, *, lang="pl")`|JSON Schema of the catalog or one command (`x-imgw`: function, CLI, REST, rules, `writes`, `network`, `idempotent`, `operation_id`); `lang="en"` = English texts|
-|`list_commands(*, lang="pl")`|Catalog summary `imgw-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`imgw commands list`, MCP `imgw_commands_list`)|
+|`command_schema(command=None, /, *, lang="en")`|JSON Schema of the catalog or one command (`x-imgw`: function, CLI, REST, rules, `writes`, `network`, `idempotent`, `operation_id`); `lang="pl"` = Polish texts|
+|`list_commands(*, lang="en")`|Catalog summary `imgw-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`imgw commands list`, MCP `imgw_commands_list`)|
 |`data_commands(*, provider=None)`|Catalog entries (`DataCommand`; `provider` = view of one provider)|
 |`validate_command(command, /, *, options)`|Normalized options or `IMGWValidationError` with `details.option`|
 |`format_command(command, /, *, options)`|Equivalent CLI command line|
@@ -158,6 +160,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`NormalizedRecord`, `Measurement`|Normalized archive/series record with value flags (`Measurement.quality`, `source_flag` for ČHMÚ meteo)|
 |`ProviderDescriptor`|Data provider: id, names, country, key prefix, base URL, license, station code pattern, datasets|
 |`CommandResult`, `Page`|Result envelope (`imgw-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
+|`FileResult`, `OutputReport`|One written file `{path, size_bytes, sha256, status}` and the result of an export `{output, files[]}`|
 
 **Exceptions** (every `IMGWError` has `code` from `ERROR_CODES` and `details`):
 |Exception|Default code|Description|
@@ -262,20 +265,36 @@ CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET 
 |`commands schema`|`command_schema`|—|`GET /api/v1/commands/schema`|
 |`commands guide`|`agent_guide`|`check_command`|`GET /api/v1/commands/guide`|
 
-Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`), `imgw admin keys|create|revoke|delete|stats`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
+Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`, repeatable `--allow-dir`), `imgw admin keys|create|revoke|delete|stats`, `imgw config show`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
 
 Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions/tasks, `replace` = may replace or remove user content (`project remove|set-store|download`); writing options (`x-imgw-writes`): `plan` of `store check`/`project check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
 
 ### Options
 
-Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets (DEV-19.1): `--output-dir`/`-o` plain files in a directory, `--root`/`-r` the versioned store (the two exclude each other; neither = the store at the default root), `--output` exactly one file of an export (no short form), `--force` replaces existing plain files. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands schema`/`commands guide`; `IMGW_LANG=pl|en` sets the CLI help language (incl. Typer/Click elements) and the `--lang` default (invalid value → `validation_error`, exit 2).
+Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets: see "Data output" below. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands list`/`commands schema`/`commands guide` (default `en`); `IMGW_LANG=pl|en` sets only the CLI help language (incl. Typer/Click elements; invalid value → `validation_error`, exit 2).
+
+### Data output
+
+Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-007); `imgwtools/output.py` implements the plain way once.
+
+|CLI|Python|Meaning|
+|---|---|---|
+|`-o`, `--output-dir`|`output_dir`|plain files in a directory: no metadata, named as in the store (`datasets download`: the provider's server path), `mkdir -p`|
+|`-r`, `--root`|`root`|versioned store root; neither option given = the store at the first of `--root`, `IMGW_ROOT`, `[imgw] root`, `<data_dir>/imgw`|
+|`--output` (no short form)|`output`|exactly one file of an export (`store export`, `series export`, `commands guide`)|
+|`--force`|`force`|plain: replace existing targets (never deletes other files); store: fetch again, a new version or `unchanged`|
+
+- `output_dir` and `root` exclude each other: `validation_error`, `details.reason="exclusive_options"`. Commands whose input or result is the store (`series build`, `store catalog`, `project *`) have no `output_dir` (rule "store only" in their description); `--plan` with `output_dir` is `validation_error` (`store_only_option`); a dataset without a store form given `root`: `not_in_store`.
+- Preflight before the first byte: duplicate names → `conflict` (`duplicate_output_name`), existing target without `--force` → `conflict` (`output_exists`), a directory that is or lies in a store of any tool → `conflict` (`output_in_store`, hint `--root`); `details.paths` lists every offending path. `--check` plans `write`, `replace` or `conflict` per target; a plan with conflicts is `ok`.
+- Writing: staging `<dir>/.imgw-incoming/<host>_<pid>_<token>/`, sha256 computed while streaming, `os.replace` into place; staging removed on success, error, SIGINT and SIGTERM, leftovers older than 24 h by the next run. No sidecar, hard link or `versions/`. Result `files[]` = `{path, size_bytes, sha256, status}`, status `written`/`replaced` (store: `new`/`unchanged`/`relabeled`).
+- Servers: REST writes only to its own `IMGW_ROOT` with writes enabled and takes none of these options in a request; MCP writes only inside `--allow-dir` with `--allow-writes`.
 
 ### Output, errors and exit codes
 
 - CLI stdout: compact one-line JSON envelope `imgw-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{output, files[]}` (`OutputReport`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
 - CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
 - REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `IMGW_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
-- MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`).
+- MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
 
 |Code|Title (`title` / `title.localized("pl")`)|CLI exit|HTTP|
 |---|---|---|---|
@@ -377,7 +396,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 
 |Variable|Default|Description|
 |---|---|---|
-|`IMGW_ROOT`|`<data_dir>/imgw`|Store root of the CLI, the library and `imgw mcp` when `--root` is absent (also `root` in `[imgw]` of `nogat.toml`); of the REST server its only store: unset → store routes 503 `store_unavailable`, never the default|
+|`IMGW_ROOT`|`<data_dir>/imgw`|Store root of the CLI, the library and `imgw mcp` when `--root` is absent (also `root` in `[imgw]` of `nogat.toml`); of the REST server its only store: unset → store routes 503 `not_configured`, never the default|
 |`IMGW_STORE_WRITES_ENABLED`|`false`|Allow REST writes (`POST` store/series/pmaxtp routes)|
 |`IMGW_STORE_WRITE_TOKEN`|unset|Token required in `X-API-Key` for REST writes (else 403 `forbidden`)|
 |`IMGW_USER_LOCATIONS_DIR`|unset|Directory of user location CSVs allowed in REST `user_locations`|
@@ -396,7 +415,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 ### Layout
 
 ```text
-<root>/imgw-store.json                                  # imgw-store/1 marker
+<root>/imgw-store.json                                  # imgw-store/1 marker: schema, tool, created_at, producer_version, created_by
   archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
   archives/versions/<server dir>/<stem>/observations/   # imgw-observation/1 signal register (ČHMÚ datasets with a content form)
   stations/versions/<label>_<sha8>/stations.geojson + .meta.json                # IMGW-PIB catalog
@@ -435,7 +454,8 @@ src/imgwtools/
 ├── mcp/          # Serwer MCP (dodatek imgwtools[mcp]): narzędzia z katalogu, stdio i /mcp
 ├── _parsing/     # Parsery archiwów IMGW-PIB i ČHMÚ, listingu i list stacji (publicznie: imgwtools.parsers)
 ├── _data/        # Obrysy Polski i Czech (Natural Earth), szablony przewodnika agents/, fixtury testowe
-├── store/        # Magazyn wersjonowany: writer, sync, series, catalog, pmaxtp, reader, export, content
+├── store/        # Magazyn wersjonowany: writer, sync, series, catalog, pmaxtp, reader, export, content, plain
+├── output.py     # Zapis zwykłych plików (--output-dir): resolve_target, plan_plain, Staging, OutputReport
 ├── datasets.py   # Rejestr dostawców i 17 zbiorów (pl.imgw.*, cz.chmi.*), generator plików archiwów
 ├── commands.py   # Katalog 38 komend wspólny dla Pythona, CLI, REST, MCP i integracji
 ├── agent_guide.py # Przewodnik dla agentów (AGENTS.md, llms.txt): agent_guide, commands guide
@@ -449,7 +469,6 @@ src/imgwtools/
 
 AGENTS.md, llms.txt  # Przewodnik dla agentów AI — pliki pochodne (imgw commands guide)
 
-data/             # Lokalne dane referencyjne (python -m imgwtools.reference_data), poza repozytorium
 docker/           # Konfiguracja Docker
 tests/            # Testy (offline; fixtury magazynu w tests/fixtures/store)
 ```
