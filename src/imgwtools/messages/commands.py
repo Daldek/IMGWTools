@@ -71,10 +71,6 @@ MESSAGES = {
         "The option {name} must be a JSON object: {value!r}",
         "Opcja {name} musi być obiektem JSON: {value!r}",
     ),
-    "result_file_must_lie_outside": Text(
-        "The result file must lie outside the IMGW store ({store}): {path}",
-        "Plik wyniku musi leżeć poza magazynem IMGW ({store}): {path}",
-    ),
     "semi_annual_series_supports_only": Text(
         "A semi-annual series supports only the hydrological year",
         "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
@@ -257,32 +253,24 @@ MESSAGES = {
         "tylko magazyn: bez output_dir, wejściem lub wynikiem komendy jest magazyn",
     ),
     "export_to_stdout": Text(
-        "Export {what} to the standard output",
-        "Eksport {what} na standardowe wyjście",
-    ),
-    "export_to_file": Text(
-        "Export {what} to {path}",
-        "Eksport {what} do {path}",
-    ),
-    "export_replaces": Text(
-        "Export {what} to {path}, replacing the existing file",
-        "Eksport {what} do {path}, istniejący plik zostanie zastąpiony",
+        "Send {what} to the standard output",
+        "Wysłanie {what} na standardowe wyjście",
     ),
     "export_records": Text(
-        "the records of {version} ({format})",
-        "rekordów {version} ({format})",
+        "the export of the records of {version} ({format})",
+        "eksportu rekordów {version} ({format})",
     ),
     "export_station_series": Text(
-        "the series of the station {station} from {path}",
-        "szeregu stacji {station} z {path}",
+        "the export of the series of the station {station} from {path}",
+        "eksportu szeregu stacji {station} z {path}",
     ),
     "standard_output": Text(
         "the standard output",
         "standardowe wyjście",
     ),
-    "target_replaced": Text(
-        "{path} (an existing file is replaced)",
-        "{path} (istniejący plik zostanie zastąpiony)",
+    "guide_what": Text(
+        "the guide {format} ({language})",
+        "przewodnika {format} ({language})",
     ),
     "guide_plan": Text(
         "Guide {format} ({language}) → {target}",
@@ -432,11 +420,17 @@ MESSAGES = {
         "Katalog magazynu: podstawa względnej wersji albo magazyn bieżącej wersji "
         "zbioru (z dataset)",
     ),
-    "path_help": Text(
-        "Result file outside the store, in an existing directory (default: standard "
-        "output)",
-        "Plik wyniku poza magazynem, w istniejącym katalogu (domyślnie standardowe "
-        "wyjście)",
+    "output_help": Text(
+        "The one file to write the result to, no metadata (its directory is created "
+        "when missing; default: standard output)",
+        "Jedyny plik, do którego zapisać wynik, bez metadanych (katalog jest "
+        "tworzony, gdy go brak; domyślnie standardowe wyjście)",
+    ),
+    "export_force_help": Text(
+        "Replace the output file when it exists (without it an existing file is a "
+        "conflict); needs output",
+        "Zastąp plik wyjścia, gdy istnieje (bez tego istniejący plik to konflikt); "
+        "wymaga output",
     ),
     "plan_file_help": Text(
         "File to write the imgw-plan/1 plan to, outside the store",
@@ -923,9 +917,11 @@ MESSAGES = {
         "a semi-annual series only with year_type=hydrological",
         "szereg półroczny wyłącznie z year_type=hydrological",
     ),
-    "path_rule": Text(
-        "path inside the store is not allowed",
-        "path wewnątrz magazynu jest niedozwolona",
+    "output_rule": Text(
+        "output is one file: an existing file needs force and a file in a store is a "
+        "conflict",
+        "output to jeden plik: istniejący plik wymaga force, a plik w magazynie to "
+        "konflikt",
     ),
     "archive_rule_1": Text(
         "years not earlier than the first year of the dataset (first_year)",

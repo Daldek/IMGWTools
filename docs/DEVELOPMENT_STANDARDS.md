@@ -63,7 +63,7 @@ DEFAULT_TIMEOUT = 30
 - `years`/`months` przyjmują `YearsArg`/`MonthsArg` (`2024`, `"2020-2023"`, `"2020,2022"`,
   listy); jedyny parser to `parse_years`/`parse_months` z `imgwtools.datasets`.
 - `latitude`/`longitude` (nie `lat`/`lon`; CLI ma aliasy `--lat`/`--lon`), `kind`, `query`,
-  `root`, `path` (plik wynikowy), `output` (katalog), `method` (PMAXTP, domyślnie `"POT"`).
+  `root` (magazyn), `output_dir` (katalog zwykłych plików), `output` (jeden plik eksportu), `force`, `method` (PMAXTP, domyślnie `"POT"`).
 - Pierwszy obiekt (`root`, `version`, `dataset`, `command`) może być pozycyjny; wszystkie dalsze
   argumenty są keyword-only.
 - Nowa operacja to nowa komenda katalogu (`commands._CATALOG`) wywołująca dokładnie jedną
@@ -85,7 +85,7 @@ DEFAULT_TIMEOUT = 30
   i `CommandOption.writes` opcji zapisującej; komenda zapisująca ma bliźniaka `check`.
 - Zmiana tekstów katalogu, rejestru zbiorów, dostawców albo kodów błędów lub szablonów
   `src/imgwtools/_data/agents/` regeneruje w tej samej zmianie pliki pochodne `AGENTS.md`
-  i `llms.txt` (`imgw commands guide --format agents|llms --path …`); test dryfu
+  i `llms.txt` (`imgw commands guide --format agents|llms --output … --force`); test dryfu
   porównuje bajty.
 
 ---

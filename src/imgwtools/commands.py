@@ -56,6 +56,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.messages import LANGS, Lang, localize, message, reason
+from imgwtools.store import export as _export
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
 from imgwtools.store import writer as _writer
@@ -510,15 +511,16 @@ _SERIES_ROOT = replace(
     required=False,
     help=message("commands.series_root_help"),
 )
-_PATH = _option(
+# The one file of an export (DEV-19.1): the lines go to the standard output without it.
+_OUTPUT = _option(
+    "output",
     "path",
-    "path",
-    message("commands.path_help"),
-    aliases=("-p",),
+    message("commands.output_help"),
     rest="local",
-    writes="replace",
+    writes="add",
     path_role="output",
 )
+_EXPORT_FORCE = replace(_FORCE, help=message("commands.export_force_help"))
 # Plan file written by the commands that are checks themselves.
 _PLAN_FILE = _option(
     "plan",
@@ -557,6 +559,8 @@ _OFFSET = _option(
     "offset", "int", message("commands.offset_help"), minimum=0, default=0
 )
 _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
+# force replaces the file of output: without output it has nothing to replace.
+_NEEDS_OUTPUT = {"force": ("output",)}
 # Plain files or the store, never both (DEV-19.1).
 _TARGETS = (("output_dir", "root"),)
 # The conflicting option of version+dataset+root is reported as dataset.
@@ -567,7 +571,7 @@ _MONTHS_RULE = message("commands.months_rule")
 _VARIABLES_RULE = message("commands.variables_rule")
 _START_RULE = message("commands.start_rule")
 _HALF_YEAR_RULE = message("commands.half_year_rule")
-_PATH_RULE = message("commands.path_rule")
+_OUTPUT_RULE = message("commands.output_rule")
 _ARCHIVE_RULES = (
     message("commands.archive_rule_1"),
     message("commands.archive_rule_2"),
@@ -1013,14 +1017,16 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 default="csv",
                 aliases=("-f",),
             ),
-            _PATH,
+            _OUTPUT,
+            _EXPORT_FORCE,
         ),
         function="export_archive",
         check="check_command",
         result="stream",
         method="GET",
+        requires=_NEEDS_OUTPUT,
         result_type="str",
-        rules=(_PATH_RULE,),
+        rules=(_OUTPUT_RULE,),
     ),
     _command(
         "series build",
@@ -1116,15 +1122,17 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 default="csv",
                 aliases=("-f",),
             ),
-            _PATH,
+            _OUTPUT,
+            _EXPORT_FORCE,
         ),
         function="export_series",
         check="check_command",
         result="stream",
         method="GET",
         one_of=_VERSION_OR_DATASET,
+        requires=_NEEDS_OUTPUT,
         result_type="str",
-        rules=(*_SERIES_RULES, _START_RULE, _HALF_YEAR_RULE, _PATH_RULE),
+        rules=(*_SERIES_RULES, _START_RULE, _HALF_YEAR_RULE, _OUTPUT_RULE),
     ),
     _command(
         "project init",
@@ -1279,14 +1287,16 @@ _GUIDE = _command(
             aliases=("-f",),
         ),
         _LANGUAGE,
-        _PATH,
+        _OUTPUT,
+        _EXPORT_FORCE,
     ),
     function="agent_guide",
     check="check_command",
     result="stream",
     method="GET",
+    requires=_NEEDS_OUTPUT,
     result_type="str",
-    rules=(_PATH_RULE,),
+    rules=(_OUTPUT_RULE,),
 )
 _CATALOG += (
     _command(
@@ -1707,15 +1717,6 @@ def _store_root(version: Path) -> Path:
     return _store_of(version) or version.parent
 
 
-def _outside_store(path: object) -> None:
-    if isinstance(path, Path) and (store := _store_of(path)) is not None:
-        _fail(
-            message("commands.result_file_must_lie_outside", store=store, path=path),
-            option="path",
-            value=path,
-        )
-
-
 def _half_year(descriptor: DatasetDescriptor, year_type: object) -> None:
     if descriptor.time_unit == "half_year" and year_type == "calendar":
         _fail(
@@ -1829,11 +1830,15 @@ def _rules_series(options: Options, task: bool) -> None:
             value=end.isoformat(),
         )
     if not task:
-        _outside_store(options.get("path"))
+        _rules_result_file(options, task)
 
 
 def _rules_result_file(options: Options, task: bool) -> None:
-    _outside_store(options.get("path"))
+    output = options.get("output")
+    if isinstance(output, Path):
+        # A directory is no file; an existing file or a store is a conflict, which
+        # a plan reports and only the run refuses (DEV-19.10).
+        _export._file(output)
 
 
 def _rules_project_add(options: Options, task: bool) -> None:
@@ -2244,7 +2249,8 @@ def run_command(
     returned by the function, ``items`` is the slice
     ``[offset, offset + limit)`` (to the end without ``limit``). Stream
     commands (``store export``, ``series export``, ``commands guide``
-    without ``path``) return the iterator of text lines as ``result``; an
+    without ``output``) return the iterator of text lines as ``result``; with
+    ``output`` they write the one file and return its `OutputReport`; an
     error while iterating is raised from the iterator.
 
     Parameters
@@ -2581,20 +2587,21 @@ def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
     return plan
 
 
-def _export_action(command: str, what: str, path: object) -> PlanAction:
-    if not isinstance(path, Path):
-        return PlanAction(
-            command, "current", message("commands.export_to_stdout", what=what)
-        )
-    exists = path.exists()
-    return PlanAction(
+def _export_actions(command: str, what: str, options: Options) -> list[PlanAction]:
+    """Plan of an export: the standard output, or the one plain file (DEV-19.10)."""
+    output = options.get("output")
+    if not isinstance(output, Path):
+        return [
+            PlanAction(
+                command, "current", message("commands.export_to_stdout", what=what)
+            )
+        ]
+    return plain_actions(
         command,
-        "newer" if exists else "missing",
-        message(
-            "commands.export_replaces" if exists else "commands.export_to_file",
-            what=what,
-            path=path,
-        ),
+        output.parent,
+        [(output.name, what)],
+        force=bool(options.get("force")),
+        single=True,
     )
 
 
@@ -2603,15 +2610,15 @@ def _check_store_export(options: Options, hooks: Hooks) -> StorePlan:
     try:
         _store.read_archive(version)
     except IMGWError as exc:
-        action = PlanAction("store export", "check_failed", reason(exc))
+        actions = [PlanAction("store export", "check_failed", reason(exc))]
     else:
         what = message(
             "commands.export_records",
             version=version,
             format=options.get("format", "csv"),
         )
-        action = _export_action("store export", what, options.get("path"))
-    return _plan(options.get("root") or _store_root(version), [action])
+        actions = _export_actions("store export", what, options)
+    return _plan(options.get("root") or _store_root(version), actions)
 
 
 def _check_select(options: Options, hooks: Hooks) -> StorePlan:
@@ -2653,27 +2660,31 @@ def _check_series(command: str) -> Checker:
             _half_year(descriptor, options.get("year_type"))
         except IMGWError as exc:
             missing = exc.code == "not_found" and command != "series export"
-            action = PlanAction(
-                command, "missing" if missing else "check_failed", reason(exc)
-            )
+            actions = [
+                PlanAction(
+                    command, "missing" if missing else "check_failed", reason(exc)
+                )
+            ]
         else:
-            action = (
-                _export_action(
+            actions = (
+                _export_actions(
                     command,
                     message(
                         "commands.export_station_series",
                         station=options["station"],
                         path=path,
                     ),
-                    options.get("path"),
+                    options,
                 )
                 if command == "series export"
-                else PlanAction(
-                    command, "current", message("commands.read_series", path=path)
-                )
+                else [
+                    PlanAction(
+                        command, "current", message("commands.read_series", path=path)
+                    )
+                ]
             )
         base = root if isinstance(root, Path) else _store_root(options["version"])
-        return _plan(base, [action])
+        return _plan(base, actions)
 
     return check
 
@@ -2715,19 +2726,23 @@ def _check_manifest(command: str) -> Checker:
 
 def _check_commands_guide(options: Options, hooks: Hooks) -> StorePlan:
     # The guide is rendered offline from the package; the plan names its target.
-    path = options.get("path")
-    target: str = message("commands.standard_output")
-    if isinstance(path, Path):
-        target = (
-            message("commands.target_replaced", path=path)
-            if path.exists()
-            else str(path)
+    format_, language = options.get("format", "agents"), options.get("lang", "en")
+    output = options.get("output")
+    if isinstance(output, Path):
+        what = message("commands.guide_what", format=format_, language=language)
+        actions = plain_actions(
+            "commands guide",
+            output.parent,
+            [(output.name, what)],
+            force=bool(options.get("force")),
+            single=True,
         )
+        return _plan(Path.cwd(), actions)
     detail = message(
         "commands.guide_plan",
-        format=options.get("format", "agents"),
-        language=options.get("lang", "en"),
-        target=target,
+        format=format_,
+        language=language,
+        target=message("commands.standard_output"),
     )
     return _reading("commands guide", detail)
 

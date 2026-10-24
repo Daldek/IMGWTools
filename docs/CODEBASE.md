@@ -80,7 +80,7 @@ imgw store catalog --root /dane/imgw --provider CHMI # ČHMÚ station catalog
 imgw commands schema --command "store sync"          # JSON Schema of a command
 imgw commands schema --command "store sync" --lang pl   # Same, Polish texts
 imgw store sync --schema                             # Same, via the command itself
-imgw commands guide --format agents --path AGENTS.md   # Regenerate AGENTS.md (English)
+imgw commands guide --format agents --output AGENTS.md --force   # Regenerate AGENTS.md (English)
 imgw mcp [--allow-writes]                            # MCP server on stdio, English (imgwtools[mcp])
 imgw admin keys                                      # List API keys
 imgw admin create --name "User1"                     # Create API key
@@ -142,7 +142,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`format_command(command, /, *, options)`|Equivalent CLI command line|
 |`run_command(command, /, *, options)`|Run a command → `CommandResult` (list commands → `Page`)|
 |`check_command(command, /, *, options)`|Plan of a command without side effects → `CommandResult`|
-|`agent_guide(*, format="agents", lang="pl", path=None)`|Agent guide `AGENTS.md`/`llms.txt` (line iterator or file)|
+|`agent_guide(*, format="agents", lang="en", output=None, force=False)`|Agent guide `AGENTS.md`/`llms.txt`: line iterator, or with `output` one plain file and its `OutputReport`|
 
 **Projects:** `init_project`, `open_project`, `set_project_store`, `add_project_task`, `remove_project_task`, `check_project`, `download_project`, `get_project_status`, `verify_project`.
 
@@ -181,7 +181,7 @@ The command catalog is the single source of options, validation, help texts and 
 - `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `imgw_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
 - `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
 - CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
-- Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`imgw commands guide --format agents --path AGENTS.md`, `--format llms --path llms.txt`); `tests/unit/test_agent_guide.py` compares the bytes
+- Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`imgw commands guide --format agents --output AGENTS.md --force`, `--format llms --output llms.txt --force`); `tests/unit/test_agent_guide.py` compares the bytes
 
 ## External Data Sources
 
@@ -264,15 +264,15 @@ CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET 
 
 Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`), `imgw admin keys|create|revoke|delete|stats`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
 
-Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions/tasks, `replace` = may replace a user file (`datasets download`, `project remove|set-store|download`); writing options (`x-imgw-writes`): `plan` of `store check`/`project check`, `path` of `store export`/`series export`/`commands guide`. Every writing command has a check twin.
+Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions/tasks, `replace` = may replace or remove user content (`project remove|set-store|download`); writing options (`x-imgw-writes`): `plan` of `store check`/`project check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
 
 ### Options
 
-Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output, `-r` root, `-f` format, `-p` path; `--lat`/`--lon` alias `--latitude`/`--longitude`. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands schema`/`commands guide`; `IMGW_LANG=pl|en` sets the CLI help language (incl. Typer/Click elements) and the `--lang` default (invalid value → `validation_error`, exit 2).
+Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets (DEV-19.1): `--output-dir`/`-o` plain files in a directory, `--root`/`-r` the versioned store (the two exclude each other; neither = the store at the default root), `--output` exactly one file of an export (no short form), `--force` replaces existing plain files. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands schema`/`commands guide`; `IMGW_LANG=pl|en` sets the CLI help language (incl. Typer/Click elements) and the `--lang` default (invalid value → `validation_error`, exit 2).
 
 ### Output, errors and exit codes
 
-- CLI stdout: compact one-line JSON envelope `imgw-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export` without `--path` stream CSV/JSONL bytes. Progress and notices (once per distinct notice) go to stderr.
+- CLI stdout: compact one-line JSON envelope `imgw-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{output, files[]}` (`OutputReport`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
 - CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
 - REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `IMGW_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
 - MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`).

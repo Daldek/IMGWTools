@@ -43,6 +43,7 @@ from tests.contract.support import (
     load,
     run_imgw,
     schema_errors,
+    sha256,
     slots,
     snapshot,
     stamps,
@@ -76,7 +77,7 @@ def scenario(work: Path, imgw, run) -> list[dict[str, Any]]:
                 "root": store,
                 "version": steps[-2]["result"]["version"],  # relative to the root
                 "station": RABA,
-                "path": work / "raba.csv",
+                "output": work / "raba.csv",
                 "variables": ["H", "Q"],
             },
         )
@@ -150,7 +151,17 @@ def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
     assert [s["status"] for s in synced["result"]["series"]] == ["new"]
     assert newer["result"]["series"] == []
     assert [returned[i]["result"]["status"] for i in (6, 7, 9)] == ["new"] * 3
-    assert returned[8]["result"] == str(work / "raba.csv")
+    assert returned[8]["result"] == {
+        "output": str(work / "raba.csv"),
+        "files": [
+            {
+                "path": str(work / "raba.csv"),
+                "size_bytes": (work / "raba.csv").stat().st_size,
+                "sha256": sha256(work / "raba.csv"),
+                "status": "written",
+            }
+        ],
+    }
     assert statuses(returned[11]) == ["downloaded"]
     assert (
         returned[11]["result"]["items"][0]["slot"]
@@ -184,7 +195,7 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
         ("store scan", {"root": corrupt, "kind": "problem"}),
         (
             "series export",
-            {"root": root, "dataset": DAILY, "station": RABA, "path": target},
+            {"root": root, "dataset": DAILY, "station": RABA, "output": target},
         ),
         ("project verify", {"project_dir": project}),
     ):

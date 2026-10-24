@@ -30,4 +30,14 @@ MESSAGES = {
         "Pliki wyjścia już istnieją ({count}, pierwszy: {first}); użyj --force, aby "
         "je zastąpić (details.paths je wymienia)",
     ),
+    "output_file_exists": Text(
+        "The output file already exists ({first}); use --force to replace it",
+        "Plik wyjścia już istnieje ({first}); użyj --force, aby go zastąpić",
+    ),
+    "output_file_in_store": Text(
+        "The output file lies in a store ({first}); an export is written outside "
+        "every store, so choose another file",
+        "Plik wyjścia leży w magazynie ({first}); eksport zapisuje się poza każdym "
+        "magazynem, więc wybierz inny plik",
+    ),
 }

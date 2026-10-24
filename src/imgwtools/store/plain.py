@@ -27,6 +27,7 @@ def plain_actions(
     targets: Sequence[tuple[str, str]],
     *,
     force: bool,
+    single: bool = False,
 ) -> list[PlanAction]:
     """
     Plan a plain write without writing anything.
@@ -45,6 +46,9 @@ def plain_actions(
         (a URL or a description).
     force : bool
         Whether existing targets are replaced.
+    single : bool, optional
+        The one file of an export: a store conflict says the export goes outside
+        every store instead of naming ``--root``.
 
     Returns
     -------
@@ -58,7 +62,13 @@ def plain_actions(
         PlanAction(
             command,
             "missing" if entry.action == "write" else "unverifiable",
-            message(_TEXTS[entry.reason or entry.action], what=what, target=entry.path),
+            message(
+                "plain.output_file_in_store"
+                if single and entry.reason == "output_in_store"
+                else _TEXTS[entry.reason or entry.action],
+                what=what,
+                target=entry.path,
+            ),
             action=entry.action,
             path=entry.path,
             reason=entry.reason,

@@ -24,6 +24,10 @@ steps of this module, written once:
 No sidecar, no hard link and no ``versions/`` directory: the output works on
 FAT, exFAT and SMB. A store is recognised by its marker file name alone, so
 nothing is imported from another tool (DEV-19.11, DEV-19.12).
+
+An export writes exactly one file (``output``, DEV-19.1): the directory that
+holds it plays the role of ``output_dir`` for the staging directory and the
+store check, and the result is an `OutputReport`.
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ __all__ = [
     "STAGING",
     "STORE_MARKERS",
     "FileResult",
+    "OutputReport",
     "PlanEntry",
     "Staging",
     "Target",
@@ -97,6 +102,24 @@ class FileResult:
     size_bytes: int
     sha256: str
     status: Literal["written", "replaced", "new", "unchanged", "relabeled"]
+
+
+@dataclass(frozen=True)
+class OutputReport:
+    """
+    Result of an export written to one file (DEV-19.1, DEV-19.19).
+
+    Attributes
+    ----------
+    output : Path
+        Absolute path of the file that was written.
+    files : tuple of FileResult
+        The written file as ``files[]``: ``written`` for a new file or
+        ``replaced`` for an existing one (with ``force``).
+    """
+
+    output: Path
+    files: tuple[FileResult, ...]
 
 
 @dataclass(frozen=True)
@@ -300,7 +323,7 @@ def _holds_marker(directory: Path, name: str) -> bool:
     return False
 
 
-def refuse(entries: Sequence[PlanEntry]) -> None:
+def refuse(entries: Sequence[PlanEntry], *, single: bool = False) -> None:
     """
     Raise ``conflict`` when the plan lists a conflict (DEV-19.6, DEV-19.11).
 
@@ -308,6 +331,11 @@ def refuse(entries: Sequence[PlanEntry]) -> None:
     ----------
     entries : sequence of PlanEntry
         The plan of `plan_plain`.
+    single : bool, optional
+        The plan is the one file of an export (``output``): the texts speak of
+        a file and an export is written outside every store, so the hint of a
+        store target is not given (an export has no store mode, ``--root``
+        names the store it reads).
 
     Raises
     ------
@@ -327,8 +355,12 @@ def refuse(entries: Sequence[PlanEntry]) -> None:
     paths = [str(entry.path) for entry in conflicts]
     texts = {
         "duplicate_output_name": "output.duplicate_output_name",
-        "output_in_store": "output.output_in_store",
-        "output_exists": "output.output_exists",
+        "output_in_store": "output.output_file_in_store"
+        if single
+        else "output.output_in_store",
+        "output_exists": "output.output_file_exists"
+        if single
+        else "output.output_exists",
     }
     raise IMGWError(
         message(texts[first], count=len(paths), first=paths[0]),

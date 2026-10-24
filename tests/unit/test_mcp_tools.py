@@ -200,7 +200,7 @@ async def test_http_options_are_those_of_the_rest_route():
     assert plan["type"] == "object"  # an imgw-plan/1 object, not a server file
     for tool in tools.values():
         names = set(tool["inputSchema"]["properties"])
-        assert not names & {"root", "path", "project_dir", "output"}
+        assert not names & {"root", "output", "output_dir", "force", "project_dir"}
         if "version" in names:
             version = tool["inputSchema"]["properties"]["version"]
             assert "/versions/" in version["description"]  # relative to the store

@@ -209,8 +209,13 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
         ("imgw_store_info", {"root": "/srv/imgw"}, "root"),
         (
             "imgw_store_export",
-            {"version": "archives/x.zip", "path": "wynik.csv"},
-            "path",
+            {"version": "archives/x.zip", "output": "wynik.csv"},
+            "output",
+        ),
+        (
+            "imgw_store_export",
+            {"version": "archives/x.zip", "force": True},
+            "force",
         ),
     ],
 )

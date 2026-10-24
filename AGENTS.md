@@ -4,7 +4,7 @@
 
 ## What IMGWTools is
 
-IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store (a plain directory whose versions never change and are identified by SHA-256) or are written as plain files, and station series are read offline from the store. All interfaces are generated from one command catalog.
+IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store (a plain directory whose versions never change and are identified by SHA-256) or are written as plain files, and station series are read offline from the store.
 
 Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep reproducible local copies and to get PMAXTP values. Not supported: forecasts, ČHMÚ operational data (`now`, `recent`), IMGW-PIB daily synoptic archives, PMAXTP outside Poland. Install: `pip install imgwtools[cli]` (`[mcp]` adds the MCP server, `[store]` the Parquet series).
 
@@ -36,7 +36,7 @@ One command in every interface: CLI `imgw <group> <command> --option value` (fla
 
 ## Envelope, statuses and errors
 
-A command returns the `imgw-result/1` envelope `{"schema", "command", "check", "status", "result", "notices"}`; `notices` is a list of `{"level", "code", "text"}` (each once, e.g. `license_terms`). List commands return a page `{"items", "total", "limit", "offset"}`, a check an `imgw-plan/1` plan. Stream commands without `path` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-IMGW-Status`, `X-IMGW-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
+A command returns the `imgw-result/1` envelope `{"schema", "command", "check", "status", "result", "notices"}`; `notices` is a list of `{"level", "code", "text"}` (each once, e.g. `license_terms`). List commands return a page `{"items", "total", "limit", "offset"}`, a check an `imgw-plan/1` plan. Stream commands without `output` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-IMGW-Status`, `X-IMGW-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
 
 | Status | CLI exit code | Meaning |
 |---|---|---|
@@ -73,7 +73,7 @@ Outside the store (`datasets files` and `datasets download` only): `pl.imgw.hydr
 
 ## Commands
 
-One line per command, by effect; options, rules and per-option effects: `imgw commands schema --command "<command>"`. Marks: `[path: …]` — the option writes a file when given; `[is a check]` — the command plans itself; `[local]` — no REST route.
+One line per command, by effect; options, rules and per-option effects: `imgw commands schema --command "<command>"`. Marks: `[output: …]` — the option writes a file when given; `[is a check]` — the command plans itself; `[local]` — no REST route.
 
 **Read — no network, no writes**
 
@@ -85,16 +85,16 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 - `pmaxtp read` — Read a saved PMAXTP cell from the store (offline).
 - `store info` — Show the state of an IMGW store and the supported contracts (offline, without writing).
 - `store scan` — List the versions and problems of an IMGW store (offline, without writing).
-- `store export` — Export the records of one archive version as CSV or JSONL (offline, SHA-256 verified). [`path`: overwrite]
+- `store export` — Export the records of one archive version as CSV or JSONL (offline, SHA-256 verified). [`output`: write; `force`: overwrite]
 - `series select` — Select stations, variables and years of the current series (without writing; an input of a project).
 - `series read` — Read the values and flags of one station's series from the store.
 - `series summary` — Show the coverage of stations and variables of a series from series.json (without pyarrow).
-- `series export` — Export the series of one station as CSV with the attribution of the data provider. [`path`: overwrite]
+- `series export` — Export the series of one station as CSV with the attribution of the data provider. [`output`: write; `force`: overwrite]
 - `project status` — Show the state of the pinned files of the project tasks (offline). [local]
 - `project verify` — Verify the SHA-256 sums of the pinned files of a project (offline). [local]
 - `commands list` — List the catalog commands: tool names, effects and routes.
 - `commands schema` — Show the JSON Schema of the options of a command or the whole imgw-commands/1 command catalog.
-- `commands guide` — Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. [`path`: overwrite]
+- `commands guide` — Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. [`output`: write; `force`: overwrite]
 
 **Network — connects to a source, writes nothing**
 
@@ -163,11 +163,11 @@ Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`, `PROJECT`) with the 
 
 1. Do not build or crawl IMGW-PIB and ČHMÚ server URLs by hand — use `datasets files`, `datasets download`, `store sync`.
 2. Exit codes 10 and 11 are not program failures — read the envelope (`items[].status`, `error_code`).
-3. Do not run writes (`store sync`, `series build`, `datasets download`, `project download`) without a plan and the user's consent; in MCP the user, not the agent, enables writes.
+3. Do not run writes (`store sync`, `series build`, `datasets download`, `project download`) without a plan and the user's consent.
 4. Do not guess a station or a dataset: with several `stations find` hits, ask; check with `series summary` that a dataset has the station.
 5. Do not edit, move or delete store files (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — the store only grows.
 6. Do not download "just in case": narrow `years`, `months` and `stations`; do not mix providers in one call with `stations`.
-7. Read long lists in pages (`limit`, `offset`); use `series read` or `series export --path`, not CSV in the context.
+7. Read long lists in pages (`limit`, `offset`); use `series read` or `series export --output`, not CSV in the context.
 8. Do not poll `current …` in a loop — it is a live API; keep the result.
 9. Pass the `license_terms` notice and the attribution on to the user (IMGW-PIB: terms of the purpose of use; ČHMÚ: CC BY 4.0).
 10. Point `version` only below `*/versions/` of the store, without `..`; over REST and MCP over HTTP — relative to the server's store.

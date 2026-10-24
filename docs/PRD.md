@@ -168,11 +168,11 @@ imgw store scan --root <dir> [-k archive|series|catalog|pmaxtp|observation|probl
 imgw store check --root <dir> -d <keys> [-y <years>] [-m <months>] [-s <stations>] [--plan plan.json]
 imgw store sync --root <dir> (--plan plan.json | -d <keys> [-y <years>] [-s <stations>]) [--no-series] [--check]
 imgw store catalog --root <dir> [--provider IMGW-PIB|CHMI] [--user-locations <csv>] [--check]
-imgw store export --version <archive version> [--format csv|jsonl] [--path <file>]
+imgw store export --version <archive version> [--format csv|jsonl] [--output <file> [--force]]
 imgw series build --root <dir> -d <key> [--check]
 imgw series select --root <dir> -d <key> -s <codes> [--variables] [-y <years>] [--year-type]
 imgw series read|summary [--version <v> | --root <dir> -d <key>] -s <code(s)> [--variables]
-imgw series export [--version <v> | --root <dir> -d <key>] -s <code> [--variables] [--path <csv>]
+imgw series export [--version <v> | --root <dir> -d <key>] -s <code> [--variables] [--output <csv> [--force]]
 imgw pmaxtp check|sync --root <dir> --lat <lat> --lon <lon> [--method POT|AMP]
 imgw pmaxtp read --root <dir> --ind-x <x> --ind-y <y> [--method POT|AMP]
 imgw project init|add|remove|set-store|download|check|status|verify --project-dir <dir> ...
@@ -180,7 +180,7 @@ imgw project init|add|remove|set-store|download|check|status|verify --project-di
 # Command catalog
 imgw commands list [--lang pl|en]
 imgw commands schema [--command "<group> <name>"] [--lang pl|en]
-imgw commands guide [-f agents|llms] [--lang pl|en] [-p <file>]
+imgw commands guide [-f agents|llms] [--lang pl|en] [--output <file> [--force]]
 ```
 
 ---

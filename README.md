@@ -128,7 +128,7 @@ Agent (asystent w edytorze, aplikacja czatu, skrypt z modelem językowym) poznaj
 
 - [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) — przewodnik: zasada „sprawdź → uruchom → przeczytaj”, odwzorowanie Python/CLI/REST/MCP, koperta i statusy, kody błędów, zbiory obu dostawców z regułami opcji, tabele komend ze skutkami, typowe przepływy (m.in. „opady dobowe ze stacji Poznań”, stacja ČHMÚ, projekt) i lista „czego nie robić”;
 - [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt) — skrót według llms.txt v2 z odnośnikami do dokumentacji; ten sam plik serwuje `GET /llms.txt`;
-- `imgw commands guide [--format agents|llms] [--lang en|pl] [--path PLIK]` albo `agent_guide()` w Pythonie — oba pliki wygenerowane na bieżąco (domyślnie po angielsku, `--lang pl` daje polski); `GET /api/v1/commands/guide`.
+- `imgw commands guide [--format agents|llms] [--lang en|pl] [--output PLIK] [--force]` albo `agent_guide()` w Pythonie — oba pliki wygenerowane na bieżąco (domyślnie po angielsku, `--lang pl` daje polski); `GET /api/v1/commands/guide`.
 
 `AGENTS.md` i `llms.txt` to pliki pochodne katalogu komend, rejestrów i szablonów `src/imgwtools/_data/agents/` — nie edytuje się ich ręcznie (zasady pracy nad kodem: `CLAUDE.md`).
 

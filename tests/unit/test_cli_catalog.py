@@ -1,6 +1,7 @@
 """``imgw`` generated from the command catalog (spec §13.10): envelope, errors, flags."""
 
 import functools
+import hashlib
 import importlib
 import json
 import os
@@ -505,9 +506,22 @@ def test_cli_catalog_streams_print_only_the_data_lines(tmp_path, fixture_root, o
         assert b"imgw-result/1" not in result.stdout_bytes
         assert "Informacja: Źródłem pochodzenia danych jest" in result.stderr
     target = tmp_path / "opad.csv"
-    printed = envelope(invoke("store", "export", "--version", version, "-p", target))
-    assert printed["result"] == str(target)
-    assert target.read_bytes() == "".join(store.export_archive(version)).encode()
+    printed = envelope(
+        invoke("store", "export", "--version", version, "--output", target)
+    )
+    wanted = "".join(store.export_archive(version)).encode()
+    assert printed["result"] == {
+        "output": str(target),
+        "files": [
+            {
+                "path": str(target),
+                "size_bytes": len(wanted),
+                "sha256": hashlib.sha256(wanted).hexdigest(),
+                "status": "written",
+            }
+        ],
+    }
+    assert target.read_bytes() == wanted
 
 
 def test_cli_catalog_prints_each_distinct_notice_once(monkeypatch, tmp_path):
