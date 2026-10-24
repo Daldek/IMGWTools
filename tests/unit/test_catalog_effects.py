@@ -24,8 +24,8 @@ from tests.contract.support import H2024, NEW, V3, FakeImgw, snapshot, stamps
 from tests.contract.test_interface_contract import CASES, Case, resolved, rooted
 
 SPECS = {spec.name: spec for spec in data_commands()}
-# MCP tool names (spec 2026-10-19 §6.4): letters, digits, "_", "-" and ".".
-TOOL_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
+# MCP tool names (AGI-5.2): the project prefix and at most 48 characters of [a-z0-9_].
+TOOL_NAME = re.compile(r"imgw_[a-z0-9_]{1,43}")
 # Spec 2026-10-19 §3.2: command → (writes, network, writing options).
 EFFECTS = {
     "datasets list": ("none", False, {}),
@@ -63,6 +63,7 @@ EFFECTS = {
     "project check": ("none", True, {"plan": "replace"}),
     "project status": ("none", False, {}),
     "project verify": ("none", False, {}),
+    "commands list": ("none", False, {}),
     "commands schema": ("none", False, {}),
     "commands guide": ("none", False, {"path": "replace"}),
 }
@@ -160,8 +161,13 @@ def test_catalog_declares_the_effects_of_spec_section_3_2():
         for schema in commands
     } == EFFECTS
     names = [schema["x-imgw"]["operation_id"] for schema in commands]
+    assert names == [
+        "imgw_" + schema["title"].replace(" ", "_").replace("-", "_")
+        for schema in commands
+    ]
     assert len(set(names)) == len(names)
     assert all(TOOL_NAME.fullmatch(name) for name in names)
+    assert all(isinstance(schema["x-imgw"]["idempotent"], bool) for schema in commands)
 
 
 def test_every_write_can_be_planned_by_a_check_twin():

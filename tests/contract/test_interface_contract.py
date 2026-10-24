@@ -157,6 +157,7 @@ CASES: dict[str, list[Case]] = {
             "served",
         )
     ],
+    "commands list": [Case({}), Case({"lang": "en"})],
     "commands schema": [
         Case({"command": "series export"}),
         Case({}),

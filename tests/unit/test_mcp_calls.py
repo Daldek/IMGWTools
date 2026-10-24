@@ -124,7 +124,7 @@ async def test_a_writing_command_returns_its_plan_and_leaves_the_store(
 ):
     before = stamps(root)
 
-    result = await call("store_sync", {"root": str(root), **SYNC}, mode=mode)
+    result = await call("imgw_store_sync", {"root": str(root), **SYNC}, mode=mode)
 
     envelope = result.structured_content
     assert result.is_error is False
@@ -141,10 +141,10 @@ async def test_a_writing_command_returns_its_plan_and_leaves_the_store(
 @pytest.mark.parametrize(
     ("tool", "arguments", "option"),
     [
-        ("store_sync", {**SYNC, "check": False}, "check"),
-        ("store_check", {**SYNC, "plan": "plan.json"}, "plan"),
+        ("imgw_store_sync", {**SYNC, "check": False}, "check"),
+        ("imgw_store_check", {**SYNC, "plan": "plan.json"}, "plan"),
         (
-            "series_export",
+            "imgw_series_export",
             {"dataset": DAILY, "station": "149190310", "path": "x.csv"},
             "path",
         ),
@@ -170,7 +170,7 @@ async def test_a_server_without_writes_forbids_every_write(
 
 
 async def test_check_is_a_boolean(root):
-    result = await call("store_sync", {"root": str(root), **SYNC, "check": "tak"})
+    result = await call("imgw_store_sync", {"root": str(root), **SYNC, "check": "tak"})
 
     document = error_of(result)
     assert document["code"] == "validation_error"
@@ -178,8 +178,8 @@ async def test_check_is_a_boolean(root):
 
 
 async def test_null_arguments_are_absent(root, imgw):
-    planned = await call("store_check", {"root": str(root), **SYNC, "plan": None})
-    paged = await call("datasets_list", {"limit": None})
+    planned = await call("imgw_store_check", {"root": str(root), **SYNC, "plan": None})
+    paged = await call("imgw_datasets_list", {"limit": None})
 
     assert planned.is_error is False
     assert paged.structured_content["result"]["limit"] == 50
@@ -191,10 +191,10 @@ async def test_null_arguments_are_absent(root, imgw):
 
 
 async def test_list_commands_page_by_50_and_at_most_imgw_api_max_limit(monkeypatch):
-    whole = (await call("datasets_list", {})).structured_content["result"]
+    whole = (await call("imgw_datasets_list", {})).structured_content["result"]
     monkeypatch.setattr(settings, "api_max_limit", 5)
-    small = (await call("datasets_list", {})).structured_content["result"]
-    above = await call("datasets_list", {"limit": 6})
+    small = (await call("imgw_datasets_list", {})).structured_content["result"]
+    above = await call("imgw_datasets_list", {"limit": 6})
 
     assert (whole["limit"], len(whole["items"])) == (50, whole["total"])
     assert (small["limit"], len(small["items"]), small["total"]) == (
@@ -210,9 +210,9 @@ async def test_list_commands_page_by_50_and_at_most_imgw_api_max_limit(monkeypat
 async def test_imgw_store_root_is_the_root_of_absent_root(root, monkeypatch):
     monkeypatch.setenv("IMGW_STORE_ROOT", str(root))
 
-    info = await call("store_info", {})
-    found = await call("stations_find", {"source": "store", "query": "1491"})
-    live = await call("stations_find", {"query": "raba", "check": True})
+    info = await call("imgw_store_info", {})
+    found = await call("imgw_stations_find", {"source": "store", "query": "1491"})
+    live = await call("imgw_stations_find", {"query": "raba", "check": True})
 
     assert info.structured_content["result"]["root"] == str(root)
     assert found.is_error is False and found.structured_content["result"]["total"] > 0
@@ -223,7 +223,7 @@ async def test_imgw_store_root_is_the_root_of_absent_root(root, monkeypatch):
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
 async def test_lang_option_defaults_to_the_server_language(lang):
-    result = await call("commands_schema", {"command": "store info"}, lang=lang)
+    result = await call("imgw_commands_schema", {"command": "store info"}, lang=lang)
 
     schema = result.structured_content["result"]
     assert schema == command_schema("store info", lang=lang)
@@ -236,7 +236,7 @@ async def test_lang_option_defaults_to_the_server_language(lang):
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
 async def test_commands_guide_stream_is_the_agent_guide_text(lang):
-    result = await call("commands_guide", {}, lang=lang)
+    result = await call("imgw_commands_guide", {}, lang=lang)
 
     text = "".join(agent_guide(lang=lang))
     assert result.is_error is False
@@ -274,7 +274,7 @@ async def test_a_stream_over_256_kib_is_refused_and_no_longer_read(root, monkeyp
 
     monkeypatch.setattr(store, "export_archive", endless)
 
-    result = await call("store_export", {"version": str(archive)})
+    result = await call("imgw_store_export", {"version": str(archive)})
 
     document = error_of(result)
     assert document["code"] == "validation_error"
@@ -303,9 +303,9 @@ async def test_progress_reaches_a_client_that_asked_for_it(client_mode, root, im
         received.append((value, total, message))
 
     async with Client(create_server(), mode=client_mode) as client:
-        silent = await client.call_tool("store_sync", {"root": str(root), **SYNC})
+        silent = await client.call_tool("imgw_store_sync", {"root": str(root), **SYNC})
         reported = await client.call_tool(
-            "store_sync", {"root": str(root), **SYNC}, progress_callback=progress
+            "imgw_store_sync", {"root": str(root), **SYNC}, progress_callback=progress
         )
 
     assert silent.is_error is reported.is_error is False
@@ -346,7 +346,7 @@ async def test_a_cancelled_call_reaches_cancel_and_leaves_no_partial_version(
         Client(create_server(mode="write")) as client,
         anyio.create_task_group() as group,
     ):
-        group.start_soon(client.call_tool, "store_sync", arguments)
+        group.start_soon(client.call_tool, "imgw_store_sync", arguments)
         assert await anyio.to_thread.run_sync(downloading.wait, 10)
         group.cancel_scope.cancel()
 
@@ -365,7 +365,7 @@ async def test_a_cancelled_call_reaches_cancel_and_leaves_no_partial_version(
 async def test_an_unknown_tool_is_a_protocol_error():
     async with Client(create_server()) as client:
         with pytest.raises(MCPError) as caught:
-            await client.call_tool("store_delete", {})
+            await client.call_tool("imgw_store_delete", {})
 
     assert caught.value.code == INVALID_PARAMS
 
@@ -400,7 +400,7 @@ async def test_arguments_other_than_an_object_are_a_protocol_error():
         await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         answers = []
         for number, value in enumerate([[1, 2], "datasets", 7], start=2):
-            params = {"name": "datasets_list", "arguments": value}
+            params = {"name": "imgw_datasets_list", "arguments": value}
             await send(
                 {
                     "jsonrpc": "2.0",
@@ -421,7 +421,7 @@ async def test_an_error_is_the_cli_document_with_a_title_of_the_server_language(
     with pytest.raises(IMGWValidationError) as raised:
         validate_command("pmaxtp fetch", options=options)
 
-    result = await call("pmaxtp_fetch", options, lang=lang)
+    result = await call("imgw_pmaxtp_fetch", options, lang=lang)
 
     spec = ERROR_CODES["validation_error"]
     assert error_of(result) == {
@@ -444,7 +444,7 @@ async def test_a_program_error_is_an_internal_error_with_its_trace_on_stderr(
 
     monkeypatch.setattr(registry, "datasets", broken)
 
-    result = await call("datasets_list", {})
+    result = await call("imgw_datasets_list", {})
 
     document = error_of(result)
     assert (document["code"], document["details"]) == ("internal_error", {})

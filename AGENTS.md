@@ -5,7 +5,7 @@
 
 ## Czym jest IMGWTools
 
-IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: archiwów, danych bieżących i opadów maksymalnych prawdopodobnych PMAXTP. Archiwa trafiają do wersjonowanego magazynu — zwykłego katalogu, w którym wersje są niezmienne, a ich tożsamością jest SHA-256 — i z niego, offline, czyta się szeregi stacji. Wszystkie interfejsy powstają z jednego katalogu komend, więc mają te same nazwy opcji, walidację, kopertę wyniku i kody błędów. Wersja 3.0.0: rejestr 17 zbiorów 2 dostawców (IMGW-PIB — Polska, ČHMÚ — Czechy) i jeden katalog 37 komend w 8 grupach dla wszystkich interfejsów.
+IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: archiwów, danych bieżących i opadów maksymalnych prawdopodobnych PMAXTP. Archiwa trafiają do wersjonowanego magazynu — zwykłego katalogu, w którym wersje są niezmienne, a ich tożsamością jest SHA-256 — i z niego, offline, czyta się szeregi stacji. Wszystkie interfejsy powstają z jednego katalogu komend, więc mają te same nazwy opcji, walidację, kopertę wyniku i kody błędów. Wersja 3.0.0: rejestr 17 zbiorów 2 dostawców (IMGW-PIB — Polska, ČHMÚ — Czechy) i jeden katalog 38 komend w 8 grupach dla wszystkich interfejsów.
 
 | Dostawca | Nazwa | Kraj | Klucze zbiorów | Licencja | Kod stacji |
 |---|---|---|---|---|---|
@@ -14,7 +14,7 @@ IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznyc
 
 ## Zasady: sprawdź → uruchom → przeczytaj
 
-1. **Poznaj komendę:** `imgw commands schema [--command …] [--lang en]`, `imgw <grupa> <komenda> --schema`, `GET /api/v1/commands/schema`, w MCP `tools/list`. Opcje to właściwości JSON Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w `x-imgw.writes` i `x-imgw.network`.
+1. **Poznaj komendy:** `imgw commands list` (spis z opisem jednego zdania), potem `imgw commands schema --command … [--lang en]` albo `imgw <grupa> <komenda> --schema`; REST `GET /api/v1/commands/list` i `/schema`; w MCP `imgw_commands_list` i `imgw_commands_schema`. Opcje to właściwości JSON Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w `x-imgw.writes`, `x-imgw.network` i `x-imgw.idempotent`.
 2. **Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; domyślne dla komend zapisujących), `check_command()` (Python) → plan `imgw-plan/1` bez zapisu i bez pobierania treści. `store check` i `project check` same są sprawdzeniem. Przy dużym planie zapytaj użytkownika.
 3. **Uruchom:** bez `check`; czytaj `status` koperty, nie tylko kod wyjścia.
 4. **Czytaj offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — bez ponownego pobierania.
@@ -24,12 +24,12 @@ IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznyc
 
 | Interfejs | Odkrycie | Plan | Wynik | Błąd |
 |---|---|---|---|---|
-| Python | `command_schema()`, `data_commands()` | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
-| CLI `imgw` | `imgw commands schema`, `--schema` | `--check` | koperta JSON w jednej linii stdout; kod wyjścia | ostatnia linia stderr `{"code", "detail", "details"}`; kod wyjścia z rejestru |
-| REST `/api/v1` | `GET /api/v1/commands/schema` | `?check=true` (POST) | 200 + koperta (`status` w treści) | `application/problem+json` |
-| MCP | `tools/list` | `check: true` | `structuredContent` = koperta | `isError: true` + `{"code", "title", "detail", "details"}` |
+| Python | `list_commands()`, `command_schema()`, `data_commands()` | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
+| CLI `imgw` | `imgw commands list`, `imgw commands schema`, `--schema` | `--check` | koperta JSON w jednej linii stdout; kod wyjścia | ostatnia linia stderr `{"code", "detail", "details"}`; kod wyjścia z rejestru |
+| REST `/api/v1` | `GET /api/v1/commands/list`, `/schema` | `?check=true` (POST) | 200 + koperta (`status` w treści) | `application/problem+json` |
+| MCP | `tools/list`, `imgw_commands_list` | `check: true` | `structuredContent` = koperta | `isError: true` + `{"code", "title", "detail", "details"}` |
 
-Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={"opcja": wartość})` albo funkcja z kolumny „Funkcja” tabel komend z tymi samymi argumentami; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, listy jako powtórzony parametr; POST: ciało JSON); MCP — narzędzie `<x-imgw.operation_id>` (nazwa komendy ze spacją i `-` zamienionymi na `_`, np. `store_sync`, `current_hydro_states`) z argumentami = opcjami.
+Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={"opcja": wartość})` albo funkcja z kolumny „Funkcja” tabel komend z tymi samymi argumentami; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, listy jako powtórzony parametr; POST: ciało JSON); MCP — narzędzie `imgw_<grupa>_<komenda>` (`x-imgw.operation_id`: przedrostek `imgw_` i nazwa komendy ze spacją i `-` zamienionymi na `_`, np. `imgw_store_sync`, `imgw_current_hydro_states`; to także `operationId` REST) z argumentami = opcjami.
 
 - **REST:** korzeń magazynu ustawia serwer (`IMGW_STORE_ROOT`; żądanie nie podaje `root`), `version` jest względna do magazynu serwera, opcji lokalnych (np. `path`) nie ma; zapis (POST bez `?check=true`) wymaga włączenia na serwerze i tokenu w nagłówku `X-API-Key`.
 - **MCP:** `imgw mcp` (stdio, dodatek `imgwtools[mcp]`) startuje bez zapisu — komendy zapisujące mają `check` stałe `true` i zwracają plan; zapis włącza użytkownik (`imgw mcp --allow-writes`), a i wtedy `check` jest domyślnie `true`. Punkt `/mcp` serwera REST (`IMGW_MCP_ENABLED=true`) obejmuje komendy z trasą REST, tylko odczyt i plan.
@@ -138,10 +138,10 @@ Tabela każdej grupy podaje komendę, funkcję Pythona i typ wyniku, opcje w kol
 | `store init` | Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu. | `init_store` → `StoreHandle` | `root*` | zapis | `check_command` | — |
 | `store info` | Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu). | `store_info` → `StoreInfo` | `root*` | odczyt | — | GET |
 | `store scan` | Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu). | `iter_store` → `Page[StoreEntry]` | `root*`, `kind`, `provider`, `limit`, `offset=0` | odczyt | — | GET |
-| `store check` | Sprawdź aktualność archiwów zbiorów: listing i HEAD (IMGW-PIB) albo sam listing serwera (ČHMÚ), bez pobierania danych. | `check_store` → `StorePlan` | `root*`, `datasets*`, `years`, `months`, `stations`, `plan` | sieć; `plan`: zapis z nadpisaniem | sama | GET |
+| `store check` | Sprawdź aktualność archiwów zbiorów bez pobierania danych. Źródła: listing i HEAD (IMGW-PIB), sam listing serwera (ČHMÚ). | `check_store` → `StorePlan` | `root*`, `datasets*`, `years`, `months`, `stations`, `plan` | sieć; `plan`: zapis z nadpisaniem | sama | GET |
 | `store sync` | Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru zbiorów i stacji. | `sync_store` → `SyncReport` | `root*`, `plan`, `datasets`, `years`, `months`, `stations`, `series=true` (dokładnie jedno z: `plan` / `datasets`) | sieć, zapis | `check_store` | POST |
 | `store catalog` | Zbuduj wersjonowany katalog stacji stations.geojson jednego dostawcy. | `build_catalog` → `CatalogReport` | `root*`, `provider=IMGW-PIB`, `user_locations` | sieć, zapis | `check_catalog` | POST |
-| `store export` | Wyeksportuj rekordy jednej wersji archiwum z magazynu jako CSV albo JSONL (offline, weryfikacja SHA-256). | `export_archive` → strumień linii | `version*`, `root`, `format=csv`, `path` | odczyt; `path`: zapis z nadpisaniem | `check_command` | GET |
+| `store export` | Wyeksportuj rekordy jednej wersji archiwum jako CSV albo JSONL (offline, z weryfikacją SHA-256). | `export_archive` → strumień linii | `version*`, `root`, `format=csv`, `path` | odczyt; `path`: zapis z nadpisaniem | `check_command` | GET |
 
 ### `series` — Szeregi stacji
 
@@ -170,8 +170,9 @@ Tabela każdej grupy podaje komendę, funkcję Pythona i typ wyniku, opcje w kol
 
 | Komenda | Opis | Funkcja → wynik | Opcje | Skutek | Check | REST |
 |---|---|---|---|---|---|---|
+| `commands list` | Wypisz komendy katalogu: nazwy narzędzi, skutki i trasy. Zacznij tutaj, a opcje jednej komendy pobierz przez commands schema. | `list_commands` → `dict` | `lang=pl` | odczyt | — | GET |
 | `commands schema` | Pokaż schemat JSON opcji komendy albo cały katalog komend imgw-commands/1. | `command_schema` → `dict` | `command`, `lang=pl` | odczyt | — | GET |
-| `commands guide` | Wygeneruj przewodnik dla agentów AI z katalogu komend i rejestrów: AGENTS.md albo llms.txt, po polsku albo angielsku. | `agent_guide` → strumień linii | `format=agents`, `lang=pl`, `path` | odczyt; `path`: zapis z nadpisaniem | `check_command` | GET |
+| `commands guide` | Wygeneruj przewodnik dla agentów AI: AGENTS.md albo llms.txt, po polsku albo angielsku. Powstaje z katalogu komend i rejestrów. | `agent_guide` → strumień linii | `format=agents`, `lang=pl`, `path` | odczyt; `path`: zapis z nadpisaniem | `check_command` | GET |
 
 ## Flagi i wartości
 

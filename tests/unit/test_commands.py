@@ -90,6 +90,7 @@ SPEC_COMMANDS = [
     "project check",
     "project status",
     "project verify",
+    "commands list",
     "commands schema",
     "commands guide",
 ]
@@ -239,6 +240,7 @@ VALID: dict[str, list[dict[str, object]]] = {
     ],
     "project status": [{"project_dir": "/tmp/proj"}],
     "project verify": [{"project_dir": "/tmp/proj", "tasks": ["a"]}],
+    "commands list": [{}, {"lang": "en"}],
     "commands schema": [{}, {"command": "stations find"}],
     "commands guide": [{}, {"format": "llms", "lang": "en", "path": "/tmp/llms.txt"}],
 }
@@ -348,6 +350,7 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
     "project check": [({"project_dir": "/p", "tasks": ["Zła nazwa"]}, "tasks")],
     "project status": [({"project_dir": "/p", "plan": "/tmp/x"}, "plan")],
     "project verify": [({}, "project_dir")],
+    "commands list": [({"lang": "de"}, "lang")],
     "commands schema": [({"command": "store delete"}, "command")],
     "commands guide": [({"format": "html"}, "format"), ({"lang": "de"}, "lang")],
 }
@@ -1070,6 +1073,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
         "project check": {"project_dir": project, "plan": tmp_path / "plan.json"},
         "project status": {"project_dir": project},
         "project verify": {"project_dir": project},
+        "commands list": {"lang": "en"},
         "commands schema": {"command": "store sync"},
         "commands guide": {"format": "llms", "path": tmp_path / "llms.txt"},
     }

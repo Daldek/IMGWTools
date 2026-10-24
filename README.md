@@ -14,7 +14,7 @@ Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAX
 - **Serwer MCP** - `imgw mcp` (dodatek `imgwtools[mcp]`) i punkt `/mcp` serwera REST: komendy katalogu jako narzędzia dla agentów AI, domyślnie bez zapisu
 - **Web GUI** - formularze pobierania, wyszukiwarka stacji i mapa interaktywna (dane IMGW-PIB)
 
-Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 37 komend (`imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Teksty są domyślnie po polsku; opisy katalogu mają wariant angielski (`IMGW_LANG=en`, `--lang en`, `Accept-Language: en`). Przewodnik dla agentów AI: [`AGENTS.md`](AGENTS.md) i [`llms.txt`](llms.txt).
+Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw commands list`, `imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Teksty są domyślnie po polsku; opisy katalogu mają wariant angielski (`IMGW_LANG=en`, `--lang en`, `Accept-Language: en`). Przewodnik dla agentów AI: [`AGENTS.md`](AGENTS.md) i [`llms.txt`](llms.txt).
 
 **Obsługiwane dane:**
 - Aktualne dane hydrologiczne, meteorologiczne i synoptyczne przez API IMGW
@@ -288,7 +288,7 @@ print(result.to_json())  # słownik koperty JSON, taki jak stdout CLI i ciało R
 
 schema = command_schema("store sync")  # JSON Schema opcji + x-imgw (funkcja, CLI, REST, reguły)
 print(schema["x-imgw"]["rest"]["path"])
-print(schema["x-imgw"]["writes"], schema["x-imgw"]["network"], schema["x-imgw"]["operation_id"])  # add True store_sync
+print(schema["x-imgw"]["writes"], schema["x-imgw"]["network"], schema["x-imgw"]["operation_id"])  # add True imgw_store_sync
 print(command_schema("store sync", lang="en")["description"])  # opisy po angielsku, struktura bez zmian
 ```
 
@@ -401,7 +401,7 @@ imgw store sync -d pl.imgw.hydro_monthly -y 2024 --check
 imgw store sync --schema
 ```
 
-Komendy katalogu (pełna lista: `imgw commands schema`):
+Komendy katalogu (pełna lista: `imgw commands list`):
 
 | Komenda | Funkcja Pythona | `--check` | REST |
 |---|---|---|---|
@@ -440,6 +440,7 @@ Komendy katalogu (pełna lista: `imgw commands schema`):
 | `imgw project check` | `check_project` | sama | — (lokalna) |
 | `imgw project status` | `get_project_status` | — | — (lokalna) |
 | `imgw project verify` | `verify_project` | — | — (lokalna) |
+| `imgw commands list` | `list_commands` | — | `GET /api/v1/commands/list` |
 | `imgw commands schema` | `command_schema` | — | `GET /api/v1/commands/schema` |
 | `imgw commands guide` | `agent_guide` | `check_command` | `GET /api/v1/commands/guide` |
 
@@ -521,7 +522,7 @@ Agent (asystent w edytorze, aplikacja czatu, skrypt z modelem językowym) poznaj
 
 ### Serwer MCP
 
-`imgw mcp` (dodatek `imgwtools[mcp]`: CLI + oficjalne SDK `mcp>=2.3,<3`) to serwer MCP na standardowym wejściu i wyjściu. Każda komenda katalogu jest narzędziem o nazwie `x-imgw.operation_id` (`store_sync`, `current_hydro_states`, …) ze schematem wejścia z `command_schema`; argumenty to opcje komendy, a jedynym walidatorem jest `validate_command`. Konfiguracja klienta (np. `mcpServers` w pliku ustawień):
+`imgw mcp` (dodatek `imgwtools[mcp]`: CLI + oficjalne SDK `mcp>=2.3,<3`) to serwer MCP na standardowym wejściu i wyjściu. Każda komenda katalogu jest narzędziem o nazwie `x-imgw.operation_id` (`imgw_` + nazwa komendy: `imgw_store_sync`, `imgw_current_hydro_states`, …; to także `operationId` REST) ze schematem wejścia z `command_schema` i adnotacjami `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`; argumenty to opcje komendy, a jedynym walidatorem jest `validate_command`. Spis komend zwraca narzędzie `imgw_commands_list`, opcje jednej komendy — `imgw_commands_schema`. Konfiguracja klienta (np. `mcpServers` w pliku ustawień):
 
 ```json
 {
@@ -540,9 +541,9 @@ Agent (asystent w edytorze, aplikacja czatu, skrypt z modelem językowym) poznaj
 - Po angielsku: `"args": ["mcp", "--lang", "en"]` (domyślnie `IMGW_LANG`).
 - `root` jak w CLI: argument narzędzia albo `IMGW_STORE_ROOT` serwera; ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
 
-Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` w języku serwera). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `path`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `path`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 37 narzędzi z opisami to ok. 42 KB schematów (tryb bez zapisu, po polsku).
+Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` w języku serwera). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `path`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `path`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 38 narzędzi z opisami to ok. 48 KB schematów (tryb bez zapisu, po polsku).
 
-**MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 27 trasom REST i są wywoływane jako żądania REST w tym samym procesie, więc obowiązują reguły serwera (magazyn z `IMGW_STORE_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Język narzędzi ustala `IMGW_LANG` procesu serwera. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
+**MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 28 trasom REST i są wywoływane jako żądania REST w tym samym procesie, więc obowiązują reguły serwera (magazyn z `IMGW_STORE_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Język narzędzi ustala `IMGW_LANG` procesu serwera. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
 
 ```bash
 IMGW_MCP_ENABLED=true IMGW_STORE_ROOT=/srv/imgw imgw server   # → http://127.0.0.1:8000/mcp
@@ -598,7 +599,7 @@ src/imgwtools/
 ├── _data/        # Obrysy Polski i Czech (Natural Earth), szablony przewodnika agents/, fixtury testowe
 ├── store/        # Magazyn wersjonowany: writer, sync, series, catalog, pmaxtp, reader, export, content
 ├── datasets.py   # Rejestr dostawców i 17 zbiorów (pl.imgw.*, cz.chmi.*), generator plików archiwów
-├── commands.py   # Katalog 37 komend wspólny dla Pythona, CLI, REST, MCP i integracji
+├── commands.py   # Katalog 38 komend wspólny dla Pythona, CLI, REST, MCP i integracji
 ├── agent_guide.py # Przewodnik dla agentów (AGENTS.md, llms.txt): agent_guide, commands guide
 ├── fetch.py      # Dane bieżące, PMAXTP, pobieranie archiwów
 ├── stations.py   # find_stations (IMGW-PIB i ČHMÚ)
@@ -723,7 +724,7 @@ tests/
 │   ├── test_reference_data.py                          # python -m imgwtools.reference_data
 │   └── test_public_store_api.py                        # kontrakt eksportów publicznych
 ├── contract/                # kontrakt magazynu, Python = CLI = REST = MCP, ČHMÚ (IMGW-15..19), projekt
-└── live/                    # regresja na żywo (znacznik `live`, poza bramką): IMGW-PIB 37 komend × Python/CLI/REST + MCP; ČHMÚ
+└── live/                    # regresja na żywo (znacznik `live`, poza bramką): IMGW-PIB 38 komend × Python/CLI/REST + MCP; ČHMÚ
 ```
 
 **Łącznie: 2213 testów** (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo (znacznik `live`, uruchamiane jawnie `-m live`):
@@ -809,7 +810,7 @@ Pełna lista z tabelami migracji: [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (tak�
 
 - Magazyn wersjonowany z planem aktualności, szeregami Parquet, katalogiem stacji
   GeoJSON, PMAXTP per komórka i eksportem CSV/JSONL.
-- Jeden katalog 37 komend dla Pythona, CLI, REST i MCP (`command_schema`, `run_command`),
+- Jeden katalog 38 komend dla Pythona, CLI, REST i MCP (`command_schema`, `run_command`),
   koperta `imgw-result/1` ze stronicowaniem, rejestr kodów błędów `ERROR_CODES`.
 - `find_stations`, `fetch_meteo_current`, `fetch_hydro_states`, `download_archives`,
   `select_series`, `summarize_series`, `export_archive`; rejestr 17 zbiorów dwóch dostawców.

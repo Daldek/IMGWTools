@@ -69,6 +69,7 @@ SPEC_FUNCTIONS = (
     "fetch_hydro_states",
     "fetch_hydro_states_async",
     "command_schema",
+    "list_commands",
     "check_pmaxtp",
     "sync_pmaxtp",
     "read_pmaxtp",

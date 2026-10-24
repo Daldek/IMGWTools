@@ -17,12 +17,12 @@ IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznyc
 
 | Interfejs | Odkrycie | Plan | Wynik | Błąd |
 |---|---|---|---|---|
-| Python | `command_schema()`, `data_commands()` | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
-| CLI `imgw` | `imgw commands schema`, `--schema` | `--check` | koperta JSON w jednej linii stdout; kod wyjścia | ostatnia linia stderr `{"code", "detail", "details"}`; kod wyjścia z rejestru |
-| REST `/api/v1` | `GET /api/v1/commands/schema` | `?check=true` (POST) | 200 + koperta (`status` w treści) | `application/problem+json` |
-| MCP | `tools/list` | `check: true` | `structuredContent` = koperta | `isError: true` + `{"code", "title", "detail", "details"}` |
+| Python | `list_commands()`, `command_schema()`, `data_commands()` | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
+| CLI `imgw` | `imgw commands list`, `imgw commands schema`, `--schema` | `--check` | koperta JSON w jednej linii stdout; kod wyjścia | ostatnia linia stderr `{"code", "detail", "details"}`; kod wyjścia z rejestru |
+| REST `/api/v1` | `GET /api/v1/commands/list`, `/schema` | `?check=true` (POST) | 200 + koperta (`status` w treści) | `application/problem+json` |
+| MCP | `tools/list`, `imgw_commands_list` | `check: true` | `structuredContent` = koperta | `isError: true` + `{"code", "title", "detail", "details"}` |
 
-Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={"opcja": wartość})` albo funkcja z kolumny „Funkcja” tabel komend z tymi samymi argumentami; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, listy jako powtórzony parametr; POST: ciało JSON); MCP — narzędzie `<x-imgw.operation_id>` (nazwa komendy ze spacją i `-` zamienionymi na `_`, np. `store_sync`, `current_hydro_states`) z argumentami = opcjami.
+Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={"opcja": wartość})` albo funkcja z kolumny „Funkcja” tabel komend z tymi samymi argumentami; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, listy jako powtórzony parametr; POST: ciało JSON); MCP — narzędzie `imgw_<grupa>_<komenda>` (`x-imgw.operation_id`: przedrostek `imgw_` i nazwa komendy ze spacją i `-` zamienionymi na `_`, np. `imgw_store_sync`, `imgw_current_hydro_states`; to także `operationId` REST) z argumentami = opcjami.
 
 - **REST:** korzeń magazynu ustawia serwer (`IMGW_STORE_ROOT`; żądanie nie podaje `root`), `version` jest względna do magazynu serwera, opcji lokalnych (np. `path`) nie ma; zapis (POST bez `?check=true`) wymaga włączenia na serwerze i tokenu w nagłówku `X-API-Key`.
 - **MCP:** `imgw mcp` (stdio, dodatek `imgwtools[mcp]`) startuje bez zapisu — komendy zapisujące mają `check` stałe `true` i zwracają plan; zapis włącza użytkownik (`imgw mcp --allow-writes`), a i wtedy `check` jest domyślnie `true`. Punkt `/mcp` serwera REST (`IMGW_MCP_ENABLED=true`) obejmuje komendy z trasą REST, tylko odczyt i plan.

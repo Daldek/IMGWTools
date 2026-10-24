@@ -144,15 +144,19 @@ _STATUSES: Mapping[str, tuple[str, str]] = {
 # The rules of AGENTS.md, llms.txt and the MCP instructions (spec 2026-10-19 §5.4).
 _PRINCIPLES: tuple[tuple[str, str], ...] = (
     (
-        "**Poznaj komendę:** `imgw commands schema [--command …] [--lang en]`, "
-        "`imgw <grupa> <komenda> --schema`, `GET /api/v1/commands/schema`, w MCP "
-        "`tools/list`. Opcje to właściwości JSON Schema; reguły nieopisane schematem "
-        "są w `x-imgw.rules`, skutki w `x-imgw.writes` i `x-imgw.network`.",
-        "**Learn the command:** `imgw commands schema [--command …] [--lang en]`, "
-        "`imgw <group> <command> --schema`, `GET /api/v1/commands/schema`, in MCP "
-        "`tools/list`. Options are JSON Schema properties; rules the schema does not "
-        "express are in `x-imgw.rules`, effects in `x-imgw.writes` and "
-        "`x-imgw.network`.",
+        "**Poznaj komendy:** `imgw commands list` (spis z opisem jednego zdania), "
+        "potem `imgw commands schema --command … [--lang en]` albo `imgw <grupa> "
+        "<komenda> --schema`; REST `GET /api/v1/commands/list` i `/schema`; w MCP "
+        "`imgw_commands_list` i `imgw_commands_schema`. Opcje to właściwości JSON "
+        "Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w "
+        "`x-imgw.writes`, `x-imgw.network` i `x-imgw.idempotent`.",
+        "**Learn the commands:** `imgw commands list` (a one-sentence summary of "
+        "each), then `imgw commands schema --command … [--lang en]` or `imgw "
+        "<group> <command> --schema`; REST `GET /api/v1/commands/list` and "
+        "`/schema`; in MCP `imgw_commands_list` and `imgw_commands_schema`. Options "
+        "are JSON Schema properties; rules the schema does not express are in "
+        "`x-imgw.rules`, effects in `x-imgw.writes`, `x-imgw.network` and "
+        "`x-imgw.idempotent`.",
     ),
     (
         "**Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), "
@@ -1018,13 +1022,13 @@ def _instructions(
             f"Lists: `limit` {_PAGE_SIZE} by default, at most `IMGW_API_MAX_LIMIT`; "
             "next pages: `offset`.",
             "Full guide (commands, datasets, error codes, flows): the "
-            "`commands_guide` tool.",
+            "`imgw_commands_guide` tool.",
         ]
     else:
         lines += [
             f"Listy: `limit` domyślnie {_PAGE_SIZE}, najwyżej `IMGW_API_MAX_LIMIT`; "
             "kolejne strony: `offset`.",
             "Pełny przewodnik (komendy, zbiory, kody błędów, przepływy): narzędzie "
-            "`commands_guide`.",
+            "`imgw_commands_guide`.",
         ]
     return "\n".join(lines)

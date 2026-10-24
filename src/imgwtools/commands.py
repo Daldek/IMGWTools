@@ -1,5 +1,5 @@
 """
-Catalog of the 37 data commands and the single dispatcher of public functions.
+Catalog of the 38 data commands and the single dispatcher of public functions.
 
 ``data_commands`` describes every operation of IMGWTools (spec §13.3). Each
 command calls exactly one public function whose parameters carry the option
@@ -83,6 +83,7 @@ __all__ = [
     "command_schema",
     "data_commands",
     "format_command",
+    "list_commands",
     "run_command",
     "validate_command",
 ]
@@ -102,6 +103,8 @@ Checker = Callable[[Options, Hooks], StorePlan]
 Rule = Callable[[Options, bool], None]
 
 PROJECT_FILE = "imgw-project.json"
+# Prefix of the operation ids: REST ``operationId`` and MCP tool names (ECO-018).
+_TOOL = "imgw"
 _STORE_MARKER = "imgw-store.json"
 # Default download directory; projects resolve it against the project directory.
 _DEFAULT_OUTPUT = Path("data/downloaded")
@@ -123,6 +126,7 @@ _PATTERN_TEXT = {
 }
 _INTEGER = re.compile(r"-?[0-9]+")
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ])")
 _KINDS = ("hydro", "meteo")
 _YEAR_TYPES = ("hydrological", "calendar")
 # Datasets with source files (spec 2026-10-18 §9.3: 10 IMGW-PIB and 2 ČHMÚ);
@@ -225,6 +229,7 @@ _MODULES = {
     **dict.fromkeys(_STORE_FUNCTIONS, "imgwtools.store"),
     **dict.fromkeys(_PROJECT_FUNCTIONS, "imgwtools.project"),
     "command_schema": "imgwtools.commands",
+    "list_commands": "imgwtools.commands",
     "agent_guide": "imgwtools.agent_guide",
 }
 
@@ -284,6 +289,7 @@ def _command(
     rules: tuple[tuple[str, str], ...] = (),
     writes: Writes = "none",
     network: bool = False,
+    idempotent: bool = True,
     env_root_when: Mapping[str, str] | None = None,
 ) -> tuple[DataCommand, str]:
     """Catalog entry; ``rules`` are (Polish, English) pairs of one rule each."""
@@ -303,6 +309,7 @@ def _command(
         rules_en=tuple(english for _, english in rules),
         writes=writes,
         network=network,
+        idempotent=idempotent,
         env_root_when=dict(env_root_when or {}),
     )
     return command, result_type
@@ -697,8 +704,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         "datasets files",
         "Wypisz pliki źródłowe zbioru dla wybranych roczników albo stacji (offline, "
         "bez pobierania).",
-        "List the source files of a dataset for the selected years or stations "
-        "(offline, without downloading).",
+        "List the source files of a dataset for given years or stations (offline, no "
+        "download).",
         (_ARCHIVE_DATASET, _ARCHIVE_YEARS, _MONTHS, _PARAMS, _ARCHIVE_STATIONS),
         function="archive_files",
         result="list",
@@ -732,8 +739,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         "datasets providers",
         "Wypisz dostawców danych z rejestru: identyfikatory, kraje, licencje, wzorce "
         "kodów stacji i zbiory.",
-        "List the data providers of the registry: identifiers, countries, licenses, "
-        "station code patterns and datasets.",
+        "List the data providers: identifiers, countries, licenses, station code "
+        "patterns, datasets.",
         (),
         function="providers",
         result="list",
@@ -1039,10 +1046,10 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store check",
-        "Sprawdź aktualność archiwów zbiorów: listing i HEAD (IMGW-PIB) albo sam "
-        "listing serwera (ČHMÚ), bez pobierania danych.",
-        "Check the freshness of the archives of datasets: listing and HEAD "
-        "(IMGW-PIB) or the server listing alone (ČHMÚ), without downloading data.",
+        "Sprawdź aktualność archiwów zbiorów bez pobierania danych. Źródła: listing i "
+        "HEAD (IMGW-PIB), sam listing serwera (ČHMÚ).",
+        "Check the freshness of the dataset archives without downloading data. "
+        "Sources: listing and HEAD (IMGW-PIB), the server listing alone (ČHMÚ).",
         (
             _ROOT,
             replace(_DATASETS, required=True),
@@ -1068,8 +1075,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         "store sync",
         "Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru "
         "zbiorów i stacji.",
-        "Download new or missing archives into the store according to a plan or a "
-        "selection of datasets and stations.",
+        "Download new or missing archives into the store, by plan or by datasets and "
+        "stations.",
         (
             _ROOT,
             _option(
@@ -1140,10 +1147,10 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store export",
-        "Wyeksportuj rekordy jednej wersji archiwum z magazynu jako CSV albo JSONL "
-        "(offline, weryfikacja SHA-256).",
-        "Export the records of one archive version of the store as CSV or JSONL "
-        "(offline, SHA-256 verification).",
+        "Wyeksportuj rekordy jednej wersji archiwum jako CSV albo JSONL (offline, z "
+        "weryfikacją SHA-256).",
+        "Export the records of one archive version as CSV or JSONL (offline, SHA-256 "
+        "verified).",
         (
             _option(
                 "version",
@@ -1249,8 +1256,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     _command(
         "series summary",
         "Pokaż pokrycie stacji i zmiennych szeregu ze spisu series.json (bez pyarrow).",
-        "Show the coverage of the stations and variables of a series from its "
-        "series.json index (without pyarrow).",
+        "Show the coverage of stations and variables of a series from series.json "
+        "(without pyarrow).",
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
@@ -1463,10 +1470,10 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
 # The description commands close the catalog: commands schema names every command.
 _GUIDE = _command(
     "commands guide",
-    "Wygeneruj przewodnik dla agentów AI z katalogu komend i rejestrów: AGENTS.md "
-    "albo llms.txt, po polsku albo angielsku.",
-    "Generate the guide for AI agents from the command catalog and the registries: "
-    "AGENTS.md or llms.txt, in Polish or English.",
+    "Wygeneruj przewodnik dla agentów AI: AGENTS.md albo llms.txt, po polsku albo "
+    "angielsku. Powstaje z katalogu komend i rejestrów.",
+    "Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. "
+    "It is rendered from the command catalog and the registries.",
     (
         _option(
             "format",
@@ -1489,6 +1496,17 @@ _GUIDE = _command(
 )
 _CATALOG += (
     _command(
+        "commands list",
+        "Wypisz komendy katalogu: nazwy narzędzi, skutki i trasy. Zacznij tutaj, "
+        "a opcje jednej komendy pobierz przez commands schema.",
+        "List the catalog commands: tool names, effects and routes. Start here, "
+        "then get the options of one command with commands schema.",
+        (_LANGUAGE,),
+        function="list_commands",
+        method="GET",
+        result_type="dict",
+    ),
+    _command(
         "commands schema",
         "Pokaż schemat JSON opcji komendy albo cały katalog komend imgw-commands/1.",
         "Show the JSON Schema of the options of a command or the whole "
@@ -1501,6 +1519,7 @@ _CATALOG += (
                 "Name of a catalog command; none = the whole imgw-commands/1 catalog",
                 choices=(
                     *(command.name for command, _ in _CATALOG),
+                    "commands list",
                     "commands schema",
                     _GUIDE[0].name,
                 ),
@@ -1545,7 +1564,7 @@ def _narrowed(command: DataCommand, owner: ProviderDescriptor) -> DataCommand | 
 
 def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
     """
-    Return the catalog of all 37 data commands or its view for one provider.
+    Return the catalog of all 38 data commands or its view for one provider.
 
     Parameters
     ----------
@@ -2714,6 +2733,9 @@ _CHECKS: dict[str, Checker] = {
     "project check": _twin("check_project", without=("plan",)),
     "project status": _check_reading("project status", "project_dir"),
     "project verify": _check_reading("project verify", "project_dir"),
+    "commands list": lambda options, hooks: _reading(
+        "commands list", "Spis komend imgw-command-list/1 (offline)"
+    ),
     "commands schema": lambda options, hooks: _reading(
         "commands schema", "Opis katalogu komend imgw-commands/1 (offline)"
     ),
@@ -2825,6 +2847,11 @@ def _localized(polish: str, english: str, lang: Lang) -> str:
     return english if lang == "en" else polish
 
 
+def _operation_id(command: str) -> str:
+    """``imgw_<group>_<verb>``: the one naming rule of REST, MCP tools and guide."""
+    return f"{_TOOL}_{command.replace(' ', '_').replace('-', '_')}"
+
+
 def _property(option: CommandOption, lang: Lang) -> dict[str, object]:
     schema = _value_schema(option.type, option)
     if option.default is not None:
@@ -2862,7 +2889,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
     schema["x-imgw"] = {
         "command": spec.name,
         # The one naming rule of REST operationId, MCP tools and the guide.
-        "operation_id": spec.name.replace(" ", "_").replace("-", "_"),
+        "operation_id": _operation_id(spec.name),
         "group": group,
         "function": spec.function,
         "check": spec.check,
@@ -2870,6 +2897,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
         "result_type": _RESULT_TYPES[spec.name],
         "writes": spec.writes,
         "network": spec.network,
+        "idempotent": spec.idempotent,
         "cli": {
             "command": f"imgw {spec.name}",
             "flags": {option.name: _flags(option) for option in spec.options},
@@ -2904,10 +2932,11 @@ def command_schema(
     ``dependentRequired``, ``one_of`` → ``oneOf`` of ``required`` groups and
     other rules → ``x-imgw.rules``; an option whose value names a file the
     command writes has ``x-imgw-writes`` (``add`` or ``replace``).
-    ``x-imgw`` also names the ``operation_id`` (REST ``operationId``, MCP
-    tool name), the group, the function, the check twin, the result shape
-    and type, the effects of a run (``writes``: ``none``, ``add`` or
-    ``replace``; ``network``), the CLI flags and the REST route.
+    ``x-imgw`` also names the ``operation_id`` (``imgw_<group>_<verb>``: the
+    REST ``operationId`` and the MCP tool name), the group, the function, the
+    check twin, the result shape and type, the effects of a run (``writes``:
+    ``none``, ``add`` or ``replace``; ``network``; ``idempotent``), the CLI
+    flags and the REST route.
 
     Parameters
     ----------
@@ -2924,7 +2953,7 @@ def command_schema(
     dict of {str : object}
         JSON Schema of the command options, or the ``imgw-commands/1``
         document with ``version``, ``lang``, ``result_schema``, ``groups``,
-        ``commands`` (37 schemas), ``errors`` (the error code registry) and
+        ``commands`` (38 schemas), ``errors`` (the error code registry) and
         ``exit_codes`` of the envelope statuses.
 
     Raises
@@ -2953,4 +2982,69 @@ def command_schema(
             for spec in ERROR_CODES.values()
         ],
         "exit_codes": dict(_EXIT_CODES),
+    }
+
+
+def _summary(text: str) -> str:
+    """First sentence of a command description (a catalog ``summary``)."""
+    return _SENTENCE_END.split(text, maxsplit=1)[0]
+
+
+def list_commands(*, lang: Lang = "pl") -> dict[str, object]:
+    """
+    Summarize the command catalog: one short entry per command.
+
+    The summary is the first step of discovery: the tool names, what each
+    command does in one sentence, its effects and its REST route. The options
+    of one command come from `command_schema`.
+
+    Parameters
+    ----------
+    lang : {"pl", "en"}, optional
+        Language of the group titles and of the summaries.
+
+    Returns
+    -------
+    dict of {str : object}
+        ``imgw-command-list/1`` document with ``version``, ``lang``,
+        ``groups`` and ``commands``: per command in catalog order its
+        ``command``, ``operation_id``, ``group``, ``summary`` (the first
+        sentence of the description, at most 100 characters), ``writes``,
+        ``network``, ``idempotent``, ``check`` (the check twin), ``result``,
+        ``result_type`` and ``rest`` (method and path, or None).
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``lang`` is not a language of the catalog (``details.allowed``
+        lists the values).
+    """
+    language = cast(Lang, _choice(_LANGUAGE, lang))
+    entries: list[dict[str, object]] = []
+    for spec in _COMMANDS:
+        group, name = spec.name.split(" ", 1)
+        text = _localized(spec.description, spec.description_en, language)
+        entries.append(
+            {
+                "command": spec.name,
+                "operation_id": _operation_id(spec.name),
+                "group": group,
+                "summary": _summary(text),
+                "writes": spec.writes,
+                "network": spec.network,
+                "idempotent": spec.idempotent,
+                "check": spec.check,
+                "result": spec.result,
+                "result_type": _RESULT_TYPES[spec.name],
+                "rest": None
+                if spec.method is None
+                else {"method": spec.method, "path": f"/api/v1/{group}/{name}"},
+            }
+        )
+    return {
+        "schema": "imgw-command-list/1",
+        "version": __version__,
+        "lang": language,
+        "groups": dict(_GROUPS_EN if language == "en" else _GROUPS),
+        "commands": entries,
     }

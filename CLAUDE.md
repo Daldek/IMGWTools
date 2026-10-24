@@ -11,7 +11,7 @@ IMGWTools is a Python library and tools for downloading public data from IMGW-PI
 - **MCP server** - `imgw mcp` (stdio) and `/mcp` in the REST server for AI agents [optional: `imgwtools[mcp]`]
 - **Web GUI** - HTMX + Jinja2 web interface (IMGW-PIB datasets only)
 
-Since 3.0.0 (ADR-002) Python, CLI, REST and MCP share **one command catalog** of 37 commands (`imgwtools.commands`, `imgw commands schema`): one option name per parameter, one validation, one result envelope `imgw-result/1` and one closed error-code registry `ERROR_CODES`. CLI groups, REST routes and MCP tools are generated from the catalog; the web GUI calls public functions only. Human texts are Polish by default; catalog and registry texts have an English variant (`lang="en"`, `IMGW_LANG`, `Accept-Language`; ADR-004). The agent guide `AGENTS.md`/`llms.txt` is generated from the catalog.
+Since 3.0.0 (ADR-002) Python, CLI, REST and MCP share **one command catalog** of 38 commands (`imgwtools.commands`, `imgw commands list`, `imgw commands schema`): one option name per parameter, one validation, one result envelope `imgw-result/1` and one closed error-code registry `ERROR_CODES`. CLI groups, REST routes and MCP tools are generated from the catalog; the web GUI calls public functions only. Human texts are Polish by default; catalog and registry texts have an English variant (`lang="en"`, `IMGW_LANG`, `Accept-Language`; ADR-004). The agent guide `AGENTS.md`/`llms.txt` is generated from the catalog.
 
 **Providers (ADR-003):** `IMGW-PIB` (`pl.imgw.*`, 9-digit station codes, country-wide archives) and `CHMI` ("ČHMÚ", `cz.chmi.*`, WIGOS station ids, per-station files, CC BY 4.0) in one registry of 17 datasets, one store and one catalog.
 
@@ -97,7 +97,7 @@ src/imgwtools/
 ├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, NormalizedRecord, Measurement, ...)
 ├── stations.py           # PUBLIC: find_stations (live lists of IMGW-PIB and ČHMÚ, or store)
 ├── datasets.py           # PUBLIC: Provider registry (providers, get_provider) + 17 dataset descriptors, archive_files
-├── commands.py           # PUBLIC: Command catalog (37 commands, PL + EN texts, effects), run_command, command_schema
+├── commands.py           # PUBLIC: Command catalog (38 commands, PL + EN texts, effects), run_command, command_schema, list_commands
 ├── agent_guide.py        # PUBLIC: agent_guide (AGENTS.md / llms.txt), MCP server instructions
 ├── coverage.py           # PUBLIC: summarize_coverage (per-station periods for ČHMÚ)
 ├── project.py            # PUBLIC: imgw-project/1 manifests (restore by content for ČHMÚ)
@@ -187,7 +187,8 @@ Every live function has an `*_async` twin with identical arguments.
 **Command Catalog:**
 |Function|Description|
 |---|---|
-|`command_schema(command=None, /, *, lang="pl")`|JSON Schema of the catalog or one command (`x-imgw`: function, CLI, REST, rules, `writes`, `network`, `operation_id`); `lang="en"` = English texts|
+|`command_schema(command=None, /, *, lang="pl")`|JSON Schema of the catalog or one command (`x-imgw`: function, CLI, REST, rules, `writes`, `network`, `idempotent`, `operation_id`); `lang="en"` = English texts|
+|`list_commands(*, lang="pl")`|Catalog summary `imgw-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`imgw commands list`, MCP `imgw_commands_list`)|
 |`data_commands(*, provider=None)`|Catalog entries (`DataCommand`; `provider` = view of one provider)|
 |`validate_command(command, /, *, options)`|Normalized options or `IMGWValidationError` with `details.option`|
 |`format_command(command, /, *, options)`|Equivalent CLI command line|
@@ -228,8 +229,8 @@ Every live function has an `*_async` twin with identical arguments.
 ### Key Module: `commands.py`
 
 The command catalog is the single source of options, validation, help texts and result types:
-- `_CATALOG` — 37 `DataCommand` entries (spec §13.3 + `datasets providers` + `commands guide`), each calling exactly one public function; every text has a Polish and an English variant (`description_en`, `help_en`, `rules_en`, `_GROUPS_EN`)
-- `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`
+- `_CATALOG` — 38 `DataCommand` entries (spec §13.3 + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text has a Polish and an English variant (`description_en`, `help_en`, `rules_en`, `_GROUPS_EN`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
+- `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `imgw_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
 - `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
 - CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
 - Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`imgw commands guide --format agents --lang pl --path AGENTS.md`, `--format llms --lang pl --path llms.txt`); `tests/unit/test_agent_guide.py` compares the bytes
@@ -280,7 +281,7 @@ No data is stored on our server by default - station lists and live data are fet
 
 ## Command Catalog (CLI, REST and MCP)
 
-CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing); MCP tool = `x-imgw.operation_id` (name with spaces and `-` → `_`, e.g. `store_sync`). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`/`check: true`; `—` = no `--check`; "self" = the command is a check.
+CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing); MCP tool = `x-imgw.operation_id` (`imgw_` + name with spaces and `-` → `_`, e.g. `imgw_store_sync`; also the REST `operationId`). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`/`check: true`; `—` = no `--check`; "self" = the command is a check.
 
 |Command|Function|Check|REST|
 |---|---|---|---|
@@ -319,6 +320,7 @@ CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET 
 |`project check`|`check_project`|self|local|
 |`project status`|`get_project_status`|—|local|
 |`project verify`|`verify_project`|—|local|
+|`commands list`|`list_commands`|—|`GET /api/v1/commands/list`|
 |`commands schema`|`command_schema`|—|`GET /api/v1/commands/schema`|
 |`commands guide`|`agent_guide`|`check_command`|`GET /api/v1/commands/guide`|
 
@@ -546,11 +548,11 @@ uv run mypy src tests
 |`tests/unit/test_catalog_effects.py`, `test_catalog_i18n.py`, `test_agent_guide.py`, `test_mcp_*.py`|179|Agents: effects = behavior, English texts, guide drift test, MCP tools/calls/stdio/HTTP|
 |`tests/unit/test_web_app.py`|45|Web GUI|
 |`tests/unit/` other files|152|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
-|`tests/contract/test_interface_contract.py`|80|Python = CLI = REST for all 27 REST commands, error matrix, paging|
+|`tests/contract/test_interface_contract.py`|81|Python = CLI = REST for all 28 REST commands, error matrix, paging|
 |`tests/contract/test_chmi_contract.py`|68|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
-|`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|85|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
+|`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|87|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
 |`tests/contract/` other files|15|Store contract, CLI = API parity, project contract|
-|`tests/live/test_interfaces_live.py`|53|Live IMGW-PIB: 37 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); marker `live`|
+|`tests/live/test_interfaces_live.py`|54|Live IMGW-PIB: 38 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); marker `live`|
 |`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; marker `live`|
 
 **Total: 2213 tests** (`pytest --collect-only`, 2026-10-19): 2134 offline, 79 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`).

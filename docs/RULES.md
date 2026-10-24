@@ -9,8 +9,8 @@
 ---
 
 ## 2. Testy
-- **testy jednostkowe i kontraktowe** — wymagane, stan: 2134 testy w `tests/unit` i `tests/contract` (2026-10-19), wszystkie offline
-- **testy na żywo** — 79 testów w `tests/live`, uruchamiane wyłącznie z `IMGW_LIVE=1`: 53 na serwerach IMGW-PIB (37 komend × Python/CLI/REST, błędy na żywo, noga MCP `-k imgw_mcp`) i 26 na opendata.chmi.cz (dostawca ČHMÚ)
+- **testy jednostkowe i kontraktowe** — wymagane, stan: 2157 testów w `tests/unit` i `tests/contract` (2026-10-24), wszystkie offline
+- **testy na żywo** — 80 testów w `tests/live` (znacznik `live`, poza bramką: `pytest -m live`): 54 na serwerach IMGW-PIB (38 komend × Python/CLI/REST, błędy na żywo, noga MCP `-k imgw_mcp`) i 26 na opendata.chmi.cz (dostawca ČHMÚ)
 - pokrycie: ostatni pomiar **93%** (2026-10-18, przed zmianami ADR-002), cel docelowy **80%**
 - zmiana katalogu komend, CLI, REST, MCP lub web musi utrzymać kontrakt Python = CLI = REST = MCP (`tests/contract/test_interface_contract.py`, `test_mcp_contract.py`, `test_mcp_http_contract.py`)
 - zmiana tekstów katalogu, rejestrów (zbiory, dostawcy, kody błędów) albo szablonów przewodnika regeneruje `AGENTS.md` i `llms.txt` w tej samej zmianie (test dryfu w `tests/unit/test_agent_guide.py`)

@@ -3,6 +3,7 @@
 import functools
 import importlib
 import json
+import re
 import shutil
 import sys
 from datetime import UTC, datetime
@@ -264,7 +265,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for method, operation in operations.items()
     }
 
-    assert len(expected) == 27
+    assert len(expected) == 28
     assert served.keys() == expected.keys()
     assert [
         (route["method"], route["path"])
@@ -297,6 +298,14 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
     assert (limit["schema"]["default"], limit["schema"]["maximum"]) == (1000, 1000)
     tags = {tag["name"]: tag["description"] for tag in document["tags"]}
     assert tags.items() >= command_schema()["groups"].items()
+    # Every operation, also outside the catalog, has an id of the catalog form.
+    operation_ids = [
+        operation["operationId"]
+        for operations in document["paths"].values()
+        for operation in operations.values()
+    ]
+    assert len(set(operation_ids)) == len(operation_ids)
+    assert all(re.fullmatch(r"imgw_[a-z0-9_]{1,43}", name) for name in operation_ids)
 
 
 def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):

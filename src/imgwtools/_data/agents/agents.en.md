@@ -17,12 +17,12 @@ IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for 
 
 | Interface | Discovery | Plan | Result | Error |
 |---|---|---|---|---|
-| Python | `command_schema()`, `data_commands()` | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
-| CLI `imgw` | `imgw commands schema`, `--schema` | `--check` | one-line JSON envelope on stdout; exit code | last stderr line `{"code", "detail", "details"}`; exit code from the registry |
-| REST `/api/v1` | `GET /api/v1/commands/schema` | `?check=true` (POST) | 200 + envelope (`status` in the body) | `application/problem+json` |
-| MCP | `tools/list` | `check: true` | `structuredContent` = envelope | `isError: true` + `{"code", "title", "detail", "details"}` |
+| Python | `list_commands()`, `command_schema()`, `data_commands()` | `check_command(…)` | `CommandResult` (`to_json()`) | `IMGWError` (`code`, `detail`, `details`) |
+| CLI `imgw` | `imgw commands list`, `imgw commands schema`, `--schema` | `--check` | one-line JSON envelope on stdout; exit code | last stderr line `{"code", "detail", "details"}`; exit code from the registry |
+| REST `/api/v1` | `GET /api/v1/commands/list`, `/schema` | `?check=true` (POST) | 200 + envelope (`status` in the body) | `application/problem+json` |
+| MCP | `tools/list`, `imgw_commands_list` | `check: true` | `structuredContent` = envelope | `isError: true` + `{"code", "title", "detail", "details"}` |
 
-One command in every interface: CLI `imgw <group> <command> --option value` (flag = `--` + the option name with `-` instead of `_`); Python `run_command("<group> <command>", options={"option": value})` or the function of the "Function" column of the command tables with the same arguments; REST `/api/v1/<group>/<command>` (GET: query parameters, lists as a repeated parameter; POST: JSON body); MCP — the tool `<x-imgw.operation_id>` (the command name with the space and `-` replaced by `_`, e.g. `store_sync`, `current_hydro_states`) with the options as arguments.
+One command in every interface: CLI `imgw <group> <command> --option value` (flag = `--` + the option name with `-` instead of `_`); Python `run_command("<group> <command>", options={"option": value})` or the function of the "Function" column of the command tables with the same arguments; REST `/api/v1/<group>/<command>` (GET: query parameters, lists as a repeated parameter; POST: JSON body); MCP — the tool `imgw_<group>_<command>` (`x-imgw.operation_id`: the prefix `imgw_` and the command name with the space and `-` replaced by `_`, e.g. `imgw_store_sync`, `imgw_current_hydro_states`; also the REST `operationId`) with the options as arguments.
 
 - **REST:** the server sets the store root (`IMGW_STORE_ROOT`; a request gives no `root`), `version` is relative to the server's store, local options (e.g. `path`) do not exist; writing (POST without `?check=true`) must be enabled on the server and needs the token in the `X-API-Key` header.
 - **MCP:** `imgw mcp` (stdio, extra `imgwtools[mcp]`) starts without writes — writing commands have `check` fixed to `true` and return a plan; the user enables writes (`imgw mcp --allow-writes`), and even then `check` is `true` by default. The `/mcp` endpoint of the REST server (`IMGW_MCP_ENABLED=true`) covers the commands with a REST route, reading and planning only.

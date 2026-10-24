@@ -9,8 +9,30 @@ magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
 Work on top of the untagged 3.0.0, from bringing the repository in line with the Nogat
 standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 
+### Added
+
+- **`commands list` (AGI-5.9):** the 38th catalog command and the public `list_commands(*, lang)`
+  return the catalog summary `imgw-command-list/1`: per command its name, `operation_id`,
+  group, one-sentence summary, effects (`writes`, `network`, `idempotent`), check twin, result
+  shape and REST route. It is the first discovery step before `commands schema`; the MCP tool is
+  `imgw_commands_list`, the REST route `GET /api/v1/commands/list`, the CLI
+  `imgw commands list`.
+
 ### Changed
 
+- **Breaking — MCP tool names and OpenAPI `operationId` start with `imgw_` (ECO-018, AGI-5.2,
+  AGI-6.2):** `x-imgw.operation_id` is `imgw_<group>_<verb>` (`imgw_store_sync`,
+  `imgw_current_hydro_states`), the one name of the REST `operationId`, the MCP tool and the
+  guide; routes outside the catalog get `imgw_system_<function>` instead of FastAPI's generated
+  ids. Migration: replace `store_sync` by `imgw_store_sync` in MCP clients and OpenAPI
+  generators (no alias keeps the old names). The command names (`store sync`), CLI flags,
+  REST paths and schema names of the OpenAPI components are unchanged.
+- **MCP annotations (AGI-5.4):** every tool carries `title`, `readOnlyHint`, `destructiveHint`
+  (now `false` instead of absent on a read-only tool), `idempotentHint` and `openWorldHint`.
+  `idempotentHint` comes from the new catalog field `DataCommand.idempotent` (`x-imgw.idempotent`,
+  true for every command: a repeated call finds the versions and files it already wrote).
+- The first sentence of seven command descriptions is shortened to at most 100 characters
+  (DOC-1.7), because it is the `summary` of `commands list`.
 - **Development tooling (ECO-010, DEV-6.3, DEV-7.6, DEV-10.1):** mypy `strict` over `src/`
   and `tests/` replaces pyright (per-module deviations are listed in `CLAUDE.md`);
   `scripts/gate.sh` and `scripts/check-commits.sh` (templates of the Nogat standard) run
