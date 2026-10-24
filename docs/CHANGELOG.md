@@ -151,6 +151,34 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   empty store and create nothing. The module `imgwtools.output` (marker names, the check of a plain
   target list, the staging directory with SIGTERM handling, `FileResult`) is added for the plain
   mode that follows.
+- **Breaking — `datasets download` writes plain files with `--output-dir` or the store
+  (DEV-19.1, DEV-19.5 to DEV-19.11, DEV-19.19, ADR-007 D1, D3, D4, D5, D7):** `download_archives(...,
+  output=)` and the CLI `--output`/`-o` (default `./data/downloaded`) are gone without an alias:
+  `output_dir` (`--output-dir`, `-o`) writes ordinary files named like the server paths
+  (`<dir>/<server_path>`), `root` (`--root`) publishes versions in the store, and a call with
+  neither goes to the store at the default root. The two exclude each other (`validation_error`,
+  `details.reason="exclusive_options"`, `details.options`). A plain write checks the whole target
+  list before the first request: an existing target without `--force` is `conflict`
+  (`output_exists`), duplicate names `duplicate_output_name`, a directory that is or lies in a
+  store of IMGWTools or Kartograf `output_in_store` (hint `--root`); `details.paths` lists every
+  path and nothing is written. Files stream into `<dir>/.imgw-incoming/<host>_<pid>_<token>/`,
+  are hashed while they stream, verified (ZIP) and moved with `os.replace` (the staging directory
+  goes on success, error, SIGINT and SIGTERM; leftovers older than 24 hours go with the next
+  run), so no `.part` file is left beside a target and no hard link is needed (FAT, exFAT, SMB).
+  `--force` replaces existing targets and deletes nothing else; in the store it fetches again and
+  never overwrites a version. A store download takes the seven store datasets only
+  (`details.reason="not_in_store"` otherwise, hint `--output-dir`). `DownloadReport` is `mode`,
+  `output_dir`, `root`, `items`, `files` and `cancelled`: `files[]` is `{path, size_bytes,
+  sha256, status}` with `written` or `replaced` (plain) and `new`, `unchanged` or `relabeled`
+  (store). `--check` plans each target as `write`, `replace` (with `--force`) or `conflict`
+  (`PlanAction.action`, `path`, `reason`; the plan is `ok` and exits 0 whatever it lists, only
+  the real run fails). A project task `datasets download` runs in the project store and pins the
+  versions it fetched (it took `output`, default `<project>/data/downloaded`). The command
+  schema publishes `x-imgw-path-role` (`input`, `output`, `root`) of every path option,
+  `x-imgw-store-only` of an option and `x-imgw.exclusive` and `x-imgw.store_only` of a command;
+  the CLI prints the paths of every result relative to the validated root, the default root
+  included. Migration: `--output DIR` → `--output-dir DIR`; `output=` → `output_dir=`; read
+  `report.output_dir`, `report.files[].path` and `status`.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

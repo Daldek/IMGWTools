@@ -22,7 +22,7 @@ import math
 import os
 import re
 import shlex
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -56,6 +56,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.messages import LANGS, Lang, localize, message, reason
+from imgwtools.output import plan_plain
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
 from imgwtools.store import writer as _writer
@@ -104,8 +105,6 @@ PROJECT_FILE = "imgw-project.json"
 # Prefix of the operation ids: REST ``operationId`` and MCP tool names (ECO-018).
 _TOOL = "imgw"
 _STORE_MARKER = "imgw-store.json"
-# Default download directory; projects resolve it against the project directory.
-_DEFAULT_OUTPUT = Path("data/downloaded")
 _DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _RANGE = "^[0-9]{1,4}-[0-9]{1,4}$"
 _STATION = STATION_CODE_PATTERN
@@ -238,6 +237,8 @@ def _option(
     pattern: str | None = None,
     rest: Literal["param", "server", "local"] = "param",
     writes: Writes = "none",
+    path_role: Literal["input", "output", "root"] | None = None,
+    store_only: bool = False,
 ) -> CommandOption:
     return CommandOption(
         name,
@@ -254,6 +255,8 @@ def _option(
         pattern=pattern,
         rest=rest,
         writes=writes,
+        path_role=path_role,
+        store_only=store_only,
     )
 
 
@@ -274,6 +277,8 @@ def _command(
     network: bool = False,
     idempotent: bool = True,
     env_root_when: Mapping[str, str] | None = None,
+    exclusive: tuple[tuple[str, ...], ...] = (),
+    store_only: bool = False,
 ) -> tuple[DataCommand, str]:
     """
     Catalog entry; ``rules`` are the catalog messages of one rule each.
@@ -282,6 +287,8 @@ def _command(
     """
     if len(one_of) not in (0, 2):
         raise ValueError(f"one_of of {name} must be a pair of option groups")
+    if store_only:
+        rules = (*rules, message("commands.store_only_rule"))
     listed = (*options, _LIMIT, _OFFSET) if result == "list" else tuple(options)
     command = DataCommand(
         name,
@@ -298,6 +305,8 @@ def _command(
         network=network,
         idempotent=idempotent,
         env_root_when=dict(env_root_when or {}),
+        exclusive=exclusive,
+        store_only=store_only,
     )
     return command, result_type
 
@@ -308,6 +317,7 @@ _ROOT = _option(
     message("commands.root_help"),
     aliases=("-r",),
     rest="server",
+    path_role="root",
 )
 _PROJECT_DIR = _option(
     "project_dir",
@@ -315,6 +325,7 @@ _PROJECT_DIR = _option(
     message("commands.project_dir_help"),
     required=True,
     rest="local",
+    path_role="root",
 )
 _STORE_DIR = _option(
     "store_dir",
@@ -322,6 +333,7 @@ _STORE_DIR = _option(
     message("commands.store_dir_help"),
     required=True,
     rest="local",
+    path_role="root",
 )
 _ARCHIVE_DATASET = _option(
     "dataset",
@@ -386,13 +398,22 @@ _PARAMS = _option(
     choices=("H", "Q", "T"),
     items="choice",
 )
-_OUTPUT = _option(
-    "output",
+_OUTPUT_DIR = _option(
+    "output_dir",
     "path",
-    message("commands.output_help"),
-    default="./data/downloaded",
+    message("commands.output_dir_help"),
     aliases=("-o",),
     rest="local",
+    writes="add",
+    path_role="output",
+)
+_FORCE = _option(
+    "force",
+    "bool",
+    message("commands.force_help"),
+    default=False,
+    rest="local",
+    writes="replace",
 )
 _STATION_OPTION = _option(
     "station",
@@ -482,6 +503,7 @@ _SERIES_VERSION = _option(
     "version",
     "path",
     message("commands.series_version_help"),
+    path_role="input",
 )
 _SERIES_ROOT = replace(
     _ROOT,
@@ -495,6 +517,7 @@ _PATH = _option(
     aliases=("-p",),
     rest="local",
     writes="replace",
+    path_role="output",
 )
 # Plan file written by the commands that are checks themselves.
 _PLAN_FILE = _option(
@@ -503,6 +526,7 @@ _PLAN_FILE = _option(
     message("commands.plan_file_help"),
     rest="local",
     writes="replace",
+    path_role="output",
 )
 _TASKS = _option(
     "tasks",
@@ -533,6 +557,8 @@ _OFFSET = _option(
     "offset", "int", message("commands.offset_help"), minimum=0, default=0
 )
 _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
+# Plain files or the store, never both (DEV-19.1).
+_TARGETS = (("output_dir", "root"),)
 # The conflicting option of version+dataset+root is reported as dataset.
 _VERSION_OR_DATASET = (("version",), ("dataset", "root"))
 # Rules are (Polish, English) pairs.
@@ -599,14 +625,17 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _MONTHS,
             _PARAMS,
             _ARCHIVE_STATIONS,
-            _OUTPUT,
+            _OUTPUT_DIR,
+            _ROOT,
+            _FORCE,
         ),
         function="download_archives",
         check="check_command",
         result_type="DownloadReport",
         rules=_ARCHIVE_RULES,
-        # Files of the output directory are replaced (os.replace).
-        writes="replace",
+        exclusive=_TARGETS,
+        # New plain files or store versions; --force replaces existing plain files.
+        writes="add",
         network=True,
     ),
     _command(
@@ -811,6 +840,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "version",
                 "path",
                 message("commands.pmaxtp_read_version_help"),
+                path_role="input",
             ),
         ),
         function="read_pmaxtp",
@@ -893,6 +923,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "plan",
                 "path",
                 message("commands.store_sync_plan_help"),
+                path_role="input",
+                store_only=True,
             ),
             _DATASETS,
             _STORE_YEARS,
@@ -931,6 +963,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "user_locations",
                 "path",
                 message("commands.store_catalog_user_locations_help"),
+                path_role="input",
             ),
         ),
         function="build_catalog",
@@ -949,6 +982,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "path",
                 message("commands.store_export_version_help"),
                 required=True,
+                path_role="input",
             ),
             replace(
                 _ROOT,
@@ -1110,6 +1144,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "path",
                 message("commands.project_add_geometry_help"),
                 rest="local",
+                path_role="input",
             ),
         ),
         function="add_project_task",
@@ -1163,6 +1198,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "path",
                 message("commands.project_download_plan_help"),
                 rest="local",
+                path_role="input",
             ),
             _option(
                 "update",
@@ -1669,6 +1705,19 @@ def _rules_archives(options: Options, task: bool) -> None:
     _archives(options)
 
 
+def _rules_download(options: Options, task: bool) -> None:
+    # The selection of the files first; the store takes only the datasets it holds.
+    _archives(options)
+    descriptor = get_dataset(options["dataset"])
+    if "output_dir" not in options and not descriptor.in_store:
+        _fail(
+            message("commands.not_in_store", dataset=descriptor.key),
+            option="dataset",
+            value=descriptor.key,
+            reason="not_in_store",
+        )
+
+
 def _rules_store_check(options: Options, task: bool) -> None:
     # One kind of datasets per call; selectors as in check_store (§4.2).
     _sync._selection(
@@ -1779,7 +1828,7 @@ def _rules_project_add(options: Options, task: bool) -> None:
 
 _RULES: dict[str, Rule] = {
     "datasets files": _rules_archives,
-    "datasets download": _rules_archives,
+    "datasets download": _rules_download,
     "stations find": _rules_stations,
     "pmaxtp fetch": _rules_coordinates,
     "pmaxtp url": _rules_coordinates,
@@ -1831,14 +1880,48 @@ def _validate(
             message("commands.project_task_does_not_give"),
             option="root",
         )
+    if task and options.get("output_dir") is not None:
+        _fail(
+            message("commands.project_task_writes_project_store"),
+            option="output_dir",
+            reason="store_only_option",
+        )
     result: Options = {}
     for option in spec.options:
         value = options.get(option.name)
         normalized = None if value is None else _PARSERS[option.type](option, value)
         if normalized is not None:
             result[option.name] = normalized
+    for group in spec.exclusive:
+        given = [name for name in group if name in result]
+        if len(given) > 1:
+            _fail(
+                message(
+                    "commands.options_exclude_each_other",
+                    first=given[0],
+                    second=given[1],
+                ),
+                option=given[1],
+                reason="exclusive_options",
+                options=list(group),
+            )
+    plain = "output_dir" in result
+    if plain:
+        for option in spec.options:
+            if option.store_only and options.get(option.name) is not None:
+                _fail(
+                    message(
+                        "commands.store_only_option",
+                        name=option.name,
+                        flag=option.flag,
+                    ),
+                    option=option.name,
+                    value=options[option.name],
+                    reason="store_only_option",
+                )
     if (
         not task
+        and not plain
         and "root" in known
         and "root" not in result
         and "version" not in result
@@ -2241,26 +2324,81 @@ def _check_datasets_files(options: Options, hooks: Hooks) -> StorePlan:
     )
 
 
-def _check_download(options: Options, hooks: Hooks) -> StorePlan:
-    output = cast(Path, options.get("output", _DEFAULT_OUTPUT.absolute()))
-    actions = []
-    for file in _archives(options):
-        target = output.joinpath(*file.server_path.split("/"))
-        exists = target.exists()
-        actions.append(
-            PlanAction(
-                "datasets download",
-                "unverifiable" if exists else "missing",
-                message(
-                    "commands.download_replaces"
-                    if exists
-                    else "commands.download_writes",
-                    url=file.url,
-                    target=target,
-                ),
-            )
+# Texts of the targets of a plain plan, by action or by the reason of a conflict.
+_PLAIN_TEXTS = {
+    "write": "commands.plain_write",
+    "replace": "commands.plain_replace",
+    "output_exists": "commands.plain_output_exists",
+    "duplicate_output_name": "commands.plain_duplicate_output_name",
+    "output_in_store": "commands.plain_output_in_store",
+}
+
+
+def _plain_actions(
+    command: str, directory: Path, targets: Sequence[tuple[str, str]], force: bool
+) -> list[PlanAction]:
+    """
+    Plan of a plain write: one action per target (DEV-19.10).
+
+    ``targets`` pairs the relative name of each target with what is written
+    there; a conflict is an action like any other, so the plan is a result.
+    """
+    entries = plan_plain(directory, [name for name, _ in targets], force=force)
+    return [
+        PlanAction(
+            command,
+            "missing" if entry.action == "write" else "unverifiable",
+            message(
+                _PLAIN_TEXTS[entry.reason or entry.action], what=what, target=entry.path
+            ),
+            action=entry.action,
+            path=entry.path,
+            reason=entry.reason,
         )
-    return _plan(output, actions)
+        for entry, (_, what) in zip(entries, targets, strict=True)
+    ]
+
+
+def _check_download(options: Options, hooks: Hooks) -> StorePlan:
+    files = _archives(options)
+    if "output_dir" in options:
+        directory = cast(Path, options["output_dir"])
+        targets = [(file.server_path, file.url) for file in files]
+        return _plan(
+            directory,
+            _plain_actions(
+                "datasets download", directory, targets, bool(options.get("force"))
+            ),
+        )
+    root = cast(Path, options["root"])
+    actions = []
+    try:
+        stored = (
+            _writer.lenient_store(root).root.is_dir()
+            and (root / _STORE_MARKER).is_file()
+        )
+        for file in files:
+            current = (
+                _store.current_version(root, slot=_fetch._archive_slot(file))
+                if stored
+                else None
+            )
+            actions.append(
+                PlanAction(
+                    "datasets download",
+                    "missing" if current is None else "unverifiable",
+                    message(
+                        "commands.download_to_store"
+                        if current is None
+                        else "commands.download_again",
+                        url=file.url,
+                        root=root,
+                    ),
+                )
+            )
+    except IMGWError as exc:
+        actions = [PlanAction("datasets download", "check_failed", reason(exc))]
+    return _plan(root, actions)
 
 
 def _check_stations(options: Options, hooks: Hooks) -> StorePlan:
@@ -2732,6 +2870,10 @@ def _property(option: CommandOption, lang: Lang) -> dict[str, object]:
         schema["default"] = option.default
     if option.writes != "none":
         schema["x-imgw-writes"] = option.writes
+    if option.path_role is not None:
+        schema["x-imgw-path-role"] = option.path_role
+    if option.store_only:
+        schema["x-imgw-store-only"] = True
     schema["description"] = localize(option.help, lang)
     return schema
 
@@ -2786,6 +2928,11 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
         },
         "rules": [localize(rule, lang) for rule in spec.rules],
     }
+    meta = cast(dict[str, object], schema["x-imgw"])
+    if spec.exclusive:
+        meta["exclusive"] = [list(group) for group in spec.exclusive]
+    if spec.store_only:
+        meta["store_only"] = True
     return schema
 
 
@@ -2805,7 +2952,12 @@ def command_schema(
     ``minimum``, ``maximum`` and ``pattern`` unchanged, ``requires`` →
     ``dependentRequired``, ``one_of`` → ``oneOf`` of ``required`` groups and
     other rules → ``x-imgw.rules``; an option whose value names a file the
-    command writes has ``x-imgw-writes`` (``add`` or ``replace``).
+    command writes has ``x-imgw-writes`` (``add`` or ``replace``); a path
+    option has ``x-imgw-path-role`` (``input``, ``output`` or ``root``) and an
+    option valid only with a store ``x-imgw-store-only``; ``x-imgw.exclusive``
+    lists the groups of options of which at most one may be given
+    (``output_dir`` and ``root``) and ``x-imgw.store_only`` marks a command
+    without a plain mode.
     ``x-imgw`` also names the ``operation_id`` (``imgw_<group>_<verb>``: the
     REST ``operationId`` and the MCP tool name), the group, the function, the
     check twin, the result shape and type, the effects of a run (``writes``:

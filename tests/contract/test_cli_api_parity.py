@@ -86,7 +86,9 @@ def scenario(work: Path, imgw, run) -> list[dict[str, Any]]:
     steps.append(run("pmaxtp sync", {"root": store, **point}))
     steps.append(run("pmaxtp read", {"root": store, "ind_x": 751, "ind_y": 317}))
     steps.append(
-        run("datasets download", {"dataset": DAILY, "years": [2024], "output": work})
+        run(
+            "datasets download", {"dataset": DAILY, "years": [2024], "output_dir": work}
+        )
     )
     folder = {"project_dir": project}
     steps.append(run("project init", {**folder, "store_dir": store}))

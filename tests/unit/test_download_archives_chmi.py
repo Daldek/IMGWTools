@@ -59,7 +59,7 @@ def test_unpublished_year_is_a_successful_not_published_item(respx_mock, tmp_pat
         HYDRO,
         years="2004-2006",
         stations=[S2],
-        output=output,
+        output_dir=output,
         on_progress=events.append,
         on_notice=events.append,
     )
@@ -105,7 +105,7 @@ def test_meteo_station_files_are_four_elements_with_missing_ones_unpublished(
         *(f"m90001_{element}_get" for element in ("SRA", "T", "TMA", "TMI")),
     )
 
-    report = download_archives(METEO, stations=[FULL, RAIN], output=tmp_path)
+    report = download_archives(METEO, stations=[FULL, RAIN], output_dir=tmp_path)
 
     assert [(item.slot.rsplit("/", 1)[1], item.status) for item in report.items] == [
         (f"dly-{RAIN}-SRA.csv", "downloaded"),
@@ -132,7 +132,7 @@ def test_only_404_is_unpublished_other_answers_fail_the_item(respx_mock, tmp_pat
         HYDRO,
         years="2004-2006",
         stations=[S2],
-        output=tmp_path,
+        output_dir=tmp_path,
         on_notice=notices.append,
     )
 
@@ -154,7 +154,7 @@ def test_cancel_reports_the_remaining_candidates(respx_mock, tmp_path):
         HYDRO,
         years="2004-2006",
         stations=[S2],
-        output=tmp_path,
+        output_dir=tmp_path,
         cancel=lambda: next(answers),
     )
 
@@ -182,6 +182,6 @@ def test_invalid_options_fail_before_any_request_or_directory(
     respx_mock, tmp_path, dataset, options, option
 ):
     with pytest.raises(IMGWValidationError) as error:
-        download_archives(dataset, output=tmp_path / "out", **options)
+        download_archives(dataset, output_dir=tmp_path / "out", **options)
     assert error.value.details["option"] == option
     assert not respx_mock.calls and not (tmp_path / "out").exists()

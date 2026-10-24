@@ -29,7 +29,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from imgwtools import commands
 from imgwtools._version import __version__
@@ -1977,9 +1977,6 @@ def _command_options(task: ProjectTask, directory: Path, root: Path) -> dict[str
         options[name] = value
     if "root" in spec:
         options["root"] = root
-    if "output" in spec and "output" not in options:
-        # Domyślny katalog datasets download liczymy względem projektu, nie bieżącego katalogu.
-        options["output"] = directory / commands._DEFAULT_OUTPUT
     return options
 
 
@@ -2526,6 +2523,21 @@ def _produce_command(
             for item in result.items
             if item.status == "failed"
         )
+        for file in result.files:
+            # A task runs in the project store, so every file is a version to pin.
+            path = _store_path(root, file.path)
+            produced.statuses[path] = cast(_ResultStatus, file.status)
+            meta = read_meta(file.path)
+            produced.pins.append(
+                ProjectFile(
+                    "input",
+                    Path(path),
+                    meta.sha256,
+                    None,
+                    meta.content_sha256,
+                    meta.content_form,
+                )
+            )
     return produced
 
 

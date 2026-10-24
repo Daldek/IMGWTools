@@ -5,6 +5,9 @@ Every plain write of IMGWTools (the archives of ``datasets download`` and
 ``store sync``, the files of ``pmaxtp sync``, the exports) goes through the
 steps of this module, written once:
 
+0. the write target is the directory ``output_dir`` (plain mode) or the store
+   at ``root`` (store mode), never both, and the store at the default root
+   when neither is given (`resolve_target`);
 1. the target list is built before the first byte and checked as a whole
    (`plan_plain`): duplicate names are a ``conflict`` with the reason
    ``duplicate_output_name``, an existing target without ``force`` one with
@@ -40,7 +43,7 @@ from pathlib import Path
 from types import FrameType, TracebackType
 from typing import Literal
 
-from imgwtools.exceptions import IMGWError
+from imgwtools.exceptions import IMGWError, IMGWValidationError
 from imgwtools.messages import message
 
 __all__ = [
@@ -49,8 +52,10 @@ __all__ = [
     "FileResult",
     "PlanEntry",
     "Staging",
+    "Target",
     "plan_plain",
     "refuse",
+    "resolve_target",
     "store_around",
     "store_below",
 ]
@@ -112,6 +117,71 @@ class PlanEntry:
     path: Path
     action: Action
     reason: Reason | None = None
+
+
+@dataclass(frozen=True)
+class Target:
+    """
+    Where a writing command puts its data (DEV-19.1, DEV-19.2).
+
+    Attributes
+    ----------
+    mode : {"plain", "store"}
+        ``"plain"``: ordinary files in ``path`` (``output_dir``);
+        ``"store"``: the versioned store at ``path`` (``root``).
+    path : pathlib.Path
+        Absolute output directory or store root.
+    """
+
+    mode: Literal["plain", "store"]
+    path: Path
+
+
+def resolve_target(
+    *,
+    output_dir: str | os.PathLike[str] | None = None,
+    root: str | os.PathLike[str] | None = None,
+) -> Target:
+    """
+    Choose between plain files and the store (DEV-19.1, DEV-19.2).
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike or None, optional
+        Directory of the plain files.
+    root : str or os.PathLike or None, optional
+        Root of the store.
+
+    Returns
+    -------
+    Target
+        The plain directory when ``output_dir`` is given, else the store at
+        ``root`` or, when neither is given, the store at the default root
+        (``IMGW_ROOT``, ``[imgw] root`` of ``nogat.toml`` or
+        ``<data_dir>/imgw``).
+
+    Raises
+    ------
+    IMGWValidationError
+        If both are given (``details.reason="exclusive_options"``,
+        ``details.options`` lists the pair, ``details.option`` is ``root``).
+    """
+    if output_dir is not None and root is not None:
+        raise IMGWValidationError(
+            message("output.exclusive_options"),
+            details={
+                "option": "root",
+                "reason": "exclusive_options",
+                "options": ["output_dir", "root"],
+            },
+        )
+    if output_dir is not None:
+        return Target("plain", Path(output_dir).expanduser().absolute())
+    if root is not None:
+        return Target("store", Path(root).expanduser().absolute())
+    from imgwtools.config import default_root  # config reads the environment
+
+    return Target("store", default_root())
 
 
 def store_around(path: Path) -> Path | None:
@@ -357,13 +427,17 @@ class Staging:
         staged = self.path / f"{self._counter:06d}"
         digest = hashlib.sha256()
         size = 0
-        with staged.open("xb") as stream:
-            for chunk in chunks:
-                digest.update(chunk)
-                size += len(chunk)
-                stream.write(chunk)
-            stream.flush()
-            os.fsync(stream.fileno())
+        try:
+            with staged.open("xb") as stream:
+                for chunk in chunks:
+                    digest.update(chunk)
+                    size += len(chunk)
+                    stream.write(chunk)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            staged.unlink(missing_ok=True)  # no partial file waits for the next run
+            raise
         return staged, size, digest.hexdigest()
 
     def commit(self, staged: Path, target: Path, size: int, sha256: str) -> FileResult:

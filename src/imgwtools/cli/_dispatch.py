@@ -49,6 +49,7 @@ from imgwtools.commands import (
     command_schema,
     data_commands,
     run_command,
+    validate_command,
 )
 from imgwtools.config import check_config, human_language, settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
@@ -426,9 +427,10 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
             shown.add(notice)
             _print_notice(notice.level, notice.text)
 
-    root = options.get("root")
     with _interrupt() as requested:
         try:
+            # The root of the result is the validated one, the default root included.
+            root = validate_command(command, options=options).get("root")
             dispatch = check_command if check else run_command
             outcome = dispatch(
                 command,
@@ -440,7 +442,7 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
             if isinstance(outcome.result, Iterator):
                 _write_lines(outcome.result)
             else:
-                base = Path(root).expanduser() if isinstance(root, str) else None
+                base = root if isinstance(root, Path) else None
                 typer.echo(_json(outcome.to_json(root=base)))
         except BrokenPipeError:
             _silence_stdout()

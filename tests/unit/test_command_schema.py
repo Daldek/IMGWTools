@@ -91,7 +91,11 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "kind": {"enum": ["hydro", "meteo"]},
         "query": {"type": "string", "minLength": 1},
         "source": {"enum": ["live", "store"], "default": "live"},
-        "root": {"type": "string", "x-imgw-type": "path"},
+        "root": {
+            "type": "string",
+            "x-imgw-type": "path",
+            "x-imgw-path-role": "root",
+        },
         "limit": {"type": "integer", "minimum": 1},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
         "provider": {"enum": ["IMGW-PIB", "CHMI"]},
@@ -339,3 +343,19 @@ def test_command_list_rejects_a_language_outside_the_catalog():
         "lang",
         ["en", "pl"],
     )
+
+
+def test_every_path_option_has_a_role_and_the_write_targets_exclude_each_other():
+    commands = {schema["title"]: schema for schema in command_schema()["commands"]}
+    for title, schema in commands.items():
+        for name, option in schema["properties"].items():
+            if option.get("x-imgw-type") == "path":
+                assert option.get("x-imgw-path-role") in ("input", "output", "root"), (
+                    title,
+                    name,
+                )
+    download = commands["datasets download"]
+    assert download["properties"]["output_dir"]["x-imgw-path-role"] == "output"
+    assert download["properties"]["root"]["x-imgw-path-role"] == "root"
+    assert download["x-imgw"]["exclusive"] == [["output_dir", "root"]]
+    assert "exclusive" not in commands["datasets files"]["x-imgw"]

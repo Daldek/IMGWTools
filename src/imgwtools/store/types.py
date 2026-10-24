@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from os import PathLike
 from pathlib import Path
@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from imgwtools._jsonable import jsonable
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 from imgwtools.messages import DEFAULT_LANG, Lang, message, reason
+from imgwtools.output import FileResult
 
 if TYPE_CHECKING:
     from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
@@ -233,20 +234,63 @@ class PlanAction:
     """
     Planned non-archive action, e.g. building a series, catalog or project.
 
+    A plain write (``output_dir``, DEV-19.10) lists each target as one action
+    with ``action``, ``path`` and, for a conflict, ``reason``.
+
     Attributes
     ----------
     command : str
         Name of the data command the action refers to, e.g.
         ``"series build"``.
     status : {"current", "newer", "missing", "unverifiable", "check_failed"}
-        Freshness state of the action's result.
+        Freshness state of the action's result; a plain target is
+        ``"missing"`` when it would be written and ``"unverifiable"`` when it
+        exists (replaced or in conflict): a plan that lists conflicts is a
+        successful result.
     detail : str
         Human-readable explanation: a catalog `Message` (English).
+    action : {"write", "replace", "conflict"} or None, optional
+        What a plain write does to the target: ``"write"`` a new file,
+        ``"replace"`` an existing file (only with ``force``), ``"conflict"``
+        a target that cannot be written; None outside plain writes.
+    path : Path or None, optional
+        Absolute path of the plain target, or None.
+    reason : {"duplicate_output_name", "output_exists", "output_in_store"} or None, optional
+        Why the target is a ``"conflict"``, or None.
     """
 
     command: str
     status: Literal["current", "newer", "missing", "unverifiable", "check_failed"]
     detail: str
+    action: Literal["write", "replace", "conflict"] | None = None
+    path: Path | None = None
+    reason: (
+        Literal["duplicate_output_name", "output_exists", "output_in_store"] | None
+    ) = None
+
+    def _document(self) -> dict[str, Any]:
+        """The fields of the ``imgw-plan/1`` action; the plain ones only when it has them."""
+        document: dict[str, Any] = {
+            "command": self.command,
+            "status": self.status,
+            "detail": self.detail,
+        }
+        if self.action is not None:
+            document.update(action=self.action, path=self.path, reason=self.reason)
+        return document
+
+
+def _restore_action(row: Mapping[str, Any]) -> PlanAction:
+    """Rebuild a `PlanAction` from its ``imgw-plan/1`` document, plain fields included."""
+    path = row.get("path")
+    return PlanAction(
+        row["command"],
+        row["status"],
+        row["detail"],
+        action=row.get("action"),
+        path=None if path is None else Path(path),
+        reason=row.get("reason"),
+    )
 
 
 @dataclass(frozen=True)
@@ -338,7 +382,7 @@ class StorePlan:
                 for item in self.items
             ],
             "series_state": dict(self.series_state),
-            "actions": [asdict(action) for action in self.actions],
+            "actions": [action._document() for action in self.actions],
             "requests": dict(self.requests) if self.requests is not None else None,
         }
 
@@ -364,6 +408,10 @@ class StorePlan:
         target = Path(path)
         payload = self._document()
         payload["root"] = str(self.root)
+        payload["actions"] = [
+            {**action, "path": str(action["path"])} if "path" in action else action
+            for action in payload["actions"]
+        ]
         payload["checked_at"] = (
             self.checked_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         )
@@ -482,10 +530,7 @@ class StorePlan:
                 items=items,
                 series_state=payload["series_state"],
                 actions=tuple(
-                    PlanAction(
-                        **{k: action[k] for k in ("command", "status", "detail")}
-                    )
-                    for action in payload.get("actions", [])
+                    _restore_action(action) for action in payload.get("actions", [])
                 ),
                 cancelled=payload["cancelled"],
                 requests=restore_requests(payload.get("requests")),
@@ -622,20 +667,31 @@ class DownloadItem:
 @dataclass(frozen=True)
 class DownloadReport:
     """
-    Report of downloading archive files to a plain directory.
+    Report of downloading archive files, plain or into the store.
 
     Attributes
     ----------
-    output : Path
-        Absolute target directory.
+    mode : {"plain", "store"}
+        ``"plain"``: ordinary files in ``output_dir``; ``"store"``: versions
+        in the store at ``root``.
+    output_dir : Path or None
+        Absolute target directory of a plain download, else None.
+    root : Path or None
+        Absolute store root of a store download, else None.
     items : tuple of DownloadItem
         Per-file outcomes in download order.
+    files : tuple of FileResult
+        The files that were written, in download order: ``written`` or
+        ``replaced`` (plain), ``new``, ``unchanged`` or ``relabeled`` (store).
     cancelled : bool
         Whether the download was cancelled.
     """
 
-    output: Path
+    mode: Literal["plain", "store"]
+    output_dir: Path | None
+    root: Path | None
     items: tuple[DownloadItem, ...]
+    files: tuple[FileResult, ...]
     cancelled: bool
 
 
@@ -1003,6 +1059,14 @@ class CommandOption:
         Effect of giving the option: ``"add"`` writes only new files,
         ``"replace"`` may overwrite an existing file (e.g. ``path`` of an
         export or ``plan`` of ``store check``); ``"none"`` writes nothing.
+    path_role : {"input", "output", "root"} or None, optional
+        Role of a ``"path"`` option (AGI-2.3): ``"input"`` a file or directory
+        that is read, ``"output"`` where plain files or an export are written
+        (``output_dir``, ``output``, a plan file), ``"root"`` a store or
+        project directory; None for other types.
+    store_only : bool, optional
+        Whether the option acts on versions and is valid only with a store
+        (DEV-19.17): with ``output_dir`` it is a ``validation_error``.
     """
 
     name: str
@@ -1021,6 +1085,8 @@ class CommandOption:
     pattern: str | None = None
     rest: Literal["param", "server", "local"] = "param"
     writes: Writes = "none"
+    path_role: Literal["input", "output", "root"] | None = None
+    store_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -1065,6 +1131,12 @@ class DataCommand:
     env_root_when : Mapping of str to str, optional
         Option values under which an absent ``root`` is the default store root
         (``IMGW_ROOT``, ``[imgw] root`` or ``<data_dir>/imgw``); empty means always.
+    exclusive : tuple of tuple of str, optional
+        Groups of options that exclude each other: at most one option of a
+        group may be given (``output_dir`` and ``root``, DEV-19.1).
+    store_only : bool, optional
+        Whether the command's input or result is the store, so that it has no
+        plain mode (DEV-19.18); its rules say so.
     """
 
     name: str
@@ -1081,6 +1153,8 @@ class DataCommand:
     network: bool = False
     idempotent: bool = True
     env_root_when: Mapping[str, str] = field(default_factory=dict)
+    exclusive: tuple[tuple[str, ...], ...] = ()
+    store_only: bool = False
 
 
 @dataclass(frozen=True)

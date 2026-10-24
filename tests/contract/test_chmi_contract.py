@@ -1502,7 +1502,7 @@ def _datasets_download(tmp_path: Path, pl_cz: Path, imgw, chmi: FakeChmi) -> Loc
         "dataset": HYDRO,
         "stations": [S2],
         "years": "2004-2006",
-        "output": output,
+        "output_dir": output,
     }
     return Local(options, output)
 

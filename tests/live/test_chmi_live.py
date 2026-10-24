@@ -123,7 +123,7 @@ CASES: dict[str, list[Case]] = {
                 "dataset": HYDRO,
                 "stations": [STATION],
                 "years": YEARS,
-                "output": WORK + "pobrane",
+                "output_dir": WORK + "pobrane",
             },
             clean=("pobrane",),
         )

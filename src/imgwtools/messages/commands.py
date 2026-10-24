@@ -219,13 +219,64 @@ MESSAGES = {
         "Command list imgw-command-list/1 (offline)",
         "Spis komend imgw-command-list/1 (offline)",
     ),
-    "download_writes": Text(
-        "Download {url} to {target}",
-        "Pobranie {url} do {target}",
+    "plain_write": Text(
+        "Write {what} to {target}",
+        "Zapis {what} do {target}",
     ),
-    "download_replaces": Text(
-        "Download {url} to {target}, replacing the existing file",
-        "Pobranie {url} do {target}, istniejący plik zostanie zastąpiony",
+    "plain_replace": Text(
+        "Write {what} to {target}, replacing the existing file",
+        "Zapis {what} do {target}, istniejący plik zostanie zastąpiony",
+    ),
+    "plain_output_exists": Text(
+        "{target} exists, so {what} is not written; --force replaces it",
+        "{target} istnieje, więc {what} nie zostanie zapisany; --force go zastąpi",
+    ),
+    "plain_duplicate_output_name": Text(
+        "{target} is the target of more than one file of this request ({what})",
+        "{target} jest celem więcej niż jednego pliku tego żądania ({what})",
+    ),
+    "plain_output_in_store": Text(
+        "{target} is, or lies in, a store, so {what} is not written; --root writes "
+        "the store",
+        "{target} jest magazynem albo leży w magazynie, więc {what} nie zostanie "
+        "zapisany; --root zapisuje magazyn",
+    ),
+    "download_to_store": Text(
+        "Download {url} into the store {root}",
+        "Pobranie {url} do magazynu {root}",
+    ),
+    "download_again": Text(
+        "Download {url} into the store {root}: the file is fetched again and stored "
+        "as a new version or reported unchanged",
+        "Pobranie {url} do magazynu {root}: plik jest pobierany ponownie i zapisany "
+        "jako nowa wersja albo zgłoszony jako bez zmian",
+    ),
+    "options_exclude_each_other": Text(
+        "The options {first} and {second} exclude each other: write plain files "
+        "(output_dir) or the store (root), not both",
+        "Opcje {first} i {second} wykluczają się: zapisz zwykłe pliki (output_dir) "
+        "albo magazyn (root), nie oba naraz",
+    ),
+    "store_only_option": Text(
+        "The option {name} acts on versions of a store: it is valid only with --root, "
+        "not with --output-dir ({flag})",
+        "Opcja {name} działa na wersjach magazynu: jest ważna tylko z --root, nie z "
+        "--output-dir ({flag})",
+    ),
+    "project_task_writes_project_store": Text(
+        "A project task writes to the project store, so it takes no output_dir",
+        "Zadanie projektu zapisuje do magazynu projektu, więc nie ma output_dir",
+    ),
+    "not_in_store": Text(
+        "The dataset {dataset} is not kept in the store (download only): use "
+        "--output-dir to write plain files",
+        "Zbiór {dataset} nie ma miejsca w magazynie (tylko do pobrania): użyj "
+        "--output-dir, aby zapisać zwykłe pliki",
+    ),
+    "store_only_rule": Text(
+        "store only: no output_dir, the input or the result of the command is the "
+        "store",
+        "tylko magazyn: bez output_dir, wejściem lub wynikiem komendy jest magazyn",
     ),
     "export_to_stdout": Text(
         "Export {what} to the standard output",
@@ -323,10 +374,17 @@ MESSAGES = {
         "Parametry półroczne H, Q, T (tylko pl.imgw.hydro_semiannual; domyślnie "
         "wszystkie)",
     ),
-    "output_help": Text(
-        "Download directory mirroring the server paths (default: ./data/downloaded)",
-        "Katalog pobierania odzwierciedlający ścieżki serwera (domyślnie "
-        "./data/downloaded)",
+    "output_dir_help": Text(
+        "Directory of plain files, no metadata, named like the files in the store "
+        "(created when missing; excludes root)",
+        "Katalog zwykłych plików, bez metadanych, nazwanych jak pliki w magazynie "
+        "(tworzony, gdy go brak; wyklucza root)",
+    ),
+    "force_help": Text(
+        "Replace existing files of the output directory; a store version is never "
+        "overwritten",
+        "Zastąp istniejące pliki katalogu wyjściowego; wersji w magazynie nigdy nie "
+        "nadpisuje",
     ),
     "station_option_help": Text(
         "Station code (9 digits of IMGW-PIB or a WIGOS identifier)",
@@ -445,10 +503,12 @@ MESSAGES = {
         "bez pobierania).",
     ),
     "datasets_download_description": Text(
-        "Download the source files of a dataset to a directory mirroring the "
-        "provider's server paths.",
-        "Pobierz pliki źródłowe zbioru do katalogu odzwierciedlającego ścieżki "
-        "serwera dostawcy.",
+        "Download the source files of a dataset as plain files (--output-dir) or "
+        "into the store (--root). Plain files are named like the provider's server "
+        "paths; an existing one needs --force.",
+        "Pobierz pliki źródłowe zbioru jako zwykłe pliki (--output-dir) albo do "
+        "magazynu (--root). Zwykłe pliki mają nazwy jak ścieżki serwera dostawcy; "
+        "istniejący plik wymaga --force.",
     ),
     "datasets_providers_description": Text(
         "List the data providers: identifiers, countries, licenses, station code "

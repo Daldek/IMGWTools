@@ -110,6 +110,7 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 
 **Write — new files, versions or tasks; `--check` first**
 
+- `datasets download` — Download the source files of a dataset as plain files (--output-dir) or into the store (--root). [`output_dir`: write; `force`: overwrite; local]
 - `pmaxtp sync` — Download the PMAXTP cell of a point and save it as a version in the store.
 - `store init` — Create an empty IMGW store (imgw-store.json marker) in the given directory. [local]
 - `store sync` — Download new or missing archives into the store, by plan or by datasets and stations.
@@ -120,7 +121,6 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 
 **Overwrite — may replace an existing file or manifest; `--check` first**
 
-- `datasets download` — Download the source files of a dataset to a directory mirroring the provider's server paths. [local]
 - `project remove` — Remove a task from the project manifest. [local]
 - `project set-store` — Point the project to a new store directory after verifying the pinned files. [local]
 - `project download` — Download and pin the data of the project tasks. [local]
@@ -128,7 +128,7 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 ## Flags and values
 
 - Lists (`--datasets`, `--months`, `--params`, `--stations`, `--tasks`, `--variables`, `--years`): comma-separated values (`--months 1,2`) or a repeated flag (`-s A -s B`). Years (`--years`): `2024`, `2020-2023`, `2020,2022` or `2018,2020-2023`. Dates (`--end`, `--start`): ISO `YYYY-MM-DD`.
-- Switches on by default: `--series/--no-series` (`--no-…` turns it off); the other boolean flags (`--main-only`) take no value and turn their option on.
+- Switches on by default: `--series/--no-series` (`--no-…` turns it off); the other boolean flags (`--force`, `--main-only`) take no value and turn their option on.
 - Environment: `IMGW_ROOT` — the default `--root`, else `<data_dir>/imgw` (CLI, MCP stdio; `stations find` — only with `source=store`); `IMGW_LANG` — the language of the CLI help and of the progress lines (`pl`, `en`).
 
 ## Typical flows
