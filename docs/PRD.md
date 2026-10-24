@@ -84,7 +84,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | Language negotiation (`Accept-Language`, `Content-Language`) | Implemented |
 | Agent guide `GET /llms.txt` | Implemented |
 | MCP Streamable HTTP `/mcp` (`IMGW_MCP_ENABLED`) | Implemented — read and plan only |
-| Store commands | Implemented — only with server-side `IMGW_STORE_ROOT`; writes need `IMGW_STORE_WRITES_ENABLED` + write token |
+| Store commands | Implemented — only with server-side `IMGW_ROOT`; writes need `IMGW_STORE_WRITES_ENABLED` + write token |
 
 ### Not Implemented
 
@@ -162,7 +162,7 @@ imgw admin revoke <key_id>
 imgw admin delete <key_id> [--force]
 imgw admin stats [key_id]
 
-# Versioned store (--root or IMGW_STORE_ROOT)
+# Versioned store (--root or IMGW_ROOT)
 imgw store init|info --root <dir>
 imgw store scan --root <dir> [-k archive|series|catalog|pmaxtp|observation|problem] [--provider IMGW-PIB|CHMI]
 imgw store check --root <dir> -d <keys> [-y <years>] [-m <months>] [-s <stations>] [--plan plan.json]
@@ -189,7 +189,7 @@ imgw commands guide [-f agents|llms] [--lang pl|en] [-p <file>]
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_STORE_ROOT`, CLI `--root`/`--output`) |
+| No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
 | Unit and contract tests | Implemented | 2157 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-24); Python = CLI = REST = MCP contract |

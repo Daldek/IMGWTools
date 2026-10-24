@@ -5,9 +5,10 @@ The arguments of a tool are the options of its catalog command; only
 `validate_command` normalizes them. stdio (modes ``read`` and ``write``): the
 ``check`` argument chooses `check_command` over `run_command`, a list command
 without ``limit`` gets the default page (a larger ``limit`` than
-``IMGW_API_MAX_LIMIT`` is refused), a command with ``root`` gets
-``IMGW_STORE_ROOT`` under its ``env_root_when`` (spec §3.5) and a command with
-``lang`` English. The command runs in a worker thread: progress is
+``IMGW_API_MAX_LIMIT`` is refused), a command without ``root`` gets
+the default store root (`validate_command`), a path outside the ``--allow-dir``
+directories and a write without any are ``forbidden`` (DEV-19.3, AGI-5.8) and a
+command with ``lang`` English. The command runs in a worker thread: progress is
 sent as ``notifications/progress`` (only to a request that asked for it) and a
 cancellation of the request reaches the command through ``cancel``; the thread
 always finishes, so the store stays consistent, and a cancelled request gets no
@@ -207,13 +208,47 @@ def _check(tool: CatalogTool, options: dict[str, object]) -> bool:
     return check
 
 
-def _environment_root(tool: CatalogTool, options: Mapping[str, object]) -> bool:
-    """Whether the options meet ``env_root_when`` (spec §3.5, as in the CLI)."""
-    defaults = {option.name: option.default for option in tool.command.options}
-    return all(
-        str(options.get(name, defaults.get(name))).strip() == value
-        for name, value in tool.command.env_root_when.items()
-    )
+def _confine(
+    tool: CatalogTool,
+    normalized: Mapping[str, object],
+    check: bool,
+    allow_dirs: tuple[Path, ...],
+) -> None:
+    """
+    Keep the paths of a call inside the ``--allow-dir`` directories (DEV-19.3).
+
+    Without a directory a writing command may only plan; with directories every
+    path option, the default root included, must lie inside one of them.
+    """
+    spec = tool.command
+    if not allow_dirs:
+        if not check and spec.writes != "none":
+            raise IMGWError(
+                message("mcp.write_needs_allow_dir", name=spec.name),
+                code="forbidden",
+                details={"reason": "no_allowed_dir", "option": "check"},
+            )
+        return
+    for option in spec.options:
+        value = normalized.get(option.name)
+        if option.type != "path" or not isinstance(value, Path):
+            continue
+        if not any(value.resolve().is_relative_to(allowed) for allowed in allow_dirs):
+            raise IMGWError(
+                message(
+                    "mcp.path_outside_allowed_dirs",
+                    option=option.name,
+                    path=value,
+                    allowed=", ".join(str(allowed) for allowed in allow_dirs),
+                ),
+                code="forbidden",
+                details={
+                    "reason": "outside_allowed_dirs",
+                    "option": option.name,
+                    "value": str(value),
+                    "allowed": [str(allowed) for allowed in allow_dirs],
+                },
+            )
 
 
 def _options(
@@ -234,12 +269,6 @@ def _options(
     check = _check(tool, options)
     if tool.limit is not None and options.get("limit") is None:
         options["limit"] = tool.limit[0]
-    if (
-        tool.root is not None
-        and options.get("root") is None
-        and _environment_root(tool, options)
-    ):
-        options["root"] = tool.root
     return options, check
 
 
@@ -265,6 +294,7 @@ def _run(
     check: bool,
     report: Report,
     cancelled: threading.Event,
+    allow_dirs: tuple[Path, ...] = (),
 ) -> types.CallToolResult:
     """Run (``check``: plan) the command in a worker thread; never raise."""
 
@@ -279,6 +309,7 @@ def _run(
     name = tool.command.name
     try:
         normalized = validate_command(name, options=options)
+        _confine(tool, normalized, check, allow_dirs)
         if not check:
             _page_limit(tool, normalized)
         dispatch = check_command if check else run_command
@@ -461,7 +492,11 @@ async def _route(
 
 
 async def call_tool(
-    tool: CatalogTool, arguments: Mapping[str, Any], *, report: Report
+    tool: CatalogTool,
+    arguments: Mapping[str, Any],
+    *,
+    report: Report,
+    allow_dirs: tuple[Path, ...] = (),
 ) -> types.CallToolResult:
     """
     Call one tool: run its catalog command and answer with a tool result.
@@ -474,6 +509,8 @@ async def call_tool(
         Arguments of the call (catalog options and ``check``).
     report : Report
         Progress of the request (a no-op unless the client asked for it).
+    allow_dirs : tuple of pathlib.Path, optional
+        Resolved ``--allow-dir`` directories of the server (DEV-19.3).
 
     Returns
     -------
@@ -489,6 +526,6 @@ async def call_tool(
         return _failure(exc)
 
     def work(cancelled: threading.Event) -> types.CallToolResult:
-        return _run(tool, options, check, report, cancelled)
+        return _run(tool, options, check, report, cancelled, allow_dirs)
 
     return await _in_thread(work)

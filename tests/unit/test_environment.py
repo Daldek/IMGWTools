@@ -224,7 +224,7 @@ def test_config_show_json_gives_every_key_its_source_and_the_store_size(
     (root / "a.bin").write_bytes(b"x" * 100)
     os.link(root / "a.bin", root / "versions" / "b.bin")  # one file, two names
     (root / "c.txt").write_bytes(b"y" * 7)
-    monkeypatch.setenv("IMGW_STORE_ROOT", str(root))
+    monkeypatch.setenv("IMGW_ROOT", str(root))
     monkeypatch.setenv("IMGW_PORT", "9001")
 
     result = RUNNER.invoke(cli_main.app, ["config", "show", "--json"])
@@ -244,7 +244,7 @@ def test_config_show_json_gives_every_key_its_source_and_the_store_size(
     assert report["store"] == {
         "root": str(root),
         "source": "env",
-        "name": "IMGW_STORE_ROOT",
+        "name": "IMGW_ROOT",
         "exists": True,
         "size_bytes": 107,
     }

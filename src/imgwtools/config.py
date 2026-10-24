@@ -34,6 +34,7 @@ from imgwtools.messages import LANGS, Lang, message
 __all__ = [
     "Settings",
     "check_config",
+    "default_root",
     "environment_report",
     "human_language",
     "settings",
@@ -134,11 +135,14 @@ class Settings(BaseSettings):
     # Rate limiting (requests per hour, 0 = unlimited)
     rate_limit: int = 100
 
-    # Catalog REST routes of commands with a store root (spec §13.10). Unset
-    # root: those routes answer 503 store_unavailable. Writes (POST without
-    # ?check=true) need both flags below and the X-API-Key header; the token is
-    # compared in constant time. The token is a credential: environment only.
-    store_root: Path | None = None
+    # The store root of the REST server (IMGW_ROOT, [imgw] root; DEV-19.2): a
+    # server writes only there, never to the default <data_dir>/imgw, and the
+    # catalog routes of commands with a store root answer 503 store_unavailable
+    # without it. The CLI, the library and the MCP server use `default_root`.
+    # Writes (POST without ?check=true) need both flags below and the X-API-Key
+    # header; the token is compared in constant time and is a credential:
+    # environment only.
+    root: Path | None = None
     store_writes_enabled: bool = False
     store_write_token: SecretStr | None = None
     # Server directory with user station-location CSVs offered to the catalog
@@ -215,6 +219,32 @@ def human_language() -> Lang | None:
     """
     value = settings.lang.strip()
     return value if value in LANGS else None
+
+
+def _root_of(current: Settings) -> Path:
+    """The root of ``current``: the setting, else ``<data_dir>/imgw`` (DEV-19.2)."""
+    chosen = (
+        current.root
+        if current.root is not None
+        else current.data_dir / environment.TOOL
+    )
+    return chosen.expanduser().absolute()
+
+
+def default_root() -> Path:
+    """
+    Store root of a command without ``--root`` (DEV-19.2, DEV-18.2).
+
+    The first of ``IMGW_ROOT``, the same key in ``.env``, ``[imgw] root`` of
+    ``nogat.toml`` and ``<data_dir>/imgw``, read now so that a later change of
+    the environment counts. A server uses ``Settings.root`` only.
+
+    Returns
+    -------
+    pathlib.Path
+        Absolute root; the store need not exist yet.
+    """
+    return _root_of(Settings())
 
 
 def check_config() -> None:
@@ -340,7 +370,7 @@ def environment_report() -> dict[str, object]:
         for key in file.sections.get(environment.TOOL, {})
         if key not in Settings.model_fields or key in environment.CREDENTIAL_KEYS
     ]
-    root = current.store_root
+    root = _root_of(current)
     return {
         "schema": "imgw-config/1",
         "tool": "imgw",
@@ -355,11 +385,9 @@ def environment_report() -> dict[str, object]:
         "keys": keys,
         "credentials": credentials,
         "store": {
-            "root": None if root is None else str(root),
-            **_origin("store_root", layers),
-            "exists": root is not None and root.is_dir(),
-            "size_bytes": _tree_size(root)
-            if root is not None and root.is_dir()
-            else None,
+            "root": str(root),
+            **_origin("root", layers),
+            "exists": root.is_dir(),
+            "size_bytes": _tree_size(root) if root.is_dir() else None,
         },
     }

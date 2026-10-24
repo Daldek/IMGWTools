@@ -48,8 +48,8 @@ def no_network(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT must not reach the commands under test."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    """The developer's IMGW_ROOT must not reach the commands under test."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
 
 
 @pytest.fixture
@@ -83,7 +83,7 @@ def fixture_root(tmp_path_factory):
 def server(monkeypatch):
     """REST server settings: no store root, writes disabled, default page size."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("store_write_token", None),
         ("user_locations_dir", None),

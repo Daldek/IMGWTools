@@ -32,7 +32,7 @@ RUNNER = CliRunner()
 @pytest.fixture(autouse=True)
 def no_store_root(monkeypatch):
     """The in-memory servers have no store and the default page, like the process."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.setattr(settings, "api_max_limit", 1000)
 
 

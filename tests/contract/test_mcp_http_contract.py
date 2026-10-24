@@ -99,7 +99,7 @@ async def test_every_rest_case_is_the_answer_of_its_mcp_tool(
                 root = tmp_path / "store"
             else:
                 root = served_root if case.store == "served" else None
-            monkeypatch.setattr(server, "store_root", root)
+            monkeypatch.setattr(server, "root", root)
             options = case.options if writes else resolved(case.options, root)
             paged = dict(options)
             if ROUTES[command]["result"] == "list" and "limit" not in options:
@@ -130,7 +130,7 @@ async def test_every_error_scenario_of_rest_is_the_answer_of_the_mcp_tool(
 ):
     app = enabled(monkeypatch)  # before the scenario: it may break the registry
     scenario = SCENARIOS[code](Setting(tmp_path, fixture_root, imgw, monkeypatch))
-    monkeypatch.setattr(server, "store_root", scenario.root)
+    monkeypatch.setattr(server, "root", scenario.root)
     tool = ROUTES[scenario.command]["operation_id"]
 
     answered = rest_answer(rest, scenario.command, scenario.options)

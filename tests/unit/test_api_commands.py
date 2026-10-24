@@ -154,7 +154,7 @@ def raising(monkeypatch, module, name, error):
 def server(monkeypatch):
     """Unconfigured server: no store root, writes disabled, default page size."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("store_write_token", None),
         ("user_locations_dir", None),
@@ -175,7 +175,7 @@ def fixture_root(tmp_path_factory):
 
 @pytest.fixture
 def served(monkeypatch, fixture_root):
-    monkeypatch.setattr(settings, "store_root", fixture_root)
+    monkeypatch.setattr(settings, "root", fixture_root)
     return fixture_root
 
 
@@ -225,7 +225,7 @@ def frozen(monkeypatch):
 @pytest.fixture
 def empty_root(monkeypatch, tmp_path):
     root = init_store(tmp_path / "store").root
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
     return root
 
 
@@ -310,7 +310,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
 
 
 def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv("IMGW_STORE_ROOT", str(tmp_path))
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
     monkeypatch.setenv("IMGW_STORE_WRITES_ENABLED", "true")
     monkeypatch.setenv("IMGW_STORE_WRITE_TOKEN", TOKEN)
     monkeypatch.setenv("IMGW_USER_LOCATIONS_DIR", str(tmp_path))
@@ -318,7 +318,7 @@ def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
 
     configured = Settings(_env_file=None)
 
-    assert configured.store_root == configured.user_locations_dir == tmp_path
+    assert configured.root == configured.user_locations_dir == tmp_path
     assert configured.store_writes_enabled is True
     assert configured.store_write_token is not None
     assert configured.store_write_token.get_secret_value() == TOKEN
@@ -455,7 +455,7 @@ def test_api_post_route_answers_the_run_command_envelope(
     imgw.publish_pmaxtp("pmaxtp_pot_first")
     rest_root = store_copy(kind, fixture_root, tmp_path / "rest")
     python_root = store_copy(kind, fixture_root, tmp_path / "python")
-    monkeypatch.setattr(settings, "store_root", rest_root)
+    monkeypatch.setattr(settings, "root", rest_root)
 
     response = client.post(path_of(command), json=body, headers=writable)
 
@@ -506,7 +506,7 @@ def test_api_check_true_plans_every_write_without_token_or_writes(
     imgw.publish(H2024, V1, OLD)
     imgw.publish_catalog_sources()
     root = store_copy(kind, fixture_root, tmp_path / "store")
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
     before = stamps(root)
 
     response = client.post(f"{path_of(command)}?check=true", json=body)
@@ -754,7 +754,7 @@ def test_api_unknown_route_and_wrong_method_are_problem_documents(client):
 def test_api_store_commands_without_a_valid_root_are_503(
     client, monkeypatch, root, reason, method, command, query
 ):
-    monkeypatch.setattr(settings, "store_root", None if root is None else Path(root))
+    monkeypatch.setattr(settings, "root", None if root is None else Path(root))
 
     response = client.request(
         method, path_of(command), params=query, json={"dataset": DAILY}
@@ -762,13 +762,13 @@ def test_api_store_commands_without_a_valid_root_are_503(
 
     body = problem(response, 503, "store_unavailable")
     assert body["details"] == {"reason": reason}
-    assert "IMGW_STORE_ROOT" in body["detail"]
+    assert "IMGW_ROOT" in body["detail"]
 
 
 def test_api_unsupported_root_is_described_only_by_store_info_and_scan(
     client, monkeypatch, tmp_path
 ):
-    monkeypatch.setattr(settings, "store_root", tmp_path)
+    monkeypatch.setattr(settings, "root", tmp_path)
 
     info = client.get("/api/v1/store/info")
     scan = client.get("/api/v1/store/scan")
@@ -919,7 +919,7 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
     outside = tmp_path / "outside"
     outside.mkdir()
     (root / "series" / "versions" / "linked").symlink_to(outside)
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
 
     response = client.get(
         "/api/v1/series/summary", params={"version": "series/versions/linked/x"}
@@ -1015,7 +1015,7 @@ def test_api_answers_hide_server_directories_in_texts(
 ):
     imgw.publish_catalog_sources()
     root = store_copy("fixture", fixture_root, tmp_path / "store")
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
 
     response = client.post("/api/v1/store/catalog", json={}, headers=writable)
     missing = client.get(

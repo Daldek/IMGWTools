@@ -33,6 +33,7 @@ from imgwtools import fetch as _fetch
 from imgwtools import stations as _stations
 from imgwtools import store as _store
 from imgwtools._version import __version__
+from imgwtools.config import default_root
 from imgwtools.datasets import (
     STATION_CODE_PATTERN,
     ArchiveFile,
@@ -304,7 +305,6 @@ _ROOT = _option(
     "root",
     "path",
     message("commands.root_help"),
-    required=True,
     aliases=("-r",),
     rest="server",
 )
@@ -1836,6 +1836,20 @@ def _validate(
         normalized = None if value is None else _PARSERS[option.type](option, value)
         if normalized is not None:
             result[option.name] = normalized
+    if (
+        not task
+        and "root" in known
+        and "root" not in result
+        and "version" not in result
+    ):
+        # The store of a command without --root is the default root (DEV-19.2),
+        # under the conditions of env_root_when (a live search has no store).
+        defaults = {option.name: option.default for option in spec.options}
+        if all(
+            str(result.get(name, defaults.get(name))).strip() == value
+            for name, value in spec.env_root_when.items()
+        ):
+            result["root"] = default_root()
     present = set(result) | ({"root"} if task and "root" in known else set())
     for option in spec.options:
         if (

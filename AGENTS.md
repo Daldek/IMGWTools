@@ -30,7 +30,7 @@ Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep
 
 One command in every interface: CLI `imgw <group> <command> --option value` (flag = `--` + the option name with `-` for `_`); Python `run_command("<group> <command>", options={...})`; REST `/api/v1/<group>/<command>` (GET: query parameters, POST: JSON body); MCP tool `imgw_<group>_<command>`.
 
-- **REST:** the server sets the store root (`IMGW_STORE_ROOT`), `version` is relative to it, local options do not exist; writing (POST without `?check=true`) must be enabled on the server and needs the `X-API-Key` header.
+- **REST:** the server sets the store root (`IMGW_ROOT`), `version` is relative to it, local options do not exist; writing (POST without `?check=true`) must be enabled on the server and needs the `X-API-Key` header.
 - **MCP:** `imgw mcp` (stdio) starts without writes — writing commands return a plan (`check` fixed to `true`); the user enables writes (`--allow-writes`), and even then `check` is `true` by default. `/mcp` of the REST server (`IMGW_MCP_ENABLED=true`) reads and plans only.
 - **Language:** machine output is English (this guide, the envelope, error lines, MCP, REST). Polish only on request: `--lang pl` (`commands list|schema|guide`), `lang: "pl"` (MCP), `Accept-Language: pl` (REST).
 
@@ -129,7 +129,7 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 
 - Lists (`--datasets`, `--months`, `--params`, `--stations`, `--tasks`, `--variables`, `--years`): comma-separated values (`--months 1,2`) or a repeated flag (`-s A -s B`). Years (`--years`): `2024`, `2020-2023`, `2020,2022` or `2018,2020-2023`. Dates (`--end`, `--start`): ISO `YYYY-MM-DD`.
 - Switches on by default: `--series/--no-series` (`--no-…` turns it off); the other boolean flags (`--main-only`) take no value and turn their option on.
-- Environment: `IMGW_STORE_ROOT` — the default `--root` (CLI, MCP stdio; `stations find` — only with `source=store`); `IMGW_LANG` — the language of the CLI help and of the progress lines (`pl`, `en`).
+- Environment: `IMGW_ROOT` — the default `--root`, else `<data_dir>/imgw` (CLI, MCP stdio; `stations find` — only with `source=store`); `IMGW_LANG` — the language of the CLI help and of the progress lines (`pl`, `en`).
 
 ## Typical flows
 

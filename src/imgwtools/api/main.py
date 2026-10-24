@@ -66,7 +66,7 @@ API of the public data of IMGW-PIB and ČHMÚ, generated from the IMGWTools comm
 
 By default the data is NOT kept on the server: the API gives direct links to the
 IMGW-PIB and ČHMÚ servers and reads the current data live. The store commands work
-only on the store the administrator names in `IMGW_STORE_ROOT` (without it 503
+only on the store the administrator names in `IMGW_ROOT` (without it 503
 `store_unavailable`). Writing (POST without `?check=true`) is off by default (403
 `forbidden`): it needs `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN`
 and the header `X-API-Key`; `?check=true` returns the plan `imgw-plan/1` without

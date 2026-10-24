@@ -20,7 +20,7 @@ System consists of six main components:
 3. **Backend (FastAPI)** [optional: `imgwtools[api]`]
    - Routes `/api/v1/<group>/<command>` generated from the command catalog (28 commands; local-only commands have no route)
    - URL generation for IMGW-PIB and ČHMÚ downloads and live IMGW data
-   - Store commands only with an explicit server-side `IMGW_STORE_ROOT`
+   - Store commands only with an explicit server-side `IMGW_ROOT`
    - Errors as `application/problem+json`; language negotiation (`Accept-Language`, English by default); `GET /llms.txt`; optional MCP endpoint `/mcp`; rate limiting via Nginx
 
 4. **MCP Server** [optional: `imgwtools[mcp]`]
@@ -101,7 +101,7 @@ System consists of six main components:
 2. Proxies real-time API requests to IMGW-PIB
 3. Returns results directly to the client
 
-Data is written only after explicit configuration: an absolute `IMGW_STORE_ROOT` enables store commands (otherwise 503 `store_unavailable`), and writes additionally need `IMGW_STORE_WRITES_ENABLED=true`, a non-empty `IMGW_STORE_WRITE_TOKEN` and a matching `X-API-Key` header (otherwise 403 `forbidden`). Locally, the CLI writes only to an explicit `--output` directory or `--root` store.
+Data is written only after explicit configuration: an absolute `IMGW_ROOT` enables store commands (otherwise 503 `store_unavailable`), and writes additionally need `IMGW_STORE_WRITES_ENABLED=true`, a non-empty `IMGW_STORE_WRITE_TOKEN` and a matching `X-API-Key` header (otherwise 403 `forbidden`). Locally, the CLI writes only to an explicit `--output` directory or `--root` store.
 
 ---
 

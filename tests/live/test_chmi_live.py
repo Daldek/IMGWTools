@@ -599,7 +599,7 @@ def chmi(tmp_path_factory) -> Iterator[ChmiLive]:
         JOURNAL_ENV: str(journal.path),
     }
     served = env | {
-        "IMGW_STORE_ROOT": str(base / "magazyn"),
+        "IMGW_ROOT": str(base / "magazyn"),
         "IMGW_STORE_WRITES_ENABLED": "true",
         "IMGW_STORE_WRITE_TOKEN": TOKEN,
     }

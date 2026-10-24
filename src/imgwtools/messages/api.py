@@ -4,9 +4,8 @@ from imgwtools.messages import Text
 
 MESSAGES = {
     "server_sets_option_imgw_store": Text(
-        "The server sets the option {name} (IMGW_STORE_ROOT); remove it from the "
-        "request",
-        "Opcję {name} ustawia serwer (IMGW_STORE_ROOT); usuń ją z żądania",
+        "The server sets the option {name} (IMGW_ROOT); remove it from the request",
+        "Opcję {name} ustawia serwer (IMGW_ROOT); usuń ją z żądania",
     ),
     "option_command_available_only_locally": Text(
         "The option {name} of the command {name_2} is available only locally (CLI "
@@ -45,18 +44,18 @@ MESSAGES = {
         "Brak lub niepoprawny nagłówek X-API-Key",
     ),
     "store_not_configured_set_imgw": Text(
-        "The store is not configured: set IMGW_STORE_ROOT to the absolute path of "
+        "The store is not configured: set IMGW_ROOT to the absolute path of "
         "the store on the server",
-        "Magazyn nie jest skonfigurowany: ustaw IMGW_STORE_ROOT na bezwzględną "
+        "Magazyn nie jest skonfigurowany: ustaw IMGW_ROOT na bezwzględną "
         "ścieżkę magazynu na serwerze",
     ),
     "imgw_store_root_must_absolute": Text(
-        "IMGW_STORE_ROOT must be an absolute path",
-        "IMGW_STORE_ROOT musi być ścieżką bezwzględną",
+        "IMGW_ROOT must be an absolute path",
+        "IMGW_ROOT musi być ścieżką bezwzględną",
     ),
     "invalid_imgw_store_root": Text(
-        "Invalid IMGW_STORE_ROOT: {detail}",
-        "Niepoprawny IMGW_STORE_ROOT: {detail}",
+        "Invalid IMGW_ROOT: {detail}",
+        "Niepoprawny IMGW_ROOT: {detail}",
     ),
     "version_must_path_relative_store": Text(
         "The version must be a path relative to the store, without '..', '\\' and "
@@ -96,13 +95,13 @@ MESSAGES = {
         "Brak pliku położeń: {name}",
     ),
     "temporary_directory_server_lies_imgw": Text(
-        "The temporary directory of the server lies in the IMGW_STORE_ROOT store; "
+        "The temporary directory of the server lies in the IMGW_ROOT store; "
         "change TMPDIR",
-        "Katalog tymczasowy serwera leży w magazynie IMGW_STORE_ROOT; zmień TMPDIR",
+        "Katalog tymczasowy serwera leży w magazynie IMGW_ROOT; zmień TMPDIR",
     ),
     "plan_concerns_another_store_than": Text(
-        'The plan concerns another store than IMGW_STORE_ROOT (root must be ".")',
-        'Plan dotyczy innego magazynu niż IMGW_STORE_ROOT (root musi być ".")',
+        'The plan concerns another store than IMGW_ROOT (root must be ".")',
+        'Plan dotyczy innego magazynu niż IMGW_ROOT (root musi być ".")',
     ),
     "invalid_imgw_plan_1_plan": Text(
         "Invalid imgw-plan/1 plan: {detail}",
@@ -118,8 +117,8 @@ MESSAGES = {
         "Operację przerwano bez raportu; REST nie przekazuje anulowania",
     ),
     "store_unavailable": Text(
-        "The store at IMGW_STORE_ROOT is unavailable: {problems}",
-        "Magazyn pod IMGW_STORE_ROOT jest niedostępny: {problems}",
+        "The store at IMGW_ROOT is unavailable: {problems}",
+        "Magazyn pod IMGW_ROOT jest niedostępny: {problems}",
     ),
     "invalid_parameters_or_body": Text(
         "Invalid parameters or request body",

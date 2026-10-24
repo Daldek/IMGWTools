@@ -7,15 +7,15 @@ validator. Modes (spec §6.3): ``read`` (default of ``imgw mcp``) offers every
 command, writing ones only as a plan, ``write`` (``imgw mcp --allow-writes``)
 plans by default and writes with ``check: false``, ``http`` (``/mcp`` of ``imgw
 server``) offers the REST routes, POST ones only as a plan. The tool list is
-fixed for the server: mode and ``IMGW_STORE_ROOT`` are read once when the server
-is created. Everything the server says is English (AGI-9.2): the tool descriptions,
+fixed for the server: the mode, the default store root and the ``--allow-dir``
+directories are read once when the server is created. Everything the server says is English (AGI-9.2): the tool descriptions,
 the instructions and the error documents. The instructions are the rules of the
 agent guide with the lines of the mode.
 """
 
 from __future__ import annotations
 
-import os
+from collections.abc import Sequence
 from pathlib import Path
 
 import anyio
@@ -28,15 +28,13 @@ from starlette.applications import Starlette
 
 from imgwtools._version import __version__
 from imgwtools.agent_guide import _instructions
-from imgwtools.config import settings
+from imgwtools.config import default_root, settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import call_tool
 from imgwtools.mcp._tools import MODES, Mode, catalog_tools
 from imgwtools.messages import message
 
 __all__ = ["create_server", "http_app", "run_stdio"]
-
-_ROOT_ENV = "IMGW_STORE_ROOT"
 
 
 def _choice(name: str, value: object, allowed: tuple[str, ...]) -> None:
@@ -52,7 +50,7 @@ def _choice(name: str, value: object, allowed: tuple[str, ...]) -> None:
         )
 
 
-def create_server(*, mode: Mode = "read") -> Server:
+def create_server(*, mode: Mode = "read", allow_dirs: Sequence[Path] = ()) -> Server:
     """
     Create the MCP server of the command catalog.
 
@@ -64,14 +62,19 @@ def create_server(*, mode: Mode = "read") -> Server:
         writing commands plan by default and write with ``check: false``;
         ``http``: the commands with a REST route, answered by that route,
         POST routes only planning.
+    allow_dirs : sequence of pathlib.Path, optional
+        The directories the server may read and write (``--allow-dir``): every
+        path option and the default root must lie inside one, and a writing
+        command without any directory only plans (DEV-19.3).
 
     Returns
     -------
     mcp.server.Server
         Low-level SDK server with the tools of the mode in catalog order. In
-        ``read`` and ``write`` an absent ``root`` is ``IMGW_STORE_ROOT`` (read
-        now) under the command's ``env_root_when``, relative paths are
-        relative to the current working directory.
+        ``read`` and ``write`` an absent ``root`` is the default store root
+        (``IMGW_ROOT``, ``[imgw] root`` or ``<data_dir>/imgw``, read now) under
+        the command's ``env_root_when``, relative paths are relative to the
+        current working directory.
 
     Raises
     ------
@@ -80,11 +83,11 @@ def create_server(*, mode: Mode = "read") -> Server:
     """
     _choice("mode", mode, MODES)
     if mode == "http":
-        root, workdir, store = None, None, settings.store_root
+        workdir, store = None, settings.root
     else:
-        root, workdir = os.environ.get(_ROOT_ENV) or None, Path.cwd()
-        store = None if root is None else Path(root)
-    tools = catalog_tools(mode=mode, root=root)
+        workdir, store = Path.cwd(), default_root()
+    confined = tuple(Path(item).expanduser().resolve() for item in allow_dirs)
+    tools = catalog_tools(mode=mode)
     listing = types.ListToolsResult(tools=[tool.definition for tool in tools.values()])
 
     async def list_tools(
@@ -101,7 +104,10 @@ def create_server(*, mode: Mode = "read") -> Server:
                 types.INVALID_PARAMS, message("mcp.unknown_tool", name=params.name)
             )
         return await call_tool(
-            tool, params.arguments or {}, report=ctx.session.report_progress
+            tool,
+            params.arguments or {},
+            report=ctx.session.report_progress,
+            allow_dirs=confined,
         )
 
     return Server(
@@ -121,7 +127,7 @@ async def _serve(server: Server) -> None:
         )
 
 
-def run_stdio(*, allow_writes: bool = False) -> None:
+def run_stdio(*, allow_writes: bool = False, allow_dirs: Sequence[Path] = ()) -> None:
     """
     Serve MCP over stdin and stdout until the client closes the connection.
 
@@ -133,8 +139,12 @@ def run_stdio(*, allow_writes: bool = False) -> None:
     allow_writes : bool, optional
         Mode ``write`` instead of ``read`` (``imgw mcp --allow-writes``,
         ``IMGW_MCP_ALLOW_WRITES=true``).
+    allow_dirs : sequence of pathlib.Path, optional
+        Directories the server may read and write (``imgw mcp --allow-dir``).
     """
-    server = create_server(mode="write" if allow_writes else "read")
+    server = create_server(
+        mode="write" if allow_writes else "read", allow_dirs=allow_dirs
+    )
     anyio.run(_serve, server)
 
 

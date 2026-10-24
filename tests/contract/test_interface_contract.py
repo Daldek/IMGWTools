@@ -308,7 +308,7 @@ def test_every_rest_command_answers_alike_in_python_cli_and_rest(
             root = tmp_path / "store"
         else:
             root = served_root if case.store == "served" else None
-        monkeypatch.setattr(server, "store_root", root)
+        monkeypatch.setattr(server, "root", root)
         options = case.options if writes else resolved(case.options, root)
         local = options
         if ROUTES[command]["result"] == "list" and "limit" not in options:
@@ -361,7 +361,7 @@ def test_every_write_is_planned_alike_by_check_in_python_cli_and_rest(
     (case,) = CASES[command]
     root = tmp_path / "store"
     fresh_store(case.store, root, fixture_root)
-    monkeypatch.setattr(server, "store_root", root)  # writes stay disabled
+    monkeypatch.setattr(server, "root", root)  # writes stay disabled
     before = stamps(root)
 
     python, printed, answered = (
@@ -407,7 +407,7 @@ def test_same_limit_and_offset_give_the_same_page_in_every_interface(
     recorded,
 ):
     root = served_root if stored else None
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     window = {**options, "limit": limit, "offset": offset}
     whole = run_command(command, options=rooted(options, root))
 
@@ -447,7 +447,7 @@ STATION_LISTS = ("pl.imgw.hydro_stations", "pl.imgw.meteo_stations")
 def test_versions_answered_by_rest_work_as_imgw_version_with_root(
     cli, rest, server, monkeypatch, served_root
 ):
-    monkeypatch.setattr(server, "store_root", served_root)
+    monkeypatch.setattr(server, "root", served_root)
     read = []
     for kind, (command, extra) in READERS.items():
         scanned = rest.get("/api/v1/store/scan", params={"kind": kind}).json()
@@ -619,7 +619,7 @@ def test_every_error_code_is_reported_alike_by_every_interface(
     spec = ERROR_CODES[code]
     scenario = SCENARIOS[code](Setting(tmp_path, fixture_root, imgw, monkeypatch))
     options = rooted(scenario.options, scenario.root)
-    monkeypatch.setattr(server, "store_root", scenario.root)
+    monkeypatch.setattr(server, "root", scenario.root)
     if code == "forbidden":
         monkeypatch.setattr(server, "store_writes_enabled", False)
     raised: BaseException | None = None
@@ -775,7 +775,7 @@ def test_an_unreadable_version_is_an_io_error_in_every_interface(
     root = tmp_path / "store"
     shutil.copytree(served_root, root)
     command, options, target = UNREADABLE[unreadable](root)
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     target.chmod(0)
     try:
         raised = assert_io_error_alike(command, options, root, cli=cli, rest=rest)
@@ -793,7 +793,7 @@ def test_a_failed_write_is_the_same_io_error_in_imgw_and_rest(
     cli, rest, writable, server, monkeypatch, tmp_path, fixture_root, imgw
 ):
     scenario = _io_error(Setting(tmp_path, fixture_root, imgw, monkeypatch))
-    monkeypatch.setattr(server, "store_root", scenario.root)
+    monkeypatch.setattr(server, "root", scenario.root)
 
     raised = assert_io_error_alike(
         scenario.command,

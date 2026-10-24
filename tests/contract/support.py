@@ -528,7 +528,7 @@ def imgw_executable() -> list[str]:
 def run_imgw(*args: object, check: bool = True) -> subprocess.CompletedProcess[str]:
     """The installed ``imgw`` in a separate process whose proxies lead nowhere."""
     dead = "http://127.0.0.1:9"
-    env = {key: value for key, value in os.environ.items() if key != "IMGW_STORE_ROOT"}
+    env = {key: value for key, value in os.environ.items() if key != "IMGW_ROOT"}
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "ALL_PROXY": dead, "NO_PROXY": ""}
     result = subprocess.run(
         [*imgw_executable(), *(str(arg) for arg in args)],

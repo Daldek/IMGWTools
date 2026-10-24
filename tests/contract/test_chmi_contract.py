@@ -1160,7 +1160,9 @@ def mcp_answer(
         arguments["check"] = False
 
     async def ask() -> Any:
-        async with Client(create_server(mode="write" if writes else "read")) as client:
+        async with Client(
+            create_server(mode="write" if writes else "read", allow_dirs=(Path("/"),))
+        ) as client:
             return await client.call_tool(meta["operation_id"], arguments)
 
     return anyio.run(ask)
@@ -1231,7 +1233,7 @@ def test_imgw_19_k1_chmi_commands_answer_alike_in_python_cli_rest_and_mcp(
 ):
     writes = run.store in FRESH
     root = tmp_path / "store" if writes else (pl_cz if run.store == "served" else None)
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     chmi.serve(*run.cases)
     plan = None
     if run.plan is not None:
@@ -1284,7 +1286,7 @@ def test_imgw_19_k1_chmi_writes_are_planned_alike_without_writing(
     root = tmp_path / "store"
     assert run.store is not None
     fresh(run.store, root, pl_cz)
-    monkeypatch.setattr(server, "store_root", root)  # writes stay disabled
+    monkeypatch.setattr(server, "root", root)  # writes stay disabled
     chmi.serve(*run.cases)
     plan = None
     if run.plan is not None:
@@ -1337,7 +1339,7 @@ def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
     command, options, option, value, cli, rest, server, monkeypatch, pl_cz, chmi
 ):
     root = pl_cz if "root" in command_document(command)["properties"] else None
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     with pytest.raises(IMGWValidationError) as caught:
         run_command(command, options=rooted(options, root))
     error = caught.value

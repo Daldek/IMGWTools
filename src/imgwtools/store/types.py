@@ -1064,8 +1064,8 @@ class DataCommand:
         changes nothing more (a stored version is reported ``unchanged``, a
         file is rewritten with the same bytes); the MCP ``idempotentHint``.
     env_root_when : Mapping of str to str, optional
-        Option values under which an absent ``root`` comes from
-        ``IMGW_STORE_ROOT`` (CLI, MCP stdio); empty means always.
+        Option values under which an absent ``root`` is the default store root
+        (``IMGW_ROOT``, ``[imgw] root`` or ``<data_dir>/imgw``); empty means always.
     """
 
     name: str

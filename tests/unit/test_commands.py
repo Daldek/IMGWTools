@@ -284,7 +284,6 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
         ({"root": ROOT, "ind_x": -1, "ind_y": 2}, "ind_x"),
         ({"root": ROOT, "ind_x": 1}, "ind_y"),
     ],
-    "store init": [({}, "root")],
     "store info": [({"root": ROOT, "dataset": DAILY}, "dataset")],
     "store scan": [({"root": ROOT, "kind": "everything"}, "kind")],
     "store check": [
@@ -301,7 +300,6 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
             "datasets",
         ),
     ],
-    "store catalog": [({"user_locations": "/tmp/x.csv"}, "root")],
     "store export": [
         ({"version": "/v", "format": "parquet"}, "format"),
         ({"root": ROOT}, "version"),
@@ -611,7 +609,6 @@ def test_validate_command_normalizes_aliases_numbers_dates_years_and_paths(
         ("store sync", {"root": "/s", "plan": "p.json", "months": 1}, "months"),
         ("store sync", {"root": "/s", "plan": "p.json", "series": "nie"}, "series"),
         ("stations find", {"root": "/s"}, "root"),
-        ("stations find", {"source": "store"}, "root"),
         ("stations find", {"query": "   "}, "query"),
         ("pmaxtp fetch", {"latitude": "abc", "longitude": 21.0}, "latitude"),
         (

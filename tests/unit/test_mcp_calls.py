@@ -11,6 +11,7 @@ import json
 import shutil
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -75,8 +76,8 @@ def root(tmp_path, fixture_root):
 
 @pytest.fixture(autouse=True)
 def server_settings(monkeypatch):
-    """No IMGW_STORE_ROOT and the default page maximum unless a test sets them."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    """No IMGW_ROOT and the default page maximum unless a test sets them."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.setattr(settings, "api_max_limit", 1000)
 
 
@@ -91,7 +92,7 @@ def imgw():
 
 
 async def call(tool: str, arguments: dict[str, Any], *, mode: Mode = "read"):
-    async with Client(create_server(mode=mode)) as client:
+    async with Client(create_server(mode=mode, allow_dirs=(Path("/"),))) as client:
         return await client.call_tool(tool, arguments)
 
 
@@ -204,7 +205,7 @@ async def test_list_commands_page_by_50_and_at_most_imgw_api_max_limit(monkeypat
 
 
 async def test_imgw_store_root_is_the_root_of_absent_root(root, monkeypatch):
-    monkeypatch.setenv("IMGW_STORE_ROOT", str(root))
+    monkeypatch.setenv("IMGW_ROOT", str(root))
 
     info = await call("imgw_store_info", {})
     found = await call("imgw_stations_find", {"source": "store", "query": "1491"})
@@ -337,7 +338,7 @@ async def test_a_cancelled_call_reaches_cancel_and_leaves_no_partial_version(
     arguments = {"root": str(root), **SYNC, "check": False}
 
     async with (
-        Client(create_server(mode="write")) as client,
+        Client(create_server(mode="write", allow_dirs=(Path("/"),))) as client,
         anyio.create_task_group() as group,
     ):
         group.start_soon(client.call_tool, "imgw_store_sync", arguments)

@@ -694,8 +694,8 @@ def _instructions(
         Working directory of a stdio server (base of relative paths); not
         shown in the ``http`` mode, which never names server directories.
     root : str, os.PathLike or None
-        Default store (``IMGW_STORE_ROOT``), or None when not set; the
-        ``http`` mode only tells whether the server has a store.
+        Default store root of a stdio server, or None for none; the
+        ``http`` mode only tells whether the server has a store (``IMGW_ROOT``).
 
     Returns
     -------
@@ -715,9 +715,12 @@ def _instructions(
                 f"Working directory (base of relative paths): `{os.fspath(workdir)}`."
             )
         if root is not None:
-            lines.append(f"Default store (`IMGW_STORE_ROOT`): `{os.fspath(root)}`.")
+            lines.append(
+                "Default store (`IMGW_ROOT`, `[imgw] root` or `<data_dir>/imgw`): "
+                f"`{os.fspath(root)}`."
+            )
         else:
-            lines.append("No default store (`IMGW_STORE_ROOT` unset): give `root`.")
+            lines.append("No default store: give `root`.")
     lines += [
         f"Lists: `limit` {_PAGE_SIZE} by default, at most `IMGW_API_MAX_LIMIT`; "
         "next pages: `offset`.",

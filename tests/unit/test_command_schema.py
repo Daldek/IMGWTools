@@ -128,7 +128,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         },
     }
     check = command_schema("store check")
-    assert check["required"] == ["root", "datasets"]
+    assert check["required"] == ["datasets"]
     assert check["properties"]["datasets"]["items"] == {"enum": SERIES_KEYS}
     assert check["properties"]["years"]["items"] == {
         "anyOf": [
@@ -282,7 +282,7 @@ def test_store_scan_of_observations_answers_alike_in_python_cli_and_rest(
     )
     assert printed.exit_code == 0, printed.output
     assert canonical(json.loads(printed.stdout)) == canonical(local)
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
     answered = TestClient(rest_app).request(**rest_request("store scan", options))
     assert answered.status_code == 200, answered.text
     assert canonical(answered.json()) == canonical(

@@ -248,4 +248,10 @@ MESSAGES = {
     "config_store": Text(
         "Store: {root}  [{origin}]  {size}", "Magazyn: {root}  [{origin}]  {size}"
     ),
+    "mcp_allow_dir_help": Text(
+        "Directory the MCP server may read and write (repeatable); without one a "
+        "writing tool only plans",
+        "Katalog, który serwer MCP może czytać i zapisywać (opcja powtarzalna); bez "
+        "niego narzędzie zapisujące tylko planuje",
+    ),
 }

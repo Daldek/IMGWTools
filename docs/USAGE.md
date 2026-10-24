@@ -313,8 +313,8 @@ imgw current hydro -s 150160180
 imgw current warnings -k meteo
 imgw pmaxtp fetch --lat 52.23 --lon 21.01 --method AMP
 
-# Magazyn wersjonowany (korzeń: --root albo IMGW_STORE_ROOT)
-export IMGW_STORE_ROOT=/dane/imgw
+# Magazyn wersjonowany (korzeń: --root, IMGW_ROOT, [imgw] root albo <data_dir>/imgw)
+export IMGW_ROOT=/dane/imgw
 imgw store init
 imgw store check -d pl.imgw.hydro_monthly -y 2022-2023 --plan plan.json
 imgw store sync --plan plan.json
@@ -429,7 +429,7 @@ curl "http://localhost:8000/api/v1/commands/schema?command=store%20sync"
 curl http://localhost:8000/llms.txt
 curl -H "Accept-Language: pl" http://localhost:8000/llms.txt
 
-# Magazyn (wymaga IMGW_STORE_ROOT na serwerze; inaczej 503 store_unavailable)
+# Magazyn (wymaga IMGW_ROOT na serwerze; inaczej 503 store_unavailable)
 curl http://localhost:8000/api/v1/store/info
 curl "http://localhost:8000/api/v1/store/scan?kind=series"
 curl "http://localhost:8000/api/v1/series/summary?dataset=pl.imgw.hydro_monthly&stations=152210170"
@@ -440,7 +440,7 @@ curl -X POST "http://localhost:8000/api/v1/store/sync?check=true" \
     -d '{"datasets": ["pl.imgw.hydro_monthly"], "years": "2024"}'
 ```
 
-Trasy magazynu działają tylko na serwerowym, absolutnym `IMGW_STORE_ROOT` (klient nie podaje korzenia). Operacje zapisujące wymagają dodatkowo `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` i nagłówka `X-API-Key` z tym tokenem — domyślnie są wyłączone (403 `forbidden`). CSV współrzędnych użytkownika (`user_locations`) tylko z katalogu `IMGW_USER_LOCATIONS_DIR`.
+Trasy magazynu działają tylko na serwerowym, absolutnym `IMGW_ROOT` (klient nie podaje korzenia). Operacje zapisujące wymagają dodatkowo `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` i nagłówka `X-API-Key` z tym tokenem — domyślnie są wyłączone (403 `forbidden`). CSV współrzędnych użytkownika (`user_locations`) tylko z katalogu `IMGW_USER_LOCATIONS_DIR`.
 
 ## Web GUI
 
@@ -470,7 +470,7 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
     "imgwtools": {
       "command": "imgw",
       "args": ["mcp"],
-      "env": {"IMGW_STORE_ROOT": "/dane/imgw"}
+      "env": {"IMGW_ROOT": "/dane/imgw"}
     }
   }
 }
@@ -479,14 +479,14 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
 - Bez instalacji w systemie: `"command": "uvx", "args": ["--from", "imgwtools[mcp]", "imgw", "mcp"]`.
 - Zapis: `"args": ["mcp", "--allow-writes"]` (albo `IMGW_MCP_ALLOW_WRITES=true`). Bez tej flagi serwer nie zapisuje: komendy zapisujące mają argument `check` stały `true` i zwracają plan `imgw-plan/1`, a opcje zapisujące są niedostępne (próba → `forbidden`, `details.reason="writes_disabled"`). Z flagą `check` jest domyślnie `true`, a zapis wymaga `check: false` — o zapisie decyduje użytkownik w konfiguracji, nie model.
 - Język: serwer MCP mówi zawsze po angielsku (opisy narzędzi, instrukcje, tytuły i `detail` błędów; AGI-9.2), niezależnie od `IMGW_LANG`. Opcji `--lang` nie ma; tekst polski dostaje agent wyłącznie na jawną prośbę (argument `lang: "pl"` narzędzi `imgw_commands_list`, `imgw_commands_schema`, `imgw_commands_guide`).
-- `root` jak w CLI: argument narzędzia albo `IMGW_STORE_ROOT` serwera; ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
+- `root` jak w CLI: argument narzędzia albo `IMGW_ROOT` serwera; ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
 
 Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` z rejestru, wszystko po angielsku). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `path`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `path`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 38 narzędzi z opisami to ok. 48 KB schematów (tryb bez zapisu).
 
-**MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 28 trasom REST i są wywoływane jako żądania REST w tym samym procesie (z `Accept-Language: en`), więc obowiązują reguły serwera (magazyn z `IMGW_STORE_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Narzędzia są po angielsku, jak w `imgw mcp`; `IMGW_LANG` ich nie dotyczy. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
+**MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 28 trasom REST i są wywoływane jako żądania REST w tym samym procesie (z `Accept-Language: en`), więc obowiązują reguły serwera (magazyn z `IMGW_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Narzędzia są po angielsku, jak w `imgw mcp`; `IMGW_LANG` ich nie dotyczy. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
 
 ```bash
-IMGW_MCP_ENABLED=true IMGW_STORE_ROOT=/srv/imgw imgw server   # → http://127.0.0.1:8000/mcp
+IMGW_MCP_ENABLED=true IMGW_ROOT=/srv/imgw imgw server   # → http://127.0.0.1:8000/mcp
 ```
 
 ## Struktura danych źródeł
@@ -556,7 +556,7 @@ api_max_limit = 500
 | `IMGW_CACHE_DIR` (też `NOGAT_CACHE_DIR`) | `cache_dir` | katalog pamięci podręcznej `nogat` (`~/.cache/nogat`) | pamięć podręczna (`<cache_dir>/imgw`) |
 | `IMGW_REFERENCE_DIR` | `reference_dir` | `<cache_dir>/imgw/reference` | dane referencyjne IMGW-PIB (`python -m imgwtools.reference_data`) |
 | `IMGW_LANG` (też `NOGAT_LANG`) | `lang` | `pl` | `pl` albo `en`: pomoc CLI, linie postępu i powiadomień na stderr (ostatnia linia błędu, koperta i opisy komend są zawsze po angielsku; polskie opisy daje `--lang pl`) |
-| `IMGW_STORE_ROOT` | `store_root` | brak | korzeń magazynu serwera REST i `imgw mcp`; domyślne `--root` CLI |
+| `IMGW_ROOT` | `root` | `<data_dir>/imgw` | korzeń magazynu CLI, biblioteki i `imgw mcp` bez `--root` (także `root` w `[imgw]` pliku `nogat.toml`); jedyny magazyn serwera REST (bez niego 503, nigdy katalog domyślny) |
 | `IMGW_STORE_WRITES_ENABLED` | `store_writes_enabled` | `false` | zapis przez REST (POST bez `?check=true`) |
 | `IMGW_STORE_WRITE_TOKEN` | — (tylko środowisko) | brak | token zapisu w nagłówku `X-API-Key` |
 | `IMGW_USER_LOCATIONS_DIR` | `user_locations_dir` | brak | katalog plików położeń użytkownika dla tras REST |
@@ -576,7 +576,7 @@ api_max_limit = 500
 
 ## Magazyn wersjonowany (opcjonalny)
 
-Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_store(root)`, na serwerze `IMGW_STORE_ROOT`). Nie ma domyślnej lokalizacji ani bazy danych; magazyn można czytać offline z dysku lokalnego lub udziału sieciowego. Jeden magazyn mieści dane obu dostawców. Szczegóły: `docs/DECISIONS.md` (ADR-001, ADR-003), `docs/superpowers/specs/2026-10-17-versioned-store-design.md` i `2026-10-18-chmi-provider-design.md`.
+Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_store(root)`, na serwerze `IMGW_ROOT`). Bez opcji magazyn leży w `<data_dir>/imgw` (DEV-19.2); nie ma bazy danych; magazyn można czytać offline z dysku lokalnego lub udziału sieciowego. Jeden magazyn mieści dane obu dostawców. Szczegóły: `docs/DECISIONS.md` (ADR-001, ADR-003), `docs/superpowers/specs/2026-10-17-versioned-store-design.md` i `2026-10-18-chmi-provider-design.md`.
 
 ### Układ katalogu
 

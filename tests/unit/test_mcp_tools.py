@@ -5,6 +5,7 @@ the expectations come from ``command_schema`` (names, order, options, required
 groups, effects, texts), never from a written-down list.
 """
 
+import re
 from typing import Any
 
 import pytest
@@ -26,7 +27,7 @@ _LISTINGS: dict[tuple[str, int], list[dict[str, Any]]] = {}
 
 
 async def listing(mode: Mode) -> list[dict[str, Any]]:
-    """Tools of a server without IMGW_STORE_ROOT as JSON (``tools/list`` on the wire)."""
+    """Tools of a server without IMGW_ROOT as JSON (``tools/list`` on the wire)."""
     key = (mode, settings.api_max_limit)
     if key not in _LISTINGS:
         async with Client(create_server(mode=mode)) as client:
@@ -72,8 +73,8 @@ def removed(schema: dict[str, Any], mode: str) -> set[str]:
 
 @pytest.fixture(autouse=True)
 def no_store_root(monkeypatch):
-    """Servers of these tests have no IMGW_STORE_ROOT unless a test sets one."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    """Servers of these tests have no IMGW_ROOT unless a test sets one."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.setattr(settings, "api_max_limit", 1000)
 
 
@@ -176,6 +177,15 @@ async def test_input_schema_is_the_command_schema_of_the_offered_options(mode):
                 if not key.startswith("x-imgw")
             }
             prop = given["properties"][name]
+            if name == "root" and mode != "http":  # the note of the default store
+                prop = {
+                    **prop,
+                    "description": re.sub(
+                        r"; default( with [^:]+)?: the MCP server's store$",
+                        "",
+                        prop["description"],
+                    ),
+                }
             if mode == "http" and name in ("version", "plan", "user_locations"):
                 continue  # as the REST route takes it (next test)
             if name == "limit":
@@ -219,7 +229,7 @@ async def test_imgw_store_root_makes_root_optional_on_stdio(
     mode, monkeypatch, tmp_path
 ):
     plain = {tool["name"]: tool["inputSchema"] for tool in await listing(mode)}
-    monkeypatch.setenv("IMGW_STORE_ROOT", str(tmp_path))
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
     async with Client(create_server(mode=mode)) as client:
         rooted = {
             tool.name: tool.input_schema for tool in (await client.list_tools()).tools
@@ -341,7 +351,7 @@ async def test_annotations_follow_the_effects_of_the_catalog(mode):
 async def test_store_sync_of_a_server_without_writes_matches_spec_example(
     monkeypatch, tmp_path
 ):
-    monkeypatch.setenv("IMGW_STORE_ROOT", str(tmp_path))
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
     async with Client(create_server(mode="read")) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
 
