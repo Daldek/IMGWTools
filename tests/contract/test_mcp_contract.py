@@ -58,7 +58,7 @@ from tests.contract.test_interface_contract import (
     Setting,
     fresh_store,
     recorded,  # noqa: F401 (fixture)
-    relative_data_dir,  # noqa: F401 (fixture)
+    relative_reference_dir,  # noqa: F401 (fixture)
     resolved,
     rooted,
     served_root,  # noqa: F401 (fixture)
@@ -143,7 +143,7 @@ def test_every_rest_command_answers_alike_in_mcp_python_and_cli(
     served_root,  # noqa: F811
     recorded,  # noqa: F811
     frozen,
-    relative_data_dir,  # noqa: F811
+    relative_reference_dir,  # noqa: F811
 ):
     for case in CASES[command]:
         writes = case.store in ("empty", "fixture")

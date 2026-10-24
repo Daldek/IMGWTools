@@ -189,9 +189,9 @@ def recorded(imgw):
 
 
 @pytest.fixture
-def relative_data_dir(monkeypatch, server):
+def relative_reference_dir(monkeypatch, server):
     """Relative reference-data directory: texts name it alike in every interface."""
-    monkeypatch.setattr(server, "data_dir", Path("brak-danych-referencyjnych"))
+    monkeypatch.setattr(server, "reference_dir", Path("brak-danych-referencyjnych"))
 
 
 def rooted(options: dict[str, object], root: Path | None) -> dict[str, object]:
@@ -291,7 +291,7 @@ def test_every_rest_command_answers_alike_in_python_cli_and_rest(
     served_root,
     recorded,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
 ):
     for case in CASES[command]:
         writes = case.store in ("empty", "fixture")
@@ -347,7 +347,7 @@ def test_every_write_is_planned_alike_by_check_in_python_cli_and_rest(
     fixture_root,
     recorded,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
 ):
     (case,) = CASES[command]
     root = tmp_path / "store"

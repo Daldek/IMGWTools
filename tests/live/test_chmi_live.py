@@ -594,7 +594,7 @@ def chmi(tmp_path_factory) -> Iterator[ChmiLive]:
     }
     paths = [str(hook), *filter(None, [env.get("PYTHONPATH")])]
     env |= {
-        "IMGW_DATA_DIR": DATA_DIR,
+        "IMGW_REFERENCE_DIR": DATA_DIR,
         "PYTHONPATH": os.pathsep.join(paths),
         JOURNAL_ENV: str(journal.path),
     }

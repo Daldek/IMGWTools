@@ -30,7 +30,7 @@ from imgwtools.api.errors import EXCEPTION_HANDLERS, accept_language
 from imgwtools.api.routes import commands
 from imgwtools.api.schemas import HealthCheck
 from imgwtools.commands import LANGS, command_schema
-from imgwtools.config import settings
+from imgwtools.config import check_config, settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.web.app import router as web_router
 
@@ -120,7 +120,8 @@ _MCP = _mcp_app()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Run the session manager of ``/mcp`` as long as the REST application."""
+    """Check ``nogat.toml``, then run the session manager of ``/mcp`` with the app."""
+    check_config()  # an unusable settings file stops the server instead of being ignored
     # A route of another application never runs its lifespan by itself.
     async with nullcontext() if _MCP is None else _MCP.router.lifespan_context(_MCP):
         yield

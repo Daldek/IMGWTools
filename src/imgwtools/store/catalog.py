@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 import httpx
 
+from imgwtools import _environment as environment
 from imgwtools._parsing.chmi import (
     MetadataTable,
     parse_listing,
@@ -1341,15 +1342,17 @@ def _static_file() -> tuple[Path, bytes | None]:
     """Local IMGW-PIB coordinates ``station_code,latitude,longitude``; ``None`` when absent.
 
     IMGW data is not shipped with the package: ``python -m imgwtools.reference_data`` writes
-    the file. Without ``pydantic-settings`` the directory comes from ``IMGW_DATA_DIR``.
+    the file into the reference directory (``IMGW_REFERENCE_DIR``, ``[imgw] reference_dir``
+    of ``nogat.toml``, else ``<cache_dir>/imgw/reference``). Without ``pydantic-settings``
+    the directory comes from `imgwtools._environment` (no ``.env`` file).
     """
     try:
         from imgwtools.config import settings
     except ImportError:
-        data_dir = Path(os.environ.get("IMGW_DATA_DIR", "data"))
+        reference_dir = environment.reference_dir()
     else:
-        data_dir = settings.data_dir
-    path = data_dir / STATIC_LOCATIONS
+        reference_dir = settings.reference_dir
+    path = reference_dir / STATIC_LOCATIONS
     try:
         return path, path.read_bytes()
     except FileNotFoundError:
@@ -1904,7 +1907,7 @@ def build_catalog(
     ``geometry`` null unless the user file locates it, counted in
     ``from_series``); codes only in the user file are reported in ``problems``.
     Location precedence: API, then the local static file
-    ``station_code,latitude,longitude`` (``settings.data_dir``), then the user
+    ``station_code,latitude,longitude`` (``settings.reference_dir``), then the user
     CSV. A missing static file is not an error: it is reported in ``problems``
     and recorded in the sidecar as ``available: false``. ``meteo_kind`` of a
     meteorological station is ``"climate"`` when the current

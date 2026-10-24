@@ -217,7 +217,7 @@ def _expect(step: str, status: str, expected: str) -> None:
 
 @contextmanager
 def _without_reference_data() -> Iterator[None]:
-    """Hide the local static locations file (``settings.data_dir``) from the catalog.
+    """Hide the local static locations file (``settings.reference_dir``) from the catalog.
 
     Fixture stores must not depend on reference data a user fetched with
     ``python -m imgwtools.reference_data``. Process-global: call under ``_HTTP_LOCK``.

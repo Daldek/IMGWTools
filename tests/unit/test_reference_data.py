@@ -66,14 +66,14 @@ def _serve(respx_mock, sources: dict[str, httpx.Response | Exception]) -> list[s
 
 
 def test_reference_data_main_writes_stations_and_descriptions(
-    respx_mock, isolated_data_dir, capsys
+    respx_mock, isolated_reference_dir, capsys
 ):
     requested = _serve(respx_mock, _sources())
 
     assert reference_data.main() == 0
 
     out = capsys.readouterr().out
-    assert str(isolated_data_dir) in out
+    assert str(isolated_reference_dir) in out
     attribution = get_provider("IMGW-PIB").license.attribution
     assert f"Wymagana atrybucja: {attribution}\n" in out
     assert (
@@ -84,14 +84,14 @@ def test_reference_data_main_writes_stations_and_descriptions(
     # Only the locations file and format descriptions are written; latitude
     # before longitude; stations without coordinates are omitted.
     assert {
-        path.relative_to(isolated_data_dir).as_posix()
-        for path in isolated_data_dir.iterdir()
+        path.relative_to(isolated_reference_dir).as_posix()
+        for path in isolated_reference_dir.iterdir()
     } == {"hydro_stations_locations.csv", "desc"}
-    assert (isolated_data_dir / "hydro_stations_locations.csv").read_text(
+    assert (isolated_reference_dir / "hydro_stations_locations.csv").read_text(
         encoding="utf-8"
     ).splitlines() == ["station_code,latitude,longitude", "149190310,49.61,20.05"]
 
-    desc = isolated_data_dir / "desc"
+    desc = isolated_reference_dir / "desc"
     assert {
         path.relative_to(desc).as_posix(): path.read_bytes()
         for path in desc.rglob("*")
@@ -113,16 +113,20 @@ def test_reference_data_main_writes_stations_and_descriptions(
 
 
 def test_reference_data_main_rerun_overwrites_stale_files(
-    respx_mock, isolated_data_dir
+    respx_mock, isolated_reference_dir
 ):
-    stale = isolated_data_dir / "hydro_stations_locations.csv"
+    stale = isolated_reference_dir / "hydro_stations_locations.csv"
     stale.write_text("id,X,Y\n999,0,0\n", encoding="utf-8")
     _serve(respx_mock, _sources())
 
     assert reference_data.main() == 0
-    first = {p: p.read_bytes() for p in isolated_data_dir.rglob("*") if p.is_file()}
+    first = {
+        p: p.read_bytes() for p in isolated_reference_dir.rglob("*") if p.is_file()
+    }
     assert reference_data.main() == 0
-    second = {p: p.read_bytes() for p in isolated_data_dir.rglob("*") if p.is_file()}
+    second = {
+        p: p.read_bytes() for p in isolated_reference_dir.rglob("*") if p.is_file()
+    }
 
     assert first == second
     assert stale.read_text(encoding="utf-8").splitlines() == [
@@ -132,9 +136,9 @@ def test_reference_data_main_rerun_overwrites_stale_files(
 
 
 def test_reference_data_main_station_failure_keeps_previous_file(
-    respx_mock, isolated_data_dir, capsys
+    respx_mock, isolated_reference_dir, capsys
 ):
-    previous = isolated_data_dir / "hydro_stations_locations.csv"
+    previous = isolated_reference_dir / "hydro_stations_locations.csv"
     previous.write_text(
         "station_code,latitude,longitude\n149190310,49.0,20.0\n", encoding="utf-8"
     )
@@ -150,11 +154,11 @@ def test_reference_data_main_station_failure_keeps_previous_file(
     assert previous.read_text(encoding="utf-8") == (
         "station_code,latitude,longitude\n149190310,49.0,20.0\n"
     )
-    assert not (isolated_data_dir / "desc").exists()
+    assert not (isolated_reference_dir / "desc").exists()
 
 
 def test_reference_data_main_invalid_map_json_reports_error(
-    respx_mock, isolated_data_dir, capsys
+    respx_mock, isolated_reference_dir, capsys
 ):
     sources = _sources()
     sources[HYDRO_MAP_API_URL] = httpx.Response(200, text="<html>przerwa</html>")
@@ -163,11 +167,11 @@ def test_reference_data_main_invalid_map_json_reports_error(
     assert reference_data.main() == 1
 
     assert "Niepoprawna odpowiedź JSON" in capsys.readouterr().err
-    assert not (isolated_data_dir / "hydro_stations_locations.csv").exists()
+    assert not (isolated_reference_dir / "hydro_stations_locations.csv").exists()
 
 
 def test_reference_data_main_connection_error_in_descriptions_returns_1(
-    respx_mock, isolated_data_dir, capsys
+    respx_mock, isolated_reference_dir, capsys
 ):
     sources = _sources()
     sources[MIES] = httpx.ConnectError("brak sieci")
@@ -176,13 +180,13 @@ def test_reference_data_main_connection_error_in_descriptions_returns_1(
     assert reference_data.main() == 1
 
     assert "Błąd pobierania danych: brak sieci" in capsys.readouterr().err
-    assert (isolated_data_dir / "hydro_stations_locations.csv").is_file()
-    assert not (isolated_data_dir / "desc" / "dane_meteorologiczne").exists()
+    assert (isolated_reference_dir / "hydro_stations_locations.csv").is_file()
+    assert not (isolated_reference_dir / "desc" / "dane_meteorologiczne").exists()
 
 
 @pytest.mark.parametrize("fail, code", [(False, 0), (True, 1)])
 def test_reference_data_run_as_module_exits_with_main_status(
-    respx_mock, isolated_data_dir, fail, code
+    respx_mock, isolated_reference_dir, fail, code
 ):
     sources = _sources()
     if fail:
@@ -195,4 +199,6 @@ def test_reference_data_run_as_module_exits_with_main_status(
             runpy.run_module("imgwtools.reference_data", run_name="__main__")
 
     assert exit_info.value.code == code
-    assert (isolated_data_dir / "hydro_stations_locations.csv").exists() is not fail
+    assert (
+        isolated_reference_dir / "hydro_stations_locations.csv"
+    ).exists() is not fail

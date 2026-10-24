@@ -78,7 +78,7 @@ from tests.contract.test_interface_contract import (
     ROUTES,
     answer,
     assert_alike,
-    relative_data_dir,  # noqa: F401 (fixture)
+    relative_reference_dir,  # noqa: F401 (fixture)
     rooted,
 )
 
@@ -1227,7 +1227,7 @@ def test_imgw_19_k1_chmi_commands_answer_alike_in_python_cli_rest_and_mcp(
     pl_cz,
     chmi,
     frozen,
-    relative_data_dir,  # noqa: F811
+    relative_reference_dir,  # noqa: F811
 ):
     writes = run.store in FRESH
     root = tmp_path / "store" if writes else (pl_cz if run.store == "served" else None)
