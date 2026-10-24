@@ -29,9 +29,15 @@ from pydantic_settings import (
 from imgwtools import _environment as environment
 from imgwtools._version import __version__
 from imgwtools.exceptions import IMGWValidationError
-from imgwtools.messages import message
+from imgwtools.messages import LANGS, Lang, message
 
-__all__ = ["Settings", "check_config", "environment_report", "settings"]
+__all__ = [
+    "Settings",
+    "check_config",
+    "environment_report",
+    "human_language",
+    "settings",
+]
 
 
 class _NogatEnvSource(PydanticBaseSettingsSource):
@@ -142,9 +148,11 @@ class Settings(BaseSettings):
     # Default and maximum page size of REST list commands (IMGW_API_MAX_LIMIT).
     api_max_limit: int = Field(default=1000, ge=1)
 
-    # Language of the CLI help and of the --lang default (IMGW_LANG): "pl" or
-    # "en"; checked where it is used, so a wrong value fails every imgw call
-    # with validation_error instead of this module's import. REST ignores it.
+    # Language of the human-readable output of the CLI (IMGW_LANG): the help and the
+    # progress and notice lines; "pl" or "en", checked where it is used (`human_language`),
+    # so a wrong value fails every imgw call with validation_error instead of this
+    # module's import. Machine output (JSON, the error line) is English whatever it is;
+    # REST and MCP ignore it.
     lang: str = "pl"
 
     # MCP over Streamable HTTP in imgw server (spec 2026-10-19 §6.2, §6.9): the
@@ -193,6 +201,20 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def human_language() -> Lang | None:
+    """
+    Language of the human-readable output of the CLI (``IMGW_LANG``, ``pl`` by default).
+
+    Returns
+    -------
+    {"pl", "en"} or None
+        The language, or None when the setting is neither ``pl`` nor ``en``
+        (the CLI then ends every call with ``validation_error``).
+    """
+    value = settings.lang.strip()
+    return value if value in LANGS else None
 
 
 def check_config() -> None:

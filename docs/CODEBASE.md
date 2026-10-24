@@ -384,7 +384,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 |`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
 |`IMGW_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/imgw`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 it held the reference data: that is `IMGW_REFERENCE_DIR` now|
 |`IMGW_REFERENCE_DIR`|`<cache_dir>/imgw/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m imgwtools.reference_data`); `settings.reference_dir`|
-|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help and `--lang` default, `imgw mcp` default, language of `/mcp` tools (REST answers follow `Accept-Language`)|
+|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines and the `--lang` default, `imgw mcp` default, language of `/mcp` tools (REST answers follow `Accept-Language`; the CLI error line and the envelope are English)|
 |`IMGW_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `imgw server` (needs `imgwtools[mcp]`; read and plan only)|
 |`IMGW_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
 |`IMGW_MCP_ALLOW_WRITES`|`false`|Envvar of `imgw mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|

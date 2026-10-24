@@ -166,8 +166,24 @@ def test_reference_data_main_invalid_map_json_reports_error(
 
     assert reference_data.main() == 1
 
-    assert "Invalid JSON response" in capsys.readouterr().err
+    # The line is for a person: in the language of IMGW_LANG (Polish by default).
+    assert "Niepoprawna odpowiedź JSON" in capsys.readouterr().err
     assert not (isolated_reference_dir / "hydro_stations_locations.csv").exists()
+
+
+def test_reference_data_lines_follow_imgw_lang(
+    respx_mock, isolated_reference_dir, capsys, monkeypatch
+):
+    monkeypatch.setattr(reference_data, "_LANG", "en")
+    sources = _sources()
+    sources[HYDRO_MAP_API_URL] = httpx.Response(200, text="<html>przerwa</html>")
+    _serve(respx_mock, sources)
+
+    assert reference_data.main() == 1
+
+    output = capsys.readouterr()
+    assert output.out.startswith("Fetching the reference data into: ")
+    assert output.err.startswith("Download failed: Invalid JSON response from ")
 
 
 def test_reference_data_main_connection_error_in_descriptions_returns_1(

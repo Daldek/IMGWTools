@@ -35,6 +35,7 @@ from imgwtools import (
     sync_pmaxtp,
 )
 from imgwtools.exceptions import describe_os_error
+from imgwtools.messages import localize
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -68,8 +69,16 @@ POST_COMMANDS = [
 INTERFACES = ("python", "cli", "rest")
 # The CLI error line is English: the problem documents compared with it ask for English.
 ENGLISH = {"Accept-Language": "en"}
-# Notice labels of the CLI stderr (spec §13.10).
+# Notice labels of the CLI stderr (spec §13.10); its lines are for a person, so they
+# are in the language of IMGW_LANG, Polish by default.
 LABELS = {"info": "Informacja", "warning": "Ostrzeżenie", "error": "Błąd"}
+
+
+def line_of(notice):
+    """The stderr line the CLI prints for a notice."""
+    return f"{LABELS[notice.level]}: {localize(notice.text, 'pl')}"
+
+
 # Placeholders of versions relative to the root, resolved in the served store.
 ARCHIVE, SERIES = "<archive>", "<series>"
 PLACEHOLDERS = {
@@ -257,7 +266,7 @@ def assert_alike(command, python, printed, answered, root):
         exported = ROUTES[command]["function"].startswith("export_")
         assert ("license_terms" in {notice["code"] for notice in notices}) == exported
         for notice in python.notices:
-            assert printed.stderr.count(f"{LABELS[notice.level]}: {notice.text}") == 1
+            assert printed.stderr.count(line_of(notice)) == 1
         return
     local = python.to_json(root=root)
     served = python.to_json(root=root, server=True)

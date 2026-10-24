@@ -553,7 +553,7 @@ api_max_limit = 500
 | `IMGW_DATA_DIR` (też `NOGAT_DATA_DIR`) | `data_dir` | katalog danych użytkownika `nogat` (`~/.local/share/nogat`) | nadrzędny katalog magazynów (`<data_dir>/imgw`) i stanu serwera; **do 3.0.0 oznaczał dane referencyjne** (patrz `IMGW_REFERENCE_DIR`) |
 | `IMGW_CACHE_DIR` (też `NOGAT_CACHE_DIR`) | `cache_dir` | katalog pamięci podręcznej `nogat` (`~/.cache/nogat`) | pamięć podręczna (`<cache_dir>/imgw`) |
 | `IMGW_REFERENCE_DIR` | `reference_dir` | `<cache_dir>/imgw/reference` | dane referencyjne IMGW-PIB (`python -m imgwtools.reference_data`) |
-| `IMGW_LANG` (też `NOGAT_LANG`) | `lang` | `pl` | `pl` albo `en`: pomoc CLI i domyślna wartość `--lang` |
+| `IMGW_LANG` (też `NOGAT_LANG`) | `lang` | `pl` | `pl` albo `en`: pomoc CLI, linie postępu i powiadomień na stderr oraz domyślna wartość `--lang` (ostatnia linia błędu i koperta są zawsze po angielsku) |
 | `IMGW_STORE_ROOT` | `store_root` | brak | korzeń magazynu serwera REST i `imgw mcp`; domyślne `--root` CLI |
 | `IMGW_STORE_WRITES_ENABLED` | `store_writes_enabled` | `false` | zapis przez REST (POST bez `?check=true`) |
 | `IMGW_STORE_WRITE_TOKEN` | — (tylko środowisko) | brak | token zapisu w nagłówku `X-API-Key` |

@@ -74,10 +74,10 @@ from tests.contract.support import (
     unversioned,
 )
 from tests.contract.test_interface_contract import (
-    LABELS,
     ROUTES,
     answer,
     assert_alike,
+    line_of,
     relative_reference_dir,  # noqa: F401 (fixture)
     rooted,
 )
@@ -1570,7 +1570,7 @@ def test_imgw_19_k1_local_chmi_commands_answer_alike_in_python_cli_and_mcp(
     assert printed.exit_code == 0, printed.output
     assert canonical(json.loads(printed.stdout)) == canonical(document)
     for notice in python.notices:
-        assert printed.stderr.count(f"{LABELS[notice.level]}: {notice.text}") == 1
+        assert printed.stderr.count(line_of(notice)) == 1
     if MCP:
         answered = answers["mcp"]
         assert answered.is_error is False, answered.content[0].text
