@@ -2,11 +2,13 @@
 Exceptions and the closed error-code registry of IMGWTools.
 
 Every :class:`IMGWError` carries a machine-readable ``code`` from
-:data:`ERROR_CODES`, a Polish human-readable ``detail`` and JSON-compatible
-``details``. Each class has a default code; a raise site may pass another
-registered code with ``code=``. The registry maps every code to its Polish
-and English title, CLI exit code and HTTP status (spec §13.5), so the CLI,
-REST and web adapters report the same error the same way.
+:data:`ERROR_CODES`, a human-readable ``detail`` and JSON-compatible
+``details``. The ``detail`` is English; a text from the message catalog
+(`imgwtools.messages`) can be rendered in Polish with `IMGWError.localized`.
+Each class has a default code; a raise site may pass another registered code
+with ``code=``. The registry maps every code to its title, CLI exit code and
+HTTP status (spec §13.5), so the CLI, REST and web adapters report the same
+error the same way.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import ClassVar, Literal
+
+from imgwtools.messages import Lang, Message, localize, message
 
 ErrorCode = Literal[
     "validation_error",
@@ -44,23 +48,20 @@ class ErrorSpec:
     ----------
     code : ErrorCode
         Machine-readable error code.
-    title : str
-        Short Polish title (``title`` of an RFC 9457 problem document).
+    title : Message
+        Short English title (``title`` of an RFC 9457 problem document);
+        ``title.localized("pl")`` is the Polish one.
     exit_code : int or None
         CLI exit code, or ``None`` when the CLI never reports this code
         (``method_not_allowed``).
     http_status : int or None
         HTTP status, or ``None`` when REST never reports this code.
-    title_en : str
-        Short English title, chosen instead of ``title`` for English
-        (``Accept-Language`` of REST, ``command_schema(lang="en")``).
     """
 
     code: ErrorCode
-    title: str
+    title: Message
     exit_code: int | None
     http_status: int | None
-    title_en: str
 
 
 ERROR_CODES: Mapping[ErrorCode, ErrorSpec] = MappingProxyType(
@@ -68,65 +69,30 @@ ERROR_CODES: Mapping[ErrorCode, ErrorSpec] = MappingProxyType(
         spec.code: spec
         for spec in (
             ErrorSpec(
-                "validation_error",
-                "Nieprawidłowe dane wejściowe",
-                2,
-                400,
-                title_en="Invalid input",
+                "validation_error", message("errors.title_validation_error"), 2, 400
             ),
-            ErrorSpec("not_found", "Nie znaleziono", 3, 404, title_en="Not found"),
-            ErrorSpec("conflict", "Konflikt stanu", 4, 409, title_en="State conflict"),
+            ErrorSpec("not_found", message("errors.title_not_found"), 3, 404),
+            ErrorSpec("conflict", message("errors.title_conflict"), 4, 409),
             ErrorSpec(
-                "source_unavailable",
-                "Źródło danych niedostępne",
-                5,
-                502,
-                title_en="Data source unavailable",
+                "source_unavailable", message("errors.title_source_unavailable"), 5, 502
             ),
             ErrorSpec(
-                "missing_dependency",
-                "Brak opcjonalnej zależności",
-                6,
-                503,
-                title_en="Missing optional dependency",
+                "missing_dependency", message("errors.title_missing_dependency"), 6, 503
             ),
+            ErrorSpec("data_error", message("errors.title_data_error"), 7, 500),
             ErrorSpec(
-                "data_error", "Niepoprawne dane", 7, 500, title_en="Invalid data"
+                "store_unavailable", message("errors.title_store_unavailable"), 8, 503
             ),
-            ErrorSpec(
-                "store_unavailable",
-                "Magazyn niedostępny",
-                8,
-                503,
-                title_en="Store unavailable",
-            ),
-            ErrorSpec(
-                "io_error", "Błąd systemu plików", 9, 500, title_en="File system error"
-            ),
-            ErrorSpec(
-                "cancelled",
-                "Operację anulowano",
-                130,
-                None,
-                title_en="Operation cancelled",
-            ),
-            ErrorSpec(
-                "forbidden",
-                "Brak uprawnień do zapisu",
-                12,
-                403,
-                title_en="Write not permitted",
-            ),
+            ErrorSpec("io_error", message("errors.title_io_error"), 9, 500),
+            ErrorSpec("cancelled", message("errors.title_cancelled"), 130, None),
+            ErrorSpec("forbidden", message("errors.title_forbidden"), 12, 403),
             ErrorSpec(
                 "method_not_allowed",
-                "Niedozwolona metoda HTTP",
+                message("errors.title_method_not_allowed"),
                 None,
                 405,
-                title_en="HTTP method not allowed",
             ),
-            ErrorSpec(
-                "internal_error", "Błąd wewnętrzny", 1, 500, title_en="Internal error"
-            ),
+            ErrorSpec("internal_error", message("errors.title_internal_error"), 1, 500),
         )
     }
 )
@@ -139,8 +105,10 @@ class IMGWError(Exception):
 
     Parameters
     ----------
-    message : str
-        Polish human-readable description; becomes ``detail`` and ``str(exc)``.
+    detail : str
+        English human-readable description; becomes ``detail`` and ``str(exc)``.
+        Pass a catalog `imgwtools.messages.Message` for a text that has a
+        Polish variant (`localized`); a plain string stays as it is.
     code : ErrorCode or None, optional
         Error code from :data:`ERROR_CODES`; ``None`` selects the class
         default (:attr:`default_code`).
@@ -155,7 +123,7 @@ class IMGWError(Exception):
     code : ErrorCode
         Registered error code of this instance.
     detail : str
-        The message, equal to ``str(exc)``.
+        The description, equal to ``str(exc)``.
     details : Mapping[str, object]
         Copy of the given context; empty when none was given.
 
@@ -173,7 +141,7 @@ class IMGWError(Exception):
 
     def __init__(
         self,
-        message: str,
+        detail: str,
         /,
         *,
         code: ErrorCode | None = None,
@@ -182,12 +150,29 @@ class IMGWError(Exception):
         resolved = self.default_code if code is None else code
         if resolved not in ERROR_CODES:
             raise ValueError(
-                f"Nieznany kod błędu {resolved!r}; dozwolone: {', '.join(ERROR_CODES)}"
+                f"Unknown error code {resolved!r}; allowed: {', '.join(ERROR_CODES)}"
             )
-        super().__init__(message)
+        super().__init__(detail)
         self.code = resolved
-        self.detail = message
+        self.detail = detail
         self.details = copy.deepcopy(dict(details or {}))
+
+    def localized(self, lang: Lang) -> str:
+        """
+        Return the ``detail`` in ``lang``.
+
+        Parameters
+        ----------
+        lang : {"en", "pl"}
+            Language of the caller (``Accept-Language`` of REST, the language of
+            an MCP server or of the web GUI).
+
+        Returns
+        -------
+        str
+            A catalog message rendered in ``lang``; any other ``detail`` as it is.
+        """
+        return localize(self.detail, lang)
 
 
 class IMGWConnectionError(IMGWError):
@@ -250,8 +235,8 @@ class IMGWStoreDependencyError(IMGWStoreError):
 
     Parameters
     ----------
-    message : str, optional
-        Polish description; defaults to the install instruction.
+    detail : str, optional
+        English description; defaults to the install instruction.
     code : ErrorCode or None, optional
         Error code overriding ``missing_dependency``.
     details : Mapping[str, object] or None, optional
@@ -262,13 +247,13 @@ class IMGWStoreDependencyError(IMGWStoreError):
 
     def __init__(
         self,
-        message: str = "Zainstaluj dodatek: pip install imgwtools[store]",
+        detail: str = message("errors.store_extra"),
         /,
         *,
         code: ErrorCode | None = None,
         details: Mapping[str, object] | None = None,
     ) -> None:
-        super().__init__(message, code=code, details=details)
+        super().__init__(detail, code=code, details=details)
 
 
 class IMGWProjectError(IMGWError):
@@ -292,19 +277,20 @@ class IMGWCancelledError(IMGWError):
     default_code: ClassVar[ErrorCode] = "cancelled"
 
 
+# Catalog key of the reason of the common ``errno`` values.
 _OS_REASONS = {
-    errno.EACCES: "brak uprawnień",
-    errno.EPERM: "operacja niedozwolona",
-    errno.ENOENT: "nie ma takiego pliku ani katalogu",
-    errno.ENOTDIR: "element ścieżki nie jest katalogiem",
-    errno.EISDIR: "ścieżka jest katalogiem",
-    errno.EEXIST: "plik już istnieje",
-    errno.ENOSPC: "brak miejsca na urządzeniu",
-    errno.EROFS: "system plików tylko do odczytu",
+    errno.EACCES: "errors.os_permission_denied",
+    errno.EPERM: "errors.os_not_permitted",
+    errno.ENOENT: "errors.os_no_such_file",
+    errno.ENOTDIR: "errors.os_not_a_directory",
+    errno.EISDIR: "errors.os_is_a_directory",
+    errno.EEXIST: "errors.os_file_exists",
+    errno.ENOSPC: "errors.os_no_space",
+    errno.EROFS: "errors.os_read_only",
 }
 
 
-def describe_os_error(exc: OSError, /) -> tuple[str, dict[str, object]]:
+def describe_os_error(exc: OSError, /) -> tuple[Message, dict[str, object]]:
     """
     Describe a file-system error as an ``io_error`` (spec §13.5).
 
@@ -318,21 +304,22 @@ def describe_os_error(exc: OSError, /) -> tuple[str, dict[str, object]]:
 
     Returns
     -------
-    tuple[str, dict[str, object]]
-        Polish ``detail`` (``Błąd systemu plików: <reason>[: <path>]``, the
-        reason in Polish for common ``errno`` values) and ``details`` with
-        ``path`` when the error names a file.
+    tuple[Message, dict[str, object]]
+        English ``detail`` (``File system error: <reason>[: <path>]``, the
+        reason from the catalog for common ``errno`` values, the system's text
+        otherwise) and ``details`` with ``path`` when the error names a file.
     """
-    reason = _OS_REASONS.get(exc.errno or 0) or exc.strerror or str(exc)
+    known = _OS_REASONS.get(exc.errno or 0)
+    reason = message(known) if known else exc.strerror or str(exc)
     target = exc.filename
     if target is None:
-        return f"Błąd systemu plików: {reason}", {}
+        return message("errors.file_system", reason=reason), {}
     path = (
         os.fsdecode(target)
         if isinstance(target, str | bytes | os.PathLike)
         else str(target)
     )
-    return f"Błąd systemu plików: {reason}: {path}", {"path": path}
+    return message("errors.file_system_path", reason=reason, path=path), {"path": path}
 
 
 def io_error(exc: OSError, /) -> IMGWDataError:

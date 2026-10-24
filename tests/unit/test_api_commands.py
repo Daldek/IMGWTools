@@ -132,7 +132,7 @@ def problem(response, status, code):
         code,
         status,
     )
-    assert body["title"] == ERROR_CODES[code].title
+    assert body["title"] == ERROR_CODES[code].title.localized("pl")
     assert body["instance"] == response.request.url.path
     assert body["detail"]
     return body
@@ -376,7 +376,7 @@ def test_api_problem_title_follows_accept_language_and_detail_stays_polish(clien
 
     assert (invalid.status_code, invalid.json()["title"]) == (
         400,
-        ERROR_CODES["validation_error"].title_en,
+        ERROR_CODES["validation_error"].title,
     )
     assert (
         invalid.json()["detail"]
@@ -385,10 +385,10 @@ def test_api_problem_title_follows_accept_language_and_detail_stays_polish(clien
     assert refused.json()["details"] == {
         "option": "lang",
         "value": "de",
-        "allowed": ["pl", "en"],
+        "allowed": ["en", "pl"],
     }
-    assert unknown.json()["title"] == ERROR_CODES["not_found"].title_en
-    assert polish.json()["title"] == ERROR_CODES["not_found"].title
+    assert unknown.json()["title"] == ERROR_CODES["not_found"].title
+    assert polish.json()["title"] == ERROR_CODES["not_found"].title.localized("pl")
     for response, lang in (
         (invalid, "en"),
         (refused, "en"),

@@ -16,7 +16,8 @@ src/imgwtools/
 ├── agent_guide.py        # PUBLIC: agent_guide (AGENTS.md / llms.txt), MCP server instructions
 ├── coverage.py           # PUBLIC: summarize_coverage (per-station periods for ČHMÚ)
 ├── project.py            # PUBLIC: imgw-project/1 manifests (restore by content for ČHMÚ)
-├── exceptions.py         # PUBLIC: IMGWError hierarchy + ERROR_CODES registry (title, title_en)
+├── exceptions.py         # PUBLIC: IMGWError hierarchy + ERROR_CODES registry (title as a catalog message)
+├── messages/             # Message catalog: message(), Message, localize(), one module of Text(en, pl) per area (ADR-006)
 ├── urls.py               # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
 ├── parsers.py            # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
 ├── testing.py            # PUBLIC: build_fixture_store (complete, complete_pl_cz, ...), fixture_files

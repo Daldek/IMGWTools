@@ -66,6 +66,8 @@ POST_COMMANDS = [
     name for name, meta in ROUTES.items() if meta["rest"]["method"] == "POST"
 ]
 INTERFACES = ("python", "cli", "rest")
+# The CLI error line is English: the problem documents compared with it ask for English.
+ENGLISH = {"Accept-Language": "en"}
 # Notice labels of the CLI stderr (spec §13.10).
 LABELS = {"info": "Informacja", "warning": "Ostrzeżenie", "error": "Błąd"}
 # Placeholders of versions relative to the root, resolved in the served store.
@@ -650,7 +652,7 @@ def test_every_error_code_is_reported_alike_by_every_interface(
         request = rest_request(scenario.command, scenario.options)
         if scenario.method is not None:
             request["method"] = scenario.method
-        answered = rest.request(**request, headers=writable)
+        answered = rest.request(**request, headers={**writable, **ENGLISH})
         # REST never cancels: a cancellation reaching it is a program error.
         reported = ERROR_CODES["internal_error" if code == "cancelled" else code]
         body = answered.json()
@@ -743,7 +745,9 @@ def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
     )
     assert canonical([line["detail"], line["details"]]) == canonical(expected)
 
-    answered = rest.request(**rest_request(command, options), headers=headers)
+    answered = rest.request(
+        **rest_request(command, options), headers={**(headers or {}), **ENGLISH}
+    )
     body = answered.json()
     assert schema_errors(body, "problem+json") == []
     assert (answered.status_code, body["code"], body["title"]) == (
@@ -775,7 +779,7 @@ def test_an_unreadable_version_is_an_io_error_in_every_interface(
 
     assert isinstance(raised, IMGWError)
     assert (raised.detail, dict(raised.details)) == (
-        f"Błąd systemu plików: brak uprawnień: {target}",
+        f"File system error: permission denied: {target}",
         {"path": str(target)},
     )
 
@@ -823,7 +827,7 @@ def test_a_failed_write_is_the_same_io_error_in_imgw_and_rest(
 def test_rest_answers_every_refused_request_with_a_problem_document(
     method, url, body, code, rest
 ):
-    answered = rest.request(method, url, json=body)
+    answered = rest.request(method, url, json=body, headers=ENGLISH)
 
     document = answered.json()
     spec = ERROR_CODES[code]

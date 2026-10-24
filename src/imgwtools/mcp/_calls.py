@@ -47,7 +47,7 @@ import anyio.lowlevel
 import anyio.to_thread
 import mcp.types as types
 
-from imgwtools.commands import Lang, check_command, run_command, validate_command
+from imgwtools.commands import check_command, run_command, validate_command
 from imgwtools.exceptions import (
     ERROR_CODES,
     ErrorCode,
@@ -56,6 +56,7 @@ from imgwtools.exceptions import (
     describe_os_error,
 )
 from imgwtools.mcp._tools import CatalogTool
+from imgwtools.messages import Lang, localize
 from imgwtools.store.types import CommandResult, Progress
 
 __all__ = ["STREAM_LIMIT", "Report", "call_tool"]
@@ -100,8 +101,8 @@ def _error(
     text = _json(
         {
             "code": code,
-            "title": spec.title_en if lang == "en" else spec.title,
-            "detail": detail or spec.title,
+            "title": localize(spec.title, lang),
+            "detail": localize(detail, lang) or localize(spec.title, lang),
             "details": details,
         }
     )

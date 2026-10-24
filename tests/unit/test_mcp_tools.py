@@ -14,11 +14,11 @@ pytest.importorskip("mcp")
 import httpx
 from mcp import Client
 
-from imgwtools.commands import Lang
 from imgwtools.config import Settings, settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server, http_app
+from imgwtools.messages import Lang
 from tests.contract.support import command_document
 
 STDIO = ("read", "write")

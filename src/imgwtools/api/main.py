@@ -29,9 +29,10 @@ from imgwtools.agent_guide import agent_guide
 from imgwtools.api.errors import EXCEPTION_HANDLERS, accept_language
 from imgwtools.api.routes import commands
 from imgwtools.api.schemas import HealthCheck
-from imgwtools.commands import LANGS, command_schema
+from imgwtools.commands import command_schema
 from imgwtools.config import check_config, settings
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import LANGS
 from imgwtools.web.app import router as web_router
 
 _LOG = logging.getLogger(__name__)

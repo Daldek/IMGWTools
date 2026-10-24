@@ -43,8 +43,6 @@ from typer import rich_utils
 from typer.core import TyperCommand, TyperGroup
 
 from imgwtools.commands import (
-    LANGS,
-    Lang,
     check_command,
     command_schema,
     data_commands,
@@ -52,6 +50,7 @@ from imgwtools.commands import (
 )
 from imgwtools.config import check_config, settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
+from imgwtools.messages import LANGS, Lang, localize
 from imgwtools.store.types import CommandOption, DataCommand, Notice, Progress
 
 __all__ = ["ImgwCommand", "ImgwGroup", "ImgwSubgroup", "register_catalog"]
@@ -236,7 +235,7 @@ def _error_line(code: ErrorCode, detail: str, details: Mapping[str, object]) -> 
         spec = ERROR_CODES["internal_error"]
     document = {
         "code": spec.code,
-        "detail": detail or spec.title,
+        "detail": localize(detail, "en") or spec.title,
         "details": dict(details),
     }
     typer.echo(_json(document), err=True)

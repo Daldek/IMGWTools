@@ -403,7 +403,7 @@ def test_check_of_a_live_chmi_search_names_its_sources_without_requests():
 
 
 def test_source_unavailable_title_is_neutral_and_the_detail_names_chmi(server):
-    assert ERROR_CODES["source_unavailable"].title == "Źródło danych niedostępne"
+    assert ERROR_CODES["source_unavailable"].title == "Data source unavailable"
     with respx.mock(assert_all_called=False) as router:
         serve_catalog(router, "hydro_now_outage")
         response = TestClient(rest_app).get(

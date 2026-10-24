@@ -1092,7 +1092,10 @@ class Live:
         if answered.headers["content-type"] != "application/problem+json":
             problems["rest"].append(f"typ treści {answered.headers['content-type']}")
         problems["rest"] += schema_errors(body, "problem+json")
-        if (body.get("code"), body.get("title")) != (failure.code, spec.title):
+        if (body.get("code"), body.get("title")) != (
+            failure.code,
+            spec.title.localized("pl"),
+        ):
             problems["rest"].append(
                 f"kod i tytuł {body.get('code')}, {body.get('title')}"
             )

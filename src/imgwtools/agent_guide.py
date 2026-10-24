@@ -31,7 +31,6 @@ from typing import Any, Literal, cast, overload
 
 from imgwtools._version import __version__
 from imgwtools.commands import (
-    Lang,
     command_schema,
     data_commands,
     format_command,
@@ -39,6 +38,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.datasets import datasets, providers
+from imgwtools.messages import Lang
 from imgwtools.store.export import _deliver, _Lines, _target
 from imgwtools.store.types import PathArg
 

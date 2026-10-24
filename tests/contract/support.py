@@ -24,8 +24,8 @@ import httpx
 import respx
 
 from imgwtools import archive_files, command_schema, current_version
-from imgwtools.commands import Lang
 from imgwtools.datasets import ArchiveFile
+from imgwtools.messages import Lang
 from imgwtools.testing import fixture_files
 
 if TYPE_CHECKING:

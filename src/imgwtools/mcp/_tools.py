@@ -31,8 +31,9 @@ from typing import Any, Literal, cast
 import mcp.types as types
 
 from imgwtools.agent_guide import _PAGE_SIZE
-from imgwtools.commands import Lang, command_schema, data_commands
+from imgwtools.commands import command_schema, data_commands
 from imgwtools.config import settings
+from imgwtools.messages import Lang
 from imgwtools.store.types import CommandOption, DataCommand
 
 __all__ = ["MODES", "CatalogTool", "Mode", "catalog_tools"]
