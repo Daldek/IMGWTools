@@ -22,7 +22,7 @@ elements of Typer and Click: panels, ``--help``, the usage line with its
 default markers, the abort message) and the progress and notice lines of stderr;
 another value ends every call with ``validation_error`` (spec 2026-10-19
 §4.2–§4.3). The JSON error line is English whatever the setting (AGI-9.2), as is
-the envelope of stdout. ``IMGW_LANG`` is also the default of ``--lang``.
+the envelope of stdout; ``--lang`` of the description commands defaults to English.
 """
 
 import inspect
@@ -60,7 +60,7 @@ __all__ = ["ImgwCommand", "ImgwGroup", "ImgwSubgroup", "register_catalog"]
 _ROOT_ENV = "IMGW_STORE_ROOT"
 _LANG_ENV = "IMGW_LANG"
 # Catalog options whose CLI default comes from an environment variable.
-_ENVVARS = {"root": _ROOT_ENV, "lang": _LANG_ENV}
+_ENVVARS = {"root": _ROOT_ENV}
 
 
 @dataclass(frozen=True)
@@ -561,7 +561,7 @@ def _register(group: typer.Typer, spec: DataCommand) -> None:
     def callback(ctx: typer.Context, **values: Any) -> None:
         check = bool(values.pop("check", False))
         if values.pop("schema"):
-            options: dict[str, object] = {"command": spec.name, "lang": _LANG}
+            options: dict[str, object] = {"command": spec.name}
             code = _run("commands schema", options, check=False)
         else:
             options = _given(spec, values)
@@ -590,7 +590,7 @@ def register_catalog(app: typer.Typer, /) -> None:
     flags and aliases (required ones in the "Opcje wymagane" panel, in
     English "Required options"), ``--root`` falls back to
     ``$IMGW_STORE_ROOT`` (only under ``env_root_when`` of the command),
-    ``--lang`` to ``$IMGW_LANG``, list options take comma-separated values or
+    list options take comma-separated values or
     a repeated flag, ``--check`` exists only for commands with a check twin
     and ``--schema`` for every command.
 

@@ -156,8 +156,6 @@ def test_every_rest_command_answers_alike_in_mcp_python_and_cli(
         local = dict(given)
         if ROUTES[command]["result"] == "list" and "limit" not in options:
             local["limit"] = PAGE  # the page MCP takes without limit
-        if "lang" in ROUTES[command]["cli"]["flags"]:
-            local.setdefault("lang", "en")  # MCP speaks English, Python still Polish
         before = stamps(served_root)
         answers, requests, trees = {}, {}, {}
         for interface in ("python", "cli", "mcp"):

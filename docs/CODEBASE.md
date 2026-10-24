@@ -78,9 +78,9 @@ imgw stations find -k hydro -q spindleruv --provider CHMI   # ČHMÚ station (WI
 imgw store check --root /dane/imgw -d cz.chmi.hydro_daily -s 0-203-1-001000 -y 2024-2025   # ČHMÚ listing check
 imgw store catalog --root /dane/imgw --provider CHMI # ČHMÚ station catalog
 imgw commands schema --command "store sync"          # JSON Schema of a command
-imgw commands schema --command "store sync" --lang en   # Same, English texts
+imgw commands schema --command "store sync" --lang pl   # Same, Polish texts
 imgw store sync --schema                             # Same, via the command itself
-imgw commands guide --format agents --lang pl --path AGENTS.md   # Regenerate AGENTS.md
+imgw commands guide --format agents --path AGENTS.md   # Regenerate AGENTS.md (English)
 imgw mcp [--allow-writes]                            # MCP server on stdio, English (imgwtools[mcp])
 imgw admin keys                                      # List API keys
 imgw admin create --name "User1"                     # Create API key
@@ -181,7 +181,7 @@ The command catalog is the single source of options, validation, help texts and 
 - `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `imgw_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
 - `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
 - CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
-- Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`imgw commands guide --format agents --lang pl --path AGENTS.md`, `--format llms --lang pl --path llms.txt`); `tests/unit/test_agent_guide.py` compares the bytes
+- Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`imgw commands guide --format agents --path AGENTS.md`, `--format llms --path llms.txt`); `tests/unit/test_agent_guide.py` compares the bytes
 
 ## External Data Sources
 
@@ -384,7 +384,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 |`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
 |`IMGW_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/imgw`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 it held the reference data: that is `IMGW_REFERENCE_DIR` now|
 |`IMGW_REFERENCE_DIR`|`<cache_dir>/imgw/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m imgwtools.reference_data`); `settings.reference_dir`|
-|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines and the `--lang` default (REST answers follow `Accept-Language`, MCP is always English; the CLI error line and the envelope are English)|
+|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines (`--lang` of `commands list\|schema\|guide` defaults to English whatever it says; REST answers follow `Accept-Language`, MCP is always English; the CLI error line and the envelope are English)|
 |`IMGW_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `imgw server` (needs `imgwtools[mcp]`; read and plan only)|
 |`IMGW_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
 |`IMGW_MCP_ALLOW_WRITES`|`false`|Envvar of `imgw mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|

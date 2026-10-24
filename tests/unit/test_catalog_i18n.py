@@ -60,7 +60,7 @@ def test_every_text_of_the_catalog_and_registries_has_an_english_variant():
             assert option.help_en not in ("", option.help), (spec.name, option.name)
     for descriptor in datasets():
         assert descriptor.title_en not in ("", descriptor.title), descriptor.key
-    polish, english = command_schema()["groups"], command_schema(lang="en")["groups"]
+    polish, english = command_schema(lang="pl")["groups"], command_schema()["groups"]
     assert all(english[name] not in ("", text) for name, text in polish.items())
 
 
@@ -77,7 +77,7 @@ def test_option_help_and_rules_translate_one_to_one():
 
 
 def test_english_catalog_differs_from_the_polish_one_only_in_texts():
-    polish, english = command_schema(), command_schema(lang="en")
+    polish, english = command_schema(lang="pl"), command_schema(lang="en")
 
     assert (polish["lang"], english["lang"]) == ("pl", "en")
     assert structure(english) == structure(polish)

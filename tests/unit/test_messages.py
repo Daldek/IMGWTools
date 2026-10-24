@@ -41,6 +41,8 @@ SCOPES = ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
 # Areas whose texts are one wording in every language (names and legal formulas that
 # files persist); any other entry needs a translation.
 _SAME_AREAS = ("legal.",)
+# Entries whose word is the same in English and Polish (a column title, not a name).
+_SAME_WORDS = frozenset({"agent_guide.header_status"})
 # Last segment of a file name such as ``series.json``, which is not a message key.
 _FILE_SUFFIXES = frozenset({"json", "geojson", "parquet", "csv", "zip", "toml"})
 
@@ -53,8 +55,6 @@ _PENDING = frozenset(
         "commands.py",
         "datasets.py",
         "models.py",
-        # Agent guide.
-        "agent_guide.py",
         # REST API.
         "api/errors.py",
         "api/main.py",
@@ -66,9 +66,13 @@ _PENDING = frozenset(
 
 
 def _same_by_design(key: str, text: Text) -> bool:
-    """Whether both languages may read the same: a legal wording or a bare composition."""
+    """Whether both languages may read the same: a legal wording, a word they share or a bare composition."""
     words = re.sub(r"\{[^}]*\}", " ", text.en)
-    return key.startswith(_SAME_AREAS) or re.search(r"[^\W\d_]", words) is None
+    return (
+        key.startswith(_SAME_AREAS)
+        or key in _SAME_WORDS
+        or re.search(r"[^\W\d_]", words) is None
+    )
 
 
 def sources() -> Iterator[tuple[str, ast.Module]]:

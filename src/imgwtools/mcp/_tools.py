@@ -196,8 +196,6 @@ def _tool(
         maximum = settings.api_max_limit
         limit = (min(_PAGE_SIZE, maximum), maximum)
         properties["limit"].update(default=limit[0], maximum=maximum)
-    if "lang" in properties:
-        properties["lang"]["default"] = "en"
     check, fixed = _check_kind(spec, mode)
     if check is not None:
         properties["check"] = (

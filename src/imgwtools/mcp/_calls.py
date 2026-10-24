@@ -240,10 +240,6 @@ def _options(
         and _environment_root(tool, options)
     ):
         options["root"] = tool.root
-    if options.get("lang") is None and any(
-        option.name == "lang" for option in tool.command.options
-    ):
-        options["lang"] = "en"
     return options, check
 
 

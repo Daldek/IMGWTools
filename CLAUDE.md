@@ -30,8 +30,8 @@ uv run pytest tests/unit/test_models.py -v         # one test file (add -k <expr
 uv run pytest tests/live -m live                   # live tests (network, outside the gate)
 imgw server --reload                               # REST API + Web GUI
 imgw config show --json                            # every setting with its source
-imgw commands guide --format agents --lang pl --path AGENTS.md   # regenerate AGENTS.md
-imgw commands guide --format llms --lang pl --path llms.txt      # regenerate llms.txt
+imgw commands guide --format agents --path AGENTS.md   # regenerate AGENTS.md (English)
+imgw commands guide --format llms --path llms.txt      # regenerate llms.txt (English)
 ```
 
 Extras: `imgwtools[cli|api|store|mcp|pandas|full]` (install lines in the README). Settings (`IMGW_*`, `NOGAT_*`, `nogat.toml`): [docs/CODEBASE.md](docs/CODEBASE.md) section "Versioned Store → Configuration". Test layout and markers: [docs/TESTING.md](docs/TESTING.md).
@@ -86,7 +86,7 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 
 ## 7. Cross-project context
 
-IMGWTools is a tool of the Nogat ecosystem; its entry (interfaces, provided contracts `imgw-store/1`, `imgw-meta/1`, ..., data sources) is `IMGWTools` in [ecosystem.yaml](https://github.com/Daldek/Nogat/blob/main/ecosystem.yaml). Hydrolog depends on IMGWTools (required dependency); Hydrograf and Kartograf are neighbours. Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries) and **Retman** (command catalog: `command_schema` — also `lang="en"`, `x-imgw.writes`/`network` — `validate_command`, `format_command`, `check_command`, `run_command`). Cross-project analysis: [docs/HISTORY.md](docs/HISTORY.md).
+IMGWTools is a tool of the Nogat ecosystem; its entry (interfaces, provided contracts `imgw-store/1`, `imgw-meta/1`, ..., data sources) is `IMGWTools` in [ecosystem.yaml](https://github.com/Daldek/Nogat/blob/main/ecosystem.yaml). Hydrolog depends on IMGWTools (required dependency); Hydrograf and Kartograf are neighbours. Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries) and **Retman** (command catalog: `command_schema` — English by default, `lang="pl"` for Polish — `x-imgw.writes`/`network`, `validate_command`, `format_command`, `check_command`, `run_command`). Cross-project analysis: [docs/HISTORY.md](docs/HISTORY.md).
 
 ## Deviations
 

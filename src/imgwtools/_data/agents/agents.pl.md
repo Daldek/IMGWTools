@@ -27,6 +27,7 @@ Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja warto
 
 - **REST:** korzeń magazynu ustawia serwer (`IMGW_STORE_ROOT`), `version` jest względna do niego, opcji lokalnych nie ma; zapis (POST bez `?check=true`) wymaga włączenia na serwerze i nagłówka `X-API-Key`.
 - **MCP:** `imgw mcp` (stdio) startuje bez zapisu — komendy zapisujące zwracają plan (`check` stałe `true`); zapis włącza użytkownik (`--allow-writes`), a i wtedy `check` jest domyślnie `true`. `/mcp` serwera REST (`IMGW_MCP_ENABLED=true`) tylko czyta i planuje.
+- **Język:** wynik maszynowy jest po angielsku (koperta, linie błędów, MCP, REST, domyślny przewodnik). Polski tylko na prośbę: `--lang pl` (`commands list|schema|guide`), `lang: "pl"` (MCP), `Accept-Language: pl` (REST).
 
 ## Koperta, statusy i błędy
 

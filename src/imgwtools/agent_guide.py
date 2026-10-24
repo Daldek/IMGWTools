@@ -2,19 +2,20 @@
 Guide for AI agents generated from the command catalog (spec 2026-10-19 §5).
 
 `agent_guide` renders ``AGENTS.md`` (``format="agents"``) and ``llms.txt``
-(``format="llms"``), in Polish or English, from the hand-written templates in
-``imgwtools/_data/agents``. Every marker ``<!-- imgw:<block> -->`` of a
-template is replaced by a block generated from the command catalog
+(``format="llms"``), in English (the default) or Polish, from the hand-written
+templates in ``imgwtools/_data/agents``. Every marker ``<!-- imgw:<block> -->``
+of a template is replaced by a block generated from the command catalog
 (`command_schema`, `data_commands`), the registries (`providers`,
 `datasets` and the error codes of the catalog document) and the data of this
 module: the rules shared with the MCP server instructions, the meaning of the
 envelope statuses and the typical flows, whose commands `format_command`
-renders. A marker filling a whole line takes a block of any number of lines,
-a marker inside a line a one-line block; an unknown block or a block used
-twice is a program error. The output depends only on the installed package
-(no dates, no local paths), so ``AGENTS.md`` and ``llms.txt`` of the
-repository are derived files that the tests compare byte for byte with the
-generator.
+renders. The words of the blocks are messages of
+``imgwtools.messages.agent_guide``. A marker filling a whole line takes a block
+of any number of lines, a marker inside a line a one-line block; an unknown
+block or a block used twice is a program error. The output depends only on the
+installed package (no dates, no local paths), so ``AGENTS.md`` and ``llms.txt``
+of the repository (the English guide) are derived files that the tests compare
+byte for byte with the generator.
 
 `_instructions` gives the MCP server its ``instructions``: the rules and the
 lines of the server mode.
@@ -38,7 +39,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.datasets import datasets, providers
-from imgwtools.messages import Lang
+from imgwtools.messages import Lang, message
 from imgwtools.store.export import _deliver, _Lines, _target
 from imgwtools.store.types import PathArg
 
@@ -58,116 +59,52 @@ _YEAR_RUN = re.compile(
 # Statistics of the hydrological variables (``H_min``, ``H_mean``, ``H_max``).
 _STATISTICS = ("min", "mean", "max")
 _DASH = "—"
-# Country names of the country codes of the provider registry.
-_COUNTRIES: Mapping[str, tuple[str, str]] = {
-    "PL": ("Polska", "Poland"),
-    "CZ": ("Czechy", "Czechia"),
+# Messages (imgwtools.messages.agent_guide) of the country names of the provider
+# registry.
+_COUNTRIES: Mapping[str, str] = {
+    "PL": "agent_guide.country_poland",
+    "CZ": "agent_guide.country_czechia",
 }
-# Titles of the command classes by effect of a run: (Polish, English).
-_EFFECTS: Mapping[str, tuple[str, str]] = {
-    "read": ("Odczyt — bez sieci i bez zapisu", "Read — no network, no writes"),
-    "network": (
-        "Sieć — łączy się ze źródłem, nic nie zapisuje",
-        "Network — connects to a source, writes nothing",
-    ),
-    "add": (
-        "Zapis — nowe pliki, wersje albo zadania; najpierw `--check`",
-        "Write — new files, versions or tasks; `--check` first",
-    ),
-    "replace": (
-        "Nadpisanie — może zastąpić istniejący plik albo manifest; najpierw `--check`",
-        "Overwrite — may replace an existing file or manifest; `--check` first",
-    ),
+# Titles of the command classes by effect of a run.
+_EFFECTS: Mapping[str, str] = {
+    "read": "agent_guide.effect_read",
+    "network": "agent_guide.effect_network",
+    "add": "agent_guide.effect_add",
+    "replace": "agent_guide.effect_replace",
 }
-# Texts of the generated blocks: (Polish, English).
-_TEXTS: Mapping[str, tuple[str, str]] = {
-    "add": ("zapis", "write"),
-    "replace": ("nadpisanie", "overwrite"),
-    "itself": ("jest sprawdzeniem", "is a check"),
-    "local": ("lokalna", "local"),
-    "outside": (
-        "Poza magazynem (tylko `datasets files` i `datasets download`):",
-        "Outside the store (`datasets files` and `datasets download` only):",
-    ),
-    "keys": ("klucze", "keys"),
-    "station": ("kod stacji", "station code"),
-    "license": ("licencja", "license"),
+# Marks of an option that writes a file (``x-imgw-writes``) and of a command.
+_MARKS: Mapping[str, str] = {
+    "add": "agent_guide.mark_add",
+    "replace": "agent_guide.mark_replace",
+    "itself": "agent_guide.mark_itself",
+    "local": "agent_guide.mark_local",
 }
-_HEADERS: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+_HEADERS: Mapping[str, tuple[str, ...]] = {
     "statuses": (
-        ("Status", "Kod wyjścia CLI", "Znaczenie"),
-        ("Status", "CLI exit code", "Meaning"),
+        "agent_guide.header_status",
+        "agent_guide.header_exit_code",
+        "agent_guide.header_meaning",
     ),
     "datasets": (
-        ("Klucz", "Zmienne", "Od roku"),
-        ("Key", "Variables", "First year"),
+        "agent_guide.header_key",
+        "agent_guide.header_variables",
+        "agent_guide.header_first_year",
     ),
 }
 # Meaning of each envelope status (spec 2026-10-17 §13.6).
-_STATUSES: Mapping[str, tuple[str, str]] = {
-    "ok": ("bez porażek", "no failures"),
-    "partial": (
-        "część pozycji nieudana — przeczytaj `items[].status` i `error_code`; "
-        "pozostałe są gotowe",
-        "some items failed — read `items[].status` and `error_code`; the others "
-        "are done",
-    ),
-    "failed": (
-        "żadna pozycja się nie udała (w planie: `check_failed`); koperta jest pełna",
-        "no item succeeded (in a plan: `check_failed`); the envelope is complete",
-    ),
-    "cancelled": (
-        "przerwano (Ctrl+C, anulowanie żądania); `result` częściowy albo `null`",
-        "cancelled (Ctrl+C, a cancelled request); a partial `result` or `null`",
-    ),
+_STATUSES: Mapping[str, str] = {
+    "ok": "agent_guide.status_ok",
+    "partial": "agent_guide.status_partial",
+    "failed": "agent_guide.status_failed",
+    "cancelled": "agent_guide.status_cancelled",
 }
 # The rules of AGENTS.md, llms.txt and the MCP instructions (spec 2026-10-19 §5.4).
-_PRINCIPLES: tuple[tuple[str, str], ...] = (
-    (
-        "**Poznaj komendy:** `imgw commands list` (spis z opisem jednego zdania), "
-        "potem `imgw commands schema --command … [--lang en]` albo `imgw <grupa> "
-        "<komenda> --schema`; REST `GET /api/v1/commands/list` i `/schema`; w MCP "
-        "`imgw_commands_list` i `imgw_commands_schema`. Opcje to właściwości JSON "
-        "Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w "
-        "`x-imgw.writes`, `x-imgw.network` i `x-imgw.idempotent`.",
-        "**Learn the commands:** `imgw commands list` (a one-sentence summary of "
-        "each), then `imgw commands schema --command … [--lang en]` or `imgw "
-        "<group> <command> --schema`; REST `GET /api/v1/commands/list` and "
-        "`/schema`; in MCP `imgw_commands_list` and `imgw_commands_schema`. Options "
-        "are JSON Schema properties; rules the schema does not express are in "
-        "`x-imgw.rules`, effects in `x-imgw.writes`, `x-imgw.network` and "
-        "`x-imgw.idempotent`.",
-    ),
-    (
-        "**Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), "
-        "`check: true` (MCP; domyślne dla komend zapisujących), `check_command()` "
-        "(Python) → plan `imgw-plan/1` bez zapisu i bez pobierania treści. "
-        "`store check` i `project check` same są sprawdzeniem. Przy dużym planie "
-        "zapytaj użytkownika.",
-        "**Check without writing:** `--check` (CLI), `?check=true` (REST, POST), "
-        "`check: true` (MCP; the default of writing commands), `check_command()` "
-        "(Python) → an `imgw-plan/1` plan without writing and without downloading "
-        "content. `store check` and `project check` are checks themselves. Ask the "
-        "user about a large plan.",
-    ),
-    (
-        "**Uruchom:** bez `check`; czytaj `status` koperty, nie tylko kod wyjścia.",
-        "**Run:** without `check`; read the `status` of the envelope, not only the "
-        "exit code.",
-    ),
-    (
-        "**Czytaj offline:** `store info`, `store scan`, `series summary`, "
-        "`series read` (`limit`/`offset`), `pmaxtp read` — bez ponownego pobierania.",
-        "**Read offline:** `store info`, `store scan`, `series summary`, "
-        "`series read` (`limit`/`offset`), `pmaxtp read` — without downloading "
-        "again.",
-    ),
-    (
-        "**Decyduj po kodach:** `code`, `status`, `items[].status`, `error_code`; "
-        "tekst `detail` jest dla człowieka.",
-        "**Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the "
-        "`detail` text is for humans.",
-    ),
+_PRINCIPLES: tuple[str, ...] = (
+    "agent_guide.rule_learn_commands",
+    "agent_guide.rule_check_first",
+    "agent_guide.rule_run",
+    "agent_guide.rule_read_offline",
+    "agent_guide.rule_decide_by_codes",
 )
 
 
@@ -181,13 +118,12 @@ class _Symbol:
     symbols) in its place.
     """
 
-    pl: str
-    en: str
+    key: str  # message of its name in imgwtools.messages.agent_guide
     stand_in: str
     path: bool = False
 
     def name(self, lang: Lang) -> str:
-        return self.en if lang == "en" else self.pl
+        return message(self.key, lang=lang)
 
     def rendered(self) -> str:
         """Text of the stand-in in a line of `format_command`."""
@@ -202,8 +138,7 @@ class _Step:
 
     command: str | None
     options: Mapping[str, object]
-    note_pl: str
-    note_en: str
+    note: str  # message in imgwtools.messages.agent_guide
     check: bool = False
 
 
@@ -211,16 +146,15 @@ class _Step:
 class _Flow:
     """A typical task of an agent as steps rendered by `format_command`."""
 
-    title_pl: str
-    title_en: str
+    title: str  # message in imgwtools.messages.agent_guide
     steps: tuple[_Step, ...]
 
 
-_STATION = _Symbol("KOD_STACJI", "STATION_CODE", "123456789")
-_WIGOS = _Symbol("KOD_WIGOS", "WIGOS_ID", "0-203-1-900001")
-_PROJECT = _Symbol("PROJEKT", "PROJECT", "/PROJEKT", path=True)
+_STATION = _Symbol("agent_guide.symbol_station_code", "123456789")
+_WIGOS = _Symbol("agent_guide.symbol_wigos_id", "0-203-1-900001")
+_PROJECT = _Symbol("agent_guide.symbol_project", "/PROJECT", path=True)
 _SYMBOLS = (_STATION, _WIGOS, _PROJECT)
-_STORE = "/dane/imgw"
+_STORE = "/data/imgw"
 _PRECIP = "pl.imgw.meteo_precip_daily"
 _CHMI_HYDRO = "cz.chmi.hydro_daily"
 _PRECIP_STORE = {"root": _STORE, "datasets": [_PRECIP], "years": "2010-2020"}
@@ -240,81 +174,38 @@ _CHMI_STORE = {
 }
 _FLOWS: tuple[_Flow, ...] = (
     _Flow(
-        "Opady dobowe ze stacji Poznań, 2010–2020",
-        "Daily precipitation at the Poznań station, 2010–2020",
+        "agent_guide.flow_precipitation_title",
         (
             _Step(
                 "stations find",
                 {"kind": "meteo", "query": "poznan"},
-                "kilka trafień → zapytaj użytkownika; kod wybranej stacji to "
-                "`KOD_STACJI`.",
-                "several hits → ask the user; the code of the chosen station is "
-                "`STATION_CODE`.",
+                "agent_guide.flow_precipitation_find_station",
             ),
-            _Step(
-                None,
-                {},
-                "Wybierz zbiór: `pl.imgw.meteo_precip_daily` (stacje opadowe, `P`) "
-                "albo `pl.imgw.meteo_climate_daily` (stacje klimatyczne, `P` i "
-                "temperatury) — lista stacji nie mówi, w której sieci jest stacja.",
-                "Choose the dataset: `pl.imgw.meteo_precip_daily` (precipitation "
-                "stations, `P`) or `pl.imgw.meteo_climate_daily` (climate stations, "
-                "`P` and temperatures) — the station list does not tell the network "
-                "of a station.",
-            ),
-            _Step(
-                "store check",
-                _PRECIP_STORE,
-                "plan: liczba plików i bajtów; archiwa obejmują cały kraj, więc "
-                "podaj użytkownikowi rozmiar.",
-                "plan: the number of files and bytes; the archives cover the whole "
-                "country, so tell the user the size.",
-            ),
-            _Step(
-                "store sync",
-                _PRECIP_STORE,
-                "po zgodzie użytkownika; szeregi stacji budują się same.",
-                "after the user agrees; the station series are built as well.",
-            ),
+            _Step(None, {}, "agent_guide.flow_precipitation_choose_dataset"),
+            _Step("store check", _PRECIP_STORE, "agent_guide.flow_precipitation_plan"),
+            _Step("store sync", _PRECIP_STORE, "agent_guide.flow_precipitation_sync"),
             _Step(
                 "series summary",
                 {"root": _STORE, "dataset": _PRECIP, "stations": [_STATION]},
-                "brak stacji → powtórz kroki 3–5 z `pl.imgw.meteo_climate_daily`; "
-                "brak w obu → powiedz to użytkownikowi, nie podstawiaj innej stacji.",
-                "the station is missing → repeat steps 3–5 with "
-                "`pl.imgw.meteo_climate_daily`; missing from both → tell the user, "
-                "do not substitute another station.",
+                "agent_guide.flow_precipitation_summary",
             ),
             _Step(
                 "series read",
                 {**_PRECIP_DAYS, "limit": 500},
-                "kolejne strony: `--offset`.",
-                "next pages: `--offset`.",
+                "agent_guide.flow_next_pages",
             ),
         ),
     ),
     _Flow(
-        "Przepływy dobowe stacji czeskiej (ČHMÚ)",
-        "Daily discharge of a Czech station (ČHMÚ)",
+        "agent_guide.flow_czech_discharge_title",
         (
             _Step(
                 "stations find",
                 {"provider": "CHMI", "kind": "hydro", "query": "spindleruv"},
-                "identyfikator WIGOS wybranej stacji to `KOD_WIGOS`.",
-                "the WIGOS identifier of the chosen station is `WIGOS_ID`.",
+                "agent_guide.flow_czech_discharge_find_station",
             ),
-            _Step(
-                "store check",
-                _CHMI_STORE,
-                "plan: pliki stacji po latach.",
-                "plan: the station files by year.",
-            ),
-            _Step(
-                "store sync",
-                _CHMI_STORE,
-                "po zgodzie użytkownika.",
-                "after the user agrees.",
-            ),
+            _Step("store check", _CHMI_STORE, "agent_guide.flow_czech_discharge_plan"),
+            _Step("store sync", _CHMI_STORE, "agent_guide.flow_czech_discharge_sync"),
             _Step(
                 "series read",
                 {
@@ -324,27 +215,23 @@ _FLOWS: tuple[_Flow, ...] = (
                     "variables": ["Q"],
                     "limit": 500,
                 },
-                "kolejne strony: `--offset`.",
-                "next pages: `--offset`.",
+                "agent_guide.flow_next_pages",
             ),
         ),
     ),
     _Flow(
-        "Odtwarzalny projekt",
-        "Reproducible project",
+        "agent_guide.flow_project_title",
         (
             _Step(
                 "project init",
-                {"project_dir": _PROJECT, "store_dir": "../magazyn"},
-                "manifest `imgw-project.json`; `store_dir` względem katalogu projektu.",
-                "the `imgw-project.json` manifest; `store_dir` relative to the "
-                "project directory.",
+                {"project_dir": _PROJECT, "store_dir": "../store"},
+                "agent_guide.flow_project_init",
             ),
             _Step(
                 "project add",
                 {
                     "project_dir": _PROJECT,
-                    "name": "opady",
+                    "name": "precipitation",
                     "command": "series select",
                     "options": {
                         "dataset": _PRECIP,
@@ -352,28 +239,23 @@ _FLOWS: tuple[_Flow, ...] = (
                         "years": "2010-2020",
                     },
                 },
-                "zadanie zapamiętuje komendę i jej opcje (bez `root`).",
-                "the task keeps the command and its options (without `root`).",
+                "agent_guide.flow_project_add_task",
             ),
             _Step(
                 "project download",
                 {"project_dir": _PROJECT},
-                "plan…",
-                "the plan…",
+                "agent_guide.flow_project_plan",
                 check=True,
             ),
             _Step(
                 "project download",
                 {"project_dir": _PROJECT},
-                "…potem pobranie i przypięcie plików (SHA-256) po zgodzie użytkownika.",
-                "…then the files are downloaded and pinned (SHA-256) after the user "
-                "agrees.",
+                "agent_guide.flow_project_download",
             ),
             _Step(
                 "project verify",
                 {"project_dir": _PROJECT},
-                "sumy SHA-256 przypiętych plików (offline).",
-                "the SHA-256 sums of the pinned files (offline).",
+                "agent_guide.flow_project_verify",
             ),
         ),
     ),
@@ -395,15 +277,6 @@ _MODES: Mapping[str, str] = {
         "REST options."
     ),
 }
-
-
-def _localized[T](pair: tuple[T, T], lang: Lang) -> T:
-    """The English element of a (Polish, English) pair for ``en``, else the Polish."""
-    return pair[1] if lang == "en" else pair[0]
-
-
-def _text(key: str, lang: Lang) -> str:
-    return _localized(_TEXTS[key], lang)
 
 
 def _code(text: object) -> str:
@@ -429,44 +302,32 @@ def _table(header: Sequence[str], rows: Iterable[Sequence[str]]) -> str:
 
 
 def _header(name: str, lang: Lang) -> tuple[str, ...]:
-    return _localized(_HEADERS[name], lang)
+    return tuple(message(key, lang=lang) for key in _HEADERS[name])
 
 
-def _counted(number: int, singular: str, plural: str) -> str:
-    """``number`` with a noun in the form governed by a preceding noun or preposition."""
-    return f"{number} {singular if number == 1 else plural}"
-
-
-# --- bloki -----------------------------------------------------------------------------------
+# --- blocks ----------------------------------------------------------------------------------
 
 
 def _summary(document: Mapping[str, Any], lang: Lang) -> str:
-    owners = providers()
     names = ", ".join(
-        f"{owner.short_name} — {_localized(_COUNTRIES[owner.country], lang)}"
-        for owner in owners
+        f"{owner.short_name} — {message(_COUNTRIES[owner.country], lang=lang)}"
+        for owner in providers()
     )
-    commands, groups = len(document["commands"]), len(document["groups"])
-    if lang == "en":
-        return (
-            f"Version {__version__}: a registry of "
-            f"{_counted(len(datasets()), 'dataset', 'datasets')} of "
-            f"{_counted(len(owners), 'provider', 'providers')} ({names}) and one "
-            f"catalog of {_counted(commands, 'command', 'commands')} in "
-            f"{_counted(groups, 'group', 'groups')} for every interface."
-        )
-    return (
-        f"Wersja {__version__}: rejestr {_counted(len(datasets()), 'zbioru', 'zbiorów')} "
-        f"{_counted(len(owners), 'dostawcy', 'dostawców')} ({names}) i jeden katalog "
-        f"{_counted(commands, 'komendy', 'komend')} w "
-        f"{_counted(groups, 'grupie', 'grupach')} dla wszystkich interfejsów."
+    return message(
+        "agent_guide.summary",
+        lang=lang,
+        version=__version__,
+        providers=names,
+        datasets=len(datasets()),
+        commands=len(document["commands"]),
+        groups=len(document["groups"]),
     )
 
 
 def _principles(lang: Lang) -> str:
     return "\n".join(
-        f"{number}. {_localized(rule, lang)}"
-        for number, rule in enumerate(_PRINCIPLES, start=1)
+        f"{number}. {message(key, lang=lang)}"
+        for number, key in enumerate(_PRINCIPLES, start=1)
     )
 
 
@@ -478,19 +339,23 @@ def _providers(lang: Lang) -> str:
             if owner.short_name == owner.id
             else f"{_code(owner.id)} ({owner.short_name})"
         )
-        country = _localized(_COUNTRIES[owner.country], lang)
-        license_ = f"[{owner.license.id}]({owner.license.url})"
         lines.append(
-            f"- {label} — {country}: {_text('keys', lang)} "
-            f"{_code(f'{owner.key_prefix}.*')}, {_text('station', lang)} "
-            f"{_code(owner.station_code_pattern)}, {_text('license', lang)} {license_}"
+            message(
+                "agent_guide.provider_line",
+                lang=lang,
+                label=label,
+                country=message(_COUNTRIES[owner.country], lang=lang),
+                keys=_code(f"{owner.key_prefix}.*"),
+                station=_code(owner.station_code_pattern),
+                license=f"[{owner.license.id}]({owner.license.url})",
+            )
         )
     return "\n".join(lines)
 
 
 def _statuses(document: Mapping[str, Any], lang: Lang) -> str:
     rows = [
-        (_code(status), str(code), _localized(_STATUSES[status], lang))
+        (_code(status), str(code), message(_STATUSES[status], lang=lang))
         for status, code in document["exit_codes"].items()
     ]
     return _table(_header("statuses", lang), rows)
@@ -534,21 +399,22 @@ def _datasets(lang: Lang) -> str:
     outside = ", ".join(
         _code(descriptor.key) for descriptor in datasets() if not descriptor.in_store
     )
-    return f"{_table(_header('datasets', lang), rows)}\n\n{_text('outside', lang)} {outside}."
+    outside_store = message("agent_guide.outside_store", lang=lang)
+    return f"{_table(_header('datasets', lang), rows)}\n\n{outside_store} {outside}."
 
 
 def _notes(schema: Mapping[str, Any], lang: Lang) -> str:
     """Bracketed marks of a command: options writing a file, a check, no REST route."""
     meta = schema["x-imgw"]
     marks = [
-        f"{_code(name)}: {_text(prop['x-imgw-writes'], lang)}"
+        f"{_code(name)}: {message(_MARKS[prop['x-imgw-writes']], lang=lang)}"
         for name, prop in schema["properties"].items()
         if "x-imgw-writes" in prop
     ]
     if meta["check"] is None and meta["function"].startswith("check_"):
-        marks.append(_text("itself", lang))
+        marks.append(message(_MARKS["itself"], lang=lang))
     if meta["rest"] is None:
-        marks.append(_text("local", lang))
+        marks.append(message(_MARKS["local"], lang=lang))
     return f" [{'; '.join(marks)}]" if marks else ""
 
 
@@ -567,7 +433,7 @@ def _commands(
             f"{_notes(schema, lang)}"
         )
     return "\n\n".join(
-        f"**{_localized(_EFFECTS[name], lang)}**\n\n" + "\n".join(lines)
+        f"**{message(_EFFECTS[name], lang=lang)}**\n\n" + "\n".join(lines)
         for name, lines in classes.items()
     )
 
@@ -596,43 +462,34 @@ def _flags(document: Mapping[str, Any], lang: Lang) -> str:
             elif prop.get("format") == "date":
                 kinds["date"].add(canonical)
     toggles = ", ".join(f"`{flag}/--no-{flag[2:]}`" for flag in sorted(kinds["toggle"]))
-    only = "only with" if lang == "en" else "tylko przy"
     roots = "; ".join(
-        f"{_code(spec.name)} — {only} "
-        + ", ".join(
-            _code(f"{name}={value}") for name, value in spec.env_root_when.items()
+        message(
+            "agent_guide.flags_root_when",
+            lang=lang,
+            command=_code(spec.name),
+            conditions=", ".join(
+                _code(f"{name}={value}") for name, value in spec.env_root_when.items()
+            ),
         )
         for spec in data_commands()
         if spec.env_root_when
     )
-    if lang == "en":
-        lines = [
-            f"- Lists ({_listed(kinds['list'])}): comma-separated values "
-            "(`--months 1,2`) or a repeated flag (`-s A -s B`). Years "
-            f"({_listed(kinds['year'])}): `2024`, `2020-2023`, `2020,2022` or "
-            "`2018,2020-2023`. Dates "
-            f"({_listed(kinds['date'])}): ISO `YYYY-MM-DD`.",
-            f"- Switches on by default: {toggles} (`--no-…` turns it off); the other "
-            f"boolean flags ({_listed(kinds['switch'])}) take no value and turn "
-            "their option on.",
-            "- Environment: `IMGW_STORE_ROOT` — the default `--root` (CLI, MCP "
-            f"stdio; {roots}); `IMGW_LANG` — the language of the CLI help and the "
-            "default `--lang` (`pl`, `en`).",
-        ]
-    else:
-        lines = [
-            f"- Listy ({_listed(kinds['list'])}): wartości po przecinku "
-            "(`--months 1,2`) albo powtórzona flaga (`-s A -s B`). Roczniki "
-            f"({_listed(kinds['year'])}): `2024`, `2020-2023`, `2020,2022` albo "
-            "`2018,2020-2023`. Daty "
-            f"({_listed(kinds['date'])}): ISO `RRRR-MM-DD`.",
-            f"- Przełączniki domyślnie włączone: {toggles} (`--no-…` wyłącza); "
-            f"pozostałe flagi logiczne ({_listed(kinds['switch'])}) nie mają "
-            "wartości i włączają swoją opcję.",
-            "- Zmienne środowiskowe: `IMGW_STORE_ROOT` — domyślne `--root` (CLI, "
-            f"MCP stdio; {roots}); `IMGW_LANG` — język pomocy CLI i domyślne "
-            "`--lang` (`pl`, `en`).",
-        ]
+    lines = [
+        message(
+            "agent_guide.flags_lists",
+            lang=lang,
+            lists=_listed(kinds["list"]),
+            years=_listed(kinds["year"]),
+            dates=_listed(kinds["date"]),
+        ),
+        message(
+            "agent_guide.flags_switches",
+            lang=lang,
+            toggles=toggles,
+            switches=_listed(kinds["switch"]),
+        ),
+        message("agent_guide.flags_environment", lang=lang, roots=roots),
+    ]
     return "\n".join(lines)
 
 
@@ -674,10 +531,10 @@ def _command_line(step: _Step, lang: Lang) -> str:
 def _flows(lang: Lang) -> str:
     sections = []
     for number, flow in enumerate(_FLOWS, start=1):
-        title = flow.title_en if lang == "en" else flow.title_pl
+        title = message(flow.title, lang=lang)
         lines = [f"### {number}. {title}", ""]
         for index, step in enumerate(flow.steps, start=1):
-            note = step.note_en if lang == "en" else step.note_pl
+            note: str = message(step.note, lang=lang)
             if step.command is not None:
                 note = f"{_code(_command_line(step, lang))} — {note}"
             lines.append(f"{index}. {note}")
@@ -685,7 +542,7 @@ def _flows(lang: Lang) -> str:
     return "\n\n".join(sections)
 
 
-# --- szablony --------------------------------------------------------------------------------
+# --- templates -------------------------------------------------------------------------------
 
 
 def _blocks(lang: Lang) -> dict[str, Callable[[], str]]:
@@ -752,20 +609,20 @@ def _template(format: GuideFormat, lang: Lang) -> str:
 
 @overload
 def agent_guide(
-    *, format: GuideFormat = "agents", lang: Lang = "pl", path: None = None
+    *, format: GuideFormat = "agents", lang: Lang = "en", path: None = None
 ) -> Iterator[str]: ...
 
 
 @overload
 def agent_guide(
-    *, format: GuideFormat = "agents", lang: Lang = "pl", path: PathArg
+    *, format: GuideFormat = "agents", lang: Lang = "en", path: PathArg
 ) -> Path: ...
 
 
 def agent_guide(
     *,
     format: GuideFormat = "agents",
-    lang: Lang = "pl",
+    lang: Lang = "en",
     path: PathArg | None = None,
 ) -> Iterator[str] | Path:
     """
@@ -778,15 +635,15 @@ def agent_guide(
     v2): a summary, the rules and links to the documentation. The text depends
     only on the installed package (no dates, no local paths), so the
     repository files ``AGENTS.md`` and ``llms.txt`` equal
-    ``agent_guide(format=..., lang="pl")`` byte for byte.
+    ``agent_guide(format=..., lang="en")`` byte for byte.
 
     Parameters
     ----------
     format : {"agents", "llms"}, optional
         Guide to generate: ``AGENTS.md`` (default) or ``llms.txt``.
-    lang : {"pl", "en"}, optional
-        Language of the guide and of the catalog texts in it; identifiers,
-        codes and keys are the same in both.
+    lang : {"en", "pl"}, optional
+        Language of the guide and of the catalog texts in it (English by
+        default); identifiers, codes and keys are the same in both.
     path : str, os.PathLike or None, optional
         Target file in an existing directory outside every IMGW store,
         replaced atomically through a hidden ``.part`` file. ``None``

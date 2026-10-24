@@ -1,25 +1,25 @@
 # IMGWTools
 
-> Biblioteka Pythona, CLI, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: wersjonowany magazyn archiwów i szeregów stacji, dane bieżące i PMAXTP. Wersja 3.0.0: rejestr 17 zbiorów 2 dostawców (IMGW-PIB — Polska, ČHMÚ — Czechy) i jeden katalog 38 komend w 8 grupach dla wszystkich interfejsów.
+> Python library, CLI, REST API and MCP server for public hydrological and meteorological data: a versioned store of archives and station series, current data and PMAXTP. Version 3.0.0. Providers: IMGW-PIB — Poland, ČHMÚ — Czechia. Datasets in the registry: 17. Commands of the catalog shared by every interface: 38 (groups: 8).
 
-1. **Poznaj komendy:** `imgw commands list` (spis z opisem jednego zdania), potem `imgw commands schema --command … [--lang en]` albo `imgw <grupa> <komenda> --schema`; REST `GET /api/v1/commands/list` i `/schema`; w MCP `imgw_commands_list` i `imgw_commands_schema`. Opcje to właściwości JSON Schema; reguły nieopisane schematem są w `x-imgw.rules`, skutki w `x-imgw.writes`, `x-imgw.network` i `x-imgw.idempotent`.
-2. **Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; domyślne dla komend zapisujących), `check_command()` (Python) → plan `imgw-plan/1` bez zapisu i bez pobierania treści. `store check` i `project check` same są sprawdzeniem. Przy dużym planie zapytaj użytkownika.
-3. **Uruchom:** bez `check`; czytaj `status` koperty, nie tylko kod wyjścia.
-4. **Czytaj offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — bez ponownego pobierania.
-5. **Decyduj po kodach:** `code`, `status`, `items[].status`, `error_code`; tekst `detail` jest dla człowieka.
+1. **Learn the commands:** `imgw commands list` (a one-sentence summary of each), then `imgw commands schema --command …` or `imgw <group> <command> --schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `imgw_commands_list` and `imgw_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-imgw.rules`, effects in `x-imgw.writes`, `x-imgw.network` and `x-imgw.idempotent`.
+2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `imgw-plan/1` plan without writing and without downloading content. `store check` and `project check` are checks themselves. Ask the user about a large plan.
+3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
+4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — without downloading again.
+5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `detail` text is for humans.
 
-- Wynik: koperta JSON `imgw-result/1` z polem `status` (`ok`, `partial`, `failed`, `cancelled`; kody wyjścia CLI 0, 10, 11, 130).
-- Błąd: `{"code", "detail", "details"}` w ostatniej linii stderr CLI albo `application/problem+json` w REST; kody z zamkniętego rejestru, np. `validation_error` = 2 / 400.
-- Zbiory: pełne klucze `<kraj>.<dostawca>.<zbiór>`, np. `pl.imgw.hydro_daily`, `cz.chmi.hydro_daily`; kody stacji: IMGW-PIB 9 cyfr, ČHMÚ identyfikator WIGOS.
-- Opis komend: `imgw commands list` (spis) i `imgw commands schema` (opcje) albo `GET /api/v1/commands/list` i `/schema`; narzędzia MCP `imgw_commands_list` i `imgw_commands_schema`; przewodnik w całości: `imgw commands guide` albo `GET /api/v1/commands/guide`.
+- Result: the JSON envelope `imgw-result/1` with the `status` field (`ok`, `partial`, `failed`, `cancelled`; CLI exit codes 0, 10, 11, 130).
+- Error: `{"code", "detail", "details"}` in the last stderr line of the CLI or `application/problem+json` in REST; codes from a closed registry, e.g. `validation_error` = 2 / 400.
+- Datasets: full keys `<country>.<provider>.<dataset>`, e.g. `pl.imgw.hydro_daily`, `cz.chmi.hydro_daily`; station codes: IMGW-PIB 9 digits, ČHMÚ WIGOS identifier.
+- Commands: `imgw commands list` (summary) and `imgw commands schema` (options), or `GET /api/v1/commands/list` and `/schema`; MCP tools `imgw_commands_list` and `imgw_commands_schema`; the full guide: `imgw commands guide` or `GET /api/v1/commands/guide` (Polish: `--lang pl`, `?lang=pl`).
 
-## Dokumentacja
+## Docs
 
-- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/AGENTS.md): przewodnik dla agentów — komendy, zbiory, flagi, kody błędów, przepływy, czego nie robić
-- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/README.md): instalacja i przykłady Python, CLI, REST, MCP
-- [Architektura](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/ARCHITECTURE.md): moduły, magazyn, przepływ danych
-- [Zmiany](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/CHANGELOG.md): zmiany i migracja z 2.x
+- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/AGENTS.md): guide for agents in English (Polish: `imgw commands guide --lang pl`) — commands, datasets, flags, error codes, flows, what not to do
+- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/README.md): installation and examples for Python, CLI, REST, MCP (Polish)
+- [Architecture](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/ARCHITECTURE.md): modules, store, data flow (Polish)
+- [Changes](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/CHANGELOG.md): changes and migration from 2.x (Polish)
 
 ## Optional
 
-- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/DECISIONS.md): ADR-001–ADR-004
+- [Decision log](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/DECISIONS.md): ADR-001–ADR-004 (Polish)

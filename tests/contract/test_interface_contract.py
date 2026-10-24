@@ -330,7 +330,7 @@ def test_every_rest_command_answers_alike_in_python_cli_and_rest(
                 root,
                 cli=cli,
                 rest=rest,
-                headers=writable,
+                headers={**writable, **ENGLISH},
             )
             requests[interface] = recorded.traffic(start)
             if writes:
