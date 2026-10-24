@@ -104,6 +104,16 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   release; a series built earlier keeps its Polish notes and is not rewritten). The web GUI
   shows the Polish titles as before. Migration: `descriptor.title_en` → `descriptor.title`, the
   former Polish `descriptor.title` → `localize(descriptor.title, "pl")`.
+- **Breaking — `help_en`, `description_en` and `rules_en` of the catalog are gone (AGI-9.1, ADR-006):**
+  `CommandOption.help`, `DataCommand.description` and `DataCommand.rules` hold the English catalog
+  `Message` (the texts of `commands.py` are the entries of `messages/commands.py`, 143 of them,
+  English first) and `CommandOption.help_en`, `DataCommand.description_en` and
+  `DataCommand.rules_en` are removed without an alias. `command_schema`, `list_commands` and the
+  CLI help render the language asked for (`localize(text, "pl")` is the Polish text); the documents
+  of both languages are byte-identical to the ones before. The last Polish literals left the code:
+  the message guard has no pending files any more and fails on any Polish string outside
+  `imgwtools.messages`. Migration: `option.help_en` → `option.help`, the former Polish
+  `option.help` → `localize(option.help, "pl")` (the same for `description` and `rules`).
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

@@ -69,16 +69,18 @@ DEFAULT_TIMEOUT = 30
 - Nowa operacja to nowa komenda katalogu (`commands._CATALOG`) wywołująca dokładnie jedną
   funkcję z `imgwtools.__all__`; CLI, REST i narzędzia MCP powstają z katalogu, bez ręcznych
   komend, tras i narzędzi.
-- Teksty dla człowieka (komunikaty, `detail`, pomoc) są domyślnie po polsku; kody, nazwy
-  i docstringi po angielsku (ADR-004 D3).
-- Teksty katalogu i rejestrów mają wariant angielski: opis komendy (`description_en`), pomoc
-  opcji (`help_en`), reguły (`rules_en`, te same pozycje co `rules`), opisy grup
-  (`_GROUPS_EN`), tytuły błędów (`ErrorSpec.title_en`) i zbiorów (`DatasetDescriptor.title_en`).
-  Nowy tekst katalogu dodaje się zawsze w parze polski + angielski (testy wymagają
-  niepustego wariantu i jednoznacznego odwzorowania pomocy PL ↔ EN). Język wybiera się
-  jawnie (`lang`, `IMGW_LANG`, `Accept-Language`, `imgw mcp --lang`); bez wariantu
-  angielskiego zostają `detail`, `Notice.text`, postęp, CSV, web GUI i OpenAPI. Język nie
-  zmienia kontraktu (te same właściwości, typy i reguły w obu schematach).
+- Wyjście maszynowe jest po angielsku (AGI-9.2, ADR-006): `--json`, ostatnia linia stderr,
+  serwer MCP, REST bez `Accept-Language`, OpenAPI, `command_schema`, `list_commands`,
+  `agent_guide`, `AGENTS.md` i `llms.txt`. Polski dają wyjście dla człowieka (pomoc CLI
+  i jego linie wg `IMGW_LANG`, web GUI) i jawna prośba (`Accept-Language: pl`, `lang="pl"`,
+  `--lang pl`); kody, nazwy i docstringi są po angielsku.
+- Każdy tekst dla człowieka (opis komendy, pomoc opcji, reguły, opisy grup, tytuły błędów
+  i zbiorów, `detail`, powiadomienia, linie postępu) jest wpisem katalogu
+  `imgwtools.messages.<obszar>` (`Text(en, pl)`, angielski pierwszy) i powstaje przez
+  `message("<obszar>.<nazwa>", …)`; w kodzie nie leży inline. `tests/unit/test_messages.py`
+  wymaga obu języków, tych samych zmiennych, braku nieużywanych wpisów i braku polskich
+  literałów poza katalogiem. Język nie zmienia kontraktu (te same właściwości, typy
+  i reguły w obu schematach).
 - Komenda deklaruje skutki: `DataCommand.writes` (`none`/`add`/`replace`), `network`
   i `CommandOption.writes` opcji zapisującej; komenda zapisująca ma bliźniaka `check`.
 - Zmiana tekstów katalogu, rejestru zbiorów, dostawców albo kodów błędów lub szablonów

@@ -31,7 +31,7 @@ from imgwtools.commands import (
 )
 from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, IMGWError
-from imgwtools.messages import message
+from imgwtools.messages import localize, message
 from imgwtools.store.types import (
     CommandResult,
     Notice,
@@ -254,20 +254,20 @@ def test_cli_catalog_registers_every_group_and_command_of_the_catalog():
 @pytest.mark.parametrize("spec", data_commands(), ids=lambda spec: spec.name)
 def test_cli_catalog_command_help_and_flags_are_the_catalog(spec):
     command = click_command(spec.name)
-    assert command.help == spec.description
+    assert command.help == localize(spec.description, "pl")
     params = {param.name: param for param in command.params}
     reserved = {"schema"} | ({"check"} if spec.check is not None else set())
     assert set(params) == {option.name for option in spec.options} | reserved
     for option in spec.options:
         param = params[option.name]
         assert param.opts == [option.flag, *option.aliases]
-        assert param.help == option.help
+        assert param.help == localize(option.help, "pl")
         if option.type == "bool":
             negative = [f"--no-{option.flag[2:]}"] if option.default is True else []
             assert param.secondary_opts == negative
         assert (param.envvar == "IMGW_STORE_ROOT") == (option.name == "root")
     shown = " ".join(invoke(*spec.name.split(), "--help").output.split())
-    assert spec.description in shown
+    assert localize(spec.description, "pl") in shown
     assert ("Opcje wymagane" in shown) == any(o.required for o in spec.options)
 
 
@@ -353,9 +353,9 @@ def test_cli_help_follows_imgw_lang_en():
 
     assert printed.returncode == 0, printed.stderr
     text = shown(printed.stdout)
-    assert spec.description_en in text
+    assert str(spec.description) in text
     for option in spec.options:
-        assert option.help_en in text, option.name
+        assert str(option.help) in text, option.name
     for element in (
         "Usage: imgw store sync [OPTIONS]",
         "─ Options ─",

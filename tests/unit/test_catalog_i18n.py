@@ -1,4 +1,4 @@
-"""English variant of the catalog texts (spec 2026-10-19 §3.3, §4.1, §9)."""
+"""Both languages of the catalog texts (spec 2026-10-19 §3.3, §4.1, §9; ADR-006)."""
 
 import json
 from typing import Any
@@ -8,7 +8,7 @@ import pytest
 from imgwtools.commands import command_schema, data_commands, validate_command
 from imgwtools.datasets import datasets
 from imgwtools.exceptions import IMGWValidationError
-from imgwtools.messages import localize
+from imgwtools.messages import Message, localize
 
 
 def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
@@ -51,30 +51,32 @@ def ambiguous(pairs: list[tuple[str, str]]) -> dict[str, set[str]]:
     return {text: variants for text, variants in found.items() if len(variants) > 1}
 
 
-def test_every_text_of_the_catalog_and_registries_has_an_english_variant():
+def assert_translated(text: object, where: object) -> None:
+    """A catalog message whose Polish variant differs from its English text."""
+    assert isinstance(text, Message), where
+    assert localize(text, "pl") not in ("", str(text)), where
+
+
+def test_every_text_of_the_catalog_and_registries_is_a_message_with_both_languages():
     for spec in data_commands():
-        assert spec.description_en not in ("", spec.description), spec.name
-        assert len(spec.rules_en) == len(spec.rules), spec.name
-        for polish, english in zip(spec.rules, spec.rules_en, strict=True):
-            assert english not in ("", polish), spec.name
+        assert_translated(spec.description, spec.name)
+        for rule in spec.rules:
+            assert_translated(rule, spec.name)
         for option in spec.options:
-            assert option.help_en not in ("", option.help), (spec.name, option.name)
+            assert_translated(option.help, (spec.name, option.name))
     for descriptor in datasets():
-        assert localize(descriptor.title, "pl") not in ("", descriptor.title), (
-            descriptor.key
-        )
+        assert_translated(descriptor.title, descriptor.key)
     polish, english = command_schema(lang="pl")["groups"], command_schema()["groups"]
     assert all(english[name] not in ("", text) for name, text in polish.items())
 
 
 def test_option_help_and_rules_translate_one_to_one():
-    # An option re-described by replace(..., help=...) without help_en would
-    # keep the English text of another Polish one.
+    # A text that two entries translate differently would be one of them mistyped.
     specs = data_commands()
-    helps = [(o.help, o.help_en) for spec in specs for o in spec.options]
-    rules = [
-        pair for spec in specs for pair in zip(spec.rules, spec.rules_en, strict=True)
+    helps = [
+        (localize(o.help, "pl"), str(o.help)) for spec in specs for o in spec.options
     ]
+    rules = [(localize(r, "pl"), str(r)) for spec in specs for r in spec.rules]
     assert ambiguous(helps) == {}
     assert ambiguous(rules) == {}
 

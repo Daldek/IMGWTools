@@ -985,7 +985,8 @@ class CommandOption:
     choices : tuple of str
         Allowed values for ``"choice"`` options (or list items), empty otherwise.
     help : str
-        Help text (in Polish).
+        Help text: an English catalog message (``localize(help, "pl")`` is the
+        Polish text).
     default : object, optional
         Default value published in the schema, or None.
     aliases : tuple of str, optional
@@ -999,9 +1000,6 @@ class CommandOption:
     rest : {"param", "server", "local"}, optional
         REST role: request parameter, server configuration value, or absent
         from REST (local only).
-    help_en : str, optional
-        English help text, the same information as ``help`` (non-empty for
-        every catalog option).
     writes : {"none", "add", "replace"}, optional
         Effect of giving the option: ``"add"`` writes only new files,
         ``"replace"`` may overwrite an existing file (e.g. ``path`` of an
@@ -1023,7 +1021,6 @@ class CommandOption:
     maximum: float | None = None
     pattern: str | None = None
     rest: Literal["param", "server", "local"] = "param"
-    help_en: str = ""
     writes: Writes = "none"
 
 
@@ -1037,7 +1034,7 @@ class DataCommand:
     name : str
         Command name, e.g. ``"store sync"``.
     description : str
-        Command description (in Polish), matching ``--help``.
+        Command description, an English catalog message, matching ``--help``.
     options : tuple of CommandOption
         Options accepted by the command.
     function : str
@@ -1053,11 +1050,8 @@ class DataCommand:
     one_of : tuple of tuple of str, optional
         Alternative groups of required options (``oneOf``).
     rules : tuple of str, optional
-        Other validation rules (in Polish), published as ``x-imgw.rules``.
-    description_en : str, optional
-        English description, the same information as ``description``.
-    rules_en : tuple of str, optional
-        English rules, in the order and number of ``rules``.
+        Other validation rules (English catalog messages), published as
+        ``x-imgw.rules``.
     writes : {"none", "add", "replace"}, optional
         Effect of a run (not of its check): ``"none"`` changes no file or
         store, ``"add"`` writes only new files, versions, a manifest or a
@@ -1084,8 +1078,6 @@ class DataCommand:
     requires: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     one_of: tuple[tuple[str, ...], ...] = ()
     rules: tuple[str, ...] = ()
-    description_en: str = ""
-    rules_en: tuple[str, ...] = ()
     writes: Writes = "none"
     network: bool = False
     idempotent: bool = True

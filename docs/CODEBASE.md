@@ -177,7 +177,7 @@ Every live function has an `*_async` twin with identical arguments.
 ## Key Module: `commands.py`
 
 The command catalog is the single source of options, validation, help texts and result types:
-- `_CATALOG` — 38 `DataCommand` entries (spec §13.3 + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text has a Polish and an English variant (`description_en`, `help_en`, `rules_en`, `_GROUPS_EN`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
+- `_CATALOG` — 38 `DataCommand` entries (spec §13.3 + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text (`description`, `help`, `rules`, group titles) is an English catalog message of `messages/commands.py` with its Polish variant (`localize(text, "pl")`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
 - `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `imgw_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
 - `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
 - CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
