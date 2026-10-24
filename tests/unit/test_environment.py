@@ -152,10 +152,12 @@ def test_a_file_that_cannot_be_used_is_reported_and_not_applied(tmp_path, monkey
     with pytest.raises(IMGWValidationError) as caught:
         check_config()
     assert caught.value.code == "validation_error"
-    assert (caught.value.details["option"], caught.value.details["path"]) == (
-        "NOGAT_CONFIG",
-        str(path),
-    )
+    assert "invalid TOML" in caught.value.detail  # the cause is in the message
+    assert caught.value.details == {
+        "option": "NOGAT_CONFIG",
+        "path": str(path),
+        "reason": "invalid_config",  # snake_case, the same for every cause
+    }
 
     monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "missing.toml"))
     assert environment.config_file().error == "the file does not exist"
@@ -174,24 +176,28 @@ def test_a_file_that_is_not_utf_8_is_reported_like_any_unusable_file(
 ):
     path = write_config(tmp_path, monkeypatch, "")
     path.write_bytes(content)
-    reason = "cannot read the file: not UTF-8 text"
+    cause = "cannot read the file: not UTF-8 text"
 
-    assert environment.config_file().error == reason
+    assert environment.config_file().error == cause
     assert Settings().port == 8000  # nothing of the file is applied
     with pytest.raises(IMGWValidationError) as caught:
         check_config()
+    assert cause in caught.value.detail
     assert caught.value.details == {
         "option": "NOGAT_CONFIG",
         "path": str(path),
-        "reason": reason,
+        "reason": "invalid_config",
     }
 
     version = RUNNER.invoke(cli_main.app, ["version"])
     shown = RUNNER.invoke(cli_main.app, ["config", "show", "--json"])
     assert version.exit_code == 2
-    assert json.loads(version.stderr.splitlines()[-1])["details"]["reason"] == reason
+    error = json.loads(version.stderr.splitlines()[-1])
+    assert error["code"] == "validation_error"
+    assert error["details"]["reason"] == "invalid_config"
+    assert cause in error["detail"]
     assert shown.exit_code == 0, shown.output
-    assert json.loads(shown.stdout)["config_file"]["error"] == reason
+    assert json.loads(shown.stdout)["config_file"]["error"] == cause
 
 
 def test_imgw_stops_on_an_unusable_file_but_config_show_still_reports_it(
@@ -204,7 +210,8 @@ def test_imgw_stops_on_an_unusable_file_but_config_show_still_reports_it(
 
     assert version.exit_code == 2
     error = json.loads(version.stderr.splitlines()[-1])
-    assert error["code"] == "validation_error" and error["details"]["reason"]
+    assert error["code"] == "validation_error"
+    assert error["details"]["reason"] == "invalid_config"
     assert shown.exit_code == 0, shown.output
     assert json.loads(shown.stdout)["config_file"]["error"].startswith("invalid TOML")
 
