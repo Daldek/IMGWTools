@@ -7,8 +7,9 @@ validator. Modes (spec §6.3): ``read`` (default of ``imgw mcp``) offers every
 command, writing ones only as a plan, ``write`` (``imgw mcp --allow-writes``)
 plans by default and writes with ``check: false``, ``http`` (``/mcp`` of ``imgw
 server``) offers the REST routes, POST ones only as a plan. The tool list is
-fixed for the server: language, mode and ``IMGW_STORE_ROOT`` are read once when
-the server is created. The instructions of the server are the rules of the
+fixed for the server: mode and ``IMGW_STORE_ROOT`` are read once when the server
+is created. Everything the server says is English (AGI-9.2): the tool descriptions,
+the instructions and the error documents. The instructions are the rules of the
 agent guide with the lines of the mode.
 """
 
@@ -31,7 +32,7 @@ from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import call_tool
 from imgwtools.mcp._tools import MODES, Mode, catalog_tools
-from imgwtools.messages import LANGS, Lang, message
+from imgwtools.messages import message
 
 __all__ = ["create_server", "http_app", "run_stdio"]
 
@@ -51,7 +52,7 @@ def _choice(name: str, value: object, allowed: tuple[str, ...]) -> None:
         )
 
 
-def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
+def create_server(*, mode: Mode = "read") -> Server:
     """
     Create the MCP server of the command catalog.
 
@@ -63,9 +64,6 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
         writing commands plan by default and write with ``check: false``;
         ``http``: the commands with a REST route, answered by that route,
         POST routes only planning.
-    lang : {"pl", "en"}, optional
-        Language of the tool texts, the instructions, error titles and the
-        default of ``lang`` options (``detail`` stays Polish).
 
     Returns
     -------
@@ -78,16 +76,15 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
     Raises
     ------
     IMGWValidationError
-        If ``mode`` or ``lang`` is not one of the allowed values.
+        If ``mode`` is not one of the allowed values.
     """
     _choice("mode", mode, MODES)
-    _choice("lang", lang, LANGS)
     if mode == "http":
         root, workdir, store = None, None, settings.store_root
     else:
         root, workdir = os.environ.get(_ROOT_ENV) or None, Path.cwd()
         store = None if root is None else Path(root)
-    tools = catalog_tools(mode=mode, lang=lang, root=root)
+    tools = catalog_tools(mode=mode, root=root)
     listing = types.ListToolsResult(tools=[tool.definition for tool in tools.values()])
 
     async def list_tools(
@@ -100,7 +97,9 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
     ) -> types.CallToolResult:
         tool = tools.get(params.name)
         if tool is None:
-            raise MCPError(types.INVALID_PARAMS, f"Nieznane narzędzie: {params.name}")
+            raise MCPError(
+                types.INVALID_PARAMS, message("mcp.unknown_tool", name=params.name)
+            )
         return await call_tool(
             tool, params.arguments or {}, report=ctx.session.report_progress
         )
@@ -109,7 +108,7 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
         "imgwtools",
         version=__version__,
         title="IMGWTools",
-        instructions=_instructions(lang=lang, mode=mode, workdir=workdir, root=store),
+        instructions=_instructions(mode=mode, workdir=workdir, root=store),
         on_list_tools=list_tools,
         on_call_tool=call,
     )
@@ -122,7 +121,7 @@ async def _serve(server: Server) -> None:
         )
 
 
-def run_stdio(*, allow_writes: bool = False, lang: Lang = "pl") -> None:
+def run_stdio(*, allow_writes: bool = False) -> None:
     """
     Serve MCP over stdin and stdout until the client closes the connection.
 
@@ -134,14 +133,12 @@ def run_stdio(*, allow_writes: bool = False, lang: Lang = "pl") -> None:
     allow_writes : bool, optional
         Mode ``write`` instead of ``read`` (``imgw mcp --allow-writes``,
         ``IMGW_MCP_ALLOW_WRITES=true``).
-    lang : {"pl", "en"}, optional
-        Language of the server (``imgw mcp --lang``, default ``IMGW_LANG``).
     """
-    server = create_server(mode="write" if allow_writes else "read", lang=lang)
+    server = create_server(mode="write" if allow_writes else "read")
     anyio.run(_serve, server)
 
 
-def http_app(*, lang: Lang = "pl") -> Starlette:
+def http_app() -> Starlette:
     """
     Streamable HTTP application of the MCP server in mode ``http``.
 
@@ -149,11 +146,6 @@ def http_app(*, lang: Lang = "pl") -> Starlette:
     ``IMGW_MCP_ALLOWED_HOSTS`` (``Settings.mcp_allowed_hosts``) are answered,
     each with any port or none (another Host → 421), and requests with an
     ``Origin`` header are refused (403, the SDK's narrowest list).
-
-    Parameters
-    ----------
-    lang : {"pl", "en"}, optional
-        Language of the server (``IMGW_LANG`` of the REST server process).
 
     Returns
     -------
@@ -163,7 +155,7 @@ def http_app(*, lang: Lang = "pl") -> Starlette:
         (``app.router.lifespan_context``); a mounted application's lifespan
         never runs by itself.
     """
-    server = create_server(mode="http", lang=lang)
+    server = create_server(mode="http")
     hosts = [
         form for host in settings.mcp_allowed_hosts for form in (host, f"{host}:*")
     ]

@@ -7,16 +7,15 @@ The arguments of a tool are the options of its catalog command; only
 without ``limit`` gets the default page (a larger ``limit`` than
 ``IMGW_API_MAX_LIMIT`` is refused), a command with ``root`` gets
 ``IMGW_STORE_ROOT`` under its ``env_root_when`` (spec §3.5) and a command with
-``lang`` the server language. The command runs in a worker thread: progress is
+``lang`` English. The command runs in a worker thread: progress is
 sent as ``notifications/progress`` (only to a request that asked for it) and a
 cancellation of the request reaches the command through ``cancel``; the thread
 always finishes, so the store stays consistent, and a cancelled request gets no
 answer. A server without writes refuses a writing option and ``check: false``
 with ``forbidden`` (``details.reason="writes_disabled"``). http: the REST route
 of the command answers in this process (ASGI, no network): GET with query
-parameters, POST with a JSON body and always ``?check=true``, Polish or English
-by ``Accept-Language`` of the server language; REST itself refuses server and
-local options.
+parameters, POST with a JSON body and always ``?check=true``, in English
+(``Accept-Language: en``); REST itself refuses server and local options.
 
 An envelope ``imgw-result/1`` is ``structuredContent`` and, as compact JSON,
 the only text content (the CLI stdout line without its line end); a stream
@@ -24,7 +23,7 @@ the only text content (the CLI stdout line without its line end); a stream
 text, at most 256 KiB, with an envelope whose result is ``{format, bytes,
 lines}``. An error is ``isError`` with ``{code, title, detail, details}``:
 ``code``, ``detail`` and ``details`` as in the CLI error line, ``title`` from the
-registry in the server language, ``internal_error`` for a program error (its
+registry, all in English (AGI-9.2), ``internal_error`` for a program error (its
 traceback goes to stderr).
 """
 
@@ -56,7 +55,7 @@ from imgwtools.exceptions import (
     describe_os_error,
 )
 from imgwtools.mcp._tools import CatalogTool
-from imgwtools.messages import Lang, localize, message
+from imgwtools.messages import localize, message
 from imgwtools.store.types import CommandResult, Progress
 
 __all__ = ["STREAM_LIMIT", "Report", "call_tool"]
@@ -73,7 +72,7 @@ _TOO_LARGE = message("mcp.result_exceeds_256_kib_narrow")
 _ENABLE_WRITES = message("mcp.user_enables_writes_imgw_mcp")
 
 
-# --- wyniki ----------------------------------------------------------------------------------
+# --- results ---------------------------------------------------------------------------------
 
 
 def _json(document: object) -> str:
@@ -88,16 +87,14 @@ def _answer(document: dict[str, Any], text: str | None = None) -> types.CallTool
     )
 
 
-def _error(
-    code: ErrorCode, detail: str, details: object, lang: Lang
-) -> types.CallToolResult:
-    """Error document of spec §6.7 in the server language."""
+def _error(code: ErrorCode, detail: str, details: object) -> types.CallToolResult:
+    """Error document of spec §6.7, in English like the CLI error line."""
     spec = ERROR_CODES[code]
     text = _json(
         {
             "code": code,
-            "title": localize(spec.title, lang),
-            "detail": localize(detail, lang) or localize(spec.title, lang),
+            "title": localize(spec.title, "en"),
+            "detail": localize(detail, "en") or localize(spec.title, "en"),
             "details": details,
         }
     )
@@ -108,15 +105,15 @@ def _error(
     )
 
 
-def _failure(exc: Exception, lang: Lang) -> types.CallToolResult:
+def _failure(exc: Exception) -> types.CallToolResult:
     """Error result of an exception (the CLI error line with a title)."""
     if isinstance(exc, IMGWError):
-        return _error(exc.code, exc.detail, dict(exc.details), lang)
+        return _error(exc.code, exc.detail, dict(exc.details))
     if isinstance(exc, OSError):
         detail, details = describe_os_error(exc)
-        return _error("io_error", detail, details, lang)
+        return _error("io_error", detail, details)
     traceback.print_exception(exc, file=sys.stderr)
-    return _error("internal_error", _INTERNAL, {}, lang)
+    return _error("internal_error", _INTERNAL, {})
 
 
 def _line_count(text: str) -> int:
@@ -165,7 +162,7 @@ def _stream(
     return _answer(envelope, text)
 
 
-# --- argumenty -------------------------------------------------------------------------------
+# --- arguments -------------------------------------------------------------------------------
 
 
 def _writes_disabled(tool: CatalogTool, option: str) -> IMGWError:
@@ -246,7 +243,7 @@ def _options(
     if options.get("lang") is None and any(
         option.name == "lang" for option in tool.command.options
     ):
-        options["lang"] = tool.lang
+        options["lang"] = "en"
     return options, check
 
 
@@ -281,7 +278,7 @@ def _run(
         try:
             anyio.from_thread.run(report, update.current, update.total, message)
         except Exception:  # progress is a hint: its loss never stops the command
-            _LOG.debug("Postęp nie dotarł do klienta MCP", exc_info=True)
+            _LOG.debug("Progress did not reach the MCP client", exc_info=True)
 
     name = tool.command.name
     try:
@@ -298,7 +295,7 @@ def _run(
             return _stream(tool, outcome, normalized, base)
         return _answer(outcome.to_json(root=base))
     except Exception as exc:
-        return _failure(exc, tool.lang)
+        return _failure(exc)
 
 
 async def _watch(cancelled: threading.Event) -> None:
@@ -354,7 +351,7 @@ def _query(options: Mapping[str, object]) -> str:
 
 
 async def _asgi(
-    method: str, path: str, query: str, body: bytes, lang: str, limit: int | None
+    method: str, path: str, query: str, body: bytes, limit: int | None
 ) -> tuple[int, dict[str, str], bytes, bool]:
     """
     Request to the REST application of this process.
@@ -365,7 +362,7 @@ async def _asgi(
     """
     from imgwtools.api.main import app  # the REST app of this server (api extra)
 
-    headers = [(b"host", b"imgwtools"), (b"accept-language", lang.encode("ascii"))]
+    headers = [(b"host", b"imgwtools"), (b"accept-language", b"en")]
     if method == "POST":
         headers += [
             (b"content-type", b"application/json"),
@@ -435,12 +432,12 @@ async def _route(
     else:
         query, body = "check=true", json.dumps(options, ensure_ascii=False).encode()
     status, headers, data, stopped = await _asgi(
-        method, path, query, body, tool.lang, STREAM_LIMIT if stream else None
+        method, path, query, body, STREAM_LIMIT if stream else None
     )
     media = headers.get("content-type", "")
     if media.startswith("application/problem+json"):
         problem = json.loads(data)
-        return _error(problem["code"], problem["detail"], problem["details"], tool.lang)
+        return _error(problem["code"], problem["detail"], problem["details"])
     if status != 200:
         raise RuntimeError(f"The REST route {method} {path} answered {status} {media}")
     if media.startswith("application/json"):
@@ -464,7 +461,7 @@ async def _route(
     return _answer(envelope, text)
 
 
-# --- wejście ---------------------------------------------------------------------------------
+# --- entry point -----------------------------------------------------------------------------
 
 
 async def call_tool(
@@ -493,7 +490,7 @@ async def call_tool(
             return await _route(tool, arguments)
         options, check = _options(tool, arguments)
     except Exception as exc:
-        return _failure(exc, tool.lang)
+        return _failure(exc)
 
     def work(cancelled: threading.Event) -> types.CallToolResult:
         return _run(tool, options, check, report, cancelled)

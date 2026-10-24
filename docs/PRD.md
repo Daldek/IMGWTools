@@ -141,7 +141,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 # Main commands
 imgw version
 imgw server [--host] [--port] [--reload]
-imgw mcp [--allow-writes] [--lang pl|en]
+imgw mcp [--allow-writes]
 
 # Datasets, stations, live data (lists accept --limit/--offset)
 imgw datasets list [-k hydro|meteo] [--provider IMGW-PIB|CHMI]

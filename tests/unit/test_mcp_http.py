@@ -33,12 +33,12 @@ import imgwtools.api
 import imgwtools.api.main
 from imgwtools import ERROR_CODES
 from imgwtools.config import settings
-from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import STREAM_LIMIT
 from imgwtools.mcp.server import create_server
 from tests.contract.support import command_document
 
 HOST = "127.0.0.1:8000"
+ENGLISH = {"Accept-Language": "en"}  # what the MCP server asks REST for
 INITIALIZE = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -52,7 +52,7 @@ INITIALIZE = {
 # Tools with a REST route, in catalog order (spec §6.3, mode http).
 ROUTES = [
     schema["x-imgw"]["operation_id"]
-    for schema in command_document()["commands"]
+    for schema in command_document(lang="en")["commands"]
     if schema["x-imgw"]["rest"] is not None
 ]
 
@@ -63,7 +63,7 @@ GUIDE = importlib.import_module("imgwtools.agent_guide")
 
 @pytest.fixture(autouse=True)
 def server(monkeypatch):
-    """A REST server without a store, MCP off, Polish, default hosts and page."""
+    """A REST server without a store, MCP off, IMGW_LANG Polish, default hosts and page."""
     for name, value in (
         ("store_root", None),
         ("store_writes_enabled", False),
@@ -83,10 +83,9 @@ def reimported(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return importlib.import_module("imgwtools.api.main")
 
 
-def enabled(monkeypatch: pytest.MonkeyPatch, *, lang: str = "pl") -> FastAPI:
+def enabled(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     """The REST application of a server with ``IMGW_MCP_ENABLED=true``."""
     monkeypatch.setattr(settings, "mcp_enabled", True)
-    monkeypatch.setattr(settings, "lang", lang)
     app: FastAPI = reimported(monkeypatch).app
     return app
 
@@ -140,14 +139,12 @@ async def post_initialize(app: FastAPI, host: str, **headers: str) -> httpx.Resp
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("lang", "client_mode"), [("pl", "auto"), ("pl", "legacy"), ("en", "auto")]
-)
-async def test_mcp_serves_the_rest_routes_as_tools_in_the_language_of_imgw_lang(
-    lang, client_mode, monkeypatch
+@pytest.mark.parametrize("client_mode", ["auto", "legacy"])
+async def test_mcp_serves_the_rest_routes_as_english_tools_whatever_imgw_lang_says(
+    client_mode, monkeypatch
 ):
-    app = enabled(monkeypatch, lang=lang)
-    async with Client(create_server(mode="http", lang=lang)) as memory:
+    app = enabled(monkeypatch)
+    async with Client(create_server(mode="http")) as memory:
         expected = (await memory.list_tools()).tools
 
     async with connected(app, mode=client_mode) as client:
@@ -156,16 +153,21 @@ async def test_mcp_serves_the_rest_routes_as_tools_in_the_language_of_imgw_lang(
 
     assert [tool.name for tool in tools] == ROUTES
     assert dumped(tools) == dumped(expected)
-    rest = TestClient(app).get("/api/v1/datasets/providers", params={"limit": 50})
+    english = {
+        schema["x-imgw"]["operation_id"]: schema["description"]
+        for schema in command_document(lang="en")["commands"]
+    }
+    assert all(tool.description.startswith(english[tool.name]) for tool in tools)
+    rest = TestClient(app).get(
+        "/api/v1/datasets/providers", params={"limit": 50}, headers=ENGLISH
+    )
     assert answered.is_error is False
     assert answered.structured_content == rest.json()
     assert answered.content[0].text == rest.text
 
 
-async def test_a_problem_of_rest_is_the_error_result_in_the_server_language(
-    monkeypatch,
-):
-    app = enabled(monkeypatch, lang="en")
+async def test_a_problem_of_rest_is_the_english_error_result(monkeypatch):
+    app = enabled(monkeypatch)
     arguments = {"latitude": "1", "longitude": 21.01}
 
     async with connected(app) as client:
@@ -309,12 +311,13 @@ def test_without_the_mcp_extra_an_enabled_mcp_is_an_unknown_route_and_a_warning(
     assert "pip install imgwtools[mcp]" in caplog.text
 
 
-def test_an_enabled_mcp_refuses_imgw_lang_outside_pl_and_en(monkeypatch):
-    with pytest.raises(IMGWValidationError) as caught:
-        enabled(monkeypatch, lang="de")
+async def test_an_enabled_mcp_does_not_read_imgw_lang(monkeypatch):
+    monkeypatch.setattr(
+        settings, "lang", "de"
+    )  # the CLI refuses it, /mcp does not care
+    app = enabled(monkeypatch)
 
-    assert caught.value.details == {
-        "option": "IMGW_LANG",
-        "value": "de",
-        "allowed": ["en", "pl"],
-    }
+    async with connected(app) as client:
+        tools = (await client.list_tools()).tools
+
+    assert [tool.name for tool in tools] == ROUTES

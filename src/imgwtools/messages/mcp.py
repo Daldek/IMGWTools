@@ -47,4 +47,5 @@ MESSAGES = {
         "Invalid value {value!r} of the option {name}; allowed: {allowed}",
         "Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: {allowed}",
     ),
+    "unknown_tool": Text("Unknown tool: {name}", "Nieznane narzędzie: {name}"),
 }

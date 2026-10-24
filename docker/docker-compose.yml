@@ -16,13 +16,12 @@ services:
       - IMGW_PORT=8000
       - IMGW_LOG_LEVEL=INFO
       - IMGW_API_KEYS_FILE=/app/keys/api_keys.json
-      # MCP over Streamable HTTP at /mcp (read and plan only), in the language
-      # of IMGW_LANG. Behind nginx the Host is the public name: add it to
+      # MCP over Streamable HTTP at /mcp (read and plan only, English). Behind
+      # nginx the Host is the public name: add it to
       # IMGW_MCP_ALLOWED_HOSTS (comma-separated, any port), e.g.
       # IMGW_MCP_ENABLED=true IMGW_MCP_ALLOWED_HOSTS=dane.example.pl docker compose up -d
       - IMGW_MCP_ENABLED=${IMGW_MCP_ENABLED:-false}
       - IMGW_MCP_ALLOWED_HOSTS=${IMGW_MCP_ALLOWED_HOSTS:-127.0.0.1,localhost}
-      - IMGW_LANG=${IMGW_LANG:-pl}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

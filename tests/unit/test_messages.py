@@ -53,11 +53,8 @@ _PENDING = frozenset(
         "commands.py",
         "datasets.py",
         "models.py",
-        # Agent guide and MCP server.
+        # Agent guide.
         "agent_guide.py",
-        "mcp/_calls.py",
-        "mcp/_tools.py",
-        "mcp/server.py",
         # REST API.
         "api/errors.py",
         "api/main.py",

@@ -379,27 +379,20 @@ _FLOWS: tuple[_Flow, ...] = (
     ),
 )
 # Lines of the MCP instructions per server mode (spec 2026-10-19 §6.3–§6.4).
-_MODES: Mapping[str, tuple[str, str]] = {
+_MODES: Mapping[str, str] = {
     "read": (
-        "Tryb serwera: bez zapisu — komendy zapisujące mają `check` stałe `true` i "
-        "zwracają plan `imgw-plan/1`, opcje zapisujące są niedostępne; zapis włącza "
-        "użytkownik (`imgw mcp --allow-writes`), nie agent.",
         "Server mode: no writes — writing commands have `check` fixed to `true` and "
         "return an `imgw-plan/1` plan, writing options are unavailable; the user, "
-        "not the agent, enables writes (`imgw mcp --allow-writes`).",
+        "not the agent, enables writes (`imgw mcp --allow-writes`)."
     ),
     "write": (
-        "Tryb serwera: zapis włączony — komendy zapisujące domyślnie zwracają plan "
-        "(`check: true`); zapis wymaga `check: false` po zgodzie użytkownika.",
         "Server mode: writes enabled — writing commands return a plan by default "
-        "(`check: true`); writing needs `check: false` after the user agrees.",
+        "(`check: true`); writing needs `check: false` after the user agrees."
     ),
     "http": (
-        "Tryb serwera: HTTP (fasada REST) — tylko odczyt i plan (`check` stałe "
-        "`true`); narzędzia mają wyłącznie komendy z trasą REST i ich opcje REST.",
         "Server mode: HTTP (REST facade) — reading and planning only (`check` fixed "
         "to `true`); the tools are only the commands with a REST route and their "
-        "REST options.",
+        "REST options."
     ),
 }
 
@@ -827,7 +820,6 @@ def agent_guide(
 
 def _instructions(
     *,
-    lang: Lang,
     mode: McpMode,
     workdir: PathArg | None,
     root: PathArg | None,
@@ -835,10 +827,10 @@ def _instructions(
     """
     Return the ``instructions`` of the MCP server: the rules and the mode lines.
 
+    The server speaks English only (AGI-9.2).
+
     Parameters
     ----------
-    lang : {"pl", "en"}
-        Language of the server.
     mode : {"read", "write", "http"}
         Server mode (spec 2026-10-19 §6.3).
     workdir : str, os.PathLike or None
@@ -853,53 +845,26 @@ def _instructions(
     str
         Markdown text below 2 KiB in UTF-8.
     """
-    english = lang == "en"
-    title = "Rules of IMGWTools:" if english else "Zasady pracy z IMGWTools:"
-    lines = [title, _principles(lang), "", _localized(_MODES[mode], lang)]
+    lines = ["Rules of IMGWTools:", _principles("en"), "", _MODES[mode]]
     if mode == "http":
-        if english:
-            lines.append(
-                "Store: the server's store; `version` relative to it."
-                if root is not None
-                else "The server has no store: store commands end with "
-                "`store_unavailable`."
-            )
-        else:
-            lines.append(
-                "Magazyn: magazyn serwera; `version` względnie do niego."
-                if root is not None
-                else "Serwer bez magazynu: komendy magazynu kończą się "
-                "`store_unavailable`."
-            )
+        lines.append(
+            "Store: the server's store; `version` relative to it."
+            if root is not None
+            else "The server has no store: store commands end with `store_unavailable`."
+        )
     else:
         if workdir is not None:
-            label = (
-                "Working directory (base of relative paths)"
-                if english
-                else "Katalog roboczy (podstawa ścieżek względnych)"
-            )
-            lines.append(f"{label}: `{os.fspath(workdir)}`.")
-        if root is not None:
-            label = "Default store" if english else "Domyślny magazyn"
-            lines.append(f"{label} (`IMGW_STORE_ROOT`): `{os.fspath(root)}`.")
-        else:
             lines.append(
-                "No default store (`IMGW_STORE_ROOT` unset): give `root`."
-                if english
-                else "Brak domyślnego magazynu (`IMGW_STORE_ROOT`): podawaj `root`."
+                f"Working directory (base of relative paths): `{os.fspath(workdir)}`."
             )
-    if english:
-        lines += [
-            f"Lists: `limit` {_PAGE_SIZE} by default, at most `IMGW_API_MAX_LIMIT`; "
-            "next pages: `offset`.",
-            "Full guide (commands, datasets, error codes, flows): the "
-            "`imgw_commands_guide` tool.",
-        ]
-    else:
-        lines += [
-            f"Listy: `limit` domyślnie {_PAGE_SIZE}, najwyżej `IMGW_API_MAX_LIMIT`; "
-            "kolejne strony: `offset`.",
-            "Pełny przewodnik (komendy, zbiory, kody błędów, przepływy): narzędzie "
-            "`imgw_commands_guide`.",
-        ]
+        if root is not None:
+            lines.append(f"Default store (`IMGW_STORE_ROOT`): `{os.fspath(root)}`.")
+        else:
+            lines.append("No default store (`IMGW_STORE_ROOT` unset): give `root`.")
+    lines += [
+        f"Lists: `limit` {_PAGE_SIZE} by default, at most `IMGW_API_MAX_LIMIT`; "
+        "next pages: `offset`.",
+        "Full guide (commands, datasets, error codes, flows): the "
+        "`imgw_commands_guide` tool.",
+    ]
     return "\n".join(lines)

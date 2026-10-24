@@ -134,6 +134,15 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   are catalog messages (`imgwtools.messages.cli`, `imgwtools.messages.reference`), and
   `imgwtools.config.human_language()` is the one reader of the setting. Migration: clients that
   matched the Polish `detail` of a usage error match the English text or `details.option`.
+- **Breaking — the MCP server speaks English only (AGI-9.2, ADR-006):** `imgw mcp --lang` and the
+  `lang` argument of `create_server`, `run_stdio` and `http_app` are removed, and `IMGW_LANG` no
+  longer reaches the server or `/mcp` (the REST server stopped refusing an `IMGW_LANG` outside
+  `pl` and `en` for `/mcp`; the CLI still refuses it). The tool descriptions and rules, the
+  instructions and the error documents (`title`, `detail`) are English; `/mcp` asks its REST route
+  for `Accept-Language: en`; the `lang` argument of the three description tools defaults to `en`
+  (an explicit `lang: "pl"` still gives Polish texts). `docker-compose.yml` no longer passes
+  `IMGW_LANG` to the server. Migration: drop `--lang` and `IMGW_LANG` from MCP client
+  configurations.
 
 ## [3.0.0] — 2026-10-19
 

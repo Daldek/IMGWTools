@@ -371,24 +371,26 @@ def test_render_replaces_markers_and_rejects_unknown_or_repeated_blocks():
             _render(template, blocks)
 
 
-@pytest.mark.parametrize("lang", ["pl", "en"])
 @pytest.mark.parametrize("mode", ["read", "write", "http"])
-def test_instructions_hold_the_rules_and_the_mode_below_2_kib(lang, mode, tmp_path):
+def test_instructions_are_english_and_hold_the_rules_and_the_mode_below_2_kib(
+    mode, tmp_path
+):
     workdir, root = tmp_path / "praca", tmp_path / "magazyn"
 
-    with_store = _instructions(lang=lang, mode=mode, workdir=workdir, root=root)
-    without = _instructions(lang=lang, mode=mode, workdir=workdir, root=None)
+    with_store = _instructions(mode=mode, workdir=workdir, root=root)
+    without = _instructions(mode=mode, workdir=workdir, root=None)
 
     for instructions in (with_store, without):
         assert len(instructions.encode("utf-8")) < 2048
-        for polish, english in _PRINCIPLES:
-            assert (english if lang == "en" else polish) in instructions
+        for _, english in _PRINCIPLES:
+            assert english in instructions
         assert "`imgw_commands_guide`" in instructions and "50" in instructions
+        assert instructions.startswith("Rules of IMGWTools:")
     assert with_store != without
     shown = mode != "http"  # REST never names the server's directories
     assert (str(workdir) in with_store, str(root) in with_store) == (shown, shown)
     modes = {
-        _instructions(lang=lang, mode=other, workdir=None, root=None)
+        _instructions(mode=other, workdir=None, root=None)
         for other in ("read", "write", "http")
     }
     assert len(modes) == 3

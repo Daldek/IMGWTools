@@ -30,18 +30,18 @@ from tests.contract.test_interface_contract import (
     resolved,
     served_root,  # noqa: F401 (fixture)
 )
-from tests.unit.test_mcp_http import connected, enabled
+from tests.unit.test_mcp_http import ENGLISH, connected, enabled
 
 # Default page of a list tool (spec 2026-10-19 §6.4 p. 5).
 PAGE = 50
 
 
 def rest_answer(rest, command: str, options: dict[str, object]):
-    """The REST answer the tool forwards: a POST route only plans (``?check=true``)."""
+    """The REST answer the tool forwards: English, a POST route only plans."""
     request = rest_request(command, options)
     if request["method"] == "POST":
         request["url"] += "?check=true"
-    return rest.request(**request)
+    return rest.request(**request, headers=ENGLISH)
 
 
 def assert_same(answered, result, command: str, options: dict[str, object]) -> None:
