@@ -12,6 +12,7 @@ Każdy wpis zachowuje stan decyzji z dnia przyjęcia; późniejsze zmiany opisuj
 | [ADR-004](#adr-004-wsparcie-agentów-ai-w-wydaniu-300) | Wsparcie agentów AI w wydaniu 3.0.0 | 2026-10-19 | Przyjęta |
 | [ADR-005](#adr-005-środowisko-użytkownika-dev-18) | Środowisko użytkownika (DEV-18) | 2026-10-24 | Przyjęta |
 | [ADR-006](#adr-006-message-catalog-and-english-machine-output) | Message catalog and English machine output | 2026-10-24 | Accepted |
+| [ADR-007](#adr-007-data-output-plain-mode-the-store-and-the-default-root) | Data output: plain mode, the store and the default root | 2026-10-24 | Accepted |
 
 ---
 
@@ -154,6 +155,8 @@ Bez zmian: `download_hydro_data`/`download_meteo_data` (argumenty 2.1.1, wynik `
 **2026-10-19 — ADR-003 (dostawca ČHMÚ).** Według sekcji „Wpływ” ADR-003 (zatwierdzonej 2026-10-18; kod w wydaniu 3.0.0 według erraty ADR-003 D16): D4 — na wyjściu pełny klucz `<kraj>.<dostawca>.<slug>` (`pl.imgw.*` albo `cz.chmi.*`), a rejestr liczy 17 deskryptorów (13 IMGW-PIB i 4 ČHMÚ, spec 2026-10-18 §2.2); kod stacji spełnia gramatykę dostawcy (`STATION_CODE_PATTERN`: 9 cyfr IMGW-PIB albo identyfikator WIGOS ČHMÚ), a sloty ČHMÚ mają tę samą gramatykę `<kind>:<klucz>[:<selektor>]` (np. `archive:cz.chmi.hydro_daily:H_0-203-1-001000_DQ_2025.json`, `catalog:cz.chmi.stations`). Katalog dostaje opcje `provider` i `stations` oraz komendę `datasets providers` (ADR-003 D13), rejestr kodów błędów pozostaje zamknięty, a tytuł `source_unavailable` brzmi „Źródło danych niedostępne” (`detail` nazywa dostawcę). Spec 2026-10-17 §13.2–§13.7 ma noty `[ADR-003]`. Treść D1–D14 bez zmian.
 
 **2026-10-19 — ADR-004 (wsparcie agentów AI).** Według sekcji „Wpływ” ADR-004: D1 — katalog liczy 37 komend: 35 z tego ADR, `datasets providers` (ADR-003 D13) i `commands guide` (ADR-004 D4); poza katalogiem są także `imgw mcp` (ADR-004 D6), `GET /llms.txt` i punkt `/mcp` serwera REST (ADR-004 D5, D9). D2 — tekst dla człowieka jest domyślnie polski; teksty katalogu i rejestrów (opisy komend i grup, pomoc opcji, reguły, tytuły błędów i zbiorów) mają wariant angielski wybierany jawnie (`lang`, `IMGW_LANG`, `Accept-Language`, `imgw mcp --lang`; ADR-004 D3), a `detail`, `Notice.text` i komunikaty postępu pozostają polskie. D14 — pozycje „poza zakresem” (AGENTS.md/llms.txt, opisy angielskie, serwer MCP, porządek komunikatów legacy) realizuje ADR-004 w tym samym wydaniu 3.0.0. Spec 2026-10-17 §13.1, §13.2, §13.3, §13.5, §13.9 i §13.10 ma noty `[ADR-004]`. Treść D1–D14 bez zmian.
+
+**2026-10-24 — D2 (superseded by ADR-007 D1).** The short aliases `-o` (output) and `-p` (path) are replaced: `-o` is `--output-dir` (plain files), `-r` stays `--root`, and `--output` (one export file; it replaced `--path`) has no short form. The list of aliases in D2 no longer describes the code.
 
 ---
 
@@ -299,6 +302,8 @@ Agent poznaje IMGWTools z jednego źródła zgodnego z kodem (`AGENTS.md`, `llms
 **2026-10-24 — D2, D6, D7 (standard Nogat 2.1: ECO-018, AGI-5.2, AGI-5.4, AGI-5.9, AGI-6.2).** Nazwa narzędzia MCP i `operationId` REST to `x-imgw.operation_id` = `imgw_<grupa>_<komenda>` (np. `imgw_store_sync`, wcześniej `store_sync`); trasy poza katalogiem dostają `imgw_system_<funkcja>`. Adnotacje narzędzi z D7 mają komplet pięciu pól: `title`, `readOnlyHint`, `destructiveHint` (`false` przy odczycie), `idempotentHint` (nowe pole katalogu `DataCommand.idempotent`, publikowane jako `x-imgw.idempotent`) i `openWorldHint`. Katalog liczy 38 komend: `commands list` (`list_commands`, dokument `imgw-command-list/1`, `GET /api/v1/commands/list`, narzędzie `imgw_commands_list`) jest spisem komend przed `commands schema`. Zmiana łamiąca dopuszczona przed tagiem (ECO-020). Treść D2, D6 i D7 bez zmian.
 
 **2026-10-24 — D2, D3 (superseded by ADR-006).** ADR-006 makes the machine output English and puts every text of the catalog and the registries (`help`, `description`, `rules`, group titles, dataset titles) into the message catalog with English first; D2 ("Polish text by default") and D3 (`help_en`, `description_en`, `rules_en`, `_GROUPS_EN`, `title_en`) no longer describe the code. The Polish variants stay as `lang="pl"`, `--lang pl`, `Accept-Language: pl` and the CLI help.
+
+**2026-10-24 — D2, D7 (superseded by ADR-007 D1, D3, D9).** The option `path` that D2 quotes as a writing option is `output` (`output_dir` for plain files, `force` replaces an existing file). D7: in `write` mode a write needs `--allow-dir` and a target inside it (`forbidden`, `details.reason` `no_allowed_dir` or `outside_allowed_dirs`), and `root` is the argument or `IMGW_ROOT`, else the default root `<data_dir>/imgw`.
 
 ---
 

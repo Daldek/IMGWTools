@@ -5,6 +5,8 @@
 **Plan:** `../plans/2026-10-17-versioned-store.md`  
 **Źródła normatywne:** `docs/DECISIONS.md` ADR-001, `Archiwista/docs/SPEC.md` 4.8.1–4.8.5 i 12.7–12.9, `Archiwista/docs/wymagania-imgwtools.md` R1–R12/IMGW-1..14, opisy IMGW w `data/desc/`. W razie konfliktu z historyczną, niezaimplementowaną specyfikacją `2026-08-02-unified-data-pipeline-design.md` obowiązuje ten dokument: **bez SQLite, pięć zbiorów archiwalnych + PMAXTP, bez shimów DB**.
 
+> [ADR-007] Nazwy i cele zapisu z tego dokumentu zastępuje `docs/DECISIONS.md` ADR-007 (konwencja zapisu danych Nogat): `IMGW_STORE_ROOT` → `IMGW_ROOT` i `Settings.store_root` → `Settings.root`; bez `--root` i `--output-dir` zapis idzie do magazynu w `<data_dir>/imgw`, nie do `./data`; `output` jako katalog pobierania (domyślnie `./data/downloaded`) → `output_dir` (`-o`, zwykłe pliki) albo `root`; `path` (`-p`) eksportu → `output` (`--output`) z `force`; status `created` → `new`, `reused` → `unchanged`; `.part` → staging `.imgw-incoming/`; znacznik `imgw-store.json` ma zawsze `tool`, `created_at`, `producer_version`. Poniższa treść zachowuje stan z 2026-10-17.
+
 ## 1. Granice i organizacja kodu
 
 Producentem danych i jedynym piszącym do katalogu IMGW jest IMGWTools; konsument czyta wyłącznie publiczne API. Korzeń magazynu jest jawnie wskazany i absolutyzowany na wejściu; nie ma domyślnego `./data`, połączenia z katalogiem Kartografa, plików ani indeksu Archiwisty w magazynie. Bieżące hydro, synop, ostrzeżenia i `fetch_pmaxtp` pozostają live-only i nie zmieniają kontraktu. API serwera pozostaje domyślnie generatorem URL; zapis do magazynu na serwerze tylko po jawnej konfiguracji uprawnionego katalogu.
