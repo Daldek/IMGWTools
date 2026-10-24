@@ -776,4 +776,4 @@ bajty co bez dostawcy ČHMÚ.
 - URL-e meteo zgodne z rzeczywistym układem serwera IMGW.
 - Zgodność z pyright; audyt dokumentacji.
 
-Starsze wydania: `docs/PROGRESS.md` (sekcja „Wydane wersje”).
+Starsze wydania: `docs/HISTORY.md` (sekcja „Wydane wersje”).
