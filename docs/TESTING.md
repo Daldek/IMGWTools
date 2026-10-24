@@ -47,6 +47,7 @@ uv run mypy src tests
 |`tests/unit/test_*_chmi.py`, `test_parsing_chmi.py`, `test_store_content.py`|360|ČHMÚ: parsers, registry, listing sync, catalog, series, export, commands, stations, projects, content form|
 |`tests/unit/test_catalog_effects.py`, `test_catalog_i18n.py`, `test_agent_guide.py`, `test_mcp_*.py`|179|Agents: effects = behavior, English texts, guide drift test, MCP tools/calls/stdio/HTTP|
 |`tests/unit/test_web_app.py`|45|Web GUI|
+|`tests/unit/test_cli_interrupt.py` (with `interrupt_driver.py`)|6|SIGINT and SIGTERM of real plain writes (`datasets download -o`, `store export --output`): exit codes, no staging directory, old target whole|
 |`tests/unit/` other files|152|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
 |`tests/contract/test_interface_contract.py`|81|Python = CLI = REST for all 28 REST commands, error matrix, paging|
 |`tests/contract/test_chmi_contract.py`|68|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
@@ -55,7 +56,7 @@ uv run mypy src tests
 |`tests/live/test_interfaces_live.py`|54|Live IMGW-PIB: 38 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); marker `live`|
 |`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; marker `live`|
 
-**Total: 2213 tests** (`pytest --collect-only`, 2026-10-19): 2134 offline, 79 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
+**Total: 2409 tests** (`pytest --collect-only`, 2026-10-25): 2329 offline, 80 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`). The counts of the rows above date from 2026-10-19 except the new `test_cli_interrupt.py`; recount them with `pytest --collect-only -q`.
 
 ## Testy (z README)
 
@@ -100,7 +101,7 @@ tests/
 └── live/                    # regresja na żywo (znacznik `live`, poza bramką): IMGW-PIB 38 komend × Python/CLI/REST + MCP; ČHMÚ
 ```
 
-**Łącznie: 2213 testów** (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo (znacznik `live`, uruchamiane jawnie `-m live`):
+**Łącznie: 2409 testów** (`pytest --collect-only`, 2026-10-25): 2329 offline i 80 na żywo (znacznik `live`, uruchamiane jawnie `-m live`):
 
 ```bash
 uv run pytest tests/live/test_interfaces_live.py -m live   # IMGW-PIB: 53 testy
