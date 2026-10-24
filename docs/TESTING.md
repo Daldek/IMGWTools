@@ -55,3 +55,56 @@ uv run mypy src tests
 |`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; marker `live`|
 
 **Total: 2213 tests** (`pytest --collect-only`, 2026-10-19): 2134 offline, 79 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
+
+## Testy (z README)
+
+Instrukcje testów z README (po polsku, bez zmian).
+
+Projekt zawiera testy jednostkowe i kontraktowe publicznego API, CLI, REST, MCP i Web GUI. Wszystkie działają offline: sieć jest mockowana (`respx`) albo odtwarzana z nagrań w `tests/fixtures/store/`.
+
+### Uruchamianie testów
+
+```bash
+# Bramka: ruff format --check, ruff check, mypy, pytest z pokryciem (offline), kontrola commitów
+scripts/gate.sh
+
+# Wszystkie testy offline (testy `live` są domyślnie pomijane)
+uv run pytest
+
+# Z pokryciem kodu
+uv run pytest --cov=imgwtools
+```
+
+### Struktura testów
+
+```
+tests/
+├── conftest.py              # Wspólne fixtures; autouse isolated_reference_dir (settings.reference_dir w tmp)
+├── fixtures/store/          # Syntetyczne archiwa, listingi i nagrane odpowiedzi HTTP IMGW-PIB i ČHMÚ (fikcyjne stacje)
+├── fixtures/export_golden/  # Złote pliki eksportu archiwów (CSV z CRLF, JSONL)
+├── unit/
+│   ├── test_fetch*.py, test_models.py, test_parsers.py, test_stations*.py, test_urls.py
+│   ├── test_datasets*.py, test_coverage*.py, test_download_archives*.py, test_parsing_chmi.py
+│   ├── test_store_*.py, test_series_export.py          # magazyn: writer, sync, series, catalog, pmaxtp, reader, export, content
+│   ├── test_fixture_builder*.py                        # imgwtools.testing (complete, complete_pl_cz)
+│   ├── test_commands*.py, test_command_schema.py       # katalog komend, command_schema
+│   ├── test_catalog_effects.py, test_catalog_i18n.py   # skutki komend, opisy angielskie
+│   ├── test_agent_guide.py                             # AGENTS.md i llms.txt (test dryfu)
+│   ├── test_mcp_*.py                                   # serwer MCP: narzędzia, wywołania, stdio, /mcp
+│   ├── test_project*.py, test_exceptions.py            # imgw-project/1, rejestr kodów błędów
+│   ├── test_cli_*.py, test_api_*.py, test_web_app.py   # CLI, REST i Web GUI
+│   ├── test_reference_data.py                          # python -m imgwtools.reference_data
+│   └── test_public_store_api.py                        # kontrakt eksportów publicznych
+├── contract/                # kontrakt magazynu, Python = CLI = REST = MCP, ČHMÚ (IMGW-15..19), projekt
+└── live/                    # regresja na żywo (znacznik `live`, poza bramką): IMGW-PIB 38 komend × Python/CLI/REST + MCP; ČHMÚ
+```
+
+**Łącznie: 2213 testów** (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo (znacznik `live`, uruchamiane jawnie `-m live`):
+
+```bash
+uv run pytest tests/live/test_interfaces_live.py -m live   # IMGW-PIB: 53 testy
+uv run pytest tests/live -m live -k imgw_mcp               # sama noga MCP (imgw mcp)
+uv run pytest tests/live/test_chmi_live.py -m live         # ČHMÚ: 26 testów, ok. 31 MB
+```
+
+Raport JSON przebiegu: `IMGW_LIVE_REPORT=<plik>`; test ČHMÚ zapisuje dziennik żądań każdego interfejsu (Python, CLI, REST, MCP) i podaje liczbę żądań i bajtów (`-s`).
