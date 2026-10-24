@@ -50,7 +50,7 @@ from imgwtools.commands import (
     data_commands,
     run_command,
 )
-from imgwtools.config import settings
+from imgwtools.config import check_config, settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
 from imgwtools.store.types import CommandOption, DataCommand, Notice, Progress
 
@@ -348,6 +348,13 @@ class ImgwGroup(TyperGroup):
         """Parse the root arguments; a syntax error ends with the JSON error line."""
         if _language() is None:
             raise typer.Exit(_language_failure())
+        if args[:1] != ["config"]:  # `imgw config show` reports the problem itself
+            try:
+                check_config()
+            except IMGWError as exc:
+                raise typer.Exit(
+                    _error_line(exc.code, exc.detail, exc.details)
+                ) from None
         try:
             return super().make_context(info_name, args, parent, **extra)
         except _click_errors.UsageError as exc:

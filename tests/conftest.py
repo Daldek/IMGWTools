@@ -6,7 +6,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def isolated_data_dir(tmp_path_factory, monkeypatch):
+def isolated_reference_dir(tmp_path_factory, monkeypatch):
     """Point ``settings.data_dir`` at an empty directory for every test.
 
     Local IMGW-PIB reference data (``python -m imgwtools.reference_data``) must not
@@ -15,7 +15,7 @@ def isolated_data_dir(tmp_path_factory, monkeypatch):
     from imgwtools.config import settings
 
     data_dir = tmp_path_factory.mktemp("data")
-    monkeypatch.setattr(settings, "data_dir", data_dir)
+    monkeypatch.setattr(settings, "reference_dir", data_dir)
     return data_dir
 
 

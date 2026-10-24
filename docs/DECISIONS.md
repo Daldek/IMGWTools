@@ -10,6 +10,7 @@ Każdy wpis zachowuje stan decyzji z dnia przyjęcia; późniejsze zmiany opisuj
 | [ADR-002](#adr-002-jeden-katalog-komend-i-spójne-interfejsy) | Jeden katalog komend i spójne interfejsy | 2026-10-18 | Przyjęta |
 | [ADR-003](#adr-003-dostawca-čhmú-w-magazynie-imgw) | Dostawca ČHMÚ w magazynie IMGW | 2026-10-18 | Przyjęta |
 | [ADR-004](#adr-004-wsparcie-agentów-ai-w-wydaniu-300) | Wsparcie agentów AI w wydaniu 3.0.0 | 2026-10-19 | Przyjęta |
+| [ADR-005](#adr-005-środowisko-użytkownika-dev-18) | Środowisko użytkownika (DEV-18) | 2026-10-24 | Przyjęta |
 
 ---
 
@@ -293,3 +294,34 @@ Agent poznaje IMGWTools z jednego źródła zgodnego z kodem (`AGENTS.md`, `llms
 **2026-10-19 — D10, spec §7 (A04).** Spec poprawiony erratą w opisie taska A04: ponowny skan komunikatów po C08 dopisał do listy poprawek cztery pozycje (pomoc i metawartości `imgw admin`, symbole linii użycia Click `[OPTIONS]`/`COMMAND [ARGS]...` i komunikat „Aborted.” w polskiej pomocy CLI, nagłówek skryptu wget w web GUI, znaczniki typów `imgw server`), a do kategorii „zostaje” — angielskie docstringi publicznych typów wyników widoczne jako opisy schematów w `/openapi.json` (dokumentacja kodu po angielsku, OpenAPI nie jest tłumaczone), tytuły pól pydantic, znacznik `<str>` argumentów Typer i podpowiedź `[y/N]` Click. Treść D10 bez zmian.
 
 **2026-10-24 — D2, D6, D7 (standard Nogat 2.1: ECO-018, AGI-5.2, AGI-5.4, AGI-5.9, AGI-6.2).** Nazwa narzędzia MCP i `operationId` REST to `x-imgw.operation_id` = `imgw_<grupa>_<komenda>` (np. `imgw_store_sync`, wcześniej `store_sync`); trasy poza katalogiem dostają `imgw_system_<funkcja>`. Adnotacje narzędzi z D7 mają komplet pięciu pól: `title`, `readOnlyHint`, `destructiveHint` (`false` przy odczycie), `idempotentHint` (nowe pole katalogu `DataCommand.idempotent`, publikowane jako `x-imgw.idempotent`) i `openWorldHint`. Katalog liczy 38 komend: `commands list` (`list_commands`, dokument `imgw-command-list/1`, `GET /api/v1/commands/list`, narzędzie `imgw_commands_list`) jest spisem komend przed `commands schema`. Zmiana łamiąca dopuszczona przed tagiem (ECO-020). Treść D2, D6 i D7 bez zmian.
+
+---
+
+## ADR-005: Środowisko użytkownika (DEV-18)
+
+**Data:** 2026-10-24  
+**Status:** Przyjęta  
+**Standard:** Nogat 2.1, DEV-18.1–DEV-18.6, ECO-028; konwencja `data-output` (Z2)  
+
+### Kontekst i warianty
+
+Standard 2.1 daje narzędziom jedno środowisko użytkownika: `nogat.toml`, zmienne `NOGAT_*`, katalog danych i katalog pamięci podręcznej, brak zapisów w katalogu roboczym, dane uwierzytelniające tylko ze środowiska i `<narzędzie> config show --json`. IMGWTools używał dwudziestu zmiennych `IMGW_*` bez pliku ustawień, a `IMGW_DATA_DIR` oznaczało katalog danych referencyjnych (`hydro_stations_locations.csv`, `desc/`), podczas gdy DEV-18.2 nadaje `data_dir` znaczenie katalogu nadrzędnego magazynów. Retman eksportuje `IMGW_DATA_DIR` jako swój `reference_data_dir`. Warianty: (a) zostawić `IMGW_DATA_DIR` jako katalog referencyjny i odstąpić od DEV-18.2; (b) nadać `data_dir` znaczenie standardu i nazwać katalog referencyjny osobno; (c) jak (b), ale ze starą nazwą jako aliasem. Wybrano (b) (decyzja koordynatora 2026-10-24): przed tagiem 3.0.0 zmiana łamiąca jest dopuszczalna (ECO-020), a alias (c) zostawiłby dwa znaczenia jednej zmiennej.
+
+### Decyzje D1–D6
+
+| ID | Decyzja | Odrzucone |
+|---|---|---|
+| D1 | **Kolejność źródeł (DEV-18.1).** Opcja wiersza poleceń, `IMGW_<KLUCZ>`, ten sam klucz w `.env`, `NOGAT_<KLUCZ>` (klucze wspólne `data_dir`, `cache_dir`, `lang`), sekcja `[imgw]`, sekcja `[nogat]` (klucze wspólne), wartość domyślna. Plik `nogat.toml` czyta `tomllib` (`_environment.py`, bez `pydantic-settings` i bez pakietu `nogat`); brak pliku nie jest błędem, plik nieczytelny to `validation_error` przy każdym wywołaniu `imgw` i przy starcie serwera REST. Puste `IMGW_*` = brak wartości. | Błąd przy imporcie `config.py`; ciche pomijanie uszkodzonego pliku. |
+| D2 | **Nazwy (decyzja koordynatora).** `IMGW_DATA_DIR`/`data_dir` = katalog danych użytkownika (`platformdirs.user_data_path("nogat")`); `IMGW_CACHE_DIR`/`cache_dir` = `platformdirs.user_cache_path("nogat")`; dane referencyjne to `IMGW_REFERENCE_DIR`/`reference_dir` (domyślnie `<cache_dir>/imgw/reference`, bo pobiera się je ponownie przez `python -m imgwtools.reference_data`, a domyślne `./data` pisało w katalogu roboczym). `IMGW_STORE_ROOT` zostaje (zmianę na `IMGW_ROOT` robi zadanie ścieżki zapisu, konwencja `data-output`). Stan serwera (`IMGW_API_KEYS_FILE`) domyślnie w `<data_dir>/imgw/api_keys.json`. Zmiana łamiąca, bez aliasu. | Alias starej nazwy; dane referencyjne w `data_dir`. |
+| D3 | **Dane uwierzytelniające (DEV-18.4).** `IMGW_STORE_WRITE_TOKEN` tylko ze środowiska (i `.env`), nigdy z `nogat.toml`; `config show` podaje `present`/`missing` bez wartości, a klucz tokenu w pliku jest zgłaszany jako pominięty (`config_file.ignored`). | Token w pliku ustawień. |
+| D4 | **`imgw config show [--json]` (DEV-18.6).** Poza katalogiem komend (jak `imgw admin`): odczyt ustawień serwera nie jest komendą MCP ani trasą REST. Dokument `imgw-config/1`: `config_file`, `keys` (wartość, `source` `default`/`env`/`dotenv`/`file`, `name`), `credentials`, `store` (korzeń, źródło, rozmiar bez podwójnego liczenia dowiązań twardych). Korzeń magazynu bez `IMGW_STORE_ROOT` to `null`, dopóki zadanie ścieżki zapisu nie wprowadzi `<data_dir>/imgw`. | Trasa REST/narzędzie MCP z konfiguracją serwera. |
+| D5 | **Zależności.** `platformdirs>=4` w rdzeniu (rdzeń czyta katalog referencyjny bez `pydantic-settings`), `pydantic>=2.10` (domyślne wartości zależne od innych pól) i `pydantic-settings>=2.7` (`NoDecode`, `env_ignore_empty`). | Własne wyliczanie katalogów użytkownika. |
+| D6 | **Opcje CLI.** `imgw server --host/--port` i `imgw mcp --allow-writes/--no-allow-writes` mają wartości domyślne z ustawień (opcja przed zmienną i plikiem). | Zmienne czytane tylko przez `run_server()`. |
+
+### Konsekwencje
+
+Użytkownik ma jedno miejsce na ustawienia wspólne z innymi narzędziami Nogat i jedno polecenie, które pokazuje, skąd pochodzi każda wartość. Retman musi eksportować `IMGW_REFERENCE_DIR` zamiast `IMGW_DATA_DIR` (pozycja migracyjna w `docs/PROGRESS.md`); do czasu zmiany jego pinu stary eksport wskazywałby katalog o nowym znaczeniu. Zadanie ścieżki zapisu zmienia `IMGW_STORE_ROOT` na `IMGW_ROOT`, ustawia domyślny korzeń `<data_dir>/imgw` (i raportuje go w `config show`) oraz musi uznawać `api_keys.json` w tym katalogu za plik spoza układu magazynu.
+
+### Pytania otwarte
+
+- Czy stan serwera (klucze API) ma mieć własny katalog zamiast `<data_dir>/imgw` (egzekwowanie kluczy jest w backlogu, `docs/PROGRESS.md`).

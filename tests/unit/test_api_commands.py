@@ -229,9 +229,9 @@ def empty_root(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def relative_data_dir(monkeypatch):
+def relative_reference_dir(monkeypatch):
     """Relative reference-data directory: no absolute path in envelope texts."""
-    monkeypatch.setattr(settings, "data_dir", Path("brak-danych-referencyjnych"))
+    monkeypatch.setattr(settings, "reference_dir", Path("brak-danych-referencyjnych"))
 
 
 def store_copy(kind, fixture_root, target):
@@ -434,7 +434,7 @@ def test_api_post_route_answers_the_run_command_envelope(
     fixture_root,
     imgw,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
     writable,
     command,
     body,
@@ -488,7 +488,7 @@ def test_api_check_true_plans_every_write_without_token_or_writes(
     fixture_root,
     imgw,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
     command,
     body,
     kind,
@@ -952,7 +952,7 @@ def test_api_catalog_user_locations_come_only_from_the_server_directory(
 
 
 def test_api_answers_hide_server_directories_in_texts(
-    client, imgw, writable, monkeypatch, tmp_path, fixture_root, isolated_data_dir
+    client, imgw, writable, monkeypatch, tmp_path, fixture_root, isolated_reference_dir
 ):
     imgw.publish_catalog_sources()
     root = store_copy("fixture", fixture_root, tmp_path / "store")
@@ -965,12 +965,12 @@ def test_api_answers_hide_server_directories_in_texts(
 
     problems = response.json()["result"]["problems"]
     assert any("hydro_stations_locations.csv" in text for text in problems)
-    assert str(isolated_data_dir) not in response.text
+    assert str(isolated_reference_dir) not in response.text
     assert str(tmp_path) not in response.text + missing.text
 
 
 def test_api_hiding_a_server_directory_keeps_imgw_urls_intact(client, monkeypatch):
-    monkeypatch.setattr(settings, "data_dir", Path("/data"))
+    monkeypatch.setattr(settings, "reference_dir", Path("/data"))
 
     response = client.get(
         "/api/v1/datasets/files", params={"dataset": DAILY, "years": "2024"}

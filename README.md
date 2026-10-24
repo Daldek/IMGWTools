@@ -632,6 +632,46 @@ Obraz (`python:3.12-slim`) instaluje `.[api,mcp]` i uruchamia jeden proces uvico
 
 ---
 
+## Konfiguracja
+
+Ustawienie pochodzi z pierwszego z: opcji wiersza poleceń, zmiennej `IMGW_<KLUCZ>`, tego samego klucza w pliku `.env` katalogu roboczego, zmiennej `NOGAT_<KLUCZ>` (tylko klucze wspólne `data_dir`, `cache_dir`, `lang`), sekcji `[imgw]` i `[nogat]` pliku `nogat.toml` (w tej kolejności; `[nogat]` mieści tylko klucze wspólne), wartości domyślnej. `nogat.toml` leży w katalogu konfiguracji użytkownika (`platformdirs.user_config_path("nogat")`, np. `~/.config/nogat/nogat.toml`) albo pod ścieżką z `NOGAT_CONFIG`; brak pliku nie jest błędem, plik nieczytelny albo niepoprawny kończy każde wywołanie `imgw` błędem `validation_error`. Dane uwierzytelniające (`IMGW_STORE_WRITE_TOKEN`) pochodzą wyłącznie ze środowiska, nigdy z pliku. Narzędzie niczego nie zapisuje w katalogu roboczym: magazyny leżą pod `data_dir` (`<data_dir>/imgw`), pamięć podręczna pod `cache_dir` (`<cache_dir>/imgw`).
+
+```toml
+[nogat]   # klucze wspólne dla wszystkich narzędzi ekosystemu
+data_dir = "/srv/nogat/dane"
+lang = "pl"
+
+[imgw]    # dowolne ustawienie z tabeli niżej: nazwa zmiennej bez IMGW_, małymi literami
+store_root = "/srv/nogat/dane/imgw"
+api_max_limit = 500
+```
+
+| Zmienna | Klucz w `nogat.toml` | Domyślnie | Znaczenie |
+|---|---|---|---|
+| `IMGW_DATA_DIR` (też `NOGAT_DATA_DIR`) | `data_dir` | katalog danych użytkownika `nogat` (`~/.local/share/nogat`) | nadrzędny katalog magazynów (`<data_dir>/imgw`) i stanu serwera; **do 3.0.0 oznaczał dane referencyjne** (patrz `IMGW_REFERENCE_DIR`) |
+| `IMGW_CACHE_DIR` (też `NOGAT_CACHE_DIR`) | `cache_dir` | katalog pamięci podręcznej `nogat` (`~/.cache/nogat`) | pamięć podręczna (`<cache_dir>/imgw`) |
+| `IMGW_REFERENCE_DIR` | `reference_dir` | `<cache_dir>/imgw/reference` | dane referencyjne IMGW-PIB (`python -m imgwtools.reference_data`) |
+| `IMGW_LANG` (też `NOGAT_LANG`) | `lang` | `pl` | `pl` albo `en`: pomoc CLI i domyślna wartość `--lang` |
+| `IMGW_STORE_ROOT` | `store_root` | brak | korzeń magazynu serwera REST i `imgw mcp`; domyślne `--root` CLI |
+| `IMGW_STORE_WRITES_ENABLED` | `store_writes_enabled` | `false` | zapis przez REST (POST bez `?check=true`) |
+| `IMGW_STORE_WRITE_TOKEN` | — (tylko środowisko) | brak | token zapisu w nagłówku `X-API-Key` |
+| `IMGW_USER_LOCATIONS_DIR` | `user_locations_dir` | brak | katalog plików położeń użytkownika dla tras REST |
+| `IMGW_API_MAX_LIMIT` | `api_max_limit` | `1000` | domyślny i największy `limit` komend listowych REST i MCP |
+| `IMGW_API_KEYS_FILE` | `api_keys_file` | `<data_dir>/imgw/api_keys.json` | plik kluczy `imgw admin` |
+| `IMGW_RATE_LIMIT` | `rate_limit` | `100` | zapytań na godzinę (0 = bez limitu) |
+| `IMGW_ENV` | `env` | `development` | `development` albo `production` |
+| `IMGW_HOST`, `IMGW_PORT` | `host`, `port` | `0.0.0.0`, `8000` | adres i port `imgw server` |
+| `IMGW_LOG_LEVEL` | `log_level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `IMGW_MCP_ENABLED` | `mcp_enabled` | `false` | `/mcp` w `imgw server` (tylko odczyt i plan) |
+| `IMGW_MCP_ALLOWED_HOSTS` | `mcp_allowed_hosts` | `127.0.0.1,localhost` | nazwy `Host` obsługiwane przez `/mcp` |
+| `IMGW_MCP_ALLOW_WRITES` | `mcp_allow_writes` | `false` | `imgw mcp` w trybie zapisu (`--allow-writes`, `--no-allow-writes`) |
+
+`imgw config show --json` wypisuje jeden dokument `imgw-config/1`: każdy klucz z wartością i źródłem (`default`, `env`, `dotenv`, `file` oraz nazwa zmiennej albo tabeli), każdą zmienną z danymi uwierzytelniającymi jako `present` albo `missing` (bez wartości) i korzeń magazynu z jego źródłem i rozmiarem (pliki z dowiązaniami twardymi liczone raz); bez `--json` ten sam opis jako tekst.
+
+**Kopia zapasowa magazynu.** Magazyn jest jedynym miejscem, w którym leżą wersje archiwów, które IMGW-PIB albo ČHMÚ usunęły z serwera, więc nie da się ich pobrać ponownie. Kopia musi zachować dowiązania twarde (`rsync -aH`; w Windows narzędzie zachowujące dowiązania, nie Eksplorator ani `robocopy`) albo użyć eksportu (`imgw store export`, `imgw series export`); kopia bez dowiązań wielokrotnie zwiększa rozmiar magazynu.
+
+---
+
 ## Magazyn wersjonowany (opcjonalny)
 
 Magazyn to zwykły katalog wskazany jawnie przez użytkownika (`--root`, `init_store(root)`, na serwerze `IMGW_STORE_ROOT`). Nie ma domyślnej lokalizacji ani bazy danych; magazyn można czytać offline z dysku lokalnego lub udziału sieciowego. Jeden magazyn mieści dane obu dostawców. Szczegóły: `docs/DECISIONS.md` (ADR-001, ADR-003), `docs/superpowers/specs/2026-10-17-versioned-store-design.md` i `2026-10-18-chmi-provider-design.md`.
@@ -707,7 +747,7 @@ uv run pytest --cov=imgwtools
 
 ```
 tests/
-├── conftest.py              # Wspólne fixtures; autouse isolated_data_dir (settings.data_dir w tmp)
+├── conftest.py              # Wspólne fixtures; autouse isolated_reference_dir (settings.reference_dir w tmp)
 ├── fixtures/store/          # Syntetyczne archiwa, listingi i nagrane odpowiedzi HTTP IMGW-PIB i ČHMÚ (fikcyjne stacje)
 ├── fixtures/export_golden/  # Złote pliki eksportu archiwów (CSV z CRLF, JSONL)
 ├── unit/
@@ -779,7 +819,7 @@ Repozytorium **nie zawiera** danych IMGW. Pliki referencyjne używane przez narz
 python -m imgwtools.reference_data
 ```
 
-Pobrane pliki trafiają do `data/` i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu).
+Pobrane pliki trafiają do katalogu danych referencyjnych (`IMGW_REFERENCE_DIR`, domyślnie `<cache_dir>/imgw/reference`, np. `~/.cache/nogat/imgw/reference`; patrz „Konfiguracja”) i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu).
 
 Jedyne dołączone do pakietu zbiory geograficzne to obrysy granic Polski `src/imgwtools/_data/poland_border_wgs84.geojson` i Czech `src/imgwtools/_data/czechia_border_wgs84.geojson` (kontrola położeń w katalogach stacji) z Natural Earth 1:10m Admin 0 – Countries v5.1.2 — domena publiczna ([warunki](https://www.naturalearthdata.com/about/terms-of-use/)), nie dane IMGW-PIB ani ČHMÚ.
 

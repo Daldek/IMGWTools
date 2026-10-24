@@ -455,6 +455,8 @@ Explicit root only (`init_store(root)`, `--root`, `IMGW_STORE_ROOT`); readable o
 
 ### Configuration
 
+Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-line option, `IMGW_<KEY>` variable, the same key in `.env`, `NOGAT_<KEY>` (shared keys `data_dir`, `cache_dir`, `lang`), `[imgw]` then `[nogat]` of `nogat.toml` (user config dir, or `NOGAT_CONFIG`; read with `tomllib`, absence is no error, an unusable file is `validation_error` for every `imgw` call), default. `IMGW_STORE_WRITE_TOKEN` is a credential: environment only, never from the file, never printed. Nothing is written to the working directory. `imgw config show [--json]` reports every key with its source (`imgw-config/1`, DEV-18.6; outside the catalog, `config_cmd.py`).
+
 |Variable|Default|Description|
 |---|---|---|
 |`IMGW_STORE_ROOT`|unset|Absolute store root of the REST server; CLI default for `--root`. Unset → store routes 503 `store_unavailable`|
@@ -462,11 +464,16 @@ Explicit root only (`init_store(root)`, `--root`, `IMGW_STORE_ROOT`); readable o
 |`IMGW_STORE_WRITE_TOKEN`|unset|Token required in `X-API-Key` for REST writes (else 403 `forbidden`)|
 |`IMGW_USER_LOCATIONS_DIR`|unset|Directory of user location CSVs allowed in REST `user_locations`|
 |`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
-|`IMGW_DATA_DIR`|`./data`|Local reference data (`python -m imgwtools.reference_data`)|
+|`IMGW_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/imgw`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 it held the reference data: that is `IMGW_REFERENCE_DIR` now|
+|`IMGW_REFERENCE_DIR`|`<cache_dir>/imgw/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m imgwtools.reference_data`); `settings.reference_dir`|
 |`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help and `--lang` default, `imgw mcp` default, language of `/mcp` tools (REST answers follow `Accept-Language`)|
 |`IMGW_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `imgw server` (needs `imgwtools[mcp]`; read and plan only)|
 |`IMGW_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
 |`IMGW_MCP_ALLOW_WRITES`|`false`|Envvar of `imgw mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|
+|`IMGW_CACHE_DIR`|user cache dir of `nogat`|Caches `<cache_dir>/imgw`; shared key (also `NOGAT_CACHE_DIR`, `[nogat] cache_dir`)|
+|`IMGW_API_KEYS_FILE`|`<data_dir>/imgw/api_keys.json`|File of the API keys of `imgw admin`|
+|`IMGW_RATE_LIMIT`|`100`|Requests per hour (0 = unlimited)|
+|`IMGW_ENV`, `IMGW_HOST`, `IMGW_PORT`, `IMGW_LOG_LEVEL`|`development`, `0.0.0.0`, `8000`, `INFO`|REST server (`imgw server`); `IMGW_ENV=production` disables reload|
 
 ### Layout
 
@@ -532,7 +539,7 @@ uv run mypy src tests
 
 |File|Tests|Description|
 |---|---|---|
-|`tests/conftest.py`|-|Shared fixtures; autouse `isolated_data_dir`|
+|`tests/conftest.py`|-|Shared fixtures; autouse `isolated_reference_dir` (`settings.reference_dir` in a temporary directory)|
 |`tests/unit/test_public_store_api.py`|192|`__all__` == spec §13.12 + ČHMÚ + `agent_guide`, removed names absent, light imports|
 |`tests/unit/test_cli_catalog.py`|155|CLI generated from the catalog: envelope, errors, exit codes, streams, help languages|
 |`tests/unit/test_api_commands.py`|113|REST routes from the catalog, problem+json, write guard, `Accept-Language`|

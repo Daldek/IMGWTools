@@ -626,7 +626,7 @@ class Live:
         """Python runs in the working directory of the CLI and the server."""
         with pytest.MonkeyPatch.context() as patch:
             patch.chdir(self.work)
-            patch.setattr(settings, "data_dir", Path(DATA_DIR))
+            patch.setattr(settings, "reference_dir", Path(DATA_DIR))
             patch.delenv("IMGW_STORE_ROOT", raising=False)
             yield
 
@@ -1158,7 +1158,7 @@ def live(tmp_path_factory) -> Iterator[Live]:
     env = {
         key: value for key, value in os.environ.items() if not key.startswith("IMGW_")
     }
-    env["IMGW_DATA_DIR"] = DATA_DIR
+    env["IMGW_REFERENCE_DIR"] = DATA_DIR
     served = env | {
         "IMGW_STORE_ROOT": str(base / "magazyn"),
         "IMGW_STORE_WRITES_ENABLED": "true",

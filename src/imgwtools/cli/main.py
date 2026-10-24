@@ -25,7 +25,7 @@ import typer
 from rich.console import Console
 
 from imgwtools._version import __version__
-from imgwtools.cli import admin
+from imgwtools.cli import admin, config_cmd
 from imgwtools.cli._dispatch import (
     ImgwCommand,
     ImgwGroup,
@@ -33,6 +33,7 @@ from imgwtools.cli._dispatch import (
     register_catalog,
 )
 from imgwtools.commands import Lang
+from imgwtools.config import settings
 from imgwtools.exceptions import IMGWError
 
 _NO_MCP = "Serwer MCP wymaga dodatku: pip install imgwtools[mcp]"
@@ -53,6 +54,7 @@ console = Console()
 
 register_catalog(app)
 app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
+app.add_typer(config_cmd.app, name="config")
 
 
 @app.command(cls=ImgwCommand)
@@ -63,8 +65,12 @@ def version() -> None:
 
 @app.command(cls=ImgwCommand)
 def server(
-    host: str = typer.Option("0.0.0.0", metavar="ADRES", help="Adres nasłuchu"),
-    port: int = typer.Option(8000, metavar="LICZBA", help="Port nasłuchu"),
+    host: str = typer.Option(
+        settings.host, metavar="ADRES", help="Adres nasłuchu (IMGW_HOST)"
+    ),
+    port: int = typer.Option(
+        settings.port, metavar="LICZBA", help="Port nasłuchu (IMGW_PORT)"
+    ),
     reload: bool = typer.Option(
         False, help="Przeładuj serwer po zmianie kodu (tryb deweloperski)"
     ),
@@ -84,11 +90,10 @@ def server(
 @app.command(cls=ImgwCommand)
 def mcp(
     allow_writes: bool = typer.Option(
-        False,
-        "--allow-writes",
-        envvar="IMGW_MCP_ALLOW_WRITES",
-        help="Zezwól na zapis: komendy zapisujące domyślnie zwracają plan "
-        "(check=true), a zapisują przy check=false",
+        settings.mcp_allow_writes,
+        "--allow-writes/--no-allow-writes",
+        help="Zezwól na zapis (IMGW_MCP_ALLOW_WRITES): komendy zapisujące "
+        "domyślnie zwracają plan (check=true), a zapisują przy check=false",
     ),
     lang: str = typer.Option(
         "pl",

@@ -17,9 +17,34 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   shape and REST route. It is the first discovery step before `commands schema`; the MCP tool is
   `imgw_commands_list`, the REST route `GET /api/v1/commands/list`, the CLI
   `imgw commands list`.
+- **`nogat.toml` (DEV-18.1):** every setting also comes from `[imgw]` (any setting) and `[nogat]`
+  (the shared keys `data_dir`, `cache_dir`, `lang`) of the user's `nogat.toml` (`NOGAT_CONFIG` names
+  another file), read with `tomllib`; `NOGAT_DATA_DIR`, `NOGAT_CACHE_DIR` and `NOGAT_LANG` are the shared
+  variables. Order: option, `IMGW_<KEY>`, `.env`, `NOGAT_<KEY>`, `[imgw]`, `[nogat]`, default. The
+  file never gives the credential `IMGW_STORE_WRITE_TOKEN`; an unusable file ends every `imgw`
+  call and the REST startup with `validation_error`.
+- **`cache_dir` (DEV-18.2):** `IMGW_CACHE_DIR` (default `platformdirs.user_cache_path("nogat")`),
+  home of the reference data (`<cache_dir>/imgw/reference`).
+- **`imgw config show [--json]` (DEV-18.6):** document `imgw-config/1` with every setting, its value
+  and source, each credential as `present` or `missing`, and the store root with its source and
+  size (hard-linked files counted once). README and `.env.example` list all 18 `IMGW_*` variables.
 
 ### Changed
 
+- **Breaking — `IMGW_DATA_DIR` no longer names the reference data (DEV-18.2):** `IMGW_DATA_DIR`
+  (`data_dir`) is now the user data directory (`platformdirs.user_data_path("nogat")` by default),
+  the parent of the stores (`<data_dir>/imgw`) and of the server state. The directory of the
+  IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`) is `IMGW_REFERENCE_DIR`
+  (`reference_dir`, `settings.reference_dir`) and defaults to `<cache_dir>/imgw/reference` instead of
+  `./data` in the working directory. Migration: set `IMGW_REFERENCE_DIR` where `IMGW_DATA_DIR` held
+  the reference data (Retman exports it as its `reference_data_dir`), or run
+  `python -m imgwtools.reference_data` again. `IMGW_API_KEYS_FILE` defaults to
+  `<data_dir>/imgw/api_keys.json` instead of `./api_keys.json`. A `.env` or exported
+  `IMGW_DATA_DIR=./data` left over from 2.x now moves the stores' parent directory.
+- `imgw server` takes `--host` and `--port` defaults from `IMGW_HOST` and `IMGW_PORT`;
+  `imgw mcp --allow-writes` defaults from `IMGW_MCP_ALLOW_WRITES` (and `[imgw] mcp_allow_writes`) and
+  gained `--no-allow-writes`; an empty `IMGW_*` variable counts as unset. `pydantic>=2.10` and
+  `pydantic-settings>=2.7` are the minimum versions; `platformdirs>=4` is a new core dependency.
 - **Breaking — MCP tool names and OpenAPI `operationId` start with `imgw_` (ECO-018, AGI-5.2,
   AGI-6.2):** `x-imgw.operation_id` is `imgw_<group>_<verb>` (`imgw_store_sync`,
   `imgw_current_hydro_states`), the one name of the REST `operationId`, the MCP tool and the

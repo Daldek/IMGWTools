@@ -1,4 +1,4 @@
-"""Fetch IMGW-PIB reference data into the ``data/`` directory.
+"""Fetch IMGW-PIB reference data into the reference directory.
 
 After installing the package (``pip install -e .``), run it with no arguments:
 
@@ -7,8 +7,10 @@ After installing the package (``pip install -e .``), run it with no arguments:
 The module reuses ``imgwtools.stations.fetch_hydro_states`` (it does not
 duplicate IMGW URLs, parsing, or encoding) and writes only
 ``hydro_stations_locations.csv`` and the format descriptions (``desc/``).
-Output goes to ``settings.data_dir`` (defaults to ``./data``; override with the
-``IMGW_DATA_DIR`` environment variable).
+Output goes to ``settings.reference_dir``: ``IMGW_REFERENCE_DIR``, ``[imgw]
+reference_dir`` of ``nogat.toml``, else ``<cache_dir>/imgw/reference`` (the cache
+directory of ``nogat``; ``IMGW_CACHE_DIR`` moves it). Nothing is written to the
+working directory.
 
 All fetched data comes from IMGW-PIB and is subject to IMGW-PIB's terms of use.
 Regulations and the exact attribution wording:
@@ -64,11 +66,11 @@ def _write_bytes(path: Path, data: bytes) -> None:
     print(f"  - {path} ({len(data):,} B)")
 
 
-def fetch_stations(data_dir: Path) -> None:
+def fetch_stations(reference_dir: Path) -> None:
     """Fetch hydrological station coordinates via the library (no duplication)."""
     print("Współrzędne stacji hydrologicznych:")
     _write_csv(
-        data_dir / "hydro_stations_locations.csv",
+        reference_dir / "hydro_stations_locations.csv",
         ["station_code", "latitude", "longitude"],
         (
             [s.station_code, s.latitude, s.longitude]
@@ -93,7 +95,7 @@ def _meteo_format_files(client: httpx.Client) -> Iterator[tuple[str, str]]:
                     yield name, base + name
 
 
-def fetch_descriptions(data_dir: Path) -> None:
+def fetch_descriptions(reference_dir: Path) -> None:
     """Fetch file-format description files (resources outside the library)."""
     with httpx.Client(timeout=60, follow_redirects=True) as client:
         print("Opisy formatów (hydro):")
@@ -101,7 +103,7 @@ def fetch_descriptions(data_dir: Path) -> None:
             resp = client.get(f"{DESC_BASE}/{rel}")
             if resp.is_success:
                 _write_bytes(
-                    data_dir / "desc" / "dane_hydrologiczne" / Path(rel).name,
+                    reference_dir / "desc" / "dane_hydrologiczne" / Path(rel).name,
                     resp.content,
                 )
             else:
@@ -112,27 +114,28 @@ def fetch_descriptions(data_dir: Path) -> None:
             resp = client.get(url)
             if resp.is_success:
                 _write_bytes(
-                    data_dir / "desc" / "dane_meteorologiczne" / name, resp.content
+                    reference_dir / "desc" / "dane_meteorologiczne" / name,
+                    resp.content,
                 )
             else:
                 print(f"  pominięto: {name}: HTTP {resp.status_code}")
 
 
 def main() -> int:
-    """Fetch all reference data into ``settings.data_dir``."""
-    data_dir = settings.data_dir
-    print(f"Pobieranie danych referencyjnych do: {data_dir}")
+    """Fetch all reference data into ``settings.reference_dir``."""
+    reference_dir = settings.reference_dir
+    print(f"Pobieranie danych referencyjnych do: {reference_dir}")
     print("Dane podlegają warunkom korzystania IMGW-PIB.")
     print(f"Wymagana atrybucja: {ATTRIBUTION}\n")
 
     try:
-        fetch_stations(data_dir)
-        fetch_descriptions(data_dir)
+        fetch_stations(reference_dir)
+        fetch_descriptions(reference_dir)
     except (IMGWError, httpx.HTTPError) as exc:
         print(f"Błąd pobierania danych: {exc}", file=sys.stderr)
         return 1
 
-    print(f"\nGotowe: dane IMGW-PIB zapisano w {data_dir}.")
+    print(f"\nGotowe: dane IMGW-PIB zapisano w {reference_dir}.")
     return 0
 
 

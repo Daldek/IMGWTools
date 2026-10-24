@@ -212,9 +212,9 @@ def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
 
 
 def test_code_only_in_static_file_is_kept_as_hydro_station(
-    store, tmp_path, isolated_data_dir
+    store, tmp_path, isolated_reference_dir
 ):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n150000099,50.0512,19.9512\n", encoding="utf-8"
     )
@@ -266,10 +266,10 @@ def test_user_file_source_column_is_optional(store, tmp_path):
     ids=["static_id_x_y", "user_lon_lat"],
 )
 def test_old_location_headers_are_rejected_before_any_download(
-    store, tmp_path, isolated_data_dir, static_text, user_text, option, hint
+    store, tmp_path, isolated_reference_dir, static_text, user_text, option, hint
 ):
     if static_text is not None:
-        (isolated_data_dir / "hydro_stations_locations.csv").write_text(
+        (isolated_reference_dir / "hydro_stations_locations.csv").write_text(
             static_text, encoding="utf-8"
         )
     user = None
@@ -314,7 +314,7 @@ def series_action(plan):
 
 
 def test_code_only_in_series_index_is_kept_as_historical_station(
-    store, isolated_data_dir
+    store, isolated_reference_dir
 ):
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router)
@@ -401,7 +401,9 @@ def test_meteo_kind_comes_from_the_climate_and_precipitation_series(store):
     assert set(kinds(climate, "hydro").values()) == {None}
 
 
-def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_data_dir):
+def test_location_precedence_rejections_and_reasons(
+    store, tmp_path, isolated_reference_dir
+):
     hydro_csv = HYDRO_CSV + cp1250(
         '"150000020","STACJA API","Rzeka (1)","00010"',
         '"150000021","STACJA STATYCZNA","Rzeka (1)","00015"',
@@ -416,7 +418,7 @@ def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_da
             "lat": "49.9213",
         },
     ]
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n"
         "150000020,50.0000,18.4000\n150000021,49.95453369,18.32665589\n",
@@ -473,13 +475,13 @@ def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_da
     assert static_source["sha256"] == hashlib.sha256(static.read_bytes()).hexdigest()
 
 
-def test_missing_static_file_is_reported_and_recorded(store, isolated_data_dir):
+def test_missing_static_file_is_reported_and_recorded(store, isolated_reference_dir):
     notices = []
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router)
         report = build_catalog(store, on_notice=notices.append)
     assert report.status == "created"
-    expected = (isolated_data_dir / "hydro_stations_locations.csv").as_posix()
+    expected = (isolated_reference_dir / "hydro_stations_locations.csv").as_posix()
     assert any(
         expected in problem and "static" in problem for problem in report.problems
     )
@@ -615,8 +617,8 @@ def test_hydrographic_code_text_prefix_and_river_order(store):
     ]
 
 
-def test_geojson_is_rfc7946_and_sidecar_records_sources(store, isolated_data_dir):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+def test_geojson_is_rfc7946_and_sidecar_records_sources(store, isolated_reference_dir):
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n149190312,50.0512,19.9512\n", encoding="utf-8"
     )
@@ -762,8 +764,8 @@ def test_check_catalog_uses_head_only_and_writes_nothing(store, tmp_path):
     assert tree(store.root) == before
 
 
-def test_check_catalog_tracks_static_file_presence(store, isolated_data_dir):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+def test_check_catalog_tracks_static_file_presence(store, isolated_reference_dir):
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
 
     def static_action():
         (action,) = [
