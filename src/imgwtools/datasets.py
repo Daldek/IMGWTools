@@ -179,7 +179,8 @@ class DatasetDescriptor:
     kind : {"hydro", "meteo"} or None
         Data family; None for PMAXTP.
     title : str
-        Polish title of the dataset, e.g. ``"Dane hydrologiczne dobowe"``.
+        English title of the dataset (a catalog message), e.g. ``"Daily
+        hydrological data"``; ``localize(title, "pl")`` is the Polish title.
     server_dir : str or None
         Directory on the provider's server, relative to its ``base_url``,
         e.g. ``"dane_hydrologiczne/dobowe"``; None for PMAXTP.
@@ -212,7 +213,8 @@ class DatasetDescriptor:
         What one source file covers: the whole country, one station and
         year, or the whole history of one station and element.
     variable_notes : Mapping of str to str, optional
-        Convention of each variable (in Polish), e.g. the day of a sum.
+        Convention of each variable (English catalog messages), e.g. the day of
+        a sum; the series metadata keeps the English text.
     measurement_fields : tuple of {"quality", "source_flag"}, optional
         Additional ``Measurement`` fields the dataset fills.
     content_form : str or None, optional
@@ -220,8 +222,6 @@ class DatasetDescriptor:
         dataset's files; None when only the bytes identify the content.
     volatile_fields : tuple of str, optional
         Volatile fields of ``content_form``; empty without a form.
-    title_en : str, optional
-        English title of the dataset, e.g. ``"Daily hydrological data"``.
     """
 
     key: str
@@ -244,7 +244,6 @@ class DatasetDescriptor:
     measurement_fields: tuple[Literal["quality", "source_flag"], ...] = ()
     content_form: str | None = None
     volatile_fields: tuple[str, ...] = ()
-    title_en: str = ""
 
 
 @dataclass(frozen=True)
@@ -324,8 +323,7 @@ _DATASETS = (
         key="pl.imgw.hydro_daily",
         slug="hydro_daily",
         kind="hydro",
-        title="Dane hydrologiczne dobowe",
-        title_en="Daily hydrological data",
+        title=message("datasets.title_hydro_daily"),
         server_dir="dane_hydrologiczne/dobowe",
         parser="parse_daily_csv",
         variables={"H": "cm", "Q": "m3/s", "T": "degC"},
@@ -341,8 +339,7 @@ _DATASETS = (
         key="pl.imgw.hydro_monthly",
         slug="hydro_monthly",
         kind="hydro",
-        title="Dane hydrologiczne miesięczne",
-        title_en="Monthly hydrological data",
+        title=message("datasets.title_hydro_monthly"),
         server_dir="dane_hydrologiczne/miesieczne",
         parser="parse_monthly_csv",
         variables=_HYDRO_STATS,
@@ -358,8 +355,7 @@ _DATASETS = (
         key="pl.imgw.hydro_semiannual",
         slug="hydro_semiannual",
         kind="hydro",
-        title="Dane hydrologiczne półroczne i roczne",
-        title_en="Semi-annual and annual hydrological data",
+        title=message("datasets.title_hydro_semiannual"),
         server_dir="dane_hydrologiczne/polroczne_i_roczne",
         parser="parse_semi_annual_csv",
         variables=_HYDRO_STATS,
@@ -375,8 +371,7 @@ _DATASETS = (
         key="pl.imgw.meteo_climate_daily",
         slug="meteo_climate_daily",
         kind="meteo",
-        title="Dane meteorologiczne dobowe ze stacji klimatycznych",
-        title_en="Daily meteorological data from climate stations",
+        title=message("datasets.title_meteo_climate_daily"),
         server_dir="dane_meteorologiczne/dobowe/klimat",
         parser="parse_meteo_climate_daily",
         variables={
@@ -399,8 +394,7 @@ _DATASETS = (
         key="pl.imgw.meteo_precip_daily",
         slug="meteo_precip_daily",
         kind="meteo",
-        title="Dane meteorologiczne dobowe ze stacji opadowych",
-        title_en="Daily meteorological data from precipitation stations",
+        title=message("datasets.title_meteo_precip_daily"),
         server_dir="dane_meteorologiczne/dobowe/opad",
         parser="parse_meteo_precip_daily",
         variables={"P": "mm", "snow_cover": "cm", "fresh_snow": "cm"},
@@ -416,8 +410,7 @@ _DATASETS = (
         key="pl.imgw.hydro_stations",
         slug="hydro_stations",
         kind="hydro",
-        title="Lista stacji hydrologicznych",
-        title_en="List of hydrological stations",
+        title=message("datasets.title_hydro_stations"),
         server_dir="dane_hydrologiczne",
         parser="parse_stations_csv",
         variables={},
@@ -433,8 +426,7 @@ _DATASETS = (
         key="pl.imgw.meteo_stations",
         slug="meteo_stations",
         kind="meteo",
-        title="Lista stacji meteorologicznych",
-        title_en="List of meteorological stations",
+        title=message("datasets.title_meteo_stations"),
         server_dir="dane_meteorologiczne",
         parser="parse_stations_csv",
         variables={},
@@ -450,8 +442,7 @@ _DATASETS = (
         key="pl.imgw.pmaxtp",
         slug="pmaxtp",
         kind=None,
-        title="Opady maksymalne prawdopodobne PMAXTP",
-        title_en="Probable maximum precipitation PMAXTP",
+        title=message("datasets.title_pmaxtp"),
         server_dir=None,
         parser=None,
         variables={"ks": "mm", "sg": "mm", "rb": "mm"},
@@ -467,8 +458,7 @@ _DATASETS = (
         key="pl.imgw.hydro_phenomena",
         slug="hydro_phenomena",
         kind="hydro",
-        title="Zjawiska hydrologiczne dobowe",
-        title_en="Daily hydrological phenomena",
+        title=message("datasets.title_hydro_phenomena"),
         server_dir="dane_hydrologiczne/dobowe",
         parser=None,
         variables={},
@@ -484,8 +474,7 @@ _DATASETS = (
         key="pl.imgw.meteo_climate_monthly",
         slug="meteo_climate_monthly",
         kind="meteo",
-        title="Dane meteorologiczne miesięczne ze stacji klimatycznych",
-        title_en="Monthly meteorological data from climate stations",
+        title=message("datasets.title_meteo_climate_monthly"),
         server_dir="dane_meteorologiczne/miesieczne/klimat",
         parser=None,
         variables={},
@@ -501,8 +490,7 @@ _DATASETS = (
         key="pl.imgw.meteo_precip_monthly",
         slug="meteo_precip_monthly",
         kind="meteo",
-        title="Dane meteorologiczne miesięczne ze stacji opadowych",
-        title_en="Monthly meteorological data from precipitation stations",
+        title=message("datasets.title_meteo_precip_monthly"),
         server_dir="dane_meteorologiczne/miesieczne/opad",
         parser=None,
         variables={},
@@ -518,8 +506,7 @@ _DATASETS = (
         key="pl.imgw.meteo_synop_monthly",
         slug="meteo_synop_monthly",
         kind="meteo",
-        title="Dane meteorologiczne miesięczne ze stacji synoptycznych",
-        title_en="Monthly meteorological data from synoptic stations",
+        title=message("datasets.title_meteo_synop_monthly"),
         server_dir="dane_meteorologiczne/miesieczne/synop",
         parser=None,
         variables={},
@@ -535,8 +522,7 @@ _DATASETS = (
         key="pl.imgw.meteo_climate_terms",
         slug="meteo_climate_terms",
         kind="meteo",
-        title="Dane meteorologiczne terminowe ze stacji klimatycznych",
-        title_en="Meteorological data at observation times from climate stations",
+        title=message("datasets.title_meteo_climate_terms"),
         server_dir="dane_meteorologiczne/terminowe/klimat",
         parser=None,
         variables={},
@@ -552,8 +538,7 @@ _DATASETS = (
         key="cz.chmi.hydro_daily",
         slug="chmi_hydro_daily",
         kind="hydro",
-        title="ČHMÚ — dane hydrologiczne dobowe (H, Q, T)",
-        title_en="ČHMÚ — daily hydrological data (H, Q, T)",
+        title=message("datasets.title_chmi_hydro_daily"),
         server_dir="hydrology/historical/data/daily",
         parser="parse_chmi_hydro_daily",
         variables={"H": "cm", "Q": "m3/s", "T": "degC"},
@@ -567,11 +552,9 @@ _DATASETS = (
         provider="CHMI",
         archive_scope="station_year",
         variable_notes={
-            "H": "Średni dobowy stan wody (HD); data = dzień z DT (…T00:00:00Z)",
-            "Q": "Średni dobowy przepływ (QD), równy średniej 24 przepływów "
-            "godzinowych o etykietach 00–23Z tej daty (doba według etykiet Z; "
-            "UTC albo stały SEČ — niepotwierdzone przez ČHMÚ)",
-            "T": "Średnia dobowa temperatura wody (TD)",
+            "H": message("datasets.note_chmi_hydro_daily_h"),
+            "Q": message("datasets.note_chmi_hydro_daily_q"),
+            "T": message("datasets.note_chmi_hydro_daily_t"),
         },
         content_form=_CHMI_JSON,
         volatile_fields=_CHMI_VOLATILE,
@@ -580,8 +563,7 @@ _DATASETS = (
         key="cz.chmi.meteo_daily",
         slug="chmi_meteo_daily",
         kind="meteo",
-        title="ČHMÚ — dane meteorologiczne dobowe (opad, temperatura powietrza)",
-        title_en="ČHMÚ — daily meteorological data (precipitation, air temperature)",
+        title=message("datasets.title_chmi_meteo_daily"),
         server_dir="meteorology/climate/historical_csv/data/daily",
         parser="parse_chmi_meteo_daily",
         variables={"P": "mm", "Tmean": "degC", "Tmax": "degC", "Tmin": "degC"},
@@ -595,14 +577,10 @@ _DATASETS = (
         provider="CHMI",
         archive_scope="station_element",
         variable_notes={
-            "P": "Suma opadu (SRA) od terminu porannego (06:00Z) dnia D do terminu "
-            "porannego dnia D+1, przypisana do D",
-            "Tmean": "Średnia dobowa temperatura powietrza (T, AVG) = "
-            "(T06 + T13 + 2·T20)/4 z terminów UTC dnia D",
-            "Tmax": "Maksymalna temperatura powietrza (TMA) okresu "
-            "(D−1 20:00, D 20:00] UTC, przypisana do D",
-            "Tmin": "Minimalna temperatura powietrza (TMI) okresu "
-            "(D−1 20:00, D 20:00] UTC, przypisana do D",
+            "P": message("datasets.note_chmi_meteo_daily_p"),
+            "Tmean": message("datasets.note_chmi_meteo_daily_tmean"),
+            "Tmax": message("datasets.note_chmi_meteo_daily_tmax"),
+            "Tmin": message("datasets.note_chmi_meteo_daily_tmin"),
         },
         measurement_fields=("quality", "source_flag"),
     ),
@@ -610,8 +588,7 @@ _DATASETS = (
         key="cz.chmi.hydro_stations",
         slug="chmi_hydro_stations",
         kind="hydro",
-        title="ČHMÚ — wykaz stacji hydrologicznych",
-        title_en="ČHMÚ — list of hydrological stations",
+        title=message("datasets.title_chmi_hydro_stations"),
         server_dir="hydrology/historical/metadata",
         parser="parse_chmi_stations",
         variables={},
@@ -630,8 +607,7 @@ _DATASETS = (
         key="cz.chmi.meteo_stations",
         slug="chmi_meteo_stations",
         kind="meteo",
-        title="ČHMÚ — wykaz stacji meteorologicznych",
-        title_en="ČHMÚ — list of meteorological stations",
+        title=message("datasets.title_chmi_meteo_stations"),
         server_dir="meteorology/climate/historical/metadata",
         parser="parse_chmi_stations",
         variables={},

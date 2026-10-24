@@ -63,6 +63,14 @@ _PMAXTP_METHODS = (
 _STATION_PAGE_SIZE = "50"
 
 
+def _localized(text: str) -> str:
+    """Render a catalog message (a dataset title) in the language of the GUI."""
+    return localize(text, _LANG)
+
+
+templates.env.filters["localized"] = _localized
+
+
 def _error(request: Request, error: IMGWError) -> HTMLResponse:
     """
     Render an IMGWTools error as the error partial.

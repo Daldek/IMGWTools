@@ -53,9 +53,8 @@ _FOREIGN_KEYS = frozenset({"województwo", "stopień"})
 # A file leaves the set as soon as its last Polish literal does (checked below).
 _PENDING = frozenset(
     {
-        # Command and dataset registries: Polish texts with an English variant beside.
+        # The command registry: Polish texts with an English variant beside.
         "commands.py",
-        "datasets.py",
     }
 )
 
