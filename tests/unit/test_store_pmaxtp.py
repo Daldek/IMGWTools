@@ -222,7 +222,7 @@ def test_check_pmaxtp_makes_no_request_and_writes_nothing(store):
         )
         assert (
             plan.actions[0].status == "unverifiable"
-            and "brak lokalnej wersji" in plan.actions[0].detail
+            and "no local version" in plan.actions[0].detail
         )
         assert tree(store.root) == before
         route = recorded(router, FIRST)

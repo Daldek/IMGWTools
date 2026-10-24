@@ -295,9 +295,9 @@ def test_rejected_points_never_block_a_lower_source_and_reasons_are_kept(store):
     )
     assert (report.from_series, report.without_location) == (1, 2)
     assert report.problems == (
-        "0-20000-0-99903: odrzucono punkt źródła chmi_meteo_now (-21.9405, 64.1311) — outside_country",
-        "0-20000-0-99903: odrzucono punkt źródła chmi_meteo_stations (-21.9405, 64.1311) — outside_country",
-        "0-203-1-900004: odrzucono punkt źródła chmi_hydro_now (0, 0) — zero",
+        "0-20000-0-99903: the source point chmi_meteo_now (-21.9405, 64.1311) was rejected — outside_country",
+        "0-20000-0-99903: the source point chmi_meteo_stations (-21.9405, 64.1311) was rejected — outside_country",
+        "0-203-1-900004: the source point chmi_hydro_now (0, 0) was rejected — zero",
     )
     assert [n.text for n in notices if n.code == "location_rejected"] == list(
         report.problems
@@ -333,7 +333,7 @@ def test_location_conflict_names_stations_whose_valid_points_disagree(store):
     (conflict,) = [n for n in notices if n.code == "location_conflict"]
     assert conflict.level == "info"
     # now and historical meta1 of 900001 differ by 0.002° of latitude (~223 m > 150 m).
-    assert conflict.text.startswith("1 stacji ")
+    assert conflict.text.startswith("1 stations with valid source locations ")
     assert conflict.text.endswith(": 0-203-1-900001")
     assert not any("0-203-1-900001" in problem for problem in report.problems)
     assert features(report)["0-203-1-900001"]["properties"]["location_source"] == (
@@ -473,9 +473,9 @@ def test_sidecar_records_both_sums_of_every_source_and_the_chmi_license(tmp_path
     )
     assert notices[-1].code == "license_terms"
     assert notices[-1].text == (
-        f"{CHMI_ATTRIBUTION}. Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie "
-        "komercyjne pod warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia "
-        "zmian."
+        f"{CHMI_ATTRIBUTION}. The CC BY 4.0 licence permits copying, changes and "
+        "commercial use provided that the author ČHMÚ is credited, the licence is given "
+        "and the changes are marked."
     )
 
 
@@ -498,9 +498,9 @@ def test_user_file_locates_chmi_codes_and_skips_codes_of_the_other_provider(
     assert located["geometry"]["coordinates"] == [15.5, 49.5]
     assert located["properties"]["location_source"] == "user"
     assert report.problems[:2] == (
-        "Wiersz 5: niepoprawny kod stacji 'zly-kod' w pliku położeń",
-        "Plik położeń użytkownika: 1 kodów spoza metadanych ČHMÚ i szeregów "
-        "(np. 0-203-1-999999); plik użytkownika uzupełnia tylko położenia",
+        "Row 5: invalid station code 'zly-kod' in the location file",
+        "User location file: 1 codes outside the ČHMÚ metadata and series "
+        "(e.g. 0-203-1-999999); the user file only completes locations",
     )
     assert not any("149190310" in problem for problem in report.problems)
     (entry,) = [e for e in sidecar(report)["extra"]["catalog"] if e["source"] == "user"]
@@ -513,7 +513,7 @@ def test_user_file_locates_chmi_codes_and_skips_codes_of_the_other_provider(
         "sha256": hashlib.sha256(user.read_bytes()).hexdigest(),
         "available": True,
     }
-    assert "Źródła w pliku użytkownika: GPS" in [
+    assert "Sources in the user file: GPS" in [
         n.text for n in notices if n.code == "location_source"
     ]
 
@@ -569,7 +569,7 @@ def test_imgw_catalog_is_byte_identical_with_chmi_data_in_the_store(tmp_path):
         )
     assert outcomes[0] == outcomes[1]
     problems = outcomes[0][4]
-    assert "Wiersz 4: niepoprawny kod stacji 'zly-kod' w pliku położeń" in problems
+    assert "Row 4: invalid station code 'zly-kod' in the location file" in problems
     assert not any("0-203-1" in problem for problem in problems)
 
 

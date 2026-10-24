@@ -71,7 +71,7 @@ def test_unpublished_year_is_a_successful_not_published_item(respx_mock, tmp_pat
     ]
     published, unpublished, later = report.items
     assert (unpublished.status, unpublished.path) == ("not_published", None)
-    assert (unpublished.error, unpublished.error_code) == ("nieopublikowany", None)
+    assert (unpublished.error, unpublished.error_code) == ("not published", None)
     for item, case in ((published, "h900002_2004_get"), (later, "h900002_2006_get")):
         assert item.status == "downloaded"
         assert item.path == output / CASES[case]["path"]

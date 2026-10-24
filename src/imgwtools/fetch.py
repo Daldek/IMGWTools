@@ -63,7 +63,7 @@ POLAND_LON_MAX = 24.5
 DEFAULT_TIMEOUT = 30.0
 DOWNLOAD_TIMEOUT = 120.0
 
-UNPUBLISHED = "nieopublikowany"
+UNPUBLISHED = message("common.unpublished")
 """Error text of a candidate file the provider does not publish (HTTP 404/410)."""
 
 # Requests for per-station files (ČHMÚ) identify the library (spec 2026-10-18
@@ -1072,7 +1072,7 @@ def download_archives(
         §13.7 slot, URL, status, written path and, for a failed file, the
         error text and code (``source_unavailable``, ``data_error`` or
         ``io_error``); a ``not_published`` item has no path, the error
-        ``"nieopublikowany"`` and no code.
+        ``"not published"`` and no code.
 
     Raises
     ------
@@ -1155,9 +1155,15 @@ def download_archives(
                         len(files),
                         "archive",
                         item.status,
-                        f"Pobrano {archive.server_path}"
+                        message(
+                            "fetch.archive_downloaded", server_path=archive.server_path
+                        )
                         if item.path is not None
-                        else f"Nie pobrano {archive.server_path}: {item.error}",
+                        else message(
+                            "fetch.archive_not_downloaded",
+                            server_path=archive.server_path,
+                            error=item.error,
+                        ),
                     )
                 )
             if item.path is not None and not licensed and on_notice is not None:
@@ -1166,7 +1172,7 @@ def download_archives(
                     Notice(
                         "info",
                         "license_terms",
-                        f"{provider.license.attribution}. {provider.notice}",
+                        provider.license_notice(),
                     )
                 )
     cancelled = any(item.status == "cancelled" for item in items)

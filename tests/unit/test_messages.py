@@ -30,13 +30,17 @@ SRC = Path(imgwtools.__file__).parent
 POLISH = re.compile(
     "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]"
     r"|\b(?:nie|brak|albo|lub|oraz|jest|dla|musi|dozwolone|gdy|jesli|tylko|przez|moze"
-    r"|bez|przy|czy|plik\w*|katalog\w*|magazyn\w*|stacj\w+|zbior\w*|dane|danych"
+    r"|bez|przy|czy|plik\w*|katalog\w*|magazyn\w*|stacj(?:i|e|ach|ami|om)|zbior\w*"
+    r"|dane|danych"
     r"|wersj\w+|zapis\w*|opcj\w+|wymag\w+|zmienn\w+|wartosc\w*|nieznan\w+"
     r"|niepoprawn\w+|nieprawidlow\w+|nieczytel\w+|powtorzon\w+|pominieto|pobier\w+"
     r"|pobrano|odczyt\w*|podaj|uzyj|blad\w*)\b",
     re.IGNORECASE,
 )
 SCOPES = ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+# Areas whose texts are one wording in every language (names and legal formulas that
+# files persist); any other entry needs a translation.
+_SAME_AREAS = ("legal.",)
 # Last segment of a file name such as ``series.json``, which is not a message key.
 _FILE_SUFFIXES = frozenset({"json", "geojson", "parquet", "csv", "zip", "toml"})
 
@@ -64,19 +68,16 @@ _PENDING = frozenset(
         "cli/config_cmd.py",
         "cli/main.py",
         "reference_data.py",
-        # Notices, progress and plan lines.
-        "fetch.py",
-        "project.py",
-        "store/catalog.py",
-        "store/export.py",
-        "store/pmaxtp.py",
-        "store/series.py",
-        "store/sync.py",
-        "store/writer.py",
         # Web GUI.
         "web/app.py",
     }
 )
+
+
+def _same_by_design(key: str, text: Text) -> bool:
+    """Whether both languages may read the same: a legal wording or a bare composition."""
+    words = re.sub(r"\{[^}]*\}", " ", text.en)
+    return key.startswith(_SAME_AREAS) or re.search(r"[^\W\d_]", words) is None
 
 
 def sources() -> Iterator[tuple[str, ast.Module]]:
@@ -146,7 +147,7 @@ def test_every_entry_has_both_languages_with_the_same_placeholders():
             )
         if "lang" in english:
             problems.append(f"{key}: a placeholder is called lang")
-        if text.en == text.pl:
+        if text.en == text.pl and not _same_by_design(key, text):
             problems.append(f"{key}: the Polish text is the English one")
     assert not problems, "\n".join(problems)
 

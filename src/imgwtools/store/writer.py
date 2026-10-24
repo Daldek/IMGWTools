@@ -562,8 +562,7 @@ def _cleanup(incoming: Path, *, on_notice: NoticeHook | None = None) -> None:
                 Notice(
                     "warning",
                     "leftover_incoming",
-                    "Usunięto porzucony staging starszy niż 24 h: "
-                    f".incoming/{child.name}",
+                    message("writer.abandoned_staging_removed", name=child.name),
                 )
             )
 
@@ -961,17 +960,22 @@ def _content_unchanged(
         recorded = (
             observation.relative_to(root).as_posix()
             if observation is not None
-            else "brak (sygnałem odniesienia jest bieżąca wersja)"
+            else message("writer.no_observation_reference")
         )
         on_notice(
             Notice(
                 "info",
                 _CONTENT_CODE,
-                f"Treść bez zmian w {slot}: pobrane bajty (SHA-256 {sha}) mają tę "
-                f"samą treść kanoniczną {form} (content_sha256 "
-                f"{meta.content_sha256}) co bieżąca wersja "
-                f"{current.relative_to(root).as_posix()} (SHA-256 {meta.sha256}); "
-                f"nowej wersji nie zapisano, obserwacja: {recorded}",
+                message(
+                    "writer.content_unchanged",
+                    slot=slot,
+                    sha=sha,
+                    form=form,
+                    content_sha256=meta.content_sha256,
+                    current=current.relative_to(root).as_posix(),
+                    sha256=meta.sha256,
+                    recorded=recorded,
+                ),
             )
         )
     label = cast(Mapping[str, object], meta.extra["version"])["label"]
@@ -1227,14 +1231,20 @@ def write_archive(
             ) from exc
         if on_progress is not None:
             on_progress(
-                Progress(1, 1, "archive", "created", f"Zapisano archiwum {filename}")
+                Progress(
+                    1,
+                    1,
+                    "archive",
+                    "created",
+                    message("writer.archive_written", filename=filename),
+                )
             )
         if on_notice is not None:
             on_notice(
                 Notice(
                     "info",
                     _ATTRIBUTION_CODE,
-                    f"{provider.license.attribution}. {provider.notice}",
+                    provider.license_notice(),
                 )
             )
         return VersionResult(

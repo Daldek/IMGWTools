@@ -127,11 +127,136 @@ MESSAGES = {
         "Opcja {key} komendy {name} wymaga także {missing}",
     ),
     "command_needs_exactly_one_group": Text(
-        "The command {name} needs exactly one group of options: {groups}",
-        "Komenda {name} wymaga dokładnie jednej grupy opcji: {groups}",
+        "The command {name} needs exactly one group of options: {first} or {second}",
+        "Komenda {name} wymaga dokładnie jednej grupy opcji: {first} albo {second}",
     ),
     "plan_concerns_another_store": Text(
         "The plan concerns another store: {root}",
         "Plan dotyczy innego magazynu: {root}",
+    ),
+    "live_read": Text(
+        "Live read {url} (no write; the freshness is known only after the download)",
+        "Odczyt na żywo {url} (bez zapisu; aktualność znana dopiero po pobraniu)",
+    ),
+    "datasets_registry": Text(
+        "Dataset registry (offline): {count}",
+        "Rejestr zbiorów (offline): {count}",
+    ),
+    "providers_registry": Text(
+        "Provider registry (offline): {count}",
+        "Rejestr dostawców (offline): {count}",
+    ),
+    "archive_files": Text(
+        "Archive files of the dataset {dataset} (offline, no download): {count}",
+        "Pliki archiwów zbioru {dataset} (offline, bez pobierania): {count}",
+    ),
+    "read_station_lists": Text(
+        "Read the station lists of the store {root}",
+        "Odczyt list stacji z magazynu {root}",
+    ),
+    "not_imgw_store": Text(
+        "The directory {root} is not an IMGW store",
+        "Katalog {root} nie jest magazynem IMGW",
+    ),
+    "read_cell": Text(
+        "Read the cell {cell} from {found}",
+        "Odczyt komórki {cell} z {found}",
+    ),
+    "no_stored_cell": Text(
+        "No stored PMAXTP cell {cell}",
+        "Brak zapisanej komórki PMAXTP {cell}",
+    ),
+    "store_exists": Text(
+        "The IMGW store already exists: {root}",
+        "Magazyn IMGW już istnieje: {root}",
+    ),
+    "not_empty_store": Text(
+        "The directory {root} is not an empty IMGW store",
+        "Katalog {root} nie jest pustym magazynem IMGW",
+    ),
+    "read_only_operation": Text(
+        "Read-only operation: {root}",
+        "Operacja tylko do odczytu: {root}",
+    ),
+    "series_selection": Text(
+        "{version}: stations {stations}; variables {variables}; years {years} "
+        "({year_type})",
+        "{version}: stacje {stations}; zmienne {variables}; lata {years} ({year_type})",
+    ),
+    "read_series": Text(
+        "Read the series {path} (offline)",
+        "Odczyt szeregu {path} (offline)",
+    ),
+    "manifest_exists": Text(
+        "The project manifest already exists: {manifest}",
+        "Manifest projektu już istnieje: {manifest}",
+    ),
+    "no_manifest": Text(
+        "No project manifest {manifest}",
+        "Brak manifestu projektu {manifest}",
+    ),
+    "commands_catalog_description": Text(
+        "Description of the command catalog imgw-commands/1 (offline)",
+        "Opis katalogu komend imgw-commands/1 (offline)",
+    ),
+    "pmaxtp_url": Text(
+        "PMAXTP API URL (offline): {pmaxtp_url}",
+        "Adres API PMAXTP (offline): {pmaxtp_url}",
+    ),
+    "marker_will_be_created": Text(
+        "The marker {store_marker} will be created in {root}",
+        "Zostanie utworzony znacznik {store_marker} w {root}",
+    ),
+    "manifest_will_be_created": Text(
+        "The project manifest {manifest} will be created",
+        "Zostanie utworzony manifest {manifest}",
+    ),
+    "manifest_will_be_updated": Text(
+        "The project manifest {manifest} will be updated",
+        "Zostanie zaktualizowany manifest {manifest}",
+    ),
+    "command_list_description": Text(
+        "Command list imgw-command-list/1 (offline)",
+        "Spis komend imgw-command-list/1 (offline)",
+    ),
+    "download_writes": Text(
+        "Download {url} to {target}",
+        "Pobranie {url} do {target}",
+    ),
+    "download_replaces": Text(
+        "Download {url} to {target}, replacing the existing file",
+        "Pobranie {url} do {target}, istniejący plik zostanie zastąpiony",
+    ),
+    "export_to_stdout": Text(
+        "Export {what} to the standard output",
+        "Eksport {what} na standardowe wyjście",
+    ),
+    "export_to_file": Text(
+        "Export {what} to {path}",
+        "Eksport {what} do {path}",
+    ),
+    "export_replaces": Text(
+        "Export {what} to {path}, replacing the existing file",
+        "Eksport {what} do {path}, istniejący plik zostanie zastąpiony",
+    ),
+    "export_records": Text(
+        "the records of {version} ({format})",
+        "rekordów {version} ({format})",
+    ),
+    "export_station_series": Text(
+        "the series of the station {station} from {path}",
+        "szeregu stacji {station} z {path}",
+    ),
+    "standard_output": Text(
+        "the standard output",
+        "standardowe wyjście",
+    ),
+    "target_replaced": Text(
+        "{path} (an existing file is replaced)",
+        "{path} (istniejący plik zostanie zastąpiony)",
+    ),
+    "guide_plan": Text(
+        "Guide {format} ({language}) → {target}",
+        "Przewodnik {format} ({language}) → {target}",
     ),
 }

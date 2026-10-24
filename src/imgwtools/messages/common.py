@@ -9,4 +9,8 @@ MESSAGES = {
         "cancelled",
         "anulowano",
     ),
+    "unpublished": Text(
+        "not published",
+        "nieopublikowany",
+    ),
 }

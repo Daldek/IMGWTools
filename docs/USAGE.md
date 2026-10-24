@@ -179,7 +179,7 @@ for file in archive_files("cz.chmi.meteo_daily", stations=["0-203-0-11799"]):
 plan = check_store(store, datasets=["cz.chmi.hydro_daily"], stations=[station.station_code],
                    years="2024-2026")  # years opcjonalne dla hydro: brak = lata opublikowane
 for item in plan.items:
-    print(item.archive.year, item.status, item.remote_listed_at, item.error)  # 2026 unverifiable … nieopublikowany
+    print(item.archive.year, item.status, item.remote_listed_at, item.error)  # 2026 unverifiable … not published
 print(plan.requests)  # {'made': 1, 'planned': 4}: HEAD+GET dla dwóch plików missing
 report = sync_store(store, plan=plan)  # HEAD przed GET; zmiana od planu → stale_plan; szereg chmi_hydro_daily
 build_catalog(store, provider="CHMI")  # stations/versions/chmi_stations/…, katalog: catalog:cz.chmi.stations
@@ -216,7 +216,7 @@ for feature in read_catalog(root=demo, provider="CHMI"):
 Reguły i zachowanie ČHMÚ:
 
 - **Opcje:** `stations` jest wymagane dla `cz.chmi.*` i niedozwolone dla `pl.imgw.*`; `years` — wymagane dla `cz.chmi.hydro_daily` w `archive_files`/`datasets files|download`, opcjonalne w `check_store`/`sync_store` (brak = lata opublikowane w listingu stacji) i niedozwolone dla `cz.chmi.meteo_daily` (pliki obejmują całą historię stacji); `months` i `params` wyłącznie dla IMGW-PIB. Jedno wywołanie `check_store`/`sync_store` dotyczy archiwów krajowych IMGW-PIB albo plików stacji ČHMÚ, nie obu naraz.
-- **Aktualność:** `check_store` porównuje czas (co do minuty) i rozmiar z listingu serwera z sygnałem wersji w magazynie (`current`, `newer`, `missing`); rok bez pliku u źródła to `unverifiable` z `error="nieopublikowany"` (nie błąd), a `download_archives` daje dla niego pozycję `not_published`. Dane `now`/`recent`, dane godzinowe, ostrzeżenia ČHMÚ i PMAXTP poza Polską nie są obsługiwane; `current …` i `pmaxtp …` dotyczą wyłącznie IMGW-PIB.
+- **Aktualność:** `check_store` porównuje czas (co do minuty) i rozmiar z listingu serwera z sygnałem wersji w magazynie (`current`, `newer`, `missing`); rok bez pliku u źródła to `unverifiable` z `error="not published"` (nie błąd; tekst jest komunikatem katalogu, po polsku „nieopublikowany”), a `download_archives` daje dla niego pozycję `not_published`. Dane `now`/`recent`, dane godzinowe, ostrzeżenia ČHMÚ i PMAXTP poza Polską nie są obsługiwane; `current …` i `pmaxtp …` dotyczą wyłącznie IMGW-PIB.
 - **Wersje:** ČHMÚ regeneruje pliki masowo. Te same bajty pod nowym `Last-Modified` dają `relabeled` (kopia, jak w IMGW-PIB); inne bajty tej samej treści (JSON hydro i listy stacji bez koperty `zaznamID`/`datumVytvoreni`, forma `chmi-json/1`, pole `content_sha256` sidecara) — `unchanged` bez nowej wersji, z komunikatem `content_unchanged` i obserwacją nowego sygnału w `observations/`, więc następne sprawdzenie daje `current` bez pobierania.
 - **Szeregi:** `series.json` ma okresy znane per stacja (`stations[<kod>].periods`); szereg meteo ma kolumny `<V>_quality` i `<V>_source_flag`, a wartości nie są poprawiane według jakości. `series select` przyjmuje tylko lata z okresów szeregu (zakres przez rok nieopublikowany → `validation_error`).
 - **Katalog stacji:** osobna wersja katalogu dostawcy (`build_catalog(store, provider="CHMI")`, `imgw store catalog --provider CHMI`), położenie z metadanych `now` i historycznych z kontrolą obrysu Czech; współrzędne mają wartość z publikacji (JSON nie zachowuje końcowych zer zapisu, np. `50.6493690` → `50.649369`).

@@ -271,7 +271,7 @@ def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root
         o2024.server_path: "unverifiable",
     }
     assert items[h2001.server_path].error == items[o2024.server_path].error
-    assert items[h2001.server_path].error == "nieopublikowany"
+    assert items[h2001.server_path].error == "not published"
     assert plans["store"].series_state == {
         "hydro_daily": "current",
         "meteo_precip_daily": "outdated",

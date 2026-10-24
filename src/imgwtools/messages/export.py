@@ -45,4 +45,28 @@ MESSAGES = {
         "The export was cancelled; the target file stays untouched",
         "Anulowano eksport; plik docelowy pozostaje nietknięty",
     ),
+    "station_progress": Text(
+        "Station {station}",
+        "Stacja {station}",
+    ),
+    "series_exported": Text(
+        "Exported the series of the station {station}",
+        "Wyeksportowano szereg stacji {station}",
+    ),
+    "rows_written": Text(
+        "{label}: {written} rows",
+        "{label}: {written} wierszy",
+    ),
+    "archive_progress": Text(
+        "Archive {source}",
+        "Archiwum {source}",
+    ),
+    "archive_exported": Text(
+        "Exported the archive {source}",
+        "Wyeksportowano archiwum {source}",
+    ),
+    "exported_to_file": Text(
+        "{done} to {target}",
+        "{done} do {target}",
+    ),
 }

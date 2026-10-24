@@ -81,4 +81,34 @@ MESSAGES = {
         "A corrupt PMAXTP cell {path}: {exc}",
         "Uszkodzona komórka PMAXTP {path}: {exc}",
     ),
+    "cell_unknown_without_download": Text(
+        "{method} {latitude:.4f},{longitude:.4f}: the cell is unknown without a "
+        "download: the indices indX/indY come only from the API response, which "
+        "gives no freshness signal",
+        "{method} {latitude:.4f},{longitude:.4f}: komórka nieznana bez pobrania — "
+        "indeksy indX/indY ustala wyłącznie odpowiedź API, które nie udostępnia "
+        "sygnału aktualności",
+    ),
+    "local_version": Text(
+        "local version {current}",
+        "lokalna wersja {current}",
+    ),
+    "no_local_version": Text(
+        "no local version",
+        "brak lokalnej wersji",
+    ),
+    "cell_cannot_check": Text(
+        "{method} cell {cell}_{cell_2}: {where}; the freshness cannot be checked "
+        "without a download (the API gives no freshness signal)",
+        "{method} komórka {cell}_{cell_2}: {where}; aktualności nie można sprawdzić "
+        "bez pobrania (API nie udostępnia sygnału aktualności)",
+    ),
+    "cell_unchanged": Text(
+        "PMAXTP cell {cell}_{cell_2} unchanged",
+        "Komórka PMAXTP {cell}_{cell_2} bez zmian",
+    ),
+    "cell_published": Text(
+        "PMAXTP cell {cell}_{cell_2}: {name}",
+        "Komórka PMAXTP {cell}_{cell_2}: {name}",
+    ),
 }

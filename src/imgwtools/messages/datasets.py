@@ -119,4 +119,21 @@ MESSAGES = {
         "Zbiór {key} wymaga opcji years: bez listingu serwera lata opublikowane nie "
         "są znane",
     ),
+    "provider_notice_imgw": Text(
+        "For private and research use; other uses require checking the IMGW-PIB "
+        "terms, including the exceptions for high-value data.",
+        "Do użytku prywatnego i badawczego; inne zastosowania wymagają sprawdzenia "
+        "warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+    ),
+    "provider_notice_chmi": Text(
+        "The CC BY 4.0 licence permits copying, changes and commercial use provided "
+        "that the author ČHMÚ is credited, the licence is given and the changes are "
+        "marked.",
+        "Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie komercyjne pod "
+        "warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian.",
+    ),
+    "license_notice": Text(
+        "{attribution}. {notice}",
+        "{attribution}. {notice}",
+    ),
 }

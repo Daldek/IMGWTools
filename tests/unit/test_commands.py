@@ -1111,11 +1111,17 @@ def test_check_of_datasets_download_plans_each_server_path(tmp_path):
         },
     ).result
     assert plan.root == output
-    assert [
-        (action.status, action.detail.split(" → ")[0]) for action in plan.actions
-    ] == [
-        ("unverifiable", files[0].url),
-        ("missing", files[1].url),
+
+    def target(file):
+        return output.joinpath(*file.server_path.split("/"))
+
+    assert [(action.status, action.detail) for action in plan.actions] == [
+        (
+            "unverifiable",
+            f"Download {files[0].url} to {target(files[0])}, "
+            "replacing the existing file",
+        ),
+        ("missing", f"Download {files[1].url} to {target(files[1])}"),
     ]
 
 

@@ -60,4 +60,52 @@ MESSAGES = {
         "The plan concerns another store: {root}",
         "Plan dotyczy innego magazynu: {root}",
     ),
+    "no_comparable_header": Text(
+        "no comparable ETag/Last-Modified header",
+        "brak porównywalnego nagłówka ETag/Last-Modified",
+    ),
+    "no_comparable_signal": Text(
+        "no comparable signal",
+        "brak porównywalnego sygnału",
+    ),
+    "station_no_files": Text(
+        "station {code}: no files of the dataset {key} at the source",
+        "stacja {code}: brak plików zbioru {key} u źródła",
+    ),
+    "listing_without_dataset_files": Text(
+        "Unreadable listing {base_url}{directory}/: no files of the dataset {key}",
+        "Nieczytelny listing {base_url}{directory}/: brak plików zbioru {key}",
+    ),
+    "station_error": Text(
+        "station {code}: {error}",
+        "stacja {code}: {error}",
+    ),
+    "series_skipped": Text(
+        "Skipped building the series {dataset}: incomplete inputs {blocking}",
+        "Pominięto budowę szeregu {dataset}: niekompletne wejścia {blocking}",
+    ),
+    "skipped_sync_from_plan": Text(
+        "{server_path}: {error}; skipped while syncing from the plan",
+        "{server_path}: {error}; pominięto przy synchronizacji z planu",
+    ),
+    "download_and_compare": Text(
+        "{server_path}: {error}; the file is downloaded and its SHA-256 compared",
+        "{server_path}: {error}; pobieranie i porównanie sumy SHA-256",
+    ),
+    "stale_plan": Text(
+        "{server_path}: the server headers changed since the plan was checked",
+        "{server_path}: nagłówki serwera zmieniły się od sprawdzenia planu",
+    ),
+    "timeout_waiting_for_server": Text(
+        "Timed out waiting for the {source} server: {reason}",
+        "Przekroczono czas odpowiedzi serwera {source}: {reason}",
+    ),
+    "http_error": Text(
+        "HTTP error {status}: {url}",
+        "Błąd HTTP {status}: {url}",
+    ),
+    "connection_error": Text(
+        "Connection error to {source}: {reason}",
+        "Błąd połączenia z {source}: {reason}",
+    ),
 }

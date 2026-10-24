@@ -241,12 +241,12 @@ def test_check_reads_one_listing_and_compares_it_with_the_store(root, server):
         PlanAction(
             "store sync",
             "unverifiable",
-            f"stacja {FULL}: brak plików zbioru {HYDRO} u źródła",
+            f"station {FULL}: no files of the dataset {HYDRO} at the source",
         ),
         PlanAction(
             "store sync",
             "unverifiable",
-            f"stacja {NO_FILES}: brak plików zbioru {HYDRO} u źródła",
+            f"station {NO_FILES}: no files of the dataset {HYDRO} at the source",
         ),
     )
     assert [(notice.code, notice.text) for notice in notices] == [
@@ -295,14 +295,14 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
         (
             archive_files(HYDRO, stations=[S1], years=[2005])[0],
             "unverifiable",
-            "nieopublikowany",
+            "not published",
         ),
         (
             archive_files(HYDRO, stations=[S1], years=[2006])[0],
             "unverifiable",
-            "nieopublikowany",
+            "not published",
         ),
-        (H2_2005, "unverifiable", "nieopublikowany"),
+        (H2_2005, "unverifiable", "not published"),
         (H2_2006, "missing", None),
     ]
     assert plan.actions == () and plan.requests == {"made": 1, "planned": 2}
@@ -313,9 +313,9 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
     assert [
         (item.status, item.version is None, item.error) for item in report.items
     ] == [
-        ("unchanged", True, "nieopublikowany"),
-        ("unchanged", True, "nieopublikowany"),
-        ("unchanged", True, "nieopublikowany"),
+        ("unchanged", True, "not published"),
+        ("unchanged", True, "not published"),
+        ("unchanged", True, "not published"),
         ("created", False, None),
     ]
     assert built == [HYDRO]  # unpublished years do not block the series
@@ -363,7 +363,7 @@ def test_plan_of_listing_items_round_trips_and_meets_the_contract(
         {
             "command": "store sync",
             "status": "unverifiable",
-            "detail": f"stacja {NO_FILES}: brak plików zbioru {HYDRO} u źródła",
+            "detail": f"station {NO_FILES}: no files of the dataset {HYDRO} at the source",
         }
     ]
 
@@ -583,14 +583,37 @@ def test_unusable_listing_fails_every_item_of_its_directory(
     assert [
         (action.status, action.detail.split(":")[0]) for action in unknown.actions
     ] == [
-        ("check_failed", f"stacja {S1}"),
-        ("check_failed", f"stacja {S2}"),
+        ("check_failed", f"station {S1}"),
+        ("check_failed", f"station {S2}"),
     ]
     synced = sync_store(root, datasets=[HYDRO], stations=[S1, S2])
     assert [(item.slot, item.status, item.error_code) for item in synced.items] == [
         (None, "failed", code)
     ] * 2
     assert synced.series == ()
+
+
+@pytest.mark.parametrize(
+    ("listing", "code"),
+    [
+        ("hydro_listing_error", "source_unavailable"),
+        ("hydro_listing_empty", "data_error"),
+    ],
+)
+def test_a_saved_plan_gives_a_failed_check_the_code_of_its_text(
+    root, server, tmp_path, listing, code
+):
+    serve(server, listing)
+    saved = tmp_path / "plan.json"
+    check_store(root, datasets=[HYDRO], stations=[S1], years=[2023], plan=saved)
+
+    plan = StorePlan.from_json(saved)
+    report = sync_store(root, plan=saved, series=False)
+
+    assert type(plan.items[0].error) is str  # the file keeps the text, not the message
+    assert [(item.status, item.error_code) for item in report.items] == [
+        ("failed", code)
+    ]
 
 
 def test_other_content_under_the_same_canonical_form_is_one_observation(root, server):
@@ -692,9 +715,9 @@ def test_meteo_station_has_four_files_and_missing_elements_are_unpublished(
         (RAIN, "TMI", "unverifiable"),
         *((FULL, element, "missing") for element in elements),
     ]
-    assert {item.error for item in plan.items[1:4]} == {"nieopublikowany"}
+    assert {item.error for item in plan.items[1:4]} == {"not published"}
     assert [action.detail for action in plan.actions] == [
-        f"stacja {S1}: brak plików zbioru {METEO} u źródła"
+        f"station {S1}: no files of the dataset {METEO} at the source"
     ]
     report = sync_store(root, plan=plan, series=False)
     assert [item.status for item in report.items] == [
@@ -755,7 +778,7 @@ def test_unreadable_meteo_directory_fails_only_its_elements(root, server):
         (FULL, "TMA", "check_failed"),
         (FULL, "TMI", "check_failed"),
     ]
-    assert plan.items[1].error.startswith("Błąd HTTP 503")
+    assert plan.items[1].error.startswith("HTTP error 503")
 
 
 def test_cancel_before_the_listing_and_between_files(root, server):

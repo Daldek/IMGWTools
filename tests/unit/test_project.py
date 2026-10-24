@@ -680,8 +680,11 @@ def test_restore_recreates_only_identical_bytes_and_never_repins(pinned, imgw):
         result.slot.split(":")[0]: (result.error, result.error_code)
         for result in report.files
     }
-    assert "inną treść" in errors["archive"][0] and errors["archive"][1] == "not_found"
-    assert "przypiętych wejść" in errors["series"][0]
+    assert (
+        "serves other content of" in errors["archive"][0]
+        and errors["archive"][1] == "not_found"
+    )
+    assert "pinned inputs" in errors["series"][0]
     assert errors["series"][1] == "not_found"
     assert {result.status for result in report.files} == {
         "failed"
@@ -715,7 +718,7 @@ def test_set_store_moves_to_a_verified_copy_and_refuses_other_stores(pinned, tmp
     foreign.mkdir()
     (foreign / "x.txt").write_text("x")
     for store, message in [
-        (partial, "brak przypiętego pliku"),
+        (partial, "the pinned file is missing"),
         (tampered, "SHA-256"),
         (foreign, "is not a supported IMGW store"),
     ]:
@@ -743,7 +746,7 @@ def test_set_store_to_new_empty_store_then_download_restores_identical_pins(
     assert manifest(pinned)["store_dir"] == "../nowy"
     ((notice),) = notices
     assert (notice.level, notice.code) == ("warning", "pins_not_in_store")
-    assert f"brak {len(pins)} przypiętych plików" in notice.text
+    assert f"{len(pins)} pinned files are missing" in notice.text
     assert get_project_status(pinned).tasks == {"raba": "missing"}
 
     report = download_project(pinned)
@@ -767,7 +770,9 @@ def test_restore_into_empty_store_fails_explicitly_when_imgw_changed_bytes(
     report = download_project(pinned)
 
     assert report.tasks == {"raba": "failed"}
-    assert any("inną treść" in (result.error or "") for result in report.files)
+    assert any(
+        "serves other content of" in (result.error or "") for result in report.files
+    )
     assert get_project_status(pinned).tasks == {"raba": "missing"}
 
 

@@ -368,8 +368,8 @@ def test_imgw_16_k1_check_states_come_from_one_listing_without_any_content(
     assert states == {
         (S1, 2023): ("current", None),  # the observation of scenario (8)
         (S1, 2024): ("newer", None),  # the listing shows the first publication
-        (S2, 2023): ("unverifiable", "nieopublikowany"),
-        (S2, 2024): ("unverifiable", "nieopublikowany"),
+        (S2, 2023): ("unverifiable", "not published"),
+        (S2, 2024): ("unverifiable", "not published"),
     }
     first = plan.items[0]
     assert first.local_observation is not None
@@ -546,7 +546,7 @@ def test_imgw_16_k3_the_plan_names_stations_files_sizes_and_requests(tmp_path, c
     }
     assert {
         (item.station_code, item.archive.year, item.error) for item in plan.items
-    } >= {(S2, 2005, "nieopublikowany")}
+    } >= {(S2, 2005, "not published")}
     assert [(action.command, action.status) for action in plan.actions] == [
         ("store sync", "unverifiable")
     ]

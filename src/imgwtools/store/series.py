@@ -305,7 +305,7 @@ def _scan_inputs(
                     )
                 )
         except (IMGWError, ValueError, KeyError, TypeError) as exc:
-            problems.append(str(exc))
+            problems.append(reason(exc))
             continue
         inputs.append(_Input(archive, current))
     inputs.sort(key=lambda item: item.version.slot)
@@ -461,14 +461,14 @@ def check_series(
                     len(inputs),
                     "archive",
                     "current",
-                    f"Wejście szeregu {item.version.relative}",
+                    message("series.input_progress", relative=item.version.relative),
                 )
             )
     state = _series_state(path, descriptor, inputs, reliable=not problems)
     detail = {
-        "current": f"Szereg {descriptor.slug} odpowiada bieżącym archiwom",
-        "outdated": f"Szereg {descriptor.slug} wymaga przebudowy",
-        "missing": f"Brak szeregu {descriptor.slug}",
+        "current": message("series.series_current", slug=descriptor.slug),
+        "outdated": message("series.series_needs_rebuild", slug=descriptor.slug),
+        "missing": message("series.series_missing", slug=descriptor.slug),
     }[state]
     action_status: dict[SeriesState, Literal["current", "newer", "missing"]] = {
         "current": "current",
@@ -483,7 +483,9 @@ def check_series(
     if not inputs:
         actions.append(
             PlanAction(
-                "series build", "missing", f"Brak archiwów zbioru {dataset} w magazynie"
+                "series build",
+                "missing",
+                message("series.no_archives_of_dataset", dataset=dataset),
             )
         )
     return StorePlan(
@@ -1016,7 +1018,8 @@ def build_series(
         return _report("failed", sources=sources, problems=problems)
     if not inputs:
         return _report(
-            "failed", problems=[f"Brak archiwów zbioru {dataset} w magazynie"]
+            "failed",
+            problems=[message("series.no_archives_of_dataset", dataset=dataset)],
         )
     manifest = _manifest(inputs)
     current = _current_series(_series_versions(path, descriptor))
@@ -1033,7 +1036,7 @@ def build_series(
                     1,
                     "series",
                     "reused",
-                    f"Szereg {descriptor.slug} bez zmian wejść",
+                    message("series.series_inputs_unchanged", slug=descriptor.slug),
                 )
             )
         return _report(
@@ -1085,14 +1088,16 @@ def build_series(
                             len(inputs),
                             "archive",
                             "parsed",
-                            f"Odczytano {item.version.relative}",
+                            message(
+                                "series.archive_read", relative=item.version.relative
+                            ),
                         )
                     )
             spill.flush()
         except (IMGWDataError, IMGWValidationError, OSError) as exc:
             if on_notice is not None:
-                on_notice(Notice("error", "archive_failed", str(exc)))
-            return _report("failed", sources=sources, problems=[str(exc)])
+                on_notice(Notice("error", "archive_failed", reason(exc)))
+            return _report("failed", sources=sources, problems=[reason(exc)])
         station_periods = {code: _merge_spans(items) for code, items in spans.items()}
 
         incoming = path / ".incoming"
@@ -1110,8 +1115,8 @@ def build_series(
                     station = spill.station(code)
                 except IMGWDataError as exc:
                     if on_notice is not None:
-                        on_notice(Notice("error", "archive_failed", str(exc)))
-                    return _report("failed", sources=sources, problems=[str(exc)])
+                        on_notice(Notice("error", "archive_failed", reason(exc)))
+                    return _report("failed", sources=sources, problems=[reason(exc)])
                 table = _station_table(pa, station, descriptor)
                 periods = station_periods[code] if per_station else None
                 coverage = _station_coverage(
@@ -1135,7 +1140,13 @@ def build_series(
                 index_stations[code] = entry
                 if on_progress is not None:
                     on_progress(
-                        Progress(number, total, "station", "written", f"Stacja {code}")
+                        Progress(
+                            number,
+                            total,
+                            "station",
+                            "written",
+                            message("series.station_progress", code=code),
+                        )
                     )
             _fsync_dir(staging / "stations")
             series = {
@@ -1246,7 +1257,7 @@ def build_series(
                         Notice(
                             "info",
                             "license_terms",
-                            f"{license_info['attribution']}. {provider.notice}",
+                            provider.license_notice(license_info["attribution"]),
                         )
                     )
                 return _report(

@@ -213,7 +213,7 @@ def test_other_bytes_of_the_same_content_restore_pins_by_content(
     assert f"{relative(store, results[SLOT_2023])} (SHA-256 {sha(reserialized)})" in (
         notice.text
     )
-    assert f"wspólne content_sha256 {pinned_2023.content_sha256}" in notice.text
+    assert f"shared content_sha256 {pinned_2023.content_sha256}" in notice.text
 
     seen = []
     status = get_project_status(pinned, tasks=["snezka"], on_notice=seen.append)
@@ -260,7 +260,7 @@ def test_verify_recomputes_the_sums_of_an_equivalent_version(pinned, server):
     assert verified.tasks == {"snezka": "changed"}
     (failed,) = [result for result in verified.files if result.status == "failed"]
     assert (failed.slot, failed.error_code) == (SLOT_2023, "data_error")
-    assert "nie potwierdza treści pinu" in failed.error
+    assert "does not confirm the content of the pin" in failed.error
     assert "pin_mismatch" in {notice.code for notice in notices}
 
 
@@ -293,7 +293,7 @@ def test_same_bytes_under_a_new_label_restore_by_content_only_with_a_form(
         if result.task == "raba" and result.slot.startswith("archive:")
     ]
     assert (archive.status, archive.error_code) == ("failed", "not_found")
-    assert archive.error.startswith("Identyczne bajty zapisano jako")
+    assert archive.error.startswith("The identical bytes were written as")
 
 
 def test_other_content_at_the_source_fails_naming_the_provider(
@@ -320,14 +320,14 @@ def test_other_content_at_the_source_fails_naming_the_provider(
     chmi = errors[("snezka", SLOT_2024)]
     assert (chmi.status, chmi.error_code) == ("failed", "not_found")
     assert chmi.error == (
-        "ČHMÚ udostępnia inną treść hydrology/historical/data/daily/"
-        f"H_0-203-1-900001_DQ_2024.json (SHA-256 {corrected}) niż przypięta "
-        f"({pinned_2024.sha256}); przypięcia bez zmian, świadome przepięcie: "
+        "ČHMÚ serves other content of hydrology/historical/data/daily/"
+        f"H_0-203-1-900001_DQ_2024.json (SHA-256 {corrected}) than the pinned one "
+        f"({pinned_2024.sha256}); the pins are unchanged, a deliberate re-pin: "
         'update="upgrade"'
     )
     assert errors[
         ("raba", "archive:pl.imgw.hydro_daily:2024/codz_2024.zip")
-    ].error.startswith("IMGW-PIB udostępnia inną treść")
+    ].error.startswith("IMGW-PIB serves other content of")
     assert "pin_restored_by_content" not in {notice.code for notice in notices}
     assert (pinned / PROJECT_FILE).read_bytes() == before
     assert get_project_status(pinned, tasks=["snezka"]).tasks == {"snezka": "missing"}

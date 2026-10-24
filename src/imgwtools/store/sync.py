@@ -49,7 +49,8 @@ from imgwtools.fetch import (
     download_hydro_data,
     download_meteo_data,
 )
-from imgwtools.messages import message
+from imgwtools.messages import Message, message, reason
+from imgwtools.messages.sync import MESSAGES
 from imgwtools.store.reader import _Reference, _reference_signal
 from imgwtools.store.series import (
     SeriesState,
@@ -80,8 +81,8 @@ from imgwtools.store.writer import write_archive
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 CANCELLED = message("common.cancelled")
-NO_SIGNAL = "brak porównywalnego nagłówka ETag/Last-Modified"
-NO_LISTING_SIGNAL = "brak porównywalnego sygnału"
+NO_SIGNAL = message("sync.no_comparable_header")
+NO_LISTING_SIGNAL = message("sync.no_comparable_signal")
 
 _HREF = re.compile(r"""href\s*=\s*["']([^"'#?]+)""", re.IGNORECASE)
 _DONE = {"created", "relabeled", "unchanged", "reused"}
@@ -128,21 +129,26 @@ def _head(client: httpx.Client, archive: ArchiveFile) -> _Signal | None:
     )
 
 
-# Prefixes of the server errors of a check; any other check_failed reason is a
-# data error (unreadable listing or local version).
-_HTTP_ERRORS = (
-    "Przekroczono czas odpowiedzi serwera ",
-    "Błąd HTTP ",
-    "Błąd połączenia z ",
+# Start of the English text of each server error of a check, before its first
+# placeholder. A saved plan keeps only the text, so ``_failure_code`` tells a
+# server error from any other check_failed reason (an unreadable listing or
+# local version, a data error) by these prefixes.
+_HTTP_ERRORS = tuple(
+    MESSAGES[name].en.partition("{")[0]
+    for name in ("timeout_waiting_for_server", "http_error", "connection_error")
 )
 
 
-def _http_error(exc: Exception, *, source: str = "IMGW") -> str:
+def _http_error(exc: Exception, *, source: str = "IMGW") -> Message:
     if isinstance(exc, httpx.TimeoutException):
-        return f"{_HTTP_ERRORS[0]}{source}: {exc}"
+        return message(
+            "sync.timeout_waiting_for_server", source=source, reason=reason(exc)
+        )
     if isinstance(exc, httpx.HTTPStatusError):
-        return f"{_HTTP_ERRORS[1]}{exc.response.status_code}: {exc.request.url}"
-    return f"{_HTTP_ERRORS[2]}{source}: {exc}"
+        return message(
+            "sync.http_error", status=exc.response.status_code, url=exc.request.url
+        )
+    return message("sync.connection_error", source=source, reason=reason(exc))
 
 
 def _failure_code(error: str | None) -> ErrorCode:
@@ -246,11 +252,13 @@ def _read_listing(client: httpx.Client, url: str, *, source: str) -> _Listing:
     except httpx.HTTPError as exc:
         return _Listing({}, _http_error(exc, source=source))
     if response.status_code != 200:
-        return _Listing({}, f"{_HTTP_ERRORS[1]}{response.status_code}: {url}")
+        return _Listing(
+            {}, message("sync.http_error", status=response.status_code, url=url)
+        )
     try:
         entries = parse_listing(response.content, url=url)
     except IMGWDataError as exc:
-        return _Listing({}, str(exc))
+        return _Listing({}, reason(exc))
     return _Listing({entry.name: entry for entry in entries})
 
 
@@ -270,7 +278,7 @@ def _no_files(descriptor: DatasetDescriptor, code: str) -> PlanAction:
     return PlanAction(
         _SYNC,
         "unverifiable",
-        f"stacja {code}: brak plików zbioru {descriptor.key} u źródła",
+        message("sync.station_no_files", code=code, key=descriptor.key),
     )
 
 
@@ -331,9 +339,11 @@ def _station_targets(
             if archive is not None:
                 listed[match[1]][archive.server_path] = (archive, entry)
         if not known:
-            failures[directory] = (
-                f"Nieczytelny listing {provider.base_url}{directory}/: "
-                f"brak plików zbioru {descriptor.key}"
+            failures[directory] = message(
+                "sync.listing_without_dataset_files",
+                base_url=provider.base_url,
+                directory=directory,
+                key=descriptor.key,
             )
     requested: dict[str, list[ArchiveFile]] = defaultdict(list)
     for archive in candidates or ():
@@ -345,7 +355,11 @@ def _station_targets(
         if candidates is None:
             if failures:
                 actions.extend(
-                    PlanAction(_SYNC, "check_failed", f"stacja {code}: {error}")
+                    PlanAction(
+                        _SYNC,
+                        "check_failed",
+                        message("sync.station_error", code=code, error=error),
+                    )
                     for error in failures.values()
                 )
             elif files:
@@ -413,7 +427,7 @@ def _check_target(root: Path, target: _Target) -> PlanItem:
     try:
         reference = _reference_signal(root, slot=_archive_slot(archive))
     except IMGWDataError as exc:
-        return _listed_item(root, archive, "check_failed", error=str(exc))
+        return _listed_item(root, archive, "check_failed", error=reason(exc))
     if target.error is not None:
         return _listed_item(
             root, archive, "check_failed", reference=reference, error=target.error
@@ -821,7 +835,7 @@ def check_store(
     StorePlan
         ``imgw-plan/1`` plan with one item per archive: ``current``,
         ``newer``, ``missing`` (published but not stored), ``unverifiable``
-        (no comparable signal, ``"nieopublikowany"`` when the file is not
+        (no comparable signal, ``"not published"`` when the file is not
         published, or ``"cancelled"``) or ``check_failed`` (listing or HEAD
         error, unreadable listing, local version or observation). IMGW-PIB
         items compare every header present on both sides (``signal="head"``);
@@ -946,7 +960,7 @@ def _check_one(
     try:
         local = _current_version(root, archive)
     except IMGWDataError as exc:
-        return _item(archive, "check_failed", error=str(exc))
+        return _item(archive, "check_failed", error=reason(exc))
     directory = PurePosixPath(archive.server_path).parent.as_posix()
     if directory not in listings:
         try:
@@ -1085,7 +1099,7 @@ def sync_store(
     items are never downloaded. An ``unverifiable`` item is downloaded (then
     deduplicated by SHA-256) only in a sync without a supplied plan; from a
     supplied plan it stays ``unchanged`` with a ``source_unverifiable``
-    warning. An unpublished item (``"nieopublikowany"``) stays ``unchanged``
+    warning. An unpublished item (``"not published"``) stays ``unchanged``
     and does not block the series. Failures of single archives are reported
     per slot, not raised.
 
@@ -1240,7 +1254,11 @@ def sync_store(
                         0,
                         (),
                         (
-                            f"Pominięto budowę szeregu {dataset}: niekompletne wejścia {', '.join(blocking)}",
+                            message(
+                                "sync.series_skipped",
+                                dataset=dataset,
+                                blocking=", ".join(blocking),
+                            ),
                         ),
                     )
                 )
@@ -1256,7 +1274,7 @@ def sync_store(
                         )
                     )
                 except IMGWError as exc:
-                    reports.append(SeriesReport("failed", None, 0, (), (str(exc),)))
+                    reports.append(SeriesReport("failed", None, 0, (), (reason(exc),)))
     was_cancelled = stop or any(result.status == "cancelled" for result in results)
     return SyncReport(
         items=(*results, *unchecked), series=tuple(reports), cancelled=was_cancelled
@@ -1290,7 +1308,11 @@ def _sync_one(
                     Notice(
                         "warning",
                         "source_unverifiable",
-                        f"{item.archive.server_path}: {item.error}; pominięto przy synchronizacji z planu",
+                        message(
+                            "sync.skipped_sync_from_plan",
+                            server_path=item.archive.server_path,
+                            error=item.error,
+                        ),
                     )
                 )
             return _result(item, "unchanged", version=local, error=item.error)
@@ -1299,7 +1321,11 @@ def _sync_one(
                 Notice(
                     "warning",
                     "source_unverifiable",
-                    f"{item.archive.server_path}: {item.error}; pobieranie i porównanie sumy SHA-256",
+                    message(
+                        "sync.download_and_compare",
+                        server_path=item.archive.server_path,
+                        error=item.error,
+                    ),
                 )
             )
     try:
@@ -1312,10 +1338,10 @@ def _sync_one(
             error_code="source_unavailable",
         )
     if _stale(item, signal):
-        message = f"{item.archive.server_path}: nagłówki serwera zmieniły się od sprawdzenia planu"
+        text = message("sync.stale_plan", server_path=item.archive.server_path)
         if on_notice is not None:
-            on_notice(Notice("warning", "stale_plan", message))
-        return _result(item, "stale_plan", version=local, error=message)
+            on_notice(Notice("warning", "stale_plan", text))
+        return _result(item, "stale_plan", version=local, error=text)
     try:
         response = _download(item.archive, client=client)
         written = write_archive(
@@ -1335,7 +1361,7 @@ def _sync_one(
         return _result(
             item,
             "failed",
-            error=str(exc),
+            error=reason(exc),
             error_code=exc.code if isinstance(exc, IMGWError) else "io_error",
         )
     return _result(item, written.status, version=written.path)

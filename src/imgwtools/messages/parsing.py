@@ -27,4 +27,8 @@ MESSAGES = {
         "Unknown kind of station list: {kind!r}; allowed: hydro, meteo",
         "Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo",
     ),
+    "zip_archive": Text(
+        "ZIP archive",
+        "archiwum ZIP",
+    ),
 }

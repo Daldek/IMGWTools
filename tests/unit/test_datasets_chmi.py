@@ -68,12 +68,33 @@ def test_providers_follow_the_registry_table():
         "Dane ČHMÚ zostały przetworzone (normalizacja i zmiana formatu)"
     )
     assert chmi.notice == (
+        "The CC BY 4.0 licence permits copying, changes and commercial use provided "
+        "that the author ČHMÚ is credited, the licence is given and the changes are "
+        "marked."
+    )
+    assert chmi.notice.localized("pl") == (
         "Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie komercyjne pod "
         "warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian."
     )
     assert chmi.station_code_pattern == "^0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16}$"
     assert chmi.datasets == tuple(CHMI_KEYS)
     assert len(imgw.datasets) == 13
+
+
+def test_license_notice_is_the_attribution_then_the_notice_in_the_language_asked():
+    chmi = get_provider("CHMI")
+
+    notice = chmi.license_notice()
+    processed = chmi.license_notice(f"{chmi.license.attribution}. Changed")
+
+    assert notice == f"{chmi.license.attribution}. {chmi.notice}"
+    assert processed == f"{chmi.license.attribution}. Changed. {chmi.notice}"
+    # The attribution keeps its wording; only the provider's notice is translated.
+    assert notice.localized("pl") == (
+        f"{chmi.license.attribution}. Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany "
+        "i użycie komercyjne pod warunkiem uznania autorstwa ČHMÚ, podania licencji i "
+        "oznaczenia zmian."
+    )
 
 
 def test_provider_lookup_by_id_or_key_prefix():
