@@ -47,7 +47,7 @@ FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
-def no_store_root(monkeypatch):
+def no_imgw_root(monkeypatch):
     """The developer's IMGW_ROOT must not reach the CLI under test."""
     monkeypatch.delenv("IMGW_ROOT", raising=False)
 

@@ -146,8 +146,7 @@ class VersionResult:
         content and HTTP signal already exist (or, for a dataset with a
         canonical form, other bytes carry the content of the current
         version), ``"relabeled"`` when identical bytes were published with a
-        new HTTP signal under a new label, ``"reused"`` when an existing
-        version is reused.
+        new HTTP signal under a new label.
     path : Path
         Path of the version's main file.
     sha256 : str

@@ -222,7 +222,7 @@ async def test_list_commands_page_by_50_and_at_most_imgw_api_max_limit(monkeypat
     assert document["details"] == {"option": "limit", "value": 6, "maximum": 5}
 
 
-async def test_imgw_store_root_is_the_root_of_absent_root(root, monkeypatch):
+async def test_imgw_root_fills_an_absent_root(root, monkeypatch):
     monkeypatch.setenv("IMGW_ROOT", str(root))
 
     info = await call("imgw_store_info", {})

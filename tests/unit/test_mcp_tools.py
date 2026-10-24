@@ -72,7 +72,7 @@ def removed(schema: dict[str, Any], mode: str) -> set[str]:
 
 
 @pytest.fixture(autouse=True)
-def no_store_root(monkeypatch):
+def no_imgw_root(monkeypatch):
     """Servers of these tests have no IMGW_ROOT unless a test sets one."""
     monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.setattr(settings, "api_max_limit", 1000)
@@ -225,9 +225,7 @@ async def test_removed_options_leave_the_required_groups():
 
 
 @pytest.mark.parametrize("mode", STDIO)
-async def test_imgw_store_root_makes_root_optional_on_stdio(
-    mode, monkeypatch, tmp_path
-):
+async def test_imgw_root_makes_root_optional_on_stdio(mode, monkeypatch, tmp_path):
     plain = {tool["name"]: tool["inputSchema"] for tool in await listing(mode)}
     monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
     async with Client(create_server(mode=mode)) as client:

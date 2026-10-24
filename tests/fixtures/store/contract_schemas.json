@@ -1399,7 +1399,7 @@
         "items": [
           {
             "slot": "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
-            "status": "created",
+            "status": "new",
             "version": "archives/versions/dane_hydrologiczne/dobowe/2023/codz_2023/2024-08-28_1a2b3c4d/codz_2023.zip",
             "error": null,
             "task": null,
