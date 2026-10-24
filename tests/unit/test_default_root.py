@@ -6,11 +6,13 @@ import pytest
 
 pytest.importorskip("mcp")
 
+import respx
 from mcp import Client
 
-from imgwtools import validate_command
+from imgwtools import init_store, validate_command
 from imgwtools.config import default_root, environment_report
 from imgwtools.mcp.server import create_server
+from tests.contract.support import DAILY, H2024, NEW, V3, FakeImgw
 
 
 @pytest.fixture(autouse=True)
@@ -215,6 +217,128 @@ async def test_a_default_root_inside_an_allowed_directory_is_used(
 
     assert not failed, document
     assert document["result"]["root"] == str(allowed / "default")
+
+
+# The calls below name a place to write: a file of an export, the directory of
+# plain files and the plan file of ``store check``. Tool, arguments, option.
+WRITING_CALLS = ("guide", "sync", "download", "plan")
+
+
+def writing_call(kind, base, store):
+    out = base / "out"
+    plain = {"datasets": [DAILY], "years": "2024", "check": False}
+    return {
+        "guide": (
+            "imgw_commands_guide",
+            {"output": str(out / "AGENTS.md"), "check": False},
+            "output",
+        ),
+        "sync": (
+            "imgw_store_sync",
+            {**plain, "output_dir": str(out / "plain")},
+            "output_dir",
+        ),
+        "download": (
+            "imgw_datasets_download",
+            {
+                "dataset": DAILY,
+                "years": "2024",
+                "output_dir": str(out / "plain"),
+                "check": False,
+            },
+            "output_dir",
+        ),
+        "plan": (
+            "imgw_store_check",
+            {
+                "root": str(store),
+                "datasets": [DAILY],
+                "years": "2024",
+                "plan": str(out / "plan.json"),
+            },
+            "plan",
+        ),
+    }[kind]
+
+
+@pytest.mark.parametrize("kind", WRITING_CALLS)
+async def test_a_target_without_an_allowed_directory_is_forbidden(kind, tmp_path):
+    store = init_store(tmp_path / "store").root
+    tool, arguments, _ = writing_call(kind, tmp_path, store)
+
+    failed, document = await call(tool, arguments)
+
+    assert failed
+    assert document["code"] == "forbidden"
+    assert document["details"]["reason"] == "no_allowed_dir"
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("kind", WRITING_CALLS)
+async def test_a_target_outside_the_allowed_directories_is_forbidden(kind, tmp_path):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    store = init_store(allowed / "store").root
+    tool, arguments, option = writing_call(
+        kind, tmp_path, store
+    )  # target: tmp_path/out
+
+    failed, document = await call(tool, arguments, allow=(allowed,))
+
+    assert failed
+    assert document["code"] == "forbidden"
+    assert document["details"]["reason"] == "outside_allowed_dirs"
+    assert document["details"]["option"] == option
+    assert not (tmp_path / "out").exists()
+
+
+async def test_an_export_file_inside_an_allowed_directory_is_written(tmp_path):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    tool, arguments, _ = writing_call("guide", allowed, allowed / "store")
+
+    failed, document = await call(tool, arguments, allow=(allowed,))
+
+    assert not failed, document
+    guide = allowed / "out" / "AGENTS.md"
+    assert document["result"]["output"] == str(guide)
+    assert [file["status"] for file in document["result"]["files"]] == ["written"]
+    assert guide.read_text(encoding="utf-8").startswith("# ")
+
+
+async def test_plain_files_inside_an_allowed_directory_are_written(tmp_path):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    tool, arguments, _ = writing_call("sync", allowed, allowed / "store")
+
+    with respx.mock(assert_all_called=False) as router:
+        FakeImgw(router).publish(H2024, V3, NEW)
+        failed, document = await call(tool, arguments, allow=(allowed,))
+
+    assert not failed, document
+    assert [file["status"] for file in document["result"]["files"]] == ["written"]
+    assert (allowed / "out" / "plain" / H2024.server_path).read_bytes() == NEW
+    assert not (tmp_path / "data").exists()  # a plain write needs no store root
+
+
+async def test_a_write_to_the_default_root_outside_the_allowed_directories_is_forbidden(
+    tmp_path,
+):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+
+    failed, document = await call(
+        "imgw_store_sync",
+        {"datasets": [DAILY], "years": "2024", "check": False},
+        allow=(allowed,),
+    )
+
+    assert failed
+    assert document["code"] == "forbidden"
+    assert document["details"]["reason"] == "outside_allowed_dirs"
+    assert document["details"]["option"] == "root"
+    assert document["details"]["value"] == str(tmp_path / "data" / "imgw")
+    assert not (tmp_path / "data").exists()
 
 
 def test_the_cli_offers_allow_dir():
