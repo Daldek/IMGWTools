@@ -296,5 +296,5 @@ def test_method_defaults_to_pot_in_check_sync_and_read(store):
 
 def test_unknown_method_names_the_option(store):
     with pytest.raises(IMGWValidationError) as error:
-        check_pmaxtp(store, latitude=52.23, longitude=21.01, method="XYZ")  # type: ignore[arg-type]
+        check_pmaxtp(store, latitude=52.23, longitude=21.01, method="XYZ")
     assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}

@@ -4,6 +4,22 @@ Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.1.0/), wersj
 zgodne z [SemVer](https://semver.org/lang/pl/). Każda zmiana publicznego API i schematów
 magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
 
+## [Unreleased]
+
+Work on top of the untagged 3.0.0, from bringing the repository in line with the Nogat
+standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
+
+### Changed
+
+- **Development tooling (ECO-010, DEV-6.3, DEV-7.6, DEV-10.1):** mypy `strict` over `src/`
+  and `tests/` replaces pyright (per-module deviations are listed in `CLAUDE.md`);
+  `scripts/gate.sh` and `scripts/check-commits.sh` (templates of the Nogat standard) run
+  `ruff format --check`, `ruff check` (the rule set now includes `SIM`), mypy, pytest with an
+  80 % coverage floor and the commit check; `uv.lock` is committed and the environment is
+  `uv sync --locked`. The `dev` extra became the `dev` dependency group, so
+  `pip install -e ".[dev]"` no longer exists. The marker `live` replaces `IMGW_LIVE=1` for the
+  tests against real servers: the gate deselects them, `pytest -m live` runs them.
+
 ## [3.0.0] — 2026-10-19
 
 Wersjonowany magazyn danych IMGW zastępuje opcjonalny cache SQLite (ADR-001), a Python,

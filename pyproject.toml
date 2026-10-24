@@ -74,17 +74,6 @@ full = [
     "imgwtools[api,cli,mcp,pandas,store]",
 ]
 
-# Development dependencies
-dev = [
-    "imgwtools[full]",
-    "pytest>=7.4",
-    "pytest-cov>=4.1",
-    "pytest-asyncio>=0.21",
-    "ruff>=0.1",
-    "respx>=0.20",
-    "pyright>=1.1",
-]
-
 [project.scripts]
 imgw = "imgwtools.cli.main:app"
 
@@ -99,6 +88,9 @@ packages = ["src/imgwtools"]
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+# Local agent worktrees; Markdown code blocks are documentation examples, not
+# formatted by ruff.
+extend-exclude = [".claude", "*.md"]
 
 [tool.ruff.lint]
 select = [
@@ -107,6 +99,7 @@ select = [
     "F",      # Pyflakes
     "I",      # isort
     "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
     "C4",     # flake8-comprehensions
     "UP",     # pyupgrade
     "D",      # pydocstyle (numpy convention)
@@ -128,10 +121,48 @@ convention = "numpy"
 [tool.ruff.lint.isort]
 known-first-party = ["imgwtools"]
 
-[tool.pyright]
-venvPath = "."
-venv = ".venv"
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+# Local agent worktrees (also excluded from ruff)
+exclude = ['^\.claude/']
+
+[[tool.mypy.overrides]]
+# pyarrow ships no type information.
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Deviation DEV-7.3 (listed in CLAUDE.md): the test functions and fixtures are not
+# annotated, so tests are checked without the untyped-code strictness.
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+check_untyped_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "--strict-markers -m 'not live'"
+markers = [
+    "live: real network services",
+    "slow: more than ~10 s or Docker",
+    "db: needs a database",
+]
+
+[tool.coverage.report]
+fail_under = 80
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19",
+    "pandas-stubs>=2.0",
+    "pytest>=8",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=6",
+    "respx>=0.20",
+    "ruff>=0.15",
+]

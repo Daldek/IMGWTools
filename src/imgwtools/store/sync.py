@@ -1015,7 +1015,9 @@ def _download(
             archive.month,
             cast(Literal["T", "Q", "H"] | None, archive.param),
         )
-    subtype = "klimat" if slug == "meteo_climate_daily" else "opad"
+    subtype: Literal["klimat", "opad"] = (
+        "klimat" if slug == "meteo_climate_daily" else "opad"
+    )
     return download_meteo_data("dobowe", subtype, archive.year, archive.month)
 
 

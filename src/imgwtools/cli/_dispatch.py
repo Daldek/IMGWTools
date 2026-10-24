@@ -156,7 +156,7 @@ _click_errors = sys.modules[typer.BadParameter.__module__]
 def _language() -> Lang | None:
     """Language of ``IMGW_LANG`` (``Settings.lang``); None outside ``pl`` and ``en``."""
     value = settings.lang.strip()
-    return cast(Lang, value) if value in LANGS else None
+    return value if value in LANGS else None
 
 
 # Language of the help, chosen once: an invalid IMGW_LANG keeps the Polish help

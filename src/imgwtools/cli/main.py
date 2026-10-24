@@ -56,7 +56,7 @@ app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
 
 
 @app.command(cls=ImgwCommand)
-def version():
+def version() -> None:
     """Wyświetl wersję programu."""
     console.print(f"[bold]IMGWTools[/bold] v{__version__}")
 
@@ -68,7 +68,7 @@ def server(
     reload: bool = typer.Option(
         False, help="Przeładuj serwer po zmianie kodu (tryb deweloperski)"
     ),
-):
+) -> None:
     """Uruchom serwer API: REST, web GUI i /mcp (przy IMGW_MCP_ENABLED=true)."""
     import uvicorn
 
@@ -97,7 +97,7 @@ def mcp(
         metavar="pl|en",
         help="Język opisów narzędzi, instrukcji i tytułów błędów",
     ),
-):
+) -> None:
     """
     Uruchom serwer MCP dla agentów AI na standardowym wejściu i wyjściu.
 
@@ -114,7 +114,7 @@ def mcp(
         raise typer.Exit(_error_line(exc.code, exc.detail, exc.details)) from None
 
 
-def main():
+def main() -> None:
     """Entry point for CLI."""
     app()
 

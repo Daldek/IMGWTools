@@ -10,7 +10,9 @@ file. The declarations are the §3.2 table, published in ``x-imgw``.
 
 import re
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import respx
@@ -119,11 +121,11 @@ def run(command: str, options: dict[str, object], root: Path | None) -> str:
     """Run a case through Python, reading a stream to its end; return the status."""
     outcome = run_command(command, options=rooted(resolved(options, root), root))
     if SPECS[command].result == "stream" and "path" not in options:
-        "".join(outcome.result)
+        "".join(cast(Iterable[str], outcome.result))
     return outcome.status
 
 
-def cases_of(predicate) -> list:
+def cases_of(predicate) -> list[Any]:
     """Contract cases of the commands meeting ``predicate``, one test each."""
     return [
         pytest.param(command, case, id=f"{command} #{index}")

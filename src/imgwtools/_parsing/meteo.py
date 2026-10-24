@@ -4,6 +4,7 @@ import calendar
 import re
 from collections.abc import Iterator
 from datetime import date, timedelta
+from typing import Literal
 
 from imgwtools._parsing.common import (
     _decode_content,
@@ -130,9 +131,9 @@ def _parse_daily(
         for y, m in sorted(months):
             for day in range(1, calendar.monthrange(y, m)[1] + 1):
                 measured = date(y, m, day)
-                record = entries.get(measured)
-                if record is None:
-                    flag = (
+                found = entries.get(measured)
+                if found is None:
+                    flag: Literal["no_phenomenon", "missing"] = (
                         "no_phenomenon"
                         if kind == "o_d" and (y, m) in present_months
                         else "missing"
@@ -154,6 +155,8 @@ def _parse_daily(
                         None,
                         values,
                     )
+                else:
+                    record = found
                 precip = record.measurements["P"]
                 if (
                     kind == "o_d"

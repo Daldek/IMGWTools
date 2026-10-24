@@ -35,7 +35,6 @@ from imgwtools import (
     build_series,
     check_catalog,
     check_store,
-    command_schema,
     current_version,
     download_project,
     export_archive,
@@ -64,6 +63,7 @@ from tests.contract.support import (
     V3,
     canonical,
     cli_words,
+    command_document,
     load,
     rest_request,
     schema_errors,
@@ -499,7 +499,7 @@ def test_imgw_16_k2_cancelling_a_write_leaves_no_version_and_no_observation(
         if not any(call.request.url == url for call in chmi.router.calls):
             return False
         polls_after.append(True)
-        return len(polls_after) > after_download
+        return bool(len(polls_after) > after_download)
 
     before = snapshot(root)
     report = sync_store(root, **selectors, cancel=cancel)
@@ -1150,7 +1150,7 @@ def mcp_answer(
 
     from imgwtools.mcp.server import create_server
 
-    meta = command_schema(command)["x-imgw"]
+    meta = command_document(command)["x-imgw"]
     arguments = {
         name: str(value) if isinstance(value, Path) else value
         for name, value in options.items()
@@ -1174,7 +1174,7 @@ def assert_mcp_alike(
     if ROUTES[command]["result"] == "stream" and not python.check:
         # The raw bytes: Click's ``stdout`` turns CRLF into LF.
         data = printed.stdout_bytes.decode("utf-8")
-        default = command_schema(command)["properties"]["format"]["default"]
+        default = command_document(command)["properties"]["format"]["default"]
         assert answered.content[0].text == data
         assert answered.structured_content == {
             "schema": "imgw-result/1",
@@ -1336,7 +1336,7 @@ REFUSED = [
 def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
     command, options, option, value, cli, rest, server, monkeypatch, pl_cz, chmi
 ):
-    root = pl_cz if "root" in command_schema(command)["properties"] else None
+    root = pl_cz if "root" in command_document(command)["properties"] else None
     monkeypatch.setattr(server, "store_root", root)
     with pytest.raises(IMGWValidationError) as caught:
         run_command(command, options=rooted(options, root))

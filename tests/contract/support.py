@@ -17,15 +17,19 @@ import sys
 from collections.abc import Iterator, Mapping
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
 
 import httpx
 import respx
 
-from imgwtools import archive_files, command_schema
+from imgwtools import archive_files, command_schema, current_version
+from imgwtools.commands import Lang
 from imgwtools.datasets import ArchiveFile
 from imgwtools.testing import fixture_files
+
+if TYPE_CHECKING:
+    from mcp.types import CallToolResult
 
 DAILY = "pl.imgw.hydro_daily"
 PRECIP = "pl.imgw.meteo_precip_daily"
@@ -129,6 +133,15 @@ def stamps(root: Path) -> dict[str, int]:
 
 def load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def mcp_text(result: CallToolResult) -> str:
+    """Text of the one text block of a tool result (MCP content is a union)."""
+    from mcp.types import TextContent
+
+    block = result.content[0]
+    assert isinstance(block, TextContent)
+    return block.text
 
 
 class FakeImgw:
@@ -260,14 +273,20 @@ def _format_error(value: str, name: str) -> bool:
     return False
 
 
-def _matches(value: object, schema: dict | bool, root: dict, path: str) -> bool:
+def _matches(
+    value: object, schema: dict[str, Any] | bool, root: dict[str, Any], path: str
+) -> bool:
     problems: list[str] = []
     _check(value, schema, root, path, problems)
     return not problems
 
 
 def _check(
-    value: object, schema: dict | bool, root: dict, path: str, errors: list[str]
+    value: object,
+    schema: dict[str, Any] | bool,
+    root: dict[str, Any],
+    path: str,
+    errors: list[str],
 ) -> None:
     if schema is True:
         return
@@ -354,12 +373,27 @@ def _check(
                 _check(item, additional, root, f"{path}.{key}", errors)
 
 
+def command_document(
+    command: str | None = None, /, *, lang: Lang = "pl"
+) -> dict[str, Any]:
+    """``command_schema`` as the JSON document it is (its values are ``Any``)."""
+    return cast(dict[str, Any], command_schema(command, lang=lang))
+
+
+def current_path(root: Path, slot: str) -> Path:
+    """Main file (or observation file) of the current version of ``slot``."""
+    entry = current_version(root, slot=slot)
+    assert entry is not None
+    assert entry.version is not None
+    return entry.version
+
+
 def schema_errors(document: object, contract: str) -> list[str]:
     """Violations of the JSON Schema ``contract`` (e.g. ``"imgw-meta/1"``)."""
     return violations(document, SCHEMAS["schemas"][contract])
 
 
-def violations(document: object, schema: dict) -> list[str]:
+def violations(document: object, schema: dict[str, Any]) -> list[str]:
     """Violations of any JSON Schema of the supported keyword subset."""
     errors: list[str] = []
     _check(document, schema, schema, "$", errors)
@@ -379,7 +413,7 @@ def envelope_errors(document: Any) -> list[str]:
         return errors
     if document["check"]:
         return schema_errors(document["result"], "imgw-plan/1")
-    if command_schema(document["command"])["x-imgw"]["result"] == "list":
+    if command_document(document["command"])["x-imgw"]["result"] == "list":
         _check(document["result"], {"$ref": "#/$defs/page"}, schema, "$.result", errors)
     return errors
 
@@ -404,7 +438,7 @@ def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     comma-separated text, an object is JSON text and a boolean is ``--x`` or
     ``--no-x``.
     """
-    flags = command_schema(command)["x-imgw"]["cli"]["flags"]
+    flags = command_document(command)["x-imgw"]["cli"]["flags"]
     words = command.split()
     for name, value in options.items():
         flag = flags[name][0]
@@ -434,7 +468,7 @@ def rest_request(command: str, options: Mapping[str, object]) -> dict[str, Any]:
     GET options are query parameters (a list repeats its parameter, a boolean
     is ``true``/``false``); POST options form the JSON body.
     """
-    rest = command_schema(command)["x-imgw"]["rest"]
+    rest = command_document(command)["x-imgw"]["rest"]
     if rest["method"] == "POST":
         return {"method": "POST", "url": rest["path"], "json": dict(options)}
     params = {name: _query(value) for name, value in options.items()}

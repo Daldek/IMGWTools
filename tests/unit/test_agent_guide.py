@@ -10,10 +10,17 @@ from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from imgwtools import agent_guide, init_store
-from imgwtools.agent_guide import _FLOWS, _PRINCIPLES, _instructions, _render, _Symbol
+from imgwtools.agent_guide import (
+    _FLOWS,
+    _PRINCIPLES,
+    GuideFormat,
+    _instructions,
+    _render,
+    _Symbol,
+)
 from imgwtools.api.main import app as rest_app
 from imgwtools.cli.main import app as cli_app
-from imgwtools.commands import check_command, command_schema, validate_command
+from imgwtools.commands import Lang, check_command, command_schema, validate_command
 from imgwtools.datasets import datasets
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
 from tests.unit.test_commands import parse
@@ -38,7 +45,7 @@ def no_environment(monkeypatch):
     monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
 
 
-def text(format: str = "agents", lang: str = "pl") -> str:
+def text(format: GuideFormat = "agents", lang: Lang = "pl") -> str:
     return "".join(agent_guide(format=format, lang=lang))
 
 

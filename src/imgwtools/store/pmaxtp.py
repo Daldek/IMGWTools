@@ -23,7 +23,6 @@ from imgwtools.store.catalog import (
     LICENSE_NOTICE,
     RootArg,
     _cancelled,
-    _check_kartograf,
     _handle,
     _http,
     _newest_downloaded,
@@ -40,7 +39,13 @@ from imgwtools.store.types import (
     ProgressHook,
     StorePlan,
 )
-from imgwtools.store.writer import _canonical, _existing, _utc, _validate_slot
+from imgwtools.store.writer import (
+    _canonical,
+    _check_kartograf,
+    _existing,
+    _utc,
+    _validate_slot,
+)
 from imgwtools.urls import build_pmaxtp_url
 
 CELL_FILE = "cell.json"

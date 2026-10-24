@@ -28,7 +28,6 @@ from imgwtools import (
     IMGWCancelledError,
     IMGWError,
     check_command,
-    command_schema,
     current_version,
     init_store,
     run_command,
@@ -46,6 +45,8 @@ from tests.contract.support import (
     FakeImgw,
     canonical,
     cli_words,
+    command_document,
+    current_path,
     envelope_errors,
     rest_request,
     schema_errors,
@@ -54,7 +55,7 @@ from tests.contract.support import (
     stamps,
 )
 
-CATALOG = command_schema()
+CATALOG = command_document()
 EXIT_CODES = CATALOG["exit_codes"]
 ROUTES = {
     schema["x-imgw"]["command"]: schema["x-imgw"]
@@ -202,7 +203,7 @@ def resolved(options: dict[str, object], root: Path | None) -> dict[str, object]
     for name, value in options.items():
         if isinstance(value, str) and value in PLACEHOLDERS:
             assert root is not None
-            version = current_version(root, slot=PLACEHOLDERS[value]).version
+            version = current_path(root, PLACEHOLDERS[value])
             result[name] = version.relative_to(root).as_posix()
     return result
 
@@ -523,13 +524,13 @@ def _source_unavailable(setting: Setting) -> Scenario:
 def _missing_dependency(setting: Setting) -> Scenario:
     for name in ("pyarrow", "pyarrow.parquet"):
         setting.monkeypatch.setitem(sys.modules, name, None)
-    options = {"dataset": DAILY, "station": RABA}
+    options: dict[str, object] = {"dataset": DAILY, "station": RABA}
     return Scenario("series read", options, setting.fixture_root)
 
 
 def _data_error(setting: Setting) -> Scenario:
     root = setting.store()
-    series = current_version(root, slot=f"series:{PRECIP}").version
+    series = current_path(root, f"series:{PRECIP}")
     series.write_text("{}", encoding="utf-8")  # no longer the bytes of the sidecar
     return Scenario("series summary", {"dataset": PRECIP}, root)
 
@@ -673,11 +674,11 @@ def test_every_error_code_is_reported_alike_by_every_interface(
 
 
 def _series_index(root: Path) -> Path:
-    return current_version(root, slot=f"series:{DAILY}").version
+    return current_path(root, f"series:{DAILY}")
 
 
 def _archive_file(root: Path) -> tuple[str, dict[str, object], Path]:
-    archive = current_version(root, slot=PLACEHOLDERS[ARCHIVE]).version
+    archive = current_path(root, PLACEHOLDERS[ARCHIVE])
     return "store export", {"version": archive.relative_to(root).as_posix()}, archive
 
 
@@ -707,7 +708,7 @@ def _station_parquet(root: Path) -> tuple[str, dict[str, object], Path]:
 
 
 def _pmaxtp_cell(root: Path) -> tuple[str, dict[str, object], Path]:
-    cell = current_version(root, slot="pmaxtp:pl.imgw.pmaxtp:POT/751_317").version
+    cell = current_path(root, "pmaxtp:pl.imgw.pmaxtp:POT/751_317")
     return "pmaxtp read", {"ind_x": 751, "ind_y": 317}, cell
 
 

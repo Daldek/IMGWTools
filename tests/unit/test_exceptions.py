@@ -65,7 +65,7 @@ def test_code_argument_overrides_the_default(error, _default):
 @pytest.mark.parametrize("code", ["stale_plan", "store_error", "NOT_FOUND", ""])
 def test_unregistered_code_is_rejected(code):
     with pytest.raises(ValueError, match="Nieznany kod błędu"):
-        IMGWStoreError("Brak wersji", code=code)  # type: ignore[arg-type]
+        IMGWStoreError("Brak wersji", code=code)
 
 
 def test_detail_equals_str_and_details_default_to_empty():
@@ -88,9 +88,9 @@ def test_details_are_an_independent_copy():
 
 def test_message_is_positional_only_and_options_keyword_only():
     with pytest.raises(TypeError):
-        IMGWError(message="Komunikat")  # type: ignore[call-arg]
+        IMGWError(message="Komunikat")
     with pytest.raises(TypeError):
-        IMGWError("Komunikat", "not_found")  # type: ignore[misc]
+        IMGWError("Komunikat", "not_found")
 
 
 @pytest.mark.parametrize(
@@ -156,7 +156,7 @@ def test_error_exit_codes_are_distinct_and_apart_from_envelope_codes():
 
 def test_registry_is_read_only():
     with pytest.raises(TypeError):
-        ERROR_CODES["io_error"] = ERROR_CODES["data_error"]  # type: ignore[index]
+        ERROR_CODES["io_error"] = ERROR_CODES["data_error"]
 
 
 def test_dependency_error_keeps_install_message_and_code():

@@ -1,9 +1,9 @@
 """
 Live regression of the ČHMÚ provider on opendata.chmi.cz (spec 2026-10-18 §13.3, C09).
 
-Skipped unless ``IMGW_LIVE=1``::
+Marked ``live``; the gate leaves them out and ``-m live`` runs them::
 
-    IMGW_LIVE=1 .venv/bin/python -m pytest tests/live/test_chmi_live.py
+    uv run pytest tests/live/test_chmi_live.py -m live
 
 A small selection only: one hydrological station (``0-203-1-001000``,
 Špindlerův Mlýn) with the years 2024-2026 (2026 is not published yet) and one
@@ -40,7 +40,7 @@ from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -78,10 +78,7 @@ from tests.live.test_interfaces_live import (
 )
 from tests.live.test_interfaces_live import CATALOG as COMMANDS
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("IMGW_LIVE") != "1",
-    reason="regresja na żywo serwerów ČHMÚ: ustaw IMGW_LIVE=1",
-)
+pytestmark = pytest.mark.live
 
 BASE_URL = "https://opendata.chmi.cz/"
 HYDRO, METEO = "cz.chmi.hydro_daily", "cz.chmi.meteo_daily"
@@ -358,8 +355,10 @@ def _journal(path: str) -> tuple[Any, Any]:
             )
         return response
 
-    httpx.HTTPTransport.handle_request = handle
-    httpx.AsyncHTTPTransport.handle_async_request = handle_async
+    # Process-wide patch, also shipped as source to the child processes' sitecustomize
+    # (no monkeypatch there): a method assignment is the technique itself.
+    httpx.HTTPTransport.handle_request = handle  # type: ignore[method-assign]
+    httpx.AsyncHTTPTransport.handle_async_request = handle_async  # type: ignore[method-assign]
     return sync, asynchronous
 
 
@@ -564,8 +563,8 @@ class ChmiLive(Live):
         for interface in INTERFACES:
             rows = [row for row in self.rows if row["interface"] == interface]
             result[interface] = {
-                "requests": sum(int(row.get("requests", 0)) for row in rows),
-                "bytes": sum(int(row.get("bytes", 0)) for row in rows),
+                "requests": sum(cast(int, row.get("requests", 0)) for row in rows),
+                "bytes": sum(cast(int, row.get("bytes", 0)) for row in rows),
             }
         result["all"] = _summary(self.journal.since(0))
         return result
@@ -614,8 +613,10 @@ def chmi(tmp_path_factory) -> Iterator[ChmiLive]:
             session.seed()
             yield session
     finally:
-        httpx.HTTPTransport.handle_request = originals[0]
-        httpx.AsyncHTTPTransport.handle_async_request = originals[1]
+        # Restores the transports patched by _journal (no monkeypatch in a fixture
+        # that outlives tests, nor in the sitecustomize of the child processes).
+        httpx.HTTPTransport.handle_request = originals[0]  # type: ignore[method-assign]
+        httpx.AsyncHTTPTransport.handle_async_request = originals[1]  # type: ignore[method-assign]
     totals = session.totals()
     print(
         f"\nŻądania do ČHMÚ (liczba, bajty): {json.dumps(totals, ensure_ascii=False)}"

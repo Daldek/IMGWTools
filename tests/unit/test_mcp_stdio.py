@@ -10,6 +10,7 @@ answers a call with the envelope of Python.
 import json
 import os
 import subprocess
+from typing import Any
 
 import pytest
 
@@ -35,7 +36,7 @@ def no_store_root(monkeypatch):
     monkeypatch.setattr(settings, "api_max_limit", 1000)
 
 
-def dumped(tools) -> list[dict]:
+def dumped(tools) -> list[dict[str, Any]]:
     return [
         tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in tools
     ]

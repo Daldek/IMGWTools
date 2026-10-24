@@ -15,6 +15,7 @@ import json
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 from imgwtools import (
     ERROR_CODES,
@@ -52,7 +53,7 @@ EXIT_CODES = command_schema()["exit_codes"]
 TASK = {"dataset": DAILY, "stations": [RABA], "years": [2024]}
 
 
-def scenario(work: Path, imgw, run) -> list[dict]:
+def scenario(work: Path, imgw, run) -> list[dict[str, Any]]:
     """Store, series, PMAXTP, download and project steps; ``run`` gives envelopes."""
     store, project = work / "store", work / "project"
     selection = {"root": store, "datasets": [DAILY], "years": [2024]}

@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Literal, overload
+from typing import Any, Literal, overload
 
 from imgwtools._parsing.common import (
     EXTREMUM_MAP,
@@ -277,7 +277,7 @@ def _parse(
                 for raw in row[6:9]:
                     if raw.strip():
                         float(raw)
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "station_code": code,
                 "hydro_year": year,
                 "hydro_month": month,
@@ -286,6 +286,7 @@ def _parse(
                 "flow_m3s": _safe_float(row[7], MISSING_FLOW),
                 "water_temp_c": _safe_float(row[8], MISSING_TEMP),
             }
+            record: HydroDailyRecord | HydroMonthlyRecord
             if interval == "dobowe":
                 day = int(row[5])
                 measured = hydro_to_calendar_date(year, month, day)
@@ -633,10 +634,10 @@ def normalize_hydro_archive(
                 measurement = _measurement(record.value)
                 first = _moment(record.extremum_start_date)
                 last = _moment(record.extremum_end_date)
-                key = (station.station_code, record.hydro_year, period, column)
-                merged = semi_annual.get(key)
+                semi_key = (station.station_code, record.hydro_year, period, column)
+                merged = semi_annual.get(semi_key)
                 if merged is None:
-                    semi_annual[key] = _SemiAnnualValue(
+                    semi_annual[semi_key] = _SemiAnnualValue(
                         period, start, measurement, first, last
                     )
                     continue

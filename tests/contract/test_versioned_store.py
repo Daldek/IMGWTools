@@ -16,6 +16,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pyarrow.parquet as pq
 import pytest
@@ -95,9 +96,9 @@ def contract_of(main: Path) -> str:
     }.get(main.name, "")
 
 
-def assert_sidecar_contract(root: Path, sidecar: Path) -> dict:
+def assert_sidecar_contract(root: Path, sidecar: Path) -> dict[str, Any]:
     """Envelope §11.2, checksums of the main file, directory name and attribution §4."""
-    meta = load(sidecar)
+    meta: dict[str, Any] = load(sidecar)
     assert schema_errors(meta, "imgw-meta/1") == [], sidecar
     main = sidecar.with_name(sidecar.name.removesuffix(".meta.json"))
     assert (meta["sha256"], meta["size_bytes"]) == (sha256(main), main.stat().st_size)

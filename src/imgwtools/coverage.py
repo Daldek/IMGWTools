@@ -6,13 +6,18 @@ from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
+from typing import Literal
 
 from imgwtools.datasets import DatasetDescriptor, get_dataset
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
 from imgwtools.models import Measurement, NormalizedRecord
 from imgwtools.store.types import StationCoverage
 
-_PERIODS = ("winter", "summer", "annual")
+_PERIODS: tuple[Literal["winter", "summer", "annual"], ...] = (
+    "winter",
+    "summer",
+    "annual",
+)
 
 # Observations of one station: unit start date and half-year period (``None``
 # outside semi-annual data) mapped to the measurements of that unit.

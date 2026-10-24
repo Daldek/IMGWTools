@@ -17,7 +17,7 @@ import pyarrow.parquet as pq
 import pytest
 import respx
 
-from imgwtools.datasets import archive_files, get_dataset
+from imgwtools.datasets import ArchiveFile, archive_files, get_dataset
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import current_version, init_store, write_archive
 from imgwtools.store.series import build_series, check_series
@@ -48,9 +48,17 @@ HYDRO_GETS = {
     H2_2004: "h900002_2004_get",
     H2_2006: "h900002_2006_get",
 }
+
+
+def _meteo_get(archive: ArchiveFile) -> str:
+    code = archive.station_code
+    assert code is not None
+    return f"m{code.rsplit('-', 1)[1]}_{archive.param}_get"
+
+
 # Station 90001 has every element, 90000000002 only precipitation.
 METEO_GETS = {
-    archive: f"m{archive.station_code.rsplit('-', 1)[1]}_{archive.param}_get"
+    archive: _meteo_get(archive)
     for archive in archive_files(METEO, stations=[FULL, RAIN])
     if archive.station_code == FULL or archive.param == "SRA"
 }

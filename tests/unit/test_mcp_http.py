@@ -15,6 +15,7 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -30,11 +31,12 @@ from mcp.client.streamable_http import streamable_http_client
 
 import imgwtools.api
 import imgwtools.api.main
-from imgwtools import ERROR_CODES, command_schema
+from imgwtools import ERROR_CODES
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import STREAM_LIMIT
 from imgwtools.mcp.server import create_server
+from tests.contract.support import command_document
 
 HOST = "127.0.0.1:8000"
 INITIALIZE = {
@@ -50,7 +52,7 @@ INITIALIZE = {
 # Tools with a REST route, in catalog order (spec §6.3, mode http).
 ROUTES = [
     schema["x-imgw"]["operation_id"]
-    for schema in command_schema()["commands"]
+    for schema in command_document()["commands"]
     if schema["x-imgw"]["rest"] is not None
 ]
 
@@ -85,7 +87,8 @@ def enabled(monkeypatch: pytest.MonkeyPatch, *, lang: str = "pl") -> FastAPI:
     """The REST application of a server with ``IMGW_MCP_ENABLED=true``."""
     monkeypatch.setattr(settings, "mcp_enabled", True)
     monkeypatch.setattr(settings, "lang", lang)
-    return reimported(monkeypatch).app
+    app: FastAPI = reimported(monkeypatch).app
+    return app
 
 
 @asynccontextmanager
@@ -103,7 +106,7 @@ async def connected(app: FastAPI, *, mode: str = "auto") -> AsyncIterator[Client
         yield client
 
 
-def dumped(tools) -> list[dict]:
+def dumped(tools) -> list[dict[str, Any]]:
     return [
         tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in tools
     ]
@@ -113,11 +116,12 @@ def compact(document: object) -> str:
     return json.dumps(document, ensure_ascii=False, separators=(",", ":"))
 
 
-def error_of(result) -> dict:
+def error_of(result) -> dict[str, Any]:
     """The error document of a tool result (text = structured content)."""
     assert result.is_error is True
     assert result.content[0].text == compact(result.structured_content)
-    return result.structured_content
+    document: dict[str, Any] = result.structured_content
+    return document
 
 
 async def post_initialize(app: FastAPI, host: str, **headers: str) -> httpx.Response:

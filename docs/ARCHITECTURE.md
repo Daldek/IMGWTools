@@ -297,15 +297,14 @@ Scaling options if needed:
 
 ## 11. CI/CD
 
-**Status: not configured.** There is no GitHub Actions workflow (or any other
-CI pipeline) in the repository; tests, linting and formatting are run locally.
+**Quality gate:** `scripts/gate.sh` (template `standards/ci/gate.sh` of the Nogat
+standard, DEV-7.6) runs, in order and stopping at the first failure: `ruff format
+--check`, `ruff check`, mypy (`strict`, over `src/` and `tests/`), one pytest call
+over `tests/` with coverage (offline, `-m "not live"`, floor 80%) and the commit
+step `scripts/check-commits.sh` (identity, Conventional Commits, no AI
+attribution). The environment is `uv.lock` (`uv sync --locked`).
 
-### Recommended Setup
-- pytest for automated testing (offline; recorded IMGW-PIB and ČHMÚ responses)
-- ruff for linting (PEP8 compliance) and docstring checks (numpy `D` rules)
-- pyright for type checking
-- GitHub Actions for CI pipeline
-- Docker for deployment
+**Deployment:** Docker (`docker/`).
 
 ---
 

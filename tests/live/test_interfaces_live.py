@@ -1,9 +1,9 @@
 """
 Live regression of the three interfaces on real IMGW servers (plan U16, spec §13).
 
-Skipped unless ``IMGW_LIVE=1``::
+Marked ``live``; the gate leaves them out and ``-m live`` runs them::
 
-    IMGW_LIVE=1 .venv/bin/python -m pytest tests/live
+    uv run pytest tests/live -m live
 
 Every catalog command runs on a small selection (one month of one year, one
 station, one PMAXTP cell, ``limit``) through ``run_command``, the installed
@@ -70,11 +70,11 @@ import pytest
 from imgwtools import (
     ERROR_CODES,
     CommandResult,
+    ErrorCode,
     IMGWError,
     __version__,
     add_project_task,
     build_catalog,
-    command_schema,
     current_version,
     download_project,
     init_project,
@@ -87,6 +87,8 @@ from imgwtools.config import settings
 from tests.contract.support import (
     canonical,
     cli_words,
+    command_document,
+    current_path,
     envelope_errors,
     imgw_executable,
     rest_request,
@@ -97,12 +99,9 @@ from tests.contract.support import (
     version_slot,
 )
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("IMGW_LIVE") != "1",
-    reason="regresja na żywo serwerów IMGW: ustaw IMGW_LIVE=1",
-)
+pytestmark = pytest.mark.live
 
-CATALOG = command_schema()
+CATALOG = command_document()
 EXIT_CODES: dict[str, int] = CATALOG["exit_codes"]
 SPECS: dict[str, dict[str, Any]] = {
     schema["x-imgw"]["command"]: schema["x-imgw"] for schema in CATALOG["commands"]
@@ -206,7 +205,7 @@ class Failure:
 
     command: str
     options: dict[str, object]
-    code: str
+    code: ErrorCode
     store: str | None = None
     reason: str | None = None
 
@@ -512,7 +511,7 @@ def unavailable(answers: Iterable[Any]) -> bool:
                 continue
             if answer.envelope is None or answer.data is not None:
                 continue
-            document = answer.envelope.to_json()
+            document: object = answer.envelope.to_json()
         elif isinstance(answer, subprocess.CompletedProcess):
             if answer.returncode == _SOURCE.exit_code:
                 return True
@@ -660,12 +659,8 @@ class Live:
             self.save("full", root)
             self.values = {
                 ROOT: str(root),
-                ARCHIVE: current_version(root, slot=ARCHIVE_SLOT)
-                .version.relative_to(root)
-                .as_posix(),
-                SERIES: current_version(root, slot=SERIES_SLOT)
-                .version.relative_to(root)
-                .as_posix(),
+                ARCHIVE: current_path(root, ARCHIVE_SLOT).relative_to(root).as_posix(),
+                SERIES: current_path(root, SERIES_SLOT).relative_to(root).as_posix(),
                 CELL_X: cell.ind_x,
                 CELL_Y: cell.ind_y,
             }
@@ -1105,14 +1100,13 @@ class Live:
         if failure.reason is not None:
             if body.get("details", {}).get("reason") != failure.reason:
                 problems["rest"].append(f"details {body.get('details')}")
-        elif error is not None and str(self.base) not in error.detail + canonical(
-            _plain(error.details)
+        elif (
+            error is not None
+            and str(self.base) not in error.detail + canonical(_plain(error.details))
+            and [body.get("detail"), body.get("details")]
+            != [error.detail, _plain(error.details)]
         ):
-            if [body.get("detail"), body.get("details")] != [
-                error.detail,
-                _plain(error.details),
-            ]:
-                problems["rest"].append(f"inny opis błędu niż w Pythonie: {body}")
+            problems["rest"].append(f"inny opis błędu niż w Pythonie: {body}")
 
         self.record(
             "error",

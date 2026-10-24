@@ -28,7 +28,7 @@ from imgwtools.agent_guide import agent_guide
 from imgwtools.api.errors import EXCEPTION_HANDLERS, accept_language
 from imgwtools.api.routes import commands
 from imgwtools.api.schemas import HealthCheck
-from imgwtools.commands import LANGS, Lang, command_schema
+from imgwtools.commands import LANGS, command_schema
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.web.app import router as web_router
@@ -111,7 +111,7 @@ def _mcp_app() -> Starlette | None:
             "imgwtools[mcp]; trasa /mcp nie istnieje"
         )
         return None
-    return http_app(lang=cast(Lang, lang))
+    return http_app(lang=lang)
 
 
 _MCP = _mcp_app()
@@ -214,7 +214,7 @@ async def llms_txt(request: Request) -> Response:
     return response
 
 
-def run_server():
+def run_server() -> None:
     """Run the API server."""
     import uvicorn
 

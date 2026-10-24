@@ -152,7 +152,7 @@ async def test_unpublished_meteo_combinations_fail_before_request(
 
 def test_unknown_interval_lists_registry_keys(respx_mock):
     with pytest.raises(IMGWValidationError) as error:
-        download_hydro_data("roczne", 2020)  # type: ignore[arg-type]
+        download_hydro_data("roczne", 2020)
     assert "pl.imgw.hydro_daily" in error.value.details["allowed"]
 
 

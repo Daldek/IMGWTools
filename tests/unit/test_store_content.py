@@ -40,11 +40,12 @@ def jcs_sum(text: str) -> str:
 
 def test_released_form_is_frozen():
     # A released form never changes: other volatile fields need a new identifier.
-    assert CONTENT_FORMS == {
+    released = {
         "chmi-json/1": ContentForm(
             "chmi-json/1", "json-jcs", ("zaznamID", "datumVytvoreni")
         )
     }
+    assert released == CONTENT_FORMS
 
 
 def test_serialization_details_and_new_envelope_keep_the_sum():

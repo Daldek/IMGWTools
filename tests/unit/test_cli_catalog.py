@@ -153,7 +153,7 @@ def error_line(result, code):
 def click_command(name):
     command = typer.main.get_command(app)
     for word in name.split():
-        command = command.commands[word]  # type: ignore[attr-defined]
+        command = command.commands[word]
     return command
 
 
@@ -232,7 +232,7 @@ def tree(command, path=("imgw",)):
 def test_cli_catalog_registers_every_group_and_command_of_the_catalog():
     root = typer.main.get_command(app)
     for group, description in CATALOG["groups"].items():
-        assert root.commands[group].help == description  # type: ignore[attr-defined]
+        assert root.commands[group].help == description
         assert list(click_command(group).commands) == [
             spec.name.split(" ", 1)[1]
             for spec in data_commands()

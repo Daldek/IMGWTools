@@ -42,22 +42,21 @@ pip install imgwtools[mcp]
 # Full installation (api, cli, mcp, pandas, store)
 pip install imgwtools[full]
 
-# For development
-pip install -e ".[dev]"
+# For development (uv, locked environment in .venv)
+uv sync --locked
 ```
 
 ## Commands
 
 ```bash
 # Install for development
-pip install -e ".[dev]"
+uv sync --locked
 
 # Run API server
 imgw server --reload
 
-# Run tests / lint (always through the project venv)
-.venv/bin/python -m pytest
-.venv/bin/ruff check src/ tests/
+# Gate: ruff format --check, ruff check, mypy, pytest with coverage (offline), commit check
+scripts/gate.sh
 
 # CLI examples (stdout = one-line JSON envelope imgw-result/1)
 imgw version                                         # Show version
@@ -506,25 +505,25 @@ The project includes unit and contract tests for the public API, CLI, REST, MCP 
 
 ### Running Tests
 
-Always run tests and lint through the project venv — the global (pyenv) Python has an
-older non-editable `imgwtools` installed, which shadows the local `src/` and breaks
-test collection.
+Run tests and checks through uv (`uv sync --locked` first): the global Python may have an
+older non-editable `imgwtools` installed, which shadows the local `src/`.
 
 ```bash
-# Run all tests
-.venv/bin/python -m pytest
+# The gate (DEV-7.6): ruff format --check, ruff check, mypy, pytest + coverage, commit step
+scripts/gate.sh
 
-# Run with coverage
-.venv/bin/python -m pytest --cov=imgwtools
+# Run all offline tests (live tests are deselected by the default marker expression)
+uv run pytest
+
+# Run with coverage (the gate enforces fail_under = 80)
+uv run pytest --cov=imgwtools
 
 # Run specific test file
-.venv/bin/python -m pytest tests/unit/test_models.py -v
+uv run pytest tests/unit/test_models.py -v
 
-# Lint
-.venv/bin/ruff check src/ tests/
-
-# Type check (pyright reads [tool.pyright] in pyproject.toml)
-npx -y pyright src/imgwtools/
+# Lint and types
+uv run ruff check . && uv run ruff format --check .
+uv run mypy src tests
 ```
 
 ### Test Structure
@@ -551,10 +550,10 @@ npx -y pyright src/imgwtools/
 |`tests/contract/test_chmi_contract.py`|68|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
 |`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|85|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
 |`tests/contract/` other files|15|Store contract, CLI = API parity, project contract|
-|`tests/live/test_interfaces_live.py`|53|Live IMGW-PIB: 37 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); skipped without `IMGW_LIVE=1`|
-|`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; skipped without `IMGW_LIVE=1`|
+|`tests/live/test_interfaces_live.py`|53|Live IMGW-PIB: 37 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 9 commands); marker `live`|
+|`tests/live/test_chmi_live.py`|26|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; marker `live`|
 
-**Total: 2213 tests** (`pytest --collect-only`, 2026-10-19): 2134 offline, 79 live (`IMGW_LIVE=1 .venv/bin/python -m pytest tests/live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
+**Total: 2213 tests** (`pytest --collect-only`, 2026-10-19): 2134 offline, 79 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`).
 
 ---
 
@@ -585,3 +584,9 @@ HYDROGRAF (main app)
 ```
 
 Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries) and **Retman** (command catalog: `command_schema` — also `lang="en"`, `x-imgw.writes`/`network` — `validate_command`, `format_command`, `check_command`, `run_command`). See `docs/PROGRESS.md` for cross-project analysis and integration details.
+
+## Deviations
+
+Deviations from the Nogat standard (DEV-1.2), one line each.
+
+- DEV-7.3: `tests/` is checked by mypy with the `tests.*` override of `pyproject.toml` (`disallow_untyped_defs`, `disallow_incomplete_defs`, `disallow_untyped_calls`, `disallow_untyped_decorators`, `check_untyped_defs` off): the test functions and fixtures are not annotated. `src/` is `strict` without overrides, except `pyarrow` (no type information: `ignore_missing_imports`).
