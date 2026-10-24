@@ -11,17 +11,25 @@ from typer.testing import CliRunner
 
 from imgwtools import agent_guide, init_store
 from imgwtools.agent_guide import (
+    _EFFECTS,
     _FLOWS,
     _PRINCIPLES,
     GuideFormat,
     _instructions,
+    _localized,
     _render,
     _Symbol,
 )
 from imgwtools.api.main import app as rest_app
 from imgwtools.cli.main import app as cli_app
-from imgwtools.commands import Lang, check_command, command_schema, validate_command
-from imgwtools.datasets import datasets
+from imgwtools.commands import (
+    Lang,
+    check_command,
+    command_schema,
+    list_commands,
+    validate_command,
+)
+from imgwtools.datasets import datasets, providers
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
 from tests.unit.test_commands import parse
 
@@ -97,35 +105,84 @@ def test_guide_does_not_depend_on_the_working_directory(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
-def test_guide_lists_every_command_dataset_error_status_and_alias(lang):
+def test_guide_lists_every_command_once_in_the_class_of_its_effect(lang):
+    commands = section(text("agents", lang), "Commands" if lang == "en" else "Komendy")
+    placed: dict[str, str] = {}
+    heading = ""
+    for line in commands.splitlines():
+        if line.startswith("**"):
+            heading = line.strip("*")
+        elif found := re.match(r"- `([^`]+)` — ", line):
+            assert found[1] not in placed, found[1]
+            placed[found[1]] = heading
+
+    listed = list_commands(lang=lang)["commands"]
+    assert sorted(placed) == sorted(item["command"] for item in listed)
+    for item in listed:
+        effect = item["writes"] if item["writes"] != "none" else "read"
+        if effect == "read" and item["network"]:
+            effect = "network"
+        assert placed[item["command"]] == _localized(_EFFECTS[effect], lang)
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_guide_lists_the_datasets_providers_statuses_and_error_codes(lang):
     guide = text("agents", lang)
     document = command_schema(lang=lang)
-    tables = [cells for cells in rows(guide) if cells[0].startswith("`")]
-    flags = [
-        alias
-        for schema in document["commands"]
-        for names in schema["x-imgw"]["cli"]["flags"].values()
-        for alias in names[1:]
-        if not alias.startswith("--no-")
-    ]
+    held = section(guide, "Datasets" if lang == "en" else "Zbiory danych")
+    envelope = section(
+        guide,
+        "Envelope, statuses and errors" if lang == "en" else "Koperta, statusy i błędy",
+    )
 
-    commands = [cells[0] for cells in tables if len(cells) == 7]
-    assert commands == [f"`{schema['title']}`" for schema in document["commands"]]
-    keys = [cells[0] for cells in tables if len(cells) == 10]
-    assert keys == [f"`{descriptor.key}`" for descriptor in datasets()]
-    errors = {tuple(cells) for cells in tables if len(cells) == 4}
-    for spec in ERROR_CODES.values():
-        title = spec.title_en if lang == "en" else spec.title
-        exit_code = "—" if spec.exit_code is None else str(spec.exit_code)
-        status = "—" if spec.http_status is None else str(spec.http_status)
-        assert (f"`{spec.code}`", title, exit_code, status) in errors
-    statuses = {tuple(cells[:2]) for cells in tables if len(cells) == 3}
+    keys = [cells[0] for cells in rows(held) if cells[0].startswith("`")]
+    assert keys == [
+        f"`{descriptor.key}`" for descriptor in datasets() if descriptor.in_store
+    ]
+    for descriptor in datasets():
+        assert f"`{descriptor.key}`" in held
+    statuses = {
+        tuple(cells[:2]) for cells in rows(envelope) if cells[0].startswith("`")
+    }
     for status, code in document["exit_codes"].items():
         assert (f"`{status}`", str(code)) in statuses
-    aliases = {cells[0] for cells in tables if len(cells) == 2}
-    assert aliases == {f"`{alias}`" for alias in flags}
-    for group, title in document["groups"].items():
-        assert f"### `{group}` — {title}\n" in guide
+    for spec in ERROR_CODES.values():
+        exit_code = "—" if spec.exit_code is None else spec.exit_code
+        http_status = "—" if spec.http_status is None else spec.http_status
+        assert f"`{spec.code}` ({exit_code}/{http_status})" in envelope
+    for owner in providers():
+        assert f"`{owner.key_prefix}.*`" in guide
+        assert owner.station_code_pattern in guide
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_agents_md_stays_within_its_budget(lang):
+    """DOC-1.7: 200 lines and 16 KiB, in both languages (the file is generated)."""
+    guide = text("agents", lang)
+
+    assert len(guide.splitlines()) <= 200
+    assert len(guide.encode("utf-8")) <= 16 * 1024
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_llms_txt_states_its_essentials_within_the_budget_before_the_links(lang):
+    """DOC-1.7: 8,000 characters before the first link list."""
+    lines = text("llms", lang).splitlines()
+    first_list = next(n for n, line in enumerate(lines) if line.startswith("- ["))
+
+    assert len("\n".join(lines[:first_list])) <= 8000
+
+
+@pytest.mark.parametrize(
+    ("lang", "last"),
+    [
+        ("en", "Developing this repository? Read CLAUDE.md."),
+        ("pl", "Rozwijasz to repozytorium? Przeczytaj CLAUDE.md."),
+    ],
+)
+def test_agents_md_ends_with_the_pointer_to_claude_md(lang, last):
+    """DOC-4.2: the last line serves agents that read AGENTS.md in the repository."""
+    assert text("agents", lang).splitlines()[-1] == last
 
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
