@@ -6,8 +6,24 @@
 |------|---------|
 | **Wersja** | 3.0.0 |
 | **Data** | 2026-10-19 |
-| **Gałąź robocza** | `fix/archiwista-compat-2` (od `slave` `0d98f3b`: poprawki zgodności z Archiwistą przed tagiem 3.0.0); wcześniej `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004) i `feature/versioned-store` (magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
+| **Gałąź robocza** | `chore/nogat-2.1` (od `fix/archiwista-compat-2`: dostosowanie do standardu Nogat 2.1, bez pushu); wcześniej `fix/archiwista-compat-2` (od `slave` `0d98f3b`: poprawki zgodności z Archiwistą przed tagiem 3.0.0), `feature/chmi-agents` (dostawca ČHMÚ ADR-003, wsparcie agentów AI ADR-004) i `feature/versioned-store` (magazyn ADR-001, spójne interfejsy ADR-002, otwarte dziedziny `/1` ADR-003 C01) |
 | **Python** | >=3.12 |
+
+---
+
+## Zgodność ze standardem Nogat 2.1 (`chore/nogat-2.1`)
+
+**Zrobione:** pyright → mypy `strict` (ECO-010; testy bez adnotacji to odchylenie DEV-7.3 w `CLAUDE.md`), `scripts/gate.sh` + `check-commits.sh`, `uv.lock`, znacznik `live` zamiast `IMGW_LIVE=1`, pokrycie ≥ 80 % (DEV-7.5), CI/Dependabot z szablonów Nogat (działają po zmianie nazw gałęzi), `forbidden` z kodem wyjścia 12 (ERR §4), errata przy ADR-001 D1 (hardlinki).
+
+**Do zrobienia (kolejność zależności):**
+
+1. **Prefiks MCP `imgw_` i adnotacje (ECO-018, AGI-5.2, AGI-5.4) oraz `operationId` OpenAPI = id katalogu (AGI-6.2).** Jedna zmiana: `x-imgw.operation_id` (`commands.py`, reguła nazwy) → `imgw_<grupa>_<komenda>`; trasy REST już ustawiają `operation_id=route.operation_id` (`api/routes/commands.py`), więc OpenAPI idzie za katalogiem. Adnotacje MCP (`mcp/_tools.py`) mają `readOnlyHint`, `destructiveHint`, `openWorldHint`, brakuje `idempotentHint` i `title` w adnotacjach. Zmiana łamiąca (nazwy narzędzi MCP, `operationId`) — dopuszczalna przed tagiem (ECO-020); regeneracja `AGENTS.md`/`llms.txt` w tym samym commicie. Dodatkowo AGI-5.9: brak komendy `commands list` (`imgw_commands_list`).
+2. **Powierzchnie agentów po angielsku (AGI-9.2, ECO-042).** Domyślnie polskie: `detail`/`Notice.text` wyjątków (ok. 320 miejsc zgłoszenia, 31 powiadomień, ok. 860 polskich literałów w `src/`), ostatnia linia stderr CLI, `Accept-Language` REST (brak nagłówka = `pl`), `imgw mcp --lang` (domyślnie `pl`), `agent_guide(lang="pl")` i zatwierdzone `AGENTS.md`/`llms.txt`, OpenAPI. Wymaga klucza tłumaczeń (DEV-2.3) i polskich tekstów jako wariantu `lang`.
+3. **Budżety dokumentów (DOC-1.7):** `CLAUDE.md` 200 wierszy (jest ok. 590), `README.md` 400 (ok. 835), `AGENTS.md` 200 wierszy i 16 KiB (261 wierszy, 29 KB; generowany — test kontraktowy z budżetem), `docs/PROGRESS.md` 300 (ok. 450); `llms.txt` przed listą linków mieści się (2,6 KB z 8 000). Tłumaczenie dokumentacji na angielski (ECO-005) jest osobnym zadaniem fazy 3.
+4. **Środowisko użytkownika (DEV-18):** `nogat.toml` przez `tomllib`, `data_dir`/`cache_dir` (`platformdirs`), `imgw config show --json`, zmienne w README i `.env.example`. **Wymaga decyzji:** `IMGW_DATA_DIR` oznacza dziś katalog danych *referencyjnych* (`hydro_stations_locations.csv`, `desc/`; `config.py`, `store/catalog.py`, `reference_data.py`), a w DEV-18.2 `data_dir` to nadrzędny katalog magazynów (`<data_dir>/imgw`). Retman eksportuje `IMGW_DATA_DIR` jako swój `reference_data_dir` (`retman/tools/imgwtools/client.py`), więc zmiana znaczenia zepsułaby go po zmianie pinu; trzeba nazwać katalog referencyjny osobno (np. `IMGW_REFERENCE_DIR`) razem z zadaniem ścieżki zapisu (`IMGW_STORE_ROOT` → `IMGW_ROOT`, domyślny magazyn w `<data_dir>/imgw`). Zmienne środowiskowe dziś: 15 pól `Settings` (`IMGW_ENV`, `HOST`, `PORT`, `API_KEYS_FILE`, `RATE_LIMIT`, `DATA_DIR`, `STORE_ROOT`, `STORE_WRITES_ENABLED`, `STORE_WRITE_TOKEN`, `USER_LOCATIONS_DIR`, `API_MAX_LIMIT`, `LANG`, `MCP_ENABLED`, `MCP_ALLOWED_HOSTS`, `LOG_LEVEL`) + `IMGW_MCP_ALLOW_WRITES` (flaga `imgw mcp`); `.env.example` wymienia 7. Pozostałe `IMGW_*` w kodzie to stałe Pythona (`IMGW_API_URL`, `IMGW_ENCODING`, …), nie zmienne środowiska.
+5. **Ścieżka zapisu (konwencja `data-output`, Z1–Z7):** osobne zadanie (`-o/--output-dir`, `--root`, `--output` zamiast `path`, domyślny magazyn w katalogu użytkownika, tryb plain, `files[]`).
+
+**Dla autora (poza zasięgiem agenta):** zmiana nazw gałęzi `master`/`slave` → `main`/`develop` i domyślna gałąź na GitHubie (ECO-008); potem odnośniki `raw.githubusercontent.com/.../master/` w `llms.txt` i szablonach `_data/agents/llms.*.md` oraz nazwy `slave` w tym pliku i w `docs/DECISIONS.md`; zestawy reguł gałęzi/tagów, Dependabot security updates, `SECURITY.md` i prywatne zgłaszanie podatności (DEV-3.6, DEV-13.7); przepisanie historii i tożsamości autorów (faza 1; w historii 58 commitów `Claude <agent@local>`); tekst CLA. Pierwszy przebieg CI będzie też pierwszym na macOS i Windows.
 
 ---
 
