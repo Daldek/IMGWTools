@@ -192,10 +192,12 @@ def plan_plain(
     -------
     list of PlanEntry
         One entry per target in the given order: duplicates are conflicts
-        (every occurrence), then targets in a store, then existing targets
-        without ``force``; the rest is ``write`` or ``replace``.
+        (every occurrence), then targets of a directory that is or lies in a store
+        or enters a subdirectory that holds a marker, then existing targets
+        without ``force``; the rest is ``write`` or ``replace``. A store
+        elsewhere below ``directory`` does not matter: nothing is written into it.
     """
-    in_store = store_around(directory) is not None or store_below(directory) is not None
+    in_store = store_around(directory) is not None
     counts: dict[str, int] = {}
     for name in relative:
         counts[name] = counts.get(name, 0) + 1
