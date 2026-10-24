@@ -96,6 +96,14 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `imgwtools.commands`, and `LANGS` is `("en", "pl")` (the order of `details.allowed` of a
   refused language). Migration: `spec.title_en` → `spec.title`, the former Polish `spec.title`
   → `spec.title.localized("pl")`.
+- **Breaking — `DatasetDescriptor.title_en` is gone (AGI-9.2):** `DatasetDescriptor.title` is the
+  English title as a catalog message (`messages/datasets.py`); `localize(title, "pl")` is the
+  Polish one, and `datasets list` renders it in the language of its caller. The `variable_notes`
+  of the ČHMÚ datasets are English catalog messages, so the `variable_notes` of the Parquet
+  metadata of `series.json` is English now (the Polish wording was written before the first
+  release; a series built earlier keeps its Polish notes and is not rewritten). The web GUI
+  shows the Polish titles as before. Migration: `descriptor.title_en` → `descriptor.title`, the
+  former Polish `descriptor.title` → `localize(descriptor.title, "pl")`.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

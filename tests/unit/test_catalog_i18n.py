@@ -8,6 +8,7 @@ import pytest
 from imgwtools.commands import command_schema, data_commands, validate_command
 from imgwtools.datasets import datasets
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import localize
 
 
 def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
@@ -59,7 +60,9 @@ def test_every_text_of_the_catalog_and_registries_has_an_english_variant():
         for option in spec.options:
             assert option.help_en not in ("", option.help), (spec.name, option.name)
     for descriptor in datasets():
-        assert descriptor.title_en not in ("", descriptor.title), descriptor.key
+        assert localize(descriptor.title, "pl") not in ("", descriptor.title), (
+            descriptor.key
+        )
     polish, english = command_schema(lang="pl")["groups"], command_schema()["groups"]
     assert all(english[name] not in ("", text) for name, text in polish.items())
 

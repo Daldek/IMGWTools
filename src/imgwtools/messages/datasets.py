@@ -136,4 +136,112 @@ MESSAGES = {
         "{attribution}. {notice}",
         "{attribution}. {notice}",
     ),
+    "title_hydro_daily": Text(
+        "Daily hydrological data",
+        "Dane hydrologiczne dobowe",
+    ),
+    "title_hydro_monthly": Text(
+        "Monthly hydrological data",
+        "Dane hydrologiczne miesięczne",
+    ),
+    "title_hydro_semiannual": Text(
+        "Semi-annual and annual hydrological data",
+        "Dane hydrologiczne półroczne i roczne",
+    ),
+    "title_meteo_climate_daily": Text(
+        "Daily meteorological data from climate stations",
+        "Dane meteorologiczne dobowe ze stacji klimatycznych",
+    ),
+    "title_meteo_precip_daily": Text(
+        "Daily meteorological data from precipitation stations",
+        "Dane meteorologiczne dobowe ze stacji opadowych",
+    ),
+    "title_hydro_stations": Text(
+        "List of hydrological stations",
+        "Lista stacji hydrologicznych",
+    ),
+    "title_meteo_stations": Text(
+        "List of meteorological stations",
+        "Lista stacji meteorologicznych",
+    ),
+    "title_pmaxtp": Text(
+        "Probable maximum precipitation PMAXTP",
+        "Opady maksymalne prawdopodobne PMAXTP",
+    ),
+    "title_hydro_phenomena": Text(
+        "Daily hydrological phenomena",
+        "Zjawiska hydrologiczne dobowe",
+    ),
+    "title_meteo_climate_monthly": Text(
+        "Monthly meteorological data from climate stations",
+        "Dane meteorologiczne miesięczne ze stacji klimatycznych",
+    ),
+    "title_meteo_precip_monthly": Text(
+        "Monthly meteorological data from precipitation stations",
+        "Dane meteorologiczne miesięczne ze stacji opadowych",
+    ),
+    "title_meteo_synop_monthly": Text(
+        "Monthly meteorological data from synoptic stations",
+        "Dane meteorologiczne miesięczne ze stacji synoptycznych",
+    ),
+    "title_meteo_climate_terms": Text(
+        "Meteorological data at observation times from climate stations",
+        "Dane meteorologiczne terminowe ze stacji klimatycznych",
+    ),
+    "title_chmi_hydro_daily": Text(
+        "ČHMÚ — daily hydrological data (H, Q, T)",
+        "ČHMÚ — dane hydrologiczne dobowe (H, Q, T)",
+    ),
+    "note_chmi_hydro_daily_h": Text(
+        "Daily mean water level (HD); date = the day of DT (…T00:00:00Z)",
+        "Średni dobowy stan wody (HD); data = dzień z DT (…T00:00:00Z)",
+    ),
+    "note_chmi_hydro_daily_q": Text(
+        "Daily mean discharge (QD), equal to the mean of the 24 hourly discharges "
+        "labelled 00–23Z of that date (day by the Z labels; UTC or fixed CET — not "
+        "confirmed by ČHMÚ)",
+        "Średni dobowy przepływ (QD), równy średniej 24 przepływów godzinowych o "
+        "etykietach 00–23Z tej daty (doba według etykiet Z; UTC albo stały SEČ — "
+        "niepotwierdzone przez ČHMÚ)",
+    ),
+    "note_chmi_hydro_daily_t": Text(
+        "Daily mean water temperature (TD)",
+        "Średnia dobowa temperatura wody (TD)",
+    ),
+    "title_chmi_meteo_daily": Text(
+        "ČHMÚ — daily meteorological data (precipitation, air temperature)",
+        "ČHMÚ — dane meteorologiczne dobowe (opad, temperatura powietrza)",
+    ),
+    "note_chmi_meteo_daily_p": Text(
+        "Precipitation sum (SRA) from the morning term (06:00Z) of day D to the "
+        "morning term of day D+1, assigned to D",
+        "Suma opadu (SRA) od terminu porannego (06:00Z) dnia D do terminu porannego "
+        "dnia D+1, przypisana do D",
+    ),
+    "note_chmi_meteo_daily_tmean": Text(
+        "Daily mean air temperature (T, AVG) = (T06 + T13 + 2·T20)/4 of the UTC "
+        "terms of day D",
+        "Średnia dobowa temperatura powietrza (T, AVG) = (T06 + T13 + 2·T20)/4 z "
+        "terminów UTC dnia D",
+    ),
+    "note_chmi_meteo_daily_tmax": Text(
+        "Maximum air temperature (TMA) of the period (D−1 20:00, D 20:00] UTC, "
+        "assigned to D",
+        "Maksymalna temperatura powietrza (TMA) okresu (D−1 20:00, D 20:00] UTC, "
+        "przypisana do D",
+    ),
+    "note_chmi_meteo_daily_tmin": Text(
+        "Minimum air temperature (TMI) of the period (D−1 20:00, D 20:00] UTC, "
+        "assigned to D",
+        "Minimalna temperatura powietrza (TMI) okresu (D−1 20:00, D 20:00] UTC, "
+        "przypisana do D",
+    ),
+    "title_chmi_hydro_stations": Text(
+        "ČHMÚ — list of hydrological stations",
+        "ČHMÚ — wykaz stacji hydrologicznych",
+    ),
+    "title_chmi_meteo_stations": Text(
+        "ČHMÚ — list of meteorological stations",
+        "ČHMÚ — wykaz stacji meteorologicznych",
+    ),
 }

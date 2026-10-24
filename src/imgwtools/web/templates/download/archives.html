@@ -19,7 +19,7 @@
                 {% for group_title, items in groups %}
                 <optgroup label="{{ group_title }}">
                     {% for item in items %}
-                    <option value="{{ item.key }}">{{ item.title }}</option>
+                    <option value="{{ item.key }}">{{ item.title|localized }}</option>
                     {% endfor %}
                 </optgroup>
                 {% endfor %}
@@ -73,7 +73,7 @@
         <tbody>
             {% for item in archives %}
             <tr>
-                <td>{{ item.title }}</td>
+                <td>{{ item.title|localized }}</td>
                 <td><code>{{ item.key }}</code></td>
                 <td>{{ item.first_year }}</td>
                 <td>{{ "hydrologiczny (XI–X)" if item.year_type == "hydrological" else "kalendarzowy" }}</td>
