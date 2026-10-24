@@ -387,7 +387,7 @@ Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_sto
 - `test_download_urls_daily_2022_2023_counts_13` – 12 + 1. [boundary 2022/2023]
 - `test_download_urls_start_gt_end_400`, `test_download_urls_semi_annual_with_param`.
 - Dawne testy `GET /api/v1/hydro/data` (cache DB) – usunięte wraz z endpointem w 3.0.0; trasy magazynu REST testuje
-  `tests/unit/test_api_store.py` (503 bez `IMGW_STORE_ROOT`, 403 przy wyłączonych zapisach/braku tokenu, ograniczenie `version`
+  `tests/unit/test_api_store.py` (503 bez `IMGW_ROOT`, 403 przy wyłączonych zapisach/braku tokenu, ograniczenie `version`
   do `versions/`, parytet z Python API) i `tests/unit/test_api_download_registry.py` (URL-e z rejestru).
 
 ### 4.16 `tests/unit/test_api_meteo.py`

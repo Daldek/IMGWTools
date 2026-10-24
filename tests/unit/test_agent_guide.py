@@ -47,9 +47,9 @@ PROJECT_SYMBOLS = ("PROJEKT", "PROJECT")
 
 @pytest.fixture(autouse=True)
 def no_environment(monkeypatch):
-    """The developer's IMGW_LANG and IMGW_STORE_ROOT must not reach the commands."""
+    """The developer's IMGW_LANG and IMGW_ROOT must not reach the commands."""
     monkeypatch.delenv("IMGW_LANG", raising=False)
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
 
 
 def text(format: GuideFormat = "agents", lang: Lang = "en") -> str:

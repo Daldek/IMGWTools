@@ -147,7 +147,7 @@ def _server_directories() -> list[Path]:
     working = _working_directory()
     found: dict[str, Path] = {}
     for directory in (
-        settings.store_root,
+        settings.root,
         settings.user_locations_dir,
         settings.reference_dir,
         settings.data_dir,
@@ -166,7 +166,7 @@ def hide_server_paths(value: object) -> object:
     """
     Rewrite absolute server paths in a JSON value as paths relative to them.
 
-    The hidden directories are ``IMGW_STORE_ROOT``, ``IMGW_USER_LOCATIONS_DIR``,
+    The hidden directories are ``IMGW_ROOT``, ``IMGW_USER_LOCATIONS_DIR``,
     ``IMGW_REFERENCE_DIR``, ``IMGW_DATA_DIR``, ``IMGW_CACHE_DIR``, the temporary
     directory and the working directory of the server process (also in their
     resolved form). The most nested

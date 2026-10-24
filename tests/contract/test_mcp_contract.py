@@ -81,7 +81,7 @@ def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolRes
     name = command_document(command)["x-imgw"]["operation_id"]
 
     async def answer() -> CallToolResult:
-        async with Client(create_server(mode=mode)) as client:
+        async with Client(create_server(mode=mode, allow_dirs=(Path("/"),))) as client:
             return await client.call_tool(name, arguments(options))
 
     return anyio.run(answer)

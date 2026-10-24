@@ -25,7 +25,7 @@ Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep
 
 One command in every interface: CLI `imgw <group> <command> --option value` (flag = `--` + the option name with `-` for `_`); Python `run_command("<group> <command>", options={...})`; REST `/api/v1/<group>/<command>` (GET: query parameters, POST: JSON body); MCP tool `imgw_<group>_<command>`.
 
-- **REST:** the server sets the store root (`IMGW_STORE_ROOT`), `version` is relative to it, local options do not exist; writing (POST without `?check=true`) must be enabled on the server and needs the `X-API-Key` header.
+- **REST:** the server sets the store root (`IMGW_ROOT`), `version` is relative to it, local options do not exist; writing (POST without `?check=true`) must be enabled on the server and needs the `X-API-Key` header.
 - **MCP:** `imgw mcp` (stdio) starts without writes — writing commands return a plan (`check` fixed to `true`); the user enables writes (`--allow-writes`), and even then `check` is `true` by default. `/mcp` of the REST server (`IMGW_MCP_ENABLED=true`) reads and plans only.
 - **Language:** machine output is English (this guide, the envelope, error lines, MCP, REST). Polish only on request: `--lang pl` (`commands list|schema|guide`), `lang: "pl"` (MCP), `Accept-Language: pl` (REST).
 

@@ -114,6 +114,19 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   the message guard has no pending files any more and fails on any Polish string outside
   `imgwtools.messages`. Migration: `option.help_en` → `option.help`, the former Polish
   `option.help` → `localize(option.help, "pl")` (the same for `description` and `rules`).
+- **Breaking — `IMGW_STORE_ROOT` is `IMGW_ROOT` and the store has a default location (DEV-19.2,
+  ADR-007 D2, D9):** the variable is renamed without an alias, `Settings.store_root` is
+  `Settings.root` and `root` in `[imgw]` of `nogat.toml` sets it too. A command without `--root`
+  uses the store at `IMGW_ROOT`, `[imgw] root` or `<data_dir>/imgw` (`imgwtools.config.default_root()`):
+  `root` is optional in every store command and `validate_command` fills it in (not for a project
+  task, not for a command given a `version`, not for `stations find` unless `source=store`), so the
+  `--root` of the CLI no longer reads an environment variable of its own. `imgw config show --json`
+  reports `store.root` with its source, whether it exists and its size. The REST server still writes
+  only to its configured `IMGW_ROOT`, never to the default. `imgw mcp` has `--allow-dir DIR`
+  (repeatable): every path option and the default root must lie inside an allowed directory
+  (`forbidden`, `details.reason="outside_allowed_dirs"`) and a write without any directory is
+  `forbidden` (`no_allowed_dir`), while a plan needs none. Migration: rename `IMGW_STORE_ROOT`; pass
+  `--allow-dir` to `imgw mcp --allow-writes`.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

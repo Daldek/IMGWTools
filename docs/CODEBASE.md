@@ -268,7 +268,7 @@ Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes
 
 ### Options
 
-Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output, `-r` root, `-f` format, `-p` path; `--lat`/`--lon` alias `--latitude`/`--longitude`. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_STORE_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands schema`/`commands guide`; `IMGW_LANG=pl|en` sets the CLI help language (incl. Typer/Click elements) and the `--lang` default (invalid value → `validation_error`, exit 2).
+Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output, `-r` root, `-f` format, `-p` path; `--lat`/`--lon` alias `--latitude`/`--longitude`. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands schema`/`commands guide`; `IMGW_LANG=pl|en` sets the CLI help language (incl. Typer/Click elements) and the `--lang` default (invalid value → `validation_error`, exit 2).
 
 ### Output, errors and exit codes
 
@@ -369,7 +369,7 @@ Wszystkie endpointy pod `/api/v1/...`
 
 ## Versioned Store (Optional)
 
-Explicit root only (`init_store(root)`, `--root`, `IMGW_STORE_ROOT`); readable offline, also from network shares; one store holds both providers. Writes need a file system with hard links, as Kartograf's store (its ADR-036): versions, observations and the marker are published by `os.link` from `.incoming/`, the main file's sidecar last (it commits the version); FAT/exFAT, some NAS/FUSE and the macOS SMB client → `conflict` with `details.reason="not_atomic"`. A version directory without its sidecar is an interrupted publication (`missing_sidecar`), completed by the next write of the same content under the same label, otherwise removed by hand while no write runs; a failed publication never removes linked data files. Decisions: `docs/DECISIONS.md` ADR-001, ADR-003; contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence) and `2026-10-18-chmi-provider-design.md` (ČHMÚ).
+The store is at `--root`, `IMGW_ROOT`, `root` in `[imgw]` of `nogat.toml` or `<data_dir>/imgw` (DEV-19.2, ADR-007; `init_store(root)` for a given root); readable offline, also from network shares; one store holds both providers. Writes need a file system with hard links, as Kartograf's store (its ADR-036): versions, observations and the marker are published by `os.link` from `.incoming/`, the main file's sidecar last (it commits the version); FAT/exFAT, some NAS/FUSE and the macOS SMB client → `conflict` with `details.reason="not_atomic"`. A version directory without its sidecar is an interrupted publication (`missing_sidecar`), completed by the next write of the same content under the same label, otherwise removed by hand while no write runs; a failed publication never removes linked data files. Decisions: `docs/DECISIONS.md` ADR-001, ADR-003; contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence) and `2026-10-18-chmi-provider-design.md` (ČHMÚ).
 
 ### Configuration
 
@@ -377,7 +377,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 
 |Variable|Default|Description|
 |---|---|---|
-|`IMGW_STORE_ROOT`|unset|Absolute store root of the REST server; CLI default for `--root`. Unset → store routes 503 `store_unavailable`|
+|`IMGW_ROOT`|`<data_dir>/imgw`|Store root of the CLI, the library and `imgw mcp` when `--root` is absent (also `root` in `[imgw]` of `nogat.toml`); of the REST server its only store: unset → store routes 503 `store_unavailable`, never the default|
 |`IMGW_STORE_WRITES_ENABLED`|`false`|Allow REST writes (`POST` store/series/pmaxtp routes)|
 |`IMGW_STORE_WRITE_TOKEN`|unset|Token required in `X-API-Key` for REST writes (else 403 `forbidden`)|
 |`IMGW_USER_LOCATIONS_DIR`|unset|Directory of user location CSVs allowed in REST `user_locations`|

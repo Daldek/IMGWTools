@@ -11,7 +11,7 @@ description), ``x-imgw`` and the ``x-imgw-*`` keywords, and without the options
 the mode does not offer (``read``: writing options; ``http``: options outside
 REST, the others as the REST route takes them); ``required``,
 ``dependentRequired`` and ``oneOf`` keep only the offered options. A stdio
-server with ``IMGW_STORE_ROOT`` makes ``root`` optional, list commands page by
+server makes ``root`` optional (it defaults to the store root), list commands page by
 ``limit`` (50 by default, at most ``IMGW_API_MAX_LIMIT``), ``lang`` defaults to
 ``en`` and commands with a check twin take a ``check`` argument, fixed to
 ``true`` for a writing command of a server without writes. The annotations (all
@@ -72,9 +72,6 @@ class CatalogTool:
         without writes).
     refused : frozenset of str
         Writing options refused with ``forbidden`` (server without writes).
-    root : str or None
-        ``IMGW_STORE_ROOT`` of a stdio server, the default ``root`` under the
-        command's ``env_root_when``.
     limit : tuple of (int, int) or None
         Default and maximum ``limit`` of a list command.
     route : tuple of (str, str) or None
@@ -87,7 +84,6 @@ class CatalogTool:
     check: bool | None
     fixed: bool
     refused: frozenset[str]
-    root: str | None
     limit: tuple[int, int] | None
     route: tuple[str, str] | None
 
@@ -142,7 +138,7 @@ def _rest_properties(
 
 
 def _root_text(spec: DataCommand) -> str:
-    """Note on ``root`` of a stdio server with ``IMGW_STORE_ROOT``."""
+    """Note on ``root`` of a stdio server: the default store root."""
     if not spec.env_root_when:
         return f"default: {_SERVER_ROOT}"
     condition = ", ".join(f"{key}={value}" for key, value in spec.env_root_when.items())
@@ -166,7 +162,6 @@ def _tool(
     schema: Mapping[str, Any],
     *,
     mode: Mode,
-    root: str | None,
 ) -> CatalogTool:
     meta = schema["x-imgw"]
     catalog = cast(Mapping[str, Mapping[str, Any]], schema["properties"])
@@ -186,8 +181,7 @@ def _tool(
     }
     dropped = {option.name for option in spec.options} - set(properties)
 
-    server_root = root if mode != "http" and "root" in properties else None
-    if server_root is not None:
+    if mode != "http" and "root" in properties:
         description = properties["root"]["description"]
         properties["root"]["description"] = f"{description}; {_root_text(spec)}"
         dropped.add("root")  # given by the server when absent (spec §3.5)
@@ -260,13 +254,12 @@ def _tool(
         check=check,
         fixed=fixed,
         refused=frozenset(refused),
-        root=server_root,
         limit=limit,
         route=None if mode != "http" else (route["method"], route["path"]),
     )
 
 
-def catalog_tools(*, mode: Mode, root: str | None = None) -> dict[str, CatalogTool]:
+def catalog_tools(*, mode: Mode) -> dict[str, CatalogTool]:
     """
     Build the tools of a server mode from the command catalog.
 
@@ -277,9 +270,6 @@ def catalog_tools(*, mode: Mode, root: str | None = None) -> dict[str, CatalogTo
         to ``true``) and without writing options; ``write``: every command,
         writing ones planning by default; ``http``: the commands with a REST
         route, with their REST options, POST routes only planning.
-    root : str or None, optional
-        ``IMGW_STORE_ROOT`` of a stdio server; makes ``root`` optional
-        (ignored in mode ``http``, where REST takes the server's store).
 
     Returns
     -------
@@ -293,6 +283,6 @@ def catalog_tools(*, mode: Mode, root: str | None = None) -> dict[str, CatalogTo
         meta = schema["x-imgw"]
         if mode == "http" and meta["rest"] is None:
             continue
-        tool = _tool(specs[meta["command"]], schema, mode=mode, root=root)
+        tool = _tool(specs[meta["command"]], schema, mode=mode)
         tools[tool.definition.name] = tool
     return tools

@@ -11,13 +11,15 @@ by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``,
     imgw store sync --root /dane/imgw -d pl.imgw.hydro_daily -y 2024
     imgw series summary --root /dane/imgw -d pl.imgw.hydro_daily -s 149190310
     imgw commands schema --command "store sync"
-    imgw mcp --allow-writes
+    imgw mcp --allow-writes --allow-dir /dane/imgw
     imgw admin create --name "User1"
 
 ``imgw mcp`` serves the catalog to AI agents over MCP on stdin and stdout
 (spec 2026-10-19 §6.2): the SDK of the ``mcp`` extra is imported only by that
 command, which writes nothing to stdout, the channel of the protocol.
 """
+
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -95,12 +97,18 @@ def mcp(
         "--allow-writes/--no-allow-writes",
         help=message("cli.mcp_allow_writes_help", lang=_LANG),
     ),
+    allow_dir: list[Path] = typer.Option(
+        [],
+        "--allow-dir",
+        help=message("cli.mcp_allow_dir_help", lang=_LANG),
+    ),
 ) -> None:
     """
     Run the MCP server for AI agents on the standard input and output.
 
     The tools of the server are the catalog commands. Without --allow-writes the
-    server does not write: the writing commands return an imgw-plan/1 plan.
+    server does not write: the writing commands return an imgw-plan/1 plan; with
+    it they write only inside the --allow-dir directories (repeatable).
     """
     try:
         from imgwtools.mcp.server import run_stdio
@@ -108,7 +116,7 @@ def mcp(
         raise typer.Exit(
             _error_line("missing_dependency", message("cli.mcp_needs_extra"), {})
         ) from None
-    run_stdio(allow_writes=allow_writes)
+    run_stdio(allow_writes=allow_writes, allow_dirs=allow_dir)
 
 
 def main() -> None:

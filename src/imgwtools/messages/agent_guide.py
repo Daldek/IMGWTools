@@ -251,11 +251,11 @@ MESSAGES = {
         "flagi logiczne ({switches}) nie mają wartości i włączają swoją opcję.",
     ),
     "flags_environment": Text(
-        "- Environment: `IMGW_STORE_ROOT` — the default `--root` (CLI, MCP stdio; "
-        "{roots}); `IMGW_LANG` — the language of the CLI help and of the progress "
+        "- Environment: `IMGW_ROOT` — the default `--root`, else `<data_dir>/imgw` "
+        "(CLI, MCP stdio; {roots}); `IMGW_LANG` — the language of the CLI help and of the progress "
         "lines (`pl`, `en`).",
-        "- Zmienne środowiskowe: `IMGW_STORE_ROOT` — domyślne `--root` (CLI, MCP "
-        "stdio; {roots}); `IMGW_LANG` — język pomocy CLI i linii postępu (`pl`, "
+        "- Zmienne środowiskowe: `IMGW_ROOT` — domyślne `--root`, inaczej "
+        "`<data_dir>/imgw` (CLI, MCP stdio; {roots}); `IMGW_LANG` — język pomocy CLI i linii postępu (`pl`, "
         "`en`).",
     ),
     "flags_root_when": Text(

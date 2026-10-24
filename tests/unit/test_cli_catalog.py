@@ -94,8 +94,8 @@ CLI_ERROR = {
 
 @pytest.fixture(autouse=True)
 def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT and IMGW_LANG must not reach the commands."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    """The developer's IMGW_ROOT and IMGW_LANG must not reach the commands."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.delenv("IMGW_LANG", raising=False)
 
 
@@ -201,7 +201,7 @@ def raising(monkeypatch, module, name, error):
 
 def run_installed(*args, lang=None, **kwargs):
     """
-    The installed ``imgw`` in its own process, without IMGW_STORE_ROOT or network.
+    The installed ``imgw`` in its own process, without IMGW_ROOT or network.
 
     ``lang`` is the IMGW_LANG of the process (unset by default).
     """
@@ -212,7 +212,7 @@ def run_installed(*args, lang=None, **kwargs):
     env = {
         key: value
         for key, value in os.environ.items()
-        if key not in ("IMGW_STORE_ROOT", "IMGW_LANG")
+        if key not in ("IMGW_ROOT", "IMGW_LANG")
     }
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "NO_PROXY": ""}
     if lang is not None:
@@ -265,7 +265,7 @@ def test_cli_catalog_command_help_and_flags_are_the_catalog(spec):
         if option.type == "bool":
             negative = [f"--no-{option.flag[2:]}"] if option.default is True else []
             assert param.secondary_opts == negative
-        assert (param.envvar == "IMGW_STORE_ROOT") == (option.name == "root")
+        assert param.envvar is None
     shown = " ".join(invoke(*spec.name.split(), "--help").output.split())
     assert localize(spec.description, "pl") in shown
     assert ("Opcje wymagane" in shown) == any(o.required for o in spec.options)
@@ -331,9 +331,7 @@ def test_cli_help_of_every_command_is_polish_by_default():
             assert english not in text, path
     store_sync = shown(invoke("store", "sync", "--help").output)
     for element in (
-        "Opcje wymagane",
         "─ Opcje ─",
-        "[zmienna środowiskowa: IMGW_STORE_ROOT]",
         "ŚCIEŻKA",
     ):
         assert element in store_sync
@@ -359,9 +357,7 @@ def test_cli_help_follows_imgw_lang_en():
     for element in (
         "Usage: imgw store sync [OPTIONS]",
         "─ Options ─",
-        "─ Required options ─",
         "Show this message and exit.",
-        "[env var: IMGW_STORE_ROOT]",
         "PATH",
     ):
         assert element in text
@@ -563,13 +559,13 @@ def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english
     assert [notice["text"] for notice in envelope(result)["notices"]] == ["no version"]
 
 
-# --- --root z IMGW_STORE_ROOT ----------------------------------------------------------------
+# --- --root z IMGW_ROOT ----------------------------------------------------------------
 
 
 def test_cli_catalog_root_falls_back_to_imgw_store_root(
     monkeypatch, tmp_path, fixture_root, offline
 ):
-    env = {"IMGW_STORE_ROOT": str(fixture_root)}
+    env = {"IMGW_ROOT": str(fixture_root)}
     info = run_command("store info", options={"root": fixture_root})
     assert envelope(invoke("store", "info", env=env)) == info.to_json(root=fixture_root)
     other = tmp_path / "inny"

@@ -11,7 +11,7 @@ the ``imgw-result/1`` envelope of `run_command` (on POST with ``?check=true``
 of `check_command`) with the store root written as ``"."``, or a text stream
 for ``store export``, ``series export`` and ``commands guide``.
 
-Server rules: the store root comes only from ``IMGW_STORE_ROOT`` (503
+Server rules: the store root comes only from ``IMGW_ROOT`` (503
 ``store_unavailable`` when it is missing, relative or unsupported; ``store
 info`` and ``store scan`` answer diagnostically for an unsupported root);
 ``version`` is a path relative to the root under the ``*/versions/`` directory
@@ -357,7 +357,7 @@ def _unavailable(detail: str, reason: str) -> IMGWStoreError:
 
 
 def _server_root(route: _Route, options: Mapping[str, object]) -> Path | None:
-    """``IMGW_STORE_ROOT`` for a command with a root; 503 when it is unusable."""
+    """``IMGW_ROOT`` for a command with a root; 503 when it is unusable."""
     if not any(option.name == "root" for option in route.spec.options):
         return None
     source = options.get("source")
@@ -365,7 +365,7 @@ def _server_root(route: _Route, options: Mapping[str, object]) -> Path | None:
         isinstance(source, str) and source.strip() == "store"
     ):
         return None
-    root = settings.store_root
+    root = settings.root
     if root is None:
         raise _unavailable(
             message("api.store_not_configured_set_imgw"),

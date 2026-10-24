@@ -627,7 +627,7 @@ class Live:
         with pytest.MonkeyPatch.context() as patch:
             patch.chdir(self.work)
             patch.setattr(settings, "reference_dir", Path(DATA_DIR))
-            patch.delenv("IMGW_STORE_ROOT", raising=False)
+            patch.delenv("IMGW_ROOT", raising=False)
             yield
 
     def save(self, name: str, source: Path) -> None:
@@ -1163,7 +1163,7 @@ def live(tmp_path_factory) -> Iterator[Live]:
     }
     env["IMGW_REFERENCE_DIR"] = DATA_DIR
     served = env | {
-        "IMGW_STORE_ROOT": str(base / "magazyn"),
+        "IMGW_ROOT": str(base / "magazyn"),
         "IMGW_STORE_WRITES_ENABLED": "true",
         "IMGW_STORE_WRITE_TOKEN": TOKEN,
     }

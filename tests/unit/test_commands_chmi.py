@@ -48,15 +48,15 @@ FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 
 @pytest.fixture(autouse=True)
 def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT must not reach the CLI under test."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+    """The developer's IMGW_ROOT must not reach the CLI under test."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
 
 
 @pytest.fixture
 def server(monkeypatch):
     """REST server without a store root, writes disabled, default page size."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("store_write_token", None),
         ("user_locations_dir", None),
@@ -450,7 +450,7 @@ def test_chmi_commands_answer_alike_in_python_cli_and_rest(
         store = init_store(tmp_path / "store")
         build(store)
         root = store.root
-        monkeypatch.setattr(server, "store_root", root)
+        monkeypatch.setattr(server, "root", root)
     local = options if root is None else {"root": root, **options}
 
     start = len(chmi.calls)
@@ -478,7 +478,7 @@ def test_store_catalog_of_chmi_is_planned_alike_in_python_cli_and_rest(
     tmp_path, monkeypatch, server, frozen, chmi
 ):
     root = init_store(tmp_path / "store").root
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     options = {"provider": "CHMI"}
 
     python = check_command("store catalog", options={"root": root, **options})

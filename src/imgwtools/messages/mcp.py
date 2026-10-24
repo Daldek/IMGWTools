@@ -48,4 +48,15 @@ MESSAGES = {
         "Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: {allowed}",
     ),
     "unknown_tool": Text("Unknown tool: {name}", "Nieznane narzędzie: {name}"),
+    "write_needs_allow_dir": Text(
+        "The command {name} writes, and the MCP server has no --allow-dir directory; "
+        "start it with --allow-dir DIR for the directory it may write to",
+        "Komenda {name} zapisuje, a serwer MCP nie ma katalogu --allow-dir; uruchom "
+        "go z --allow-dir KATALOG dla katalogu, do którego wolno mu zapisywać",
+    ),
+    "path_outside_allowed_dirs": Text(
+        "The path {path} of the option {option} lies outside the --allow-dir "
+        "directories: {allowed}",
+        "Ścieżka {path} opcji {option} leży poza katalogami --allow-dir: {allowed}",
+    ),
 }

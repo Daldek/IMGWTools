@@ -57,10 +57,7 @@ from imgwtools.store.types import CommandOption, DataCommand, Notice, Progress
 
 __all__ = ["ImgwCommand", "ImgwGroup", "ImgwSubgroup", "register_catalog"]
 
-_ROOT_ENV = "IMGW_STORE_ROOT"
 _LANG_ENV = "IMGW_LANG"
-# Catalog options whose CLI default comes from an environment variable.
-_ENVVARS = {"root": _ROOT_ENV}
 
 
 @dataclass(frozen=True)
@@ -487,7 +484,6 @@ def _option(option: CommandOption) -> inspect.Parameter:
             help=help_,
             metavar=_metavar(option),
             rich_help_panel=panel,
-            envvar=_ENVVARS.get(option.name),
         )
         annotation = list[str] | None if option.type == "list" else str | None
     return inspect.Parameter(
@@ -537,22 +533,6 @@ def _given(spec: DataCommand, values: Mapping[str, Any]) -> dict[str, object]:
     return options
 
 
-def _environment_root(
-    spec: DataCommand, options: dict[str, object], ctx: typer.Context
-) -> None:
-    """Drop a --root read from IMGW_STORE_ROOT unless ``env_root_when`` holds."""
-    if not spec.env_root_when or "root" not in options:
-        return
-    origin = ctx.get_parameter_source("root")
-    if origin is None or origin.name != "ENVIRONMENT":
-        return
-    defaults = {option.name: option.default for option in spec.options}
-    for name, value in spec.env_root_when.items():
-        if str(options.get(name, defaults.get(name))).strip() != value:
-            options.pop("root")
-            return
-
-
 def _register(group: typer.Typer, spec: DataCommand) -> None:
     def callback(ctx: typer.Context, **values: Any) -> None:
         check = bool(values.pop("check", False))
@@ -561,7 +541,6 @@ def _register(group: typer.Typer, spec: DataCommand) -> None:
             code = _run("commands schema", options, check=False)
         else:
             options = _given(spec, values)
-            _environment_root(spec, options, ctx)
             code = _run(spec.name, options, check=check)
         if code:
             raise typer.Exit(code)
@@ -584,8 +563,8 @@ def register_catalog(app: typer.Typer, /) -> None:
     every catalog command of that group. Command help is the catalog
     description in the language of ``IMGW_LANG``; options are the catalog
     flags and aliases (required ones in the "Opcje wymagane" panel, in
-    English "Required options"), ``--root`` falls back to
-    ``$IMGW_STORE_ROOT`` (only under ``env_root_when`` of the command),
+    English "Required options"), ``--root`` defaults to the store root of
+    ``IMGW_ROOT``, ``[imgw] root`` or ``<data_dir>/imgw`` (only under ``env_root_when`` of the command),
     list options take comma-separated values or
     a repeated flag, ``--check`` exists only for commands with a check twin
     and ``--schema`` for every command.

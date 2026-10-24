@@ -8,7 +8,7 @@ IMGWTools (`imgwtools` on PyPI, v3.0.0, profiles `tool` and `app`) is a Python l
 
 ## 2. Critical rules
 
-- Never store data on the server by default: write only to an explicit `--output` directory, `--root` store or `IMGW_STORE_ROOT`. No default store location, no database.
+- Write only where the user says: `--output-dir` (plain files), `--root`, `IMGW_ROOT` or the default store `<data_dir>/imgw` (DEV-19.2, ADR-007); a server writes only to its configured `IMGW_ROOT`, never to the default. No database.
 - Never add hand-written commands to the CLI, REST or MCP adapters: they are generated from `command_schema()` (`cli/_dispatch.py`, `api/routes/commands.py`, `mcp/_tools.py`). A command goes into `_CATALOG` in `commands.py`, calls exactly one public function and takes its texts (`help`, `description`, `rules`) from `imgwtools.messages.commands`.
 - Never edit `AGENTS.md` and `llms.txt` by hand: they are derived from the catalog. A change of catalog texts, of the dataset/provider/error registries or of the templates in `src/imgwtools/_data/agents/` regenerates both in the same change (commands in section 3); `tests/unit/test_agent_guide.py` compares the bytes.
 - Keep the contract Python = CLI = REST = MCP (`tests/contract/`); one option name per parameter, one envelope `imgw-result/1`, one error registry `ERROR_CODES`.

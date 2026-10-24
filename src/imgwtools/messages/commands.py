@@ -260,8 +260,10 @@ MESSAGES = {
         "Przewodnik {format} ({language}) → {target}",
     ),
     "root_help": Text(
-        "IMGW store directory (CLI: defaults to $IMGW_STORE_ROOT)",
-        "Katalog magazynu IMGW (CLI: domyślnie $IMGW_STORE_ROOT)",
+        "Store root; default: $IMGW_ROOT, then root in nogat.toml (section imgw), "
+        "else <data_dir>/imgw",
+        "Korzeń magazynu; domyślnie: $IMGW_ROOT, potem root w nogat.toml (sekcja imgw), "
+        "inaczej <data_dir>/imgw",
     ),
     "project_dir_help": Text(
         "Project directory with the imgw-project.json manifest",

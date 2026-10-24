@@ -65,7 +65,7 @@ GUIDE = importlib.import_module("imgwtools.agent_guide")
 def server(monkeypatch):
     """A REST server without a store, MCP off, IMGW_LANG Polish, default hosts and page."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("api_max_limit", 1000),
         ("lang", "pl"),

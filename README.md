@@ -23,7 +23,7 @@ Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw co
 - Dane PMAXTP (opady maksymalne prawdopodobne)
 - Listy stacji (wyszukiwanie IMGW-PIB i ČHMÚ) i stany wody stacji hydro IMGW ze współrzędnymi
 
-**Kluczowa zasada:** domyślnie serwer niczego nie zapisuje — generuje bezpośrednie linki do serwerów IMGW-PIB i ČHMÚ, a dane bieżące przekazuje na żywo. Dane trafiają na dysk wyłącznie po jawnej decyzji: wskazaniu katalogu `--output`, korzenia magazynu (`--root`, `IMGW_STORE_ROOT`) albo skonfigurowaniu `IMGW_STORE_ROOT` na serwerze.
+**Kluczowa zasada:** domyślnie serwer niczego nie zapisuje — generuje bezpośrednie linki do serwerów IMGW-PIB i ČHMÚ, a dane bieżące przekazuje na żywo. Dane trafiają na dysk wyłącznie po jawnej decyzji: wskazaniu katalogu `--output`, korzenia magazynu (`--root`, `IMGW_ROOT`) albo skonfigurowaniu `IMGW_ROOT` na serwerze.
 
 **Wersjonowany magazyn danych** (opcjonalny, od 3.0.0):
 - niezmienne wersje archiwów IMGW-PIB i ČHMÚ 1:1 z sumami SHA-256, nagłówkami HTTP i licencją w sidecarze `*.meta.json`,
@@ -112,7 +112,7 @@ curl "http://localhost:8000/api/v1/datasets/files?dataset=hydro/dobowe&years=202
     "imgwtools": {
       "command": "imgw",
       "args": ["mcp"],
-      "env": {"IMGW_STORE_ROOT": "/dane/imgw"}
+      "env": {"IMGW_ROOT": "/dane/imgw"}
     }
   }
 }
@@ -138,7 +138,7 @@ Język, skutki komend i konfiguracja serwera MCP (stdio i `/mcp`): [przewodnik u
 
 ## Konfiguracja
 
-Ustawienie pochodzi z pierwszego z: opcji wiersza poleceń, zmiennej `IMGW_<KLUCZ>`, pliku `.env`, zmiennej `NOGAT_<KLUCZ>` (klucze wspólne `data_dir`, `cache_dir`, `lang`), sekcji `[imgw]` i `[nogat]` pliku `nogat.toml`, wartości domyślnej. Najważniejsze zmienne: `IMGW_STORE_ROOT` (korzeń magazynu), `IMGW_LANG` (`pl` albo `en`), `IMGW_DATA_DIR`, `IMGW_CACHE_DIR`, `IMGW_REFERENCE_DIR`, `IMGW_MCP_ENABLED`. `imgw config show --json` wypisuje każdy klucz z wartością i źródłem.
+Ustawienie pochodzi z pierwszego z: opcji wiersza poleceń, zmiennej `IMGW_<KLUCZ>`, pliku `.env`, zmiennej `NOGAT_<KLUCZ>` (klucze wspólne `data_dir`, `cache_dir`, `lang`), sekcji `[imgw]` i `[nogat]` pliku `nogat.toml`, wartości domyślnej. Najważniejsze zmienne: `IMGW_ROOT` (korzeń magazynu), `IMGW_LANG` (`pl` albo `en`), `IMGW_DATA_DIR`, `IMGW_CACHE_DIR`, `IMGW_REFERENCE_DIR`, `IMGW_MCP_ENABLED`. `imgw config show --json` wypisuje każdy klucz z wartością i źródłem.
 
 Pełna tabela zmiennych, przykład `nogat.toml` i kopia zapasowa magazynu: [Konfiguracja](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#konfiguracja).
 
@@ -146,7 +146,7 @@ Pełna tabela zmiennych, przykład `nogat.toml` i kopia zapasowa magazynu: [Konf
 
 ## Źródła danych
 
-IMGWTools nie dystrybuuje danych IMGW-PIB ani ČHMÚ, a serwer domyślnie ich nie przechowuje — każde pobranie i zapis do magazynu jest świadomą decyzją użytkownika lub administratora (jawny `--output`, `--root`, `IMGW_STORE_ROOT`). Poniżej zestawienie wykorzystywanych źródeł.
+IMGWTools nie dystrybuuje danych IMGW-PIB ani ČHMÚ, a serwer domyślnie ich nie przechowuje — każde pobranie i zapis do magazynu jest świadomą decyzją użytkownika lub administratora (jawny `--output`, `--root`, `IMGW_ROOT`). Poniżej zestawienie wykorzystywanych źródeł.
 
 | Źródło | Operator | Warunki korzystania |
 |--------|----------|---------------------|
