@@ -55,8 +55,6 @@ _PENDING = frozenset(
         "commands.py",
         "datasets.py",
         "models.py",
-        # Web GUI.
-        "web/app.py",
     }
 )
 
