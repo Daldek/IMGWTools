@@ -234,4 +234,4 @@ The following are explicitly out of scope for this project:
 
 ## 11. Future Enhancements (Backlog)
 
-The backlog is maintained exclusively in `docs/PROGRESS.md` (section "Backlog") — the single source of truth for pending work.
+The backlog is maintained exclusively in `docs/PROGRESS.md` (section "Next") — the single source of truth for pending work.
