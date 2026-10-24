@@ -19,6 +19,9 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `uv sync --locked`. The `dev` extra became the `dev` dependency group, so
   `pip install -e ".[dev]"` no longer exists. The marker `live` replaces `IMGW_LIVE=1` for the
   tests against real servers: the gate deselects them, `pytest -m live` runs them.
+- **CI (DEV-7.7, DEV-13.6):** `ci.yml` (the gate on Linux, macOS and Windows, a dependency
+  audit), `live.yml` (weekly `live` tests) and `dependabot.yml` (GitHub Actions), copied
+  from the Nogat templates; they trigger on `main` and `develop`.
 
 ## [3.0.0] — 2026-10-19
 

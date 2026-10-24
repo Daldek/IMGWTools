@@ -304,6 +304,12 @@ over `tests/` with coverage (offline, `-m "not live"`, floor 80%) and the commit
 step `scripts/check-commits.sh` (identity, Conventional Commits, no AI
 attribution). The environment is `uv.lock` (`uv sync --locked`).
 
+**CI:** GitHub Actions run the gate on Linux, macOS and Windows
+(`.github/workflows/ci.yml`, DEV-7.7), the `live` tests weekly
+(`.github/workflows/live.yml`), and Dependabot updates the Actions
+(`.github/dependabot.yml`). Templates: `standards/ci/` of the Nogat standard. They
+trigger on `main` and `develop`, so they start working once the branches are renamed.
+
 **Deployment:** Docker (`docker/`).
 
 ---
