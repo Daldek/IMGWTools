@@ -161,6 +161,39 @@ def test_a_file_that_cannot_be_used_is_reported_and_not_applied(tmp_path, monkey
     assert environment.config_file().error == "the file does not exist"
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'[imgw]\nlang = "za\xbf\xf3\xb3\xe6"\n',
+        b"\xff\xfe[\x00i\x00m\x00g\x00w\x00]\x00",
+    ],
+    ids=["cp1250-text", "utf-16"],
+)
+def test_a_file_that_is_not_utf_8_is_reported_like_any_unusable_file(
+    content, tmp_path, monkeypatch
+):
+    path = write_config(tmp_path, monkeypatch, "")
+    path.write_bytes(content)
+    reason = "cannot read the file: not UTF-8 text"
+
+    assert environment.config_file().error == reason
+    assert Settings().port == 8000  # nothing of the file is applied
+    with pytest.raises(IMGWValidationError) as caught:
+        check_config()
+    assert caught.value.details == {
+        "option": "NOGAT_CONFIG",
+        "path": str(path),
+        "reason": reason,
+    }
+
+    version = RUNNER.invoke(cli_main.app, ["version"])
+    shown = RUNNER.invoke(cli_main.app, ["config", "show", "--json"])
+    assert version.exit_code == 2
+    assert json.loads(version.stderr.splitlines()[-1])["details"]["reason"] == reason
+    assert shown.exit_code == 0, shown.output
+    assert json.loads(shown.stdout)["config_file"]["error"] == reason
+
+
 def test_imgw_stops_on_an_unusable_file_but_config_show_still_reports_it(
     tmp_path, monkeypatch
 ):
