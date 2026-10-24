@@ -9,12 +9,12 @@ IMGWTools (`imgwtools` on PyPI, v3.0.0, profiles `tool` and `app`) is a Python l
 ## 2. Critical rules
 
 - Never store data on the server by default: write only to an explicit `--output` directory, `--root` store or `IMGW_STORE_ROOT`. No default store location, no database.
-- Never add hand-written commands to the CLI, REST or MCP adapters: they are generated from `command_schema()` (`cli/_dispatch.py`, `api/routes/commands.py`, `mcp/_tools.py`). A command goes into `_CATALOG` in `commands.py`, calls exactly one public function and has Polish and English texts.
+- Never add hand-written commands to the CLI, REST or MCP adapters: they are generated from `command_schema()` (`cli/_dispatch.py`, `api/routes/commands.py`, `mcp/_tools.py`). A command goes into `_CATALOG` in `commands.py`, calls exactly one public function and takes its texts (`help`, `description`, `rules`) from `imgwtools.messages.commands`.
 - Never edit `AGENTS.md` and `llms.txt` by hand: they are derived from the catalog. A change of catalog texts, of the dataset/provider/error registries or of the templates in `src/imgwtools/_data/agents/` regenerates both in the same change (commands in section 3); `tests/unit/test_agent_guide.py` compares the bytes.
 - Keep the contract Python = CLI = REST = MCP (`tests/contract/`); one option name per parameter, one envelope `imgw-result/1`, one error registry `ERROR_CODES`.
 - Never run tests with the global Python (a non-editable `imgwtools` there shadows `src/`): use `uv run`.
 - `IMGW_STORE_WRITE_TOKEN` is a credential: environment only, never from a file, never printed.
-- Text for a person (an error `detail`, a notice, a progress or plan line, a printed line) is never inline: it is an entry of `imgwtools.messages.<area>` (`Text(en, pl)`, English first) rendered by `message("<area>.<name>", value=…)` (ADR-006); `tests/unit/test_messages.py` checks both languages, the call sites and the Polish literals that remain.
+- Text for a person (an error `detail`, a notice, a progress or plan line, a printed line, a command description or option help) is never inline: it is an entry of `imgwtools.messages.<area>` (`Text(en, pl)`, English first) rendered by `message("<area>.<name>", value=…)` (ADR-006); `tests/unit/test_messages.py` checks both languages, the call sites and that no Polish literal is left outside the catalog.
 - Every functional change updates the Markdown docs, docstrings and OpenAPI where affected; no change without tests.
 - Approvals (DEV-3.3): without the author's approval in the current session never merge a pull request, create or move tags, publish a release, force-push a shared branch or rewrite the history of `master`/`slave` (to become `main`/`develop`). A change of a public interface or across more than one module starts with a plan approved by the author (DEV-17.4).
 - Change only this repository (DEV-17.5); a need in another project is a GitHub issue there labelled `request`.

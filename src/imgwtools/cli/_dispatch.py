@@ -145,10 +145,6 @@ _USAGE_PIECES = {
 }
 
 
-def _localized(polish: str, english: str) -> str:
-    return english if _LANG == "en" else polish
-
-
 def _catalog_tables() -> tuple[dict[str, str], dict[str, int]]:
     document = command_schema(lang=_LANG)
     return (
@@ -468,7 +464,7 @@ def _metavar(option: CommandOption) -> str:
 def _option(option: CommandOption) -> inspect.Parameter:
     """Click option of a catalog option: raw text in, defaults left to the catalog."""
     panel = _HELP.required_panel if option.required else _HELP.optional_panel
-    help_ = _localized(option.help, option.help_en)
+    help_ = localize(option.help, _LANG)
     annotation: object
     if option.type == "bool" and option.default is True:
         default = typer.Option(
@@ -572,7 +568,7 @@ def _register(group: typer.Typer, spec: DataCommand) -> None:
 
     cast(Any, callback).__signature__ = inspect.Signature(_parameters(spec))
     name = spec.name.split(" ", 1)[1]
-    description = _localized(spec.description, spec.description_en)
+    description = localize(spec.description, _LANG)
     group.command(name, cls=_CatalogCommand, help=description, short_help=description)(
         callback
     )

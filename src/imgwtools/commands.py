@@ -8,8 +8,9 @@ names; the CLI, the REST API, the web GUI and projects use `validate_command`,
 of their own validation, HTTP requests or option lists. `run_command` and
 `check_command` return the ``imgw-result/1`` envelope `CommandResult`.
 
-Texts for humans are Polish with an English variant of the same information
-(``help_en``, ``description_en``, ``rules_en``, group titles); every command
+Texts for humans (option help, descriptions, rules, group titles) are catalog
+messages (``imgwtools.messages.commands``): English, with a Polish variant that
+`command_schema` renders on request; every command
 declares its effects (``writes``, ``network``) for adapters that must not
 write or connect without a decision of the user (spec 2026-10-19 §3–§4).
 """
@@ -112,16 +113,14 @@ _SYNOP_STATION = "^[0-9]{5}$"
 _TASK_PATTERN = "^[a-z0-9][a-z0-9_-]{0,63}$"
 _TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _PATTERN_TEXT = {
-    _STATION: "kod stacji z 9 cyfr (IMGW-PIB) albo identyfikator WIGOS, "
-    "np. 0-203-1-001000",
-    _IMGW_STATION: "kod stacji IMGW-PIB z 9 cyfr",
-    _SYNOP_STATION: "kod stacji synoptycznej z 5 cyfr",
-    _TASK_PATTERN: "nazwa zadania z 1–64 znaków a-z, 0-9, _ lub -, "
-    "zaczynająca się literą lub cyfrą",
+    _STATION: message("commands.pattern_station"),
+    _IMGW_STATION: message("commands.pattern_imgw_station"),
+    _SYNOP_STATION: message("commands.pattern_synop_station"),
+    _TASK_PATTERN: message("commands.pattern_task_pattern"),
 }
 _INTEGER = re.compile(r"-?[0-9]+")
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ])")
+_SENTENCE_BREAK = re.compile(r"[.!?]\s+(?=\S)")
 _KINDS = ("hydro", "meteo")
 _YEAR_TYPES = ("hydrological", "calendar")
 # Datasets with source files (spec 2026-10-18 §9.3: 10 IMGW-PIB and 2 ČHMÚ);
@@ -159,24 +158,14 @@ _PROJECT_PATHS = ("store_dir", "geometry")
 _DONE = ("created", "relabeled", "unchanged", "reused")
 _EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
 _GROUPS = {
-    "datasets": "Rejestr dostawców i zbiorów: lista, pliki i pobieranie",
-    "stations": "Wyszukiwanie stacji",
-    "current": "Dane bieżące z API IMGW",
-    "pmaxtp": "Opady maksymalne PMAXTP",
-    "store": "Wersjonowany magazyn",
-    "series": "Szeregi stacji",
-    "project": "Projekty imgw-project/1",
-    "commands": "Opis katalogu komend",
-}
-_GROUPS_EN = {
-    "datasets": "Registry of providers and datasets: list, files and download",
-    "stations": "Station search",
-    "current": "Current data from the IMGW API",
-    "pmaxtp": "PMAXTP maximum precipitation",
-    "store": "Versioned store",
-    "series": "Station series",
-    "project": "imgw-project/1 projects",
-    "commands": "Description of the command catalog",
+    "datasets": message("commands.group_datasets"),
+    "stations": message("commands.group_stations"),
+    "current": message("commands.group_current"),
+    "pmaxtp": message("commands.group_pmaxtp"),
+    "store": message("commands.group_store"),
+    "series": message("commands.group_series"),
+    "project": message("commands.group_project"),
+    "commands": message("commands.group_commands"),
 }
 _STORE_FUNCTIONS = (
     "check_pmaxtp",
@@ -236,7 +225,6 @@ def _option(
     name: str,
     type_: OptionType,
     help_: str,
-    help_en: str,
     *,
     required: bool = False,
     choices: Iterable[str] = (),
@@ -263,7 +251,6 @@ def _option(
         maximum=maximum,
         pattern=pattern,
         rest=rest,
-        help_en=help_en,
         writes=writes,
     )
 
@@ -271,7 +258,6 @@ def _option(
 def _command(
     name: str,
     description: str,
-    description_en: str,
     options: Iterable[CommandOption],
     *,
     function: str,
@@ -281,14 +267,14 @@ def _command(
     method: Literal["GET", "POST"] | None = None,
     requires: Mapping[str, tuple[str, ...]] | None = None,
     one_of: tuple[tuple[str, ...], ...] = (),
-    rules: tuple[tuple[str, str], ...] = (),
+    rules: tuple[str, ...] = (),
     writes: Writes = "none",
     network: bool = False,
     idempotent: bool = True,
     env_root_when: Mapping[str, str] | None = None,
 ) -> tuple[DataCommand, str]:
     """
-    Catalog entry; ``rules`` are (Polish, English) pairs of one rule each.
+    Catalog entry; ``rules`` are the catalog messages of one rule each.
 
     ``one_of`` is a pair of alternative option groups (the refusal names both).
     """
@@ -305,9 +291,7 @@ def _command(
         method=method,
         requires=dict(requires or {}),
         one_of=one_of,
-        rules=tuple(polish for polish, _ in rules),
-        description_en=description_en,
-        rules_en=tuple(english for _, english in rules),
+        rules=rules,
         writes=writes,
         network=network,
         idempotent=idempotent,
@@ -319,8 +303,7 @@ def _command(
 _ROOT = _option(
     "root",
     "path",
-    "Katalog magazynu IMGW (CLI: domyślnie $IMGW_STORE_ROOT)",
-    "IMGW store directory (CLI: defaults to $IMGW_STORE_ROOT)",
+    message("commands.root_help"),
     required=True,
     aliases=("-r",),
     rest="server",
@@ -328,27 +311,21 @@ _ROOT = _option(
 _PROJECT_DIR = _option(
     "project_dir",
     "path",
-    "Katalog projektu z manifestem imgw-project.json",
-    "Project directory with the imgw-project.json manifest",
+    message("commands.project_dir_help"),
     required=True,
     rest="local",
 )
 _STORE_DIR = _option(
     "store_dir",
     "path",
-    "Katalog magazynu IMGW projektu; ścieżka względna liczona wobec katalogu projektu",
-    "IMGW store directory of the project; a relative path is resolved against the "
-    "project directory",
+    message("commands.store_dir_help"),
     required=True,
     rest="local",
 )
 _ARCHIVE_DATASET = _option(
     "dataset",
     "choice",
-    "Zbiór archiwalny: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily, "
-    "hydro/dobowe albo cz.chmi.hydro_daily",
-    "Archive dataset: key, slug or legacy alias, e.g. pl.imgw.hydro_daily, "
-    "hydro/dobowe or cz.chmi.hydro_daily",
+    message("commands.archive_dataset_help"),
     required=True,
     choices=_ARCHIVE_DATASETS,
     aliases=("-d",),
@@ -356,18 +333,14 @@ _ARCHIVE_DATASET = _option(
 _SERIES_DATASET = _option(
     "dataset",
     "choice",
-    "Zbiór szeregów: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily",
-    "Series dataset: key, slug or legacy alias, e.g. pl.imgw.hydro_daily",
+    message("commands.series_dataset_help"),
     choices=_SERIES_DATASETS,
     aliases=("-d",),
 )
 _DATASETS = _option(
     "datasets",
     "list",
-    "Zbiory magazynu rozdzielone przecinkami: klucz, slug albo alias legacy; zbiory "
-    "jednego rodzaju: pl.imgw.* albo cz.chmi.*",
-    "Comma-separated store datasets: key, slug or legacy alias; datasets of one "
-    "kind: pl.imgw.* or cz.chmi.*",
+    message("commands.datasets_help"),
     choices=_SERIES_DATASETS,
     items="choice",
     aliases=("-d",),
@@ -375,16 +348,14 @@ _DATASETS = _option(
 _FAMILY = _option(
     "kind",
     "choice",
-    "Rodzaj: hydro albo meteo; brak = obie rodziny",
-    "Kind: hydro or meteo; none = both families",
+    message("commands.family_help"),
     choices=_KINDS,
     aliases=("-k",),
 )
 _YEARS = _option(
     "years",
     "list",
-    "Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022",
-    "Years: numbers or ranges, e.g. 2023-2025 or 2020,2022",
+    message("commands.years_help"),
     items="year",
     minimum=1,
     maximum=9999,
@@ -392,26 +363,16 @@ _YEARS = _option(
 )
 _ARCHIVE_YEARS = replace(
     _YEARS,
-    help="Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022; wymagane poza "
-    "cz.chmi.meteo_daily (tam niedozwolone)",
-    help_en="Years: numbers or ranges, e.g. 2023-2025 or 2020,2022; required except "
-    "for cz.chmi.meteo_daily (not allowed there)",
+    help=message("commands.archive_years_help"),
 )
 _STORE_YEARS = replace(
     _YEARS,
-    help="Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022; wymagane dla "
-    "pl.imgw.*, opcjonalne dla cz.chmi.hydro_daily (brak = lata opublikowane), "
-    "niedozwolone dla cz.chmi.meteo_daily",
-    help_en="Years: numbers or ranges, e.g. 2023-2025 or 2020,2022; required for "
-    "pl.imgw.*, optional for cz.chmi.hydro_daily (none = the published years), not "
-    "allowed for cz.chmi.meteo_daily",
+    help=message("commands.store_years_help"),
 )
 _MONTHS = _option(
     "months",
     "list",
-    "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie); tylko zbiory "
-    "pl.imgw.*",
-    "Comma-separated months 1–12 (default: all); pl.imgw.* datasets only",
+    message("commands.months_help"),
     items="int",
     minimum=1,
     maximum=12,
@@ -420,16 +381,14 @@ _MONTHS = _option(
 _PARAMS = _option(
     "params",
     "list",
-    "Parametry półroczne H, Q, T (tylko pl.imgw.hydro_semiannual; domyślnie wszystkie)",
-    "Semi-annual parameters H, Q, T (pl.imgw.hydro_semiannual only; default: all)",
+    message("commands.params_help"),
     choices=("H", "Q", "T"),
     items="choice",
 )
 _OUTPUT = _option(
     "output",
     "path",
-    "Katalog pobierania odzwierciedlający ścieżki serwera (domyślnie ./data/downloaded)",
-    "Download directory mirroring the server paths (default: ./data/downloaded)",
+    message("commands.output_help"),
     default="./data/downloaded",
     aliases=("-o",),
     rest="local",
@@ -437,65 +396,54 @@ _OUTPUT = _option(
 _STATION_OPTION = _option(
     "station",
     "str",
-    "Kod stacji (9 cyfr IMGW-PIB albo identyfikator WIGOS)",
-    "Station code (9 digits of IMGW-PIB or a WIGOS identifier)",
+    message("commands.station_option_help"),
     pattern=_STATION,
     aliases=("-s",),
 )
 _STATIONS = _option(
     "stations",
     "list",
-    "Kody stacji (9 cyfr IMGW-PIB albo identyfikatory WIGOS) rozdzielone przecinkami",
-    "Comma-separated station codes (9 digits of IMGW-PIB or WIGOS identifiers)",
+    message("commands.stations_help"),
     items="str",
     pattern=_STATION,
     aliases=("-s",),
 )
 _ARCHIVE_STATIONS = replace(
     _STATIONS,
-    help="Kody stacji ČHMÚ (identyfikatory WIGOS, np. 0-203-1-001000) rozdzielone "
-    "przecinkami; wymagane dla zbiorów cz.chmi.*, niedozwolone dla pl.imgw.*",
-    help_en="Comma-separated ČHMÚ station codes (WIGOS identifiers, e.g. "
-    "0-203-1-001000); required for cz.chmi.* datasets, not allowed for pl.imgw.*",
+    help=message("commands.archive_stations_help"),
 )
 _PROVIDER = _option(
     "provider",
     "choice",
-    "Dostawca danych: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy dostawcy",
-    "Data provider: IMGW-PIB or CHMI (ČHMÚ); none = all providers",
+    message("commands.provider_help"),
     choices=_PROVIDERS,
 )
 _VARIABLES = _option(
     "variables",
     "list",
-    "Zmienne zbioru rozdzielone przecinkami, np. H,Q (domyślnie wszystkie)",
-    "Comma-separated dataset variables, e.g. H,Q (default: all)",
+    message("commands.variables_help"),
     items="str",
 )
 _YEAR_TYPE = _option(
     "year_type",
     "choice",
-    "Rodzaj roku: hydrological (XI–X) albo calendar; domyślnie według series.json",
-    "Year type: hydrological (November–October) or calendar; default from series.json",
+    message("commands.year_type_help"),
     choices=_YEAR_TYPES,
 )
 _START = _option(
     "start",
     "date",
-    "Pierwszy dzień zakresu rekordów (ISO RRRR-MM-DD, włącznie)",
-    "First day of the record range (ISO YYYY-MM-DD, inclusive)",
+    message("commands.start_help"),
 )
 _END = _option(
     "end",
     "date",
-    "Ostatni dzień zakresu rekordów (ISO RRRR-MM-DD, włącznie)",
-    "Last day of the record range (ISO YYYY-MM-DD, inclusive)",
+    message("commands.end_help"),
 )
 _LATITUDE = _option(
     "latitude",
     "float",
-    "Szerokość geograficzna punktu WGS84 (49,0–55,0)",
-    "WGS84 latitude of the point (49.0–55.0)",
+    message("commands.latitude_help"),
     required=True,
     minimum=49.0,
     maximum=55.0,
@@ -504,8 +452,7 @@ _LATITUDE = _option(
 _LONGITUDE = _option(
     "longitude",
     "float",
-    "Długość geograficzna punktu WGS84 (14,0–24,5)",
-    "WGS84 longitude of the point (14.0–24.5)",
+    message("commands.longitude_help"),
     required=True,
     minimum=14.0,
     maximum=24.5,
@@ -514,47 +461,36 @@ _LONGITUDE = _option(
 _METHOD = _option(
     "method",
     "choice",
-    "Metoda PMAXTP: POT albo AMP",
-    "PMAXTP method: POT or AMP",
+    message("commands.method_help"),
     choices=("POT", "AMP"),
     default="POT",
 )
 _IND_X = _option(
     "ind_x",
     "int",
-    "Indeks X komórki siatki PMAXTP (razem z --ind-y)",
-    "X index of the PMAXTP grid cell (together with --ind-y)",
+    message("commands.ind_x_help"),
     minimum=0,
 )
 _IND_Y = _option(
     "ind_y",
     "int",
-    "Indeks Y komórki siatki PMAXTP (razem z --ind-x)",
-    "Y index of the PMAXTP grid cell (together with --ind-x)",
+    message("commands.ind_y_help"),
     minimum=0,
 )
 _SERIES_VERSION = _option(
     "version",
     "path",
-    "Wersja szeregu: katalog wersji, series.json albo sidecar; bezwzględna albo "
-    "względna do root (zamiast dataset)",
-    "Series version: version directory, series.json or sidecar; absolute or "
-    "relative to root (instead of dataset)",
+    message("commands.series_version_help"),
 )
 _SERIES_ROOT = replace(
     _ROOT,
     required=False,
-    help="Katalog magazynu: podstawa względnej wersji albo magazyn bieżącej wersji "
-    "zbioru (z dataset)",
-    help_en="Store directory: base of a relative version or store of the current "
-    "version of the dataset (with dataset)",
+    help=message("commands.series_root_help"),
 )
 _PATH = _option(
     "path",
     "path",
-    "Plik wyniku poza magazynem, w istniejącym katalogu (domyślnie standardowe wyjście)",
-    "Result file outside the store, in an existing directory (default: standard "
-    "output)",
+    message("commands.path_help"),
     aliases=("-p",),
     rest="local",
     writes="replace",
@@ -563,16 +499,14 @@ _PATH = _option(
 _PLAN_FILE = _option(
     "plan",
     "path",
-    "Plik planu imgw-plan/1 do zapisania poza magazynem",
-    "File to write the imgw-plan/1 plan to, outside the store",
+    message("commands.plan_file_help"),
     rest="local",
     writes="replace",
 )
 _TASKS = _option(
     "tasks",
     "list",
-    "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)",
-    "Comma-separated names of project tasks (default: all)",
+    message("commands.tasks_help"),
     items="str",
     pattern=_TASK_PATTERN,
     rest="local",
@@ -580,8 +514,7 @@ _TASKS = _option(
 _TASK_NAME_OPTION = _option(
     "name",
     "str",
-    "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra",
-    "Task name: 1–64 characters a-z, 0-9, _ or -, starting with a letter or digit",
+    message("commands.task_name_option_help"),
     required=True,
     pattern=_TASK_PATTERN,
     rest="local",
@@ -590,108 +523,55 @@ _TASK_NAME_OPTION = _option(
 _LANGUAGE = _option(
     "lang",
     "choice",
-    "Język opisów: en (domyślnie) albo pl (REST: według Accept-Language)",
-    "Language of the descriptions: en (default) or pl (REST: by Accept-Language)",
+    message("commands.language_help"),
     choices=LANGS,
     default="en",
 )
-_LIMIT = _option("limit", "int", "Rozmiar strony", "Page size", minimum=1)
+_LIMIT = _option("limit", "int", message("commands.limit_help"), minimum=1)
 _OFFSET = _option(
-    "offset", "int", "Początek strony", "Start of the page", minimum=0, default=0
+    "offset", "int", message("commands.offset_help"), minimum=0, default=0
 )
 _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
 # The conflicting option of version+dataset+root is reported as dataset.
 _VERSION_OR_DATASET = (("version",), ("dataset", "root"))
 # Rules are (Polish, English) pairs.
-_STATIONS_RULE = (
-    "stations wymagane dla zbiorów cz.chmi.* i niedozwolone dla pl.imgw.*; kody "
-    "według gramatyki dostawcy zbioru",
-    "stations required for cz.chmi.* datasets and not allowed for pl.imgw.*; codes "
-    "in the grammar of the dataset's provider",
-)
-_MONTHS_RULE = (
-    "months wyłącznie dla zbiorów pl.imgw.*",
-    "months only for pl.imgw.* datasets",
-)
-_VARIABLES_RULE = (
-    "variables wyłącznie ze zmiennych zbioru",
-    "variables only from the variables of the dataset",
-)
-_START_RULE = ("start nie później niż end", "start not later than end")
-_HALF_YEAR_RULE = (
-    "szereg półroczny wyłącznie z year_type=hydrological",
-    "a semi-annual series only with year_type=hydrological",
-)
-_PATH_RULE = (
-    "path wewnątrz magazynu jest niedozwolona",
-    "path inside the store is not allowed",
-)
+_STATIONS_RULE = message("commands.stations_rule")
+_MONTHS_RULE = message("commands.months_rule")
+_VARIABLES_RULE = message("commands.variables_rule")
+_START_RULE = message("commands.start_rule")
+_HALF_YEAR_RULE = message("commands.half_year_rule")
+_PATH_RULE = message("commands.path_rule")
 _ARCHIVE_RULES = (
-    (
-        "roczniki nie wcześniejsze niż pierwszy rocznik zbioru (first_year)",
-        "years not earlier than the first year of the dataset (first_year)",
-    ),
-    (
-        "years wymagane poza cz.chmi.meteo_daily, którego pliki obejmują całą "
-        "historię stacji (tam years niedozwolone)",
-        "years required except for cz.chmi.meteo_daily, whose files cover the whole "
-        "history of a station (years not allowed there)",
-    ),
+    message("commands.archive_rule_1"),
+    message("commands.archive_rule_2"),
     _STATIONS_RULE,
     _MONTHS_RULE,
-    (
-        "params wyłącznie dla pl.imgw.hydro_semiannual",
-        "params only for pl.imgw.hydro_semiannual",
-    ),
+    message("commands.archive_rule_3"),
 )
 _STORE_RULES = (
-    (
-        "zbiory jednego rodzaju: archiwa krajowe pl.imgw.* albo pliki stacji cz.chmi.*",
-        "datasets of one kind: country archives pl.imgw.* or station files cz.chmi.*",
-    ),
-    (
-        "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
-        "years not earlier than the first year of each dataset",
-    ),
-    (
-        "years wymagane dla zbiorów pl.imgw.*, opcjonalne dla cz.chmi.hydro_daily "
-        "(brak = lata opublikowane w listingu stacji) i niedozwolone dla "
-        "cz.chmi.meteo_daily",
-        "years required for pl.imgw.* datasets, optional for cz.chmi.hydro_daily "
-        "(none = the years published in the station listing) and not allowed for "
-        "cz.chmi.meteo_daily",
-    ),
+    message("commands.store_rule_1"),
+    message("commands.store_rule_2"),
+    message("commands.store_rule_3"),
     _STATIONS_RULE,
     _MONTHS_RULE,
 )
 _SERIES_RULES = (
-    (
-        "dokładnie jedno z: version albo root+dataset (bieżąca wersja szeregu zbioru)",
-        "exactly one of: version or root+dataset (the current series version of "
-        "the dataset)",
-    ),
+    message("commands.series_rule_1"),
     _VARIABLES_RULE,
 )
 
 _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     _command(
         "datasets list",
-        "Wypisz zbiory z rejestru: klucze, dostawców, aliasy legacy, zmienne i "
-        "pierwszy rocznik.",
-        "List the datasets of the registry: keys, providers, legacy aliases, "
-        "variables and first year.",
+        message("commands.datasets_list_description"),
         (
             replace(
                 _FAMILY,
-                help="Rodzina zbiorów: hydro albo meteo; brak = wszystkie",
-                help_en="Dataset family: hydro or meteo; none = all",
+                help=message("commands.datasets_list_family_help"),
             ),
             replace(
                 _PROVIDER,
-                help="Dostawca zbiorów: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
-                "dostawcy",
-                help_en="Dataset provider: IMGW-PIB or CHMI (ČHMÚ); none = all "
-                "providers",
+                help=message("commands.datasets_list_provider_help"),
             ),
         ),
         function="datasets",
@@ -701,10 +581,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets files",
-        "Wypisz pliki źródłowe zbioru dla wybranych roczników albo stacji (offline, "
-        "bez pobierania).",
-        "List the source files of a dataset for given years or stations (offline, no "
-        "download).",
+        message("commands.datasets_files_description"),
         (_ARCHIVE_DATASET, _ARCHIVE_YEARS, _MONTHS, _PARAMS, _ARCHIVE_STATIONS),
         function="archive_files",
         result="list",
@@ -714,10 +591,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets download",
-        "Pobierz pliki źródłowe zbioru do katalogu odzwierciedlającego ścieżki "
-        "serwera dostawcy.",
-        "Download the source files of a dataset to a directory mirroring the "
-        "provider's server paths.",
+        message("commands.datasets_download_description"),
         (
             _ARCHIVE_DATASET,
             _ARCHIVE_YEARS,
@@ -736,10 +610,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets providers",
-        "Wypisz dostawców danych z rejestru: identyfikatory, kraje, licencje, wzorce "
-        "kodów stacji i zbiory.",
-        "List the data providers: identifiers, countries, licenses, station code "
-        "patterns, datasets.",
+        message("commands.datasets_providers_description"),
         (),
         function="providers",
         result="list",
@@ -748,43 +619,33 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "stations find",
-        "Znajdź stacje IMGW-PIB i ČHMÚ po nazwie, rzece albo prefiksie kodu.",
-        "Find IMGW-PIB and ČHMÚ stations by name, river or code prefix.",
+        message("commands.stations_find_description"),
         (
             replace(
                 _FAMILY,
-                help="Rodzaj stacji; brak = obie rodziny",
-                help_en="Station kind; none = both families",
+                help=message("commands.stations_find_family_help"),
             ),
             _option(
                 "query",
                 "str",
-                "Fragment nazwy lub rzeki albo prefiks kodu",
-                "Fragment of the name or river, or a code prefix",
+                message("commands.stations_find_query_help"),
                 aliases=("-q",),
             ),
             _option(
                 "source",
                 "choice",
-                "live: listy stacji dostawców na żywo; store: listy i katalogi "
-                "stacji zapisane w magazynie",
-                "live: the providers' station lists, live; store: station lists and "
-                "catalogs saved in the store",
+                message("commands.stations_find_source_help"),
                 choices=("live", "store"),
                 default="live",
             ),
             replace(
                 _ROOT,
                 required=False,
-                help="Katalog magazynu (wymagany przy source=store)",
-                help_en="Store directory (required with source=store)",
+                help=message("commands.stations_find_root_help"),
             ),
             replace(
                 _PROVIDER,
-                help="Dostawca stacji: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
-                "dostawcy",
-                help_en="Station provider: IMGW-PIB or CHMI (ČHMÚ); none = all "
-                "providers",
+                help=message("commands.stations_find_provider_help"),
             ),
         ),
         function="find_stations",
@@ -793,17 +654,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         method="GET",
         result_type="StationListEntry",
         rules=(
-            (
-                "root jest wymagany przy source=store i niedozwolony przy source=live",
-                "root is required with source=store and not allowed with source=live",
-            ),
-            (
-                "source=store bez provider pomija dostawców bez zapisanej listy "
-                "stacji; przy jawnym provider brak listy to błąd not_found",
-                "source=store without provider skips the providers without a saved "
-                "station list; with an explicit provider a missing list is a "
-                "not_found error",
-            ),
+            message("commands.stations_find_rule_1"),
+            message("commands.stations_find_rule_2"),
         ),
         network=True,
         # A live search rejects root (spec 2026-10-17 §13.10).
@@ -811,13 +663,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current hydro",
-        "Pobierz bieżące dane hydrologiczne z API IMGW.",
-        "Fetch current hydrological data from the IMGW API.",
+        message("commands.current_hydro_description"),
         (
             replace(
                 _STATION_OPTION,
-                help="Kod stacji (9 cyfr); brak = wszystkie stacje",
-                help_en="Station code (9 digits); none = all stations",
+                help=message("commands.current_hydro_station_option_help"),
                 pattern=_IMGW_STATION,
             ),
         ),
@@ -830,13 +680,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current meteo",
-        "Pobierz bieżące dane meteorologiczne z API IMGW.",
-        "Fetch current meteorological data from the IMGW API.",
+        message("commands.current_meteo_description"),
         (
             replace(
                 _STATION_OPTION,
-                help="Kod stacji (9 cyfr); brak = wszystkie stacje",
-                help_en="Station code (9 digits); none = all stations",
+                help=message("commands.current_hydro_station_option_help"),
                 pattern=_IMGW_STATION,
             ),
         ),
@@ -849,20 +697,17 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current synop",
-        "Pobierz bieżące dane synoptyczne z API IMGW.",
-        "Fetch current synoptic data from the IMGW API.",
+        message("commands.current_synop_description"),
         (
             replace(
                 _STATION_OPTION,
-                help="Kod stacji synoptycznej (5 cyfr); brak = wszystkie stacje",
-                help_en="Synoptic station code (5 digits); none = all stations",
+                help=message("commands.current_synop_station_option_help"),
                 pattern=_SYNOP_STATION,
             ),
             _option(
                 "station_name",
                 "str",
-                "Fragment nazwy stacji synoptycznej (bez wielkości liter)",
-                "Fragment of the synoptic station name (case-insensitive)",
+                message("commands.current_synop_station_name_help"),
             ),
         ),
         function="fetch_synop",
@@ -874,13 +719,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current warnings",
-        "Pobierz bieżące ostrzeżenia hydrologiczne i meteorologiczne IMGW.",
-        "Fetch the current IMGW hydrological and meteorological warnings.",
+        message("commands.current_warnings_description"),
         (
             replace(
                 _FAMILY,
-                help="Rodzaj ostrzeżeń: hydro albo meteo; brak = oba",
-                help_en="Warning kind: hydro or meteo; none = both",
+                help=message("commands.current_warnings_family_help"),
             ),
         ),
         function="fetch_warnings",
@@ -892,16 +735,12 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current hydro-states",
-        "Pobierz stany wód stacji hydrologicznych ze współrzędnymi (mapa "
-        "hydro.imgw.pl).",
-        "Fetch the water states of hydrological stations with coordinates "
-        "(hydro.imgw.pl map).",
+        message("commands.current_hydro_states_description"),
         (
             _option(
                 "main_only",
                 "bool",
-                "Tylko stacje główne",
-                "Main stations only",
+                message("commands.current_hydro_states_main_only_help"),
                 default=False,
             ),
         ),
@@ -914,8 +753,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp fetch",
-        "Pobierz opady maksymalne PMAXTP dla punktu (na żywo, bez zapisu).",
-        "Fetch the PMAXTP maximum precipitation of a point (live, without saving).",
+        message("commands.pmaxtp_fetch_description"),
         (_LATITUDE, _LONGITUDE, _METHOD),
         function="fetch_pmaxtp",
         check="check_command",
@@ -925,8 +763,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp url",
-        "Zbuduj adres URL API PMAXTP dla punktu (offline, bez pobierania).",
-        "Build the PMAXTP API URL of a point (offline, without downloading).",
+        message("commands.pmaxtp_url_description"),
         (_LATITUDE, _LONGITUDE, _METHOD),
         function="build_pmaxtp_url",
         method="GET",
@@ -934,8 +771,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp check",
-        "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.",
-        "Check the PMAXTP cell in the store without downloading data.",
+        message("commands.pmaxtp_check_description"),
         (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
         function="check_pmaxtp",
         method="GET",
@@ -944,8 +780,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp sync",
-        "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.",
-        "Download the PMAXTP cell of a point and save it as a version in the store.",
+        message("commands.pmaxtp_sync_description"),
         (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
         function="sync_pmaxtp",
         check="check_pmaxtp",
@@ -957,30 +792,24 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp read",
-        "Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).",
-        "Read a saved PMAXTP cell from the store (offline).",
+        message("commands.pmaxtp_read_description"),
         (
             _ROOT,
             replace(
                 _IND_X,
                 required=True,
-                help="Indeks X komórki siatki PMAXTP",
-                help_en="X index of the PMAXTP grid cell",
+                help=message("commands.pmaxtp_read_ind_x_help"),
             ),
             replace(
                 _IND_Y,
                 required=True,
-                help="Indeks Y komórki siatki PMAXTP",
-                help_en="Y index of the PMAXTP grid cell",
+                help=message("commands.pmaxtp_read_ind_y_help"),
             ),
             _METHOD,
             _option(
                 "version",
                 "path",
-                "Wersja komórki: katalog wersji albo cell.json; bezwzględna albo "
-                "względna do root (domyślnie bieżąca)",
-                "Cell version: version directory or cell.json; absolute or relative "
-                "to root (default: the current one)",
+                message("commands.pmaxtp_read_version_help"),
             ),
         ),
         function="read_pmaxtp",
@@ -989,8 +818,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store init",
-        "Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu.",
-        "Create an empty IMGW store (imgw-store.json marker) in the given directory.",
+        message("commands.store_init_description"),
         (_ROOT,),
         function="init_store",
         check="check_command",
@@ -999,9 +827,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store info",
-        "Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu).",
-        "Show the state of an IMGW store and the supported contracts (offline, "
-        "without writing).",
+        message("commands.store_info_description"),
         (_ROOT,),
         function="store_info",
         method="GET",
@@ -1009,17 +835,13 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store scan",
-        "Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu).",
-        "List the versions and problems of an IMGW store (offline, without writing).",
+        message("commands.store_scan_description"),
         (
             _ROOT,
             _option(
                 "kind",
                 "choice",
-                "Rodzaj wpisów: archive, series, catalog, pmaxtp, observation albo "
-                "problem; brak = wszystkie",
-                "Entry kind: archive, series, catalog, pmaxtp, observation or "
-                "problem; none = all",
+                message("commands.store_scan_kind_help"),
                 choices=(
                     "archive",
                     "series",
@@ -1032,10 +854,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
             replace(
                 _PROVIDER,
-                help="Dostawca wpisów: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
-                "dostawcy (problemy bez slotu zawsze)",
-                help_en="Entry provider: IMGW-PIB or CHMI (ČHMÚ); none = all "
-                "providers (problems without a slot always)",
+                help=message("commands.store_scan_provider_help"),
             ),
         ),
         function="iter_store",
@@ -1045,10 +864,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store check",
-        "Sprawdź aktualność archiwów zbiorów bez pobierania danych. Źródła: listing i "
-        "HEAD (IMGW-PIB), sam listing serwera (ČHMÚ).",
-        "Check the freshness of the dataset archives without downloading data. "
-        "Sources: listing and HEAD (IMGW-PIB), the server listing alone (ČHMÚ).",
+        message("commands.store_check_description"),
         (
             _ROOT,
             replace(_DATASETS, required=True),
@@ -1062,29 +878,20 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         result_type="StorePlan",
         rules=(
             *_STORE_RULES,
-            (
-                "plan zapisywany wyłącznie poza magazynem, w istniejącym katalogu",
-                "plan written only outside the store, in an existing directory",
-            ),
+            message("commands.store_check_rule_1"),
         ),
         # Listing and HEAD requests; the plan file is the effect of an option.
         network=True,
     ),
     _command(
         "store sync",
-        "Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru "
-        "zbiorów i stacji.",
-        "Download new or missing archives into the store, by plan or by datasets and "
-        "stations.",
+        message("commands.store_sync_description"),
         (
             _ROOT,
             _option(
                 "plan",
                 "path",
-                "Plik planu imgw-plan/1 z komendy store check (zamiast datasets, "
-                "years, months i stations)",
-                "imgw-plan/1 plan file of the store check command (instead of "
-                "datasets, years, months and stations)",
+                message("commands.store_sync_plan_help"),
             ),
             _DATASETS,
             _STORE_YEARS,
@@ -1093,9 +900,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "series",
                 "bool",
-                "Buduj szeregi zbiorów po synchronizacji (--no-series wyłącza)",
-                "Build the series of the datasets after the synchronization "
-                "(--no-series disables it)",
+                message("commands.store_sync_series_help"),
                 default=True,
             ),
         ),
@@ -1105,10 +910,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         one_of=(("plan",), ("datasets",)),
         result_type="SyncReport",
         rules=(
-            (
-                "plan wyklucza datasets, years, months i stations",
-                "plan excludes datasets, years, months and stations",
-            ),
+            message("commands.store_sync_rule_1"),
             *_STORE_RULES,
         ),
         writes="add",
@@ -1116,25 +918,18 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store catalog",
-        "Zbuduj wersjonowany katalog stacji stations.geojson jednego dostawcy.",
-        "Build the versioned station catalog stations.geojson of one provider.",
+        message("commands.store_catalog_description"),
         (
             _ROOT,
             replace(
                 _PROVIDER,
-                help="Dostawca katalogu: IMGW-PIB albo CHMI (ČHMÚ); jedna wersja "
-                "katalogu jednego dostawcy na wywołanie",
-                help_en="Catalog provider: IMGW-PIB or CHMI (ČHMÚ); one catalog "
-                "version of one provider per call",
+                help=message("commands.store_catalog_provider_help"),
                 default="IMGW-PIB",
             ),
             _option(
                 "user_locations",
                 "path",
-                "Plik CSV UTF-8 użytkownika z kolumnami "
-                "station_code,latitude,longitude[,source]",
-                "User's UTF-8 CSV file with the columns "
-                "station_code,latitude,longitude[,source]",
+                message("commands.store_catalog_user_locations_help"),
             ),
         ),
         function="build_catalog",
@@ -1146,31 +941,23 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store export",
-        "Wyeksportuj rekordy jednej wersji archiwum jako CSV albo JSONL (offline, z "
-        "weryfikacją SHA-256).",
-        "Export the records of one archive version as CSV or JSONL (offline, SHA-256 "
-        "verified).",
+        message("commands.store_export_description"),
         (
             _option(
                 "version",
                 "path",
-                "Wersja archiwum: katalog wersji, plik archiwum albo sidecar; "
-                "bezwzględna albo względna do root",
-                "Archive version: version directory, archive file or sidecar; "
-                "absolute or relative to root",
+                message("commands.store_export_version_help"),
                 required=True,
             ),
             replace(
                 _ROOT,
                 required=False,
-                help="Katalog magazynu: podstawa wersji",
-                help_en="Store directory: base of the version",
+                help=message("commands.store_export_root_help"),
             ),
             _option(
                 "format",
                 "choice",
-                "Format wyniku: csv albo jsonl",
-                "Result format: csv or jsonl",
+                message("commands.store_export_format_help"),
                 choices=("csv", "jsonl"),
                 default="csv",
                 aliases=("-f",),
@@ -1186,9 +973,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series build",
-        "Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.",
-        "Build the Parquet series of a dataset from the current archive versions of "
-        "the store.",
+        message("commands.series_build_description"),
         (_ROOT, replace(_SERIES_DATASET, required=True)),
         function="build_series",
         check="check_series",
@@ -1198,10 +983,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series select",
-        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście "
-        "projektu).",
-        "Select stations, variables and years of the current series (without "
-        "writing; an input of a project).",
+        message("commands.series_select_description"),
         (
             _ROOT,
             replace(_SERIES_DATASET, required=True),
@@ -1209,8 +991,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _VARIABLES,
             replace(
                 _YEARS,
-                help="Roczniki: liczby lub zakresy (domyślnie wszystkie lata szeregu)",
-                help_en="Years: numbers or ranges (default: all years of the series)",
+                help=message("commands.series_select_years_help"),
             ),
             _YEAR_TYPE,
         ),
@@ -1220,22 +1001,13 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         rules=(
             _VARIABLES_RULE,
             _HALF_YEAR_RULE,
-            (
-                "stacje i roczniki wyłącznie z bieżącego szeregu",
-                "stations and years only of the current series",
-            ),
-            (
-                "kody stations według gramatyki dostawcy zbioru (IMGW-PIB: 9 cyfr, "
-                "ČHMÚ: identyfikator WIGOS)",
-                "stations codes in the grammar of the dataset's provider (IMGW-PIB: "
-                "9 digits, ČHMÚ: a WIGOS identifier)",
-            ),
+            message("commands.series_select_rule_1"),
+            message("commands.series_select_rule_2"),
         ),
     ),
     _command(
         "series read",
-        "Odczytaj wartości i flagi szeregu jednej stacji z magazynu.",
-        "Read the values and flags of one station's series from the store.",
+        message("commands.series_read_description"),
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
@@ -1254,19 +1026,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series summary",
-        "Pokaż pokrycie stacji i zmiennych szeregu ze spisu series.json (bez pyarrow).",
-        "Show the coverage of stations and variables of a series from series.json "
-        "(without pyarrow).",
+        message("commands.series_summary_description"),
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
             _SERIES_DATASET,
             replace(
                 _STATIONS,
-                help="Kody stacji (9 cyfr IMGW-PIB albo identyfikatory WIGOS) "
-                "rozdzielone przecinkami (domyślnie wszystkie)",
-                help_en="Comma-separated station codes (9 digits of IMGW-PIB or WIGOS "
-                "identifiers; default: all)",
+                help=message("commands.series_summary_stations_help"),
             ),
             _VARIABLES,
         ),
@@ -1279,9 +1046,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series export",
-        "Wyeksportuj szereg jednej stacji jako CSV z atrybucją dostawcy danych.",
-        "Export the series of one station as CSV with the attribution of the data "
-        "provider.",
+        message("commands.series_export_description"),
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
@@ -1294,8 +1059,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "format",
                 "choice",
-                "Format eksportu (tylko csv)",
-                "Export format (csv only)",
+                message("commands.series_export_format_help"),
                 choices=("csv",),
                 default="csv",
                 aliases=("-f",),
@@ -1312,8 +1076,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "project init",
-        "Utwórz manifest projektu imgw-project.json wskazujący magazyn.",
-        "Create the imgw-project.json manifest of a project pointing to a store.",
+        message("commands.project_init_description"),
         (_PROJECT_DIR, _STORE_DIR),
         function="init_project",
         check="check_command",
@@ -1322,16 +1085,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "project add",
-        "Dodaj zadanie do manifestu projektu.",
-        "Add a task to the project manifest.",
+        message("commands.project_add_description"),
         (
             _PROJECT_DIR,
             _TASK_NAME_OPTION,
             _option(
                 "command",
                 "choice",
-                "Komenda zadania z katalogu, np. series select",
-                "Catalog command of the task, e.g. series select",
+                message("commands.project_add_command_help"),
                 required=True,
                 choices=_TASK_COMMANDS,
                 rest="local",
@@ -1339,20 +1100,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "options",
                 "object",
-                "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z "
-                "projektu)",
-                "Options of the task command as a JSON object (without root: the "
-                "store follows from the project)",
+                message("commands.project_add_options_help"),
                 required=True,
                 rest="local",
             ),
             _option(
                 "geometry",
                 "path",
-                "Plik GeoJSON obszaru wyboru stacji w katalogu projektu (tylko "
-                "series select)",
-                "GeoJSON file of the station selection area in the project directory "
-                "(series select only)",
+                message("commands.project_add_geometry_help"),
                 rest="local",
             ),
         ),
@@ -1360,28 +1115,20 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         check="check_command",
         result_type="Project",
         rules=(
-            (
-                "geometry wyłącznie dla zadań series select",
-                "geometry only for series select tasks",
-            ),
-            (
-                "zadanie series select wymaga jawnej opcji years",
-                "a series select task requires an explicit years option",
-            ),
+            message("commands.project_add_rule_1"),
+            message("commands.project_add_rule_2"),
         ),
         # Appends a task to the manifest (atomic write of the manifest).
         writes="add",
     ),
     _command(
         "project remove",
-        "Usuń zadanie z manifestu projektu.",
-        "Remove a task from the project manifest.",
+        message("commands.project_remove_description"),
         (
             _PROJECT_DIR,
             replace(
                 _TASK_NAME_OPTION,
-                help="Nazwa usuwanego zadania",
-                help_en="Name of the task to remove",
+                help=message("commands.project_remove_task_name_option_help"),
             ),
         ),
         function="remove_project_task",
@@ -1391,14 +1138,12 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "project set-store",
-        "Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików.",
-        "Point the project to a new store directory after verifying the pinned files.",
+        message("commands.project_set_store_description"),
         (
             _PROJECT_DIR,
             replace(
                 _STORE_DIR,
-                help="Nowy katalog magazynu IMGW projektu",
-                help_en="New IMGW store directory of the project",
+                help=message("commands.project_set_store_store_dir_help"),
             ),
         ),
         function="set_project_store",
@@ -1408,24 +1153,20 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "project download",
-        "Pobierz i przypnij dane zadań projektu.",
-        "Download and pin the data of the project tasks.",
+        message("commands.project_download_description"),
         (
             _PROJECT_DIR,
             _TASKS,
             _option(
                 "plan",
                 "path",
-                "Plik planu imgw-plan/1 z komendy project check",
-                "imgw-plan/1 plan file of the project check command",
+                message("commands.project_download_plan_help"),
                 rest="local",
             ),
             _option(
                 "update",
                 "choice",
-                "Tryb: pinned (odtwórz przypięte wersje) albo upgrade (zmień piny)",
-                "Mode: pinned (restore the pinned versions) or upgrade (change the "
-                "pins)",
+                message("commands.project_download_update_help"),
                 choices=("pinned", "upgrade"),
                 default="pinned",
                 rest="local",
@@ -1440,9 +1181,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "project check",
-        "Sprawdź aktualność danych zadań projektu bez zapisu do magazynu.",
-        "Check the freshness of the data of the project tasks without writing to "
-        "the store.",
+        message("commands.project_check_description"),
         (_PROJECT_DIR, _TASKS, _PLAN_FILE),
         function="check_project",
         result_type="StorePlan",
@@ -1451,16 +1190,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "project status",
-        "Pokaż stan przypiętych plików zadań projektu (offline).",
-        "Show the state of the pinned files of the project tasks (offline).",
+        message("commands.project_status_description"),
         (_PROJECT_DIR, _TASKS),
         function="get_project_status",
         result_type="ProjectReport",
     ),
     _command(
         "project verify",
-        "Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline).",
-        "Verify the SHA-256 sums of the pinned files of a project (offline).",
+        message("commands.project_verify_description"),
         (_PROJECT_DIR, _TASKS),
         function="verify_project",
         result_type="ProjectReport",
@@ -1469,16 +1206,12 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
 # The description commands close the catalog: commands schema names every command.
 _GUIDE = _command(
     "commands guide",
-    "Wygeneruj przewodnik dla agentów AI: AGENTS.md albo llms.txt, po polsku albo "
-    "angielsku. Powstaje z katalogu komend i rejestrów.",
-    "Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. "
-    "It is rendered from the command catalog and the registries.",
+    message("commands.commands_guide_description"),
     (
         _option(
             "format",
             "choice",
-            "Format przewodnika: agents (AGENTS.md) albo llms (llms.txt)",
-            "Guide format: agents (AGENTS.md) or llms (llms.txt)",
+            message("commands.commands_guide_format_help"),
             choices=("agents", "llms"),
             default="agents",
             aliases=("-f",),
@@ -1496,10 +1229,7 @@ _GUIDE = _command(
 _CATALOG += (
     _command(
         "commands list",
-        "Wypisz komendy katalogu: nazwy narzędzi, skutki i trasy. Zacznij tutaj, "
-        "a opcje jednej komendy pobierz przez commands schema.",
-        "List the catalog commands: tool names, effects and routes. Start here, "
-        "then get the options of one command with commands schema.",
+        message("commands.commands_list_description"),
         (_LANGUAGE,),
         function="list_commands",
         method="GET",
@@ -1507,15 +1237,12 @@ _CATALOG += (
     ),
     _command(
         "commands schema",
-        "Pokaż schemat JSON opcji komendy albo cały katalog komend imgw-commands/1.",
-        "Show the JSON Schema of the options of a command or the whole "
-        "imgw-commands/1 command catalog.",
+        message("commands.commands_schema_description"),
         (
             _option(
                 "command",
                 "choice",
-                "Nazwa komendy katalogu; brak = cały katalog imgw-commands/1",
-                "Name of a catalog command; none = the whole imgw-commands/1 catalog",
+                message("commands.commands_schema_command_help"),
                 choices=(
                     *(command.name for command, _ in _CATALOG),
                     "commands list",
@@ -1584,8 +1311,8 @@ def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
         ``commands``) with their options, the public function they call,
         the check twin, the result shape, the REST method, the validation
         rules and the effects of a run (``writes``, ``network``,
-        ``env_root_when``); texts for humans are Polish, with English
-        variants in ``description_en``, ``rules_en`` and ``help_en``.
+        ``env_root_when``); the texts for humans are catalog messages (English,
+        with a Polish variant).
 
     Raises
     ------
@@ -1723,7 +1450,9 @@ def _text(option: CommandOption, value: object) -> str:
             value=value,
         )
     if option.pattern is not None and not re.search(option.pattern, text):
-        expected = _PATTERN_TEXT.get(option.pattern, f"wzorzec {option.pattern}")
+        expected = _PATTERN_TEXT.get(option.pattern) or message(
+            "commands.pattern_default", pattern=option.pattern
+        )
         _fail(
             message(
                 "commands.option_expected",
@@ -2961,10 +2690,6 @@ def _value_schema(
     return simple[type_]
 
 
-def _localized(polish: str, english: str, lang: Lang) -> str:
-    return english if lang == "en" else polish
-
-
 def _operation_id(command: str) -> str:
     """``imgw_<group>_<verb>``: the one naming rule of REST, MCP tools and guide."""
     return f"{_TOOL}_{command.replace(' ', '_').replace('-', '_')}"
@@ -2976,7 +2701,7 @@ def _property(option: CommandOption, lang: Lang) -> dict[str, object]:
         schema["default"] = option.default
     if option.writes != "none":
         schema["x-imgw-writes"] = option.writes
-    schema["description"] = _localized(option.help, option.help_en, lang)
+    schema["description"] = localize(option.help, lang)
     return schema
 
 
@@ -2990,7 +2715,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
     schema: dict[str, object] = {
         "$schema": _DIALECT,
         "title": spec.name,
-        "description": _localized(spec.description, spec.description_en, lang),
+        "description": localize(spec.description, lang),
         "type": "object",
         "properties": {option.name: _property(option, lang) for option in spec.options},
     }
@@ -3028,7 +2753,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
             "server_options": [o.name for o in spec.options if o.rest == "server"],
             "local_options": [o.name for o in spec.options if o.rest == "local"],
         },
-        "rules": list(spec.rules_en if lang == "en" else spec.rules),
+        "rules": [localize(rule, lang) for rule in spec.rules],
     }
     return schema
 
@@ -3088,7 +2813,7 @@ def command_schema(
         "version": __version__,
         "lang": language,
         "result_schema": "imgw-result/1",
-        "groups": dict(_GROUPS_EN if language == "en" else _GROUPS),
+        "groups": {name: localize(text, language) for name, text in _GROUPS.items()},
         "commands": [_schema(spec, language) for spec in _COMMANDS],
         "errors": [
             {
@@ -3105,7 +2830,10 @@ def command_schema(
 
 def _summary(text: str) -> str:
     """First sentence of a command description (a catalog ``summary``)."""
-    return _SENTENCE_END.split(text, maxsplit=1)[0]
+    for match in _SENTENCE_BREAK.finditer(text):
+        if text[match.end()].isupper():
+            return text[: match.start() + 1]
+    return text
 
 
 def list_commands(*, lang: Lang = "en") -> dict[str, object]:
@@ -3141,7 +2869,7 @@ def list_commands(*, lang: Lang = "en") -> dict[str, object]:
     entries: list[dict[str, object]] = []
     for spec in _COMMANDS:
         group, name = spec.name.split(" ", 1)
-        text = _localized(spec.description, spec.description_en, language)
+        text = localize(spec.description, language)
         entries.append(
             {
                 "command": spec.name,
@@ -3163,6 +2891,6 @@ def list_commands(*, lang: Lang = "en") -> dict[str, object]:
         "schema": "imgw-command-list/1",
         "version": __version__,
         "lang": language,
-        "groups": dict(_GROUPS_EN if language == "en" else _GROUPS),
+        "groups": {name: localize(text, language) for name, text in _GROUPS.items()},
         "commands": entries,
     }

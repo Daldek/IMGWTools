@@ -192,7 +192,7 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
         (lambda d: d["tasks"][0].update(name="Raba"), "the task name"),
         (lambda d: d["tasks"][0].update(command="store init"), "store init"),
         (lambda d: d["tasks"][0]["options"].update(root="/x"), "root"),
-        (lambda d: d["tasks"][0]["options"].update(stations=["12345"]), "9 cyfr"),
+        (lambda d: d["tasks"][0]["options"].update(stations=["12345"]), "9 digits"),
         (
             lambda d: d["tasks"][0]["options"].pop("year_type"),
             "explicit options: year_type",

@@ -48,16 +48,6 @@ _FILE_SUFFIXES = frozenset({"json", "geojson", "parquet", "csv", "zip", "toml"})
 # Polish keys of the JSON the IMGW-PIB API answers with: foreign data, not our text.
 _FOREIGN_KEYS = frozenset({"województwo", "stopień"})
 
-# Files that still hold Polish string literals outside the catalog. One comment line
-# names an area, so the commit that migrates an area touches only its own lines.
-# A file leaves the set as soon as its last Polish literal does (checked below).
-_PENDING = frozenset(
-    {
-        # The command registry: Polish texts with an English variant beside.
-        "commands.py",
-    }
-)
-
 
 def _same_by_design(key: str, text: Text) -> bool:
     """Whether both languages may read the same: a legal wording, a word they share or a bare composition."""
@@ -183,17 +173,16 @@ def test_no_entry_is_unused_and_no_key_like_literal_is_misspelled():
     assert not misspelled, f"literals that look like keys of a catalog: {misspelled}"
 
 
-def test_polish_literals_stay_only_in_the_catalog_and_the_pending_files():
-    found = {
+def test_polish_literals_stay_only_in_the_catalog():
+    found = sorted(
         name
         for name, tree in sources()
         if any(
             POLISH.search(node.value) and node.value not in _FOREIGN_KEYS
             for node in string_values(tree)
         )
-    }
-    assert found - _PENDING == set(), "a Polish text belongs in imgwtools.messages"
-    assert _PENDING - found == set(), "no Polish literal left: drop the file"
+    )
+    assert found == [], "a Polish text belongs in imgwtools.messages"
 
 
 # --------------------------------------------------------------------------
