@@ -21,29 +21,9 @@ MESSAGES = {
         "An unreadable marker: {path}",
         "Nieczytelny znacznik: {path}",
     ),
-    "unreadable_kartograf_manifest": Text(
-        "An unreadable Kartograf manifest: {path}",
-        "Nieczytelny manifest Kartografa: {path}",
-    ),
-    "imgw_store_already_ancestor_directory": Text(
-        "An IMGW store is already an ancestor of the directory: {ancestor}",
-        "Magazyn IMGW jest już przodkiem katalogu: {ancestor}",
-    ),
-    "path_collides_kartograf_store": Text(
-        "The path collides with a Kartograf store: {output}",
-        "Ścieżka koliduje z magazynem Kartografa: {output}",
-    ),
-    "path_collides_kartograf_versions": Text(
-        "The path collides with Kartograf versions: {versions}",
-        "Ścieżka koliduje z wersjami Kartografa: {versions}",
-    ),
-    "nested_imgw_store": Text(
-        "A nested IMGW store: {folder}",
-        "Zagnieżdżony magazyn IMGW: {folder}",
-    ),
-    "link_versions": Text(
-        "A link in the versions: {sidecar}",
-        "Dowiązanie w wersjach: {sidecar}",
+    "store_below_the_root": Text(
+        "A store lies inside the root: {folder} holds {marker}",
+        "Wewnątrz korzenia leży magazyn: {folder} zawiera {marker}",
     ),
     "unsafe_archive_path": Text(
         "An unsafe archive path: {relative}",
@@ -140,5 +120,36 @@ MESSAGES = {
     "archive_written": Text(
         "Wrote the archive {filename}",
         "Zapisano archiwum {filename}",
+    ),
+    "store_inside_another_store": Text(
+        "The store would lie inside another store: {ancestor} holds {marker}",
+        "Magazyn leżałby w innym magazynie: {ancestor} zawiera {marker}",
+    ),
+    "root_holds_another_store": Text(
+        "The directory {path} is the store of another tool: it holds {marker}",
+        "Katalog {path} jest magazynem innego narzędzia: zawiera {marker}",
+    ),
+    "layout_without_marker": Text(
+        "{path} has the layout of an IMGW store but no imgw-store.json marker; run "
+        "imgw store init --root {path} to verify the layout and write the marker",
+        "{path} ma układ magazynu IMGW, ale nie ma znacznika imgw-store.json; "
+        "uruchom imgw store init --root {path}, aby sprawdzić układ i zapisać znacznik",
+    ),
+    "layout_not_imgw_store": Text(
+        "The layout of {path} is not that of an IMGW store ({count} problems; see "
+        "details.problems)",
+        "Układ {path} nie jest układem magazynu IMGW ({count} problemów; zob. "
+        "details.problems)",
+    ),
+    "unexpected_root_entry": Text(
+        "unexpected entry {name} beside the trees of the store",
+        "nieoczekiwany wpis {name} obok drzew magazynu",
+    ),
+    "layout_tree_not_directory": Text(
+        "{name} is not a directory", "{name} nie jest katalogiem"
+    ),
+    "foreign_sidecar": Text(
+        "{sidecar} is not an imgw-meta/1 sidecar",
+        "{sidecar} nie jest sidecarem imgw-meta/1",
     ),
 }

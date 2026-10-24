@@ -74,7 +74,6 @@ from imgwtools.store.types import (
 )
 from imgwtools.store.writer import (
     _canonical,
-    _check_kartograf,
     _cleanup,
     _existing,
     _fsync_dir,
@@ -82,7 +81,8 @@ from imgwtools.store.writer import (
     _utc,
     _validate_slot,
     _write_json,
-    open_store,
+    lenient_store,
+    prepare_store,
     write_archive,
 )
 from imgwtools.urls import IMGW_API_URL
@@ -236,7 +236,7 @@ def _publish_version(
 
 
 def _handle(root: RootArg) -> StoreHandle:
-    return open_store(root.root if isinstance(root, StoreHandle) else root)
+    return lenient_store(root)
 
 
 def _cancelled(cancel: Cancel | None) -> bool:
@@ -2089,8 +2089,7 @@ def build_catalog(
         atomically.
     """
     owner = get_provider(provider)
-    handle = _handle(root)
-    _check_kartograf(handle.root)
+    handle = prepare_store(root)
     user = _user_file(user_locations)
     if owner.id == "IMGW-PIB":
         return _build_imgw(

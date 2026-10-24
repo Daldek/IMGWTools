@@ -385,5 +385,7 @@ def test_selector_validation(root, tmp_path):
         )
     with pytest.raises(IMGWValidationError):
         check_store(root, datasets=["pl.imgw.hydro_stations"], years=[2024])
-    with pytest.raises(IMGWStoreError):
-        check_store(tmp_path / "missing", datasets=[HYDRO], years=[2024])
+    (tmp_path / "foreign").mkdir()
+    (tmp_path / "foreign" / "notes.txt").write_text("mine")
+    with pytest.raises(IMGWStoreError):  # not a store: foreign files, no layout
+        check_store(tmp_path / "foreign", datasets=[HYDRO], years=[2024])

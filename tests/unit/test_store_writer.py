@@ -253,24 +253,27 @@ def test_sidecar_failure_cannot_publish_half_version(tmp_path, monkeypatch):
     assert not list((root.root / ".incoming").iterdir())
 
 
-def test_nested_kartograf_detection_without_import(tmp_path):
+def test_nested_kartograf_detection_by_marker_name_without_import(tmp_path):
     foreign = tmp_path / "kartograf"
     foreign.mkdir()
-    (foreign / "kartograf-project.json").write_text(
-        json.dumps({"output_dir": "results"})
-    )
-    with pytest.raises(IMGWStoreError, match="Kartograf"):
+    (foreign / "kartograf-store.json").write_text('{"schema": "kartograf-store/1"}')
+    with pytest.raises(IMGWStoreConflictError, match="kartograf-store.json") as inside:
         init_store(foreign / "results" / "imgw")
-    unrelated = init_store(foreign / "separate")
-    assert unrelated.root.exists()
-    other = tmp_path / "nested"
-    sidecar = other / "versions" / "item" / "sample.meta.json"
-    sidecar.parent.mkdir(parents=True)
-    sidecar.write_text('{"schema":"kartograf-meta/1"}')
-    with pytest.raises(IMGWStoreError, match="Kartograf"):
-        init_store(other / "child")
-    with pytest.raises(IMGWStoreError, match="Kartograf"):
+    assert inside.value.details == {"reason": "nested_store"}
+    assert init_store(tmp_path / "separate").root.exists()
+    other = tmp_path / "outer"
+    (other / "child").mkdir(parents=True)
+    (other / "child" / "kartograf-store.json").write_text("{}")
+    with pytest.raises(IMGWStoreConflictError, match="kartograf-store.json"):
         init_store(other)
+    # The sidecars and manifests of the old probe are no marker: nothing nests.
+    legacy = tmp_path / "legacy"
+    (legacy / "versions" / "item").mkdir(parents=True)
+    (legacy / "kartograf-project.json").write_text('{"output_dir": "results"}')
+    (legacy / "versions" / "item" / "sample.meta.json").write_text(
+        '{"schema":"kartograf-meta/1"}'
+    )
+    assert init_store(legacy / "results" / "imgw").root.exists()
 
 
 def test_foreign_or_nested_store_and_path_escape(tmp_path):
@@ -284,9 +287,13 @@ def test_foreign_or_nested_store_and_path_escape(tmp_path):
     (busy / "notes.txt").write_text("x")
     with pytest.raises(IMGWStoreError, match="not an empty IMGW store") as not_empty:
         init_store(busy)
-    for error in (inside, around, not_empty):
+    for error, reason in (
+        (inside, "nested_store"),
+        (around, "nested_store"),
+        (not_empty, "not_empty"),
+    ):
         assert error.value.code == "conflict"
-        assert error.value.details == {"reason": "path_conflict"}
+        assert error.value.details == {"reason": reason}
     unsafe = replace(ARCHIVE, server_path="dane_hydrologiczne/dobowe/../escape.zip")
     with pytest.raises(Exception, match="unsafe archive path"):
         write_archive(root, archive=unsafe, response=response())
@@ -384,13 +391,15 @@ def test_corrupt_sidecar_in_other_slot_does_not_block_writes(tmp_path):
     assert write_archive(root, archive=ARCHIVE, response=response()).status == ("new")
 
 
-def test_kartograf_versions_inside_store_still_detected(tmp_path):
+def test_a_kartograf_store_inside_a_store_is_detected_before_a_write(tmp_path):
     root = init_store(tmp_path / "store")
-    sidecar = root.root / "foreign" / "versions" / "item" / "x.meta.json"
-    sidecar.parent.mkdir(parents=True)
-    sidecar.write_text('{"schema":"kartograf-meta/1"}')
-    with pytest.raises(IMGWStoreError, match="Kartograf"):
+    foreign = root.root / "foreign"
+    foreign.mkdir()
+    (foreign / "kartograf-store.json").write_text('{"schema": "kartograf-store/1"}')
+    with pytest.raises(IMGWStoreConflictError, match="kartograf-store.json") as error:
         write_archive(root, archive=ARCHIVE, response=response())
+    assert error.value.details == {"reason": "nested_store"}
+    assert not list(root.root.rglob("codz_2024.zip"))
 
 
 def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):

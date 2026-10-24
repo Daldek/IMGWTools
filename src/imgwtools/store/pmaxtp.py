@@ -47,10 +47,10 @@ from imgwtools.store.types import (
 )
 from imgwtools.store.writer import (
     _canonical,
-    _check_kartograf,
     _existing,
     _utc,
     _validate_slot,
+    prepare_store,
 )
 from imgwtools.urls import build_pmaxtp_url
 
@@ -367,11 +367,10 @@ def sync_pmaxtp(
         If a stored version is corrupted, the version directory collides with
         different content, or the file system cannot publish atomically.
     """
-    handle = _handle(root)
     method = _validate_method(method)
     _validate_poland_coords(latitude, longitude)
     expected = _validate_cell(ind_x, ind_y)
-    _check_kartograf(handle.root)
+    handle = prepare_store(root)
     if _cancelled(cancel):
         return PMaXTPStoreResult("cancelled", None, ind_x, ind_y, None)
     response = _http("GET", build_pmaxtp_url(latitude, longitude, method=method))

@@ -620,4 +620,10 @@ MESSAGES = {
         "Nieprawidłowe kody stacji {codes}; oczekiwano co najmniej jednego kodu "
         "z 9 cyfr (IMGW-PIB) albo identyfikatora WIGOS",
     ),
+    "layout_without_marker": Text(
+        "{path} has the layout of an IMGW store but no imgw-store.json marker; run "
+        "imgw store init --root {path} to verify the layout and write the marker",
+        "{path} ma układ magazynu IMGW, ale nie ma znacznika imgw-store.json; "
+        "uruchom imgw store init --root {path}, aby sprawdzić układ i zapisać znacznik",
+    ),
 }
