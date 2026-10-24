@@ -311,15 +311,12 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **2213 testów** (2026-10-19, `pytest --collect-only`; 2134 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
-pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
-— bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
+Stan faktyczny: **2409 testów** (2026-10-25, `pytest --collect-only`; 2329 offline, 80 na żywo z `IMGW_LIVE=1`); ostatni pomiar
+pokrycia: **94,37%** (2026-10-25, bramka `scripts/gate.sh`). Próg `--cov-fail-under=80` jest włączony w bramce
+(`scripts/gate.sh`, DEV-7.6).
 
 ```bash
 pytest tests/ --cov=imgwtools --cov-report=html
-
-# Docelowo, po osiągnięciu progu:
-# pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
 ```
 
 ---
