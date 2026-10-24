@@ -8,6 +8,7 @@ from datetime import date
 from zipfile import BadZipFile, ZipFile
 
 from imgwtools.exceptions import IMGWDataError
+from imgwtools.messages import message, reason
 
 IMGW_ENCODING = "cp1250"
 MISSING_WATER_LEVEL = 9999
@@ -163,17 +164,27 @@ def archive_csv_members(
                 len(members) > 1000
                 or sum(item.file_size for item in members) > 256 * 1024 * 1024
             ):
-                raise IMGWDataError(f"Zbyt duże archiwum {filename}")
+                raise IMGWDataError(
+                    message("parsing.archive_too_large", filename=filename)
+                )
             for member in members:
                 name = member.filename
                 if name.startswith("/") or ".." in name.split("/") or "\\" in name:
-                    raise IMGWDataError(f"Niedozwolona ścieżka w {filename}: {name}")
+                    raise IMGWDataError(
+                        message(
+                            "parsing.path_not_allowed", filename=filename, name=name
+                        )
+                    )
                 if not name.lower().endswith(".csv") or (
                     kind and kind not in name.lower()
                 ):
                     continue
                 if member.file_size > 64 * 1024 * 1024:
-                    raise IMGWDataError(f"Zbyt duży CSV w {filename}: {name}")
+                    raise IMGWDataError(
+                        message("parsing.csv_too_large", filename=filename, name=name)
+                    )
                 yield name, archive.read(member)
     except (BadZipFile, OSError, RuntimeError) as exc:
-        raise IMGWDataError(f"Nieczytelne archiwum {filename}: {exc}") from exc
+        raise IMGWDataError(
+            message("parsing.unreadable_archive", filename=filename, exc=reason(exc))
+        ) from exc

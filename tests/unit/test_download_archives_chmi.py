@@ -141,7 +141,7 @@ def test_only_404_is_unpublished_other_answers_fail_the_item(respx_mock, tmp_pat
         ("not_published", None),
         ("failed", "source_unavailable"),
     ]
-    assert report.items[0].error.startswith("Serwer ČHMÚ zwrócił HTTP 503")
+    assert report.items[0].error.startswith("The ČHMÚ server returned HTTP 503")
     assert "ČHMÚ" in report.items[2].error
     assert files(tmp_path) == [] and notices == []
 

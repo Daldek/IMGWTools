@@ -32,7 +32,7 @@ from imgwtools.api.schemas import HealthCheck
 from imgwtools.commands import command_schema
 from imgwtools.config import check_config, settings
 from imgwtools.exceptions import IMGWValidationError
-from imgwtools.messages import LANGS
+from imgwtools.messages import LANGS, message
 from imgwtools.web.app import router as web_router
 
 _LOG = logging.getLogger(__name__)
@@ -97,8 +97,12 @@ def _mcp_app() -> Starlette | None:
     lang = settings.lang.strip()
     if lang not in LANGS:
         raise IMGWValidationError(
-            f"Nieprawidłowa wartość {settings.lang!r} zmiennej środowiskowej "
-            f"{_LANG_ENV}; dozwolone: {', '.join(LANGS)}",
+            message(
+                "api.invalid_value_environment_variable_allowed",
+                language=settings.lang,
+                lang_env=_LANG_ENV,
+                langs=", ".join(LANGS),
+            ),
             details={
                 "option": _LANG_ENV,
                 "value": settings.lang,

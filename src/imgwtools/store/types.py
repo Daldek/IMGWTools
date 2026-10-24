@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from imgwtools._jsonable import jsonable
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
-from imgwtools.messages import DEFAULT_LANG, Lang
+from imgwtools.messages import DEFAULT_LANG, Lang, message, reason
 
 if TYPE_CHECKING:
     from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
@@ -415,17 +415,25 @@ class StorePlan:
                 != (row["year"], row["month"], row["param"], row["year_type"])
                 or (station is not None and station != source.station_code)
             ):
-                raise ValueError(f"Nieznana ścieżka źródłowa: {row['server_path']}")
+                raise ValueError(
+                    message("types.unknown_source_path", server_path=row["server_path"])
+                )
             if row["url"] != source.url:
                 raise ValueError(
-                    f"Adres {row['url']} nie odpowiada rejestrowi zbiorów: {source.url}"
+                    message(
+                        "types.url_does_not_match_dataset",
+                        url=row["url"],
+                        url_2=source.url,
+                    )
                 )
             return source
 
         def restore_signal(row: dict[str, Any]) -> Literal["head", "listing"]:
             signal = row.get("signal", "head")
             if signal not in ("head", "listing"):
-                raise ValueError(f"Nieznany sygnał pozycji planu: {signal!r}")
+                raise ValueError(
+                    message("types.unknown_signal_plan_item", signal=signal)
+                )
             return cast(Literal["head", "listing"], signal)
 
         def restore_requests(value: object) -> dict[str, int] | None:
@@ -435,13 +443,13 @@ class StorePlan:
                 isinstance(count, int) and not isinstance(count, bool) and count >= 0
                 for count in value.values()
             ):
-                raise ValueError("Pole requests planu musi mapować nazwy na liczby ≥ 0")
+                raise ValueError(message("types.requests_field_plan_must_map"))
             return {str(name): count for name, count in value.items()}
 
         try:
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
             if payload["schema"] != "imgw-plan/1":
-                raise ValueError("Nieobsługiwana wersja planu")
+                raise ValueError(message("types.unsupported_version_plan"))
             items = tuple(
                 PlanItem(
                     archive=restore_archive(row),
@@ -481,7 +489,9 @@ class StorePlan:
                 requests=restore_requests(payload.get("requests")),
             )
         except (OSError, ValueError, TypeError, KeyError, IMGWValidationError) as exc:
-            raise IMGWDataError(f"Nie można odczytać planu IMGW: {exc}") from exc
+            raise IMGWDataError(
+                message("types.cannot_read_imgw_plan", exc=reason(exc))
+            ) from exc
 
 
 @dataclass(frozen=True)

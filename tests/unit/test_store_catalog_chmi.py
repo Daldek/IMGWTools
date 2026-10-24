@@ -624,7 +624,7 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
         hydro, meteo = check_catalog(store, provider="CHMI").items
         with pytest.raises(IMGWDataError) as error:
             build_catalog(store, provider="CHMI")
-    assert hydro.status == "check_failed" and "Uszkodzona obserwacja" in hydro.error
+    assert hydro.status == "check_failed" and "corrupt observation" in hydro.error
     assert meteo.status == "current"
     assert error.value.code == "data_error"
 
@@ -632,11 +632,11 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
 @pytest.mark.parametrize(
     ("change", "error", "reason"),
     [
-        ({"hydro_now_get": None}, IMGWConnectionError, "HTTP 503"),
+        ({"hydro_now_get": None}, IMGWConnectionError, "HTTP error 503"),
         (
             {"hydro_meta3_get": b'{"zaznamID":"a","zaznamID":"b"}'},
             IMGWDataError,
-            "powtórzony klucz",
+            "a repeated key",
         ),
         (
             {
@@ -647,12 +647,12 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
                 )
             },
             IMGWDataError,
-            "brak pliku meta1-<RRRRMMDD>.json",
+            "no file meta1-<YYYYMMDD>.json",
         ),
         (
             {"hydro_now_get": body("hydro_now_get").replace(b'"CM"', b'"MM"')},
             IMGWDataError,
-            "SPAH_UNIT: nieznana jednostka 'MM'",
+            "SPAH_UNIT: unknown unit 'MM'",
         ),
         (
             {
@@ -661,7 +661,7 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
                 )
             },
             IMGWDataError,
-            "rodzinie hydro i meteo: 0-203-1-900001",
+            "both the hydro and the meteo family: 0-203-1-900001",
         ),
     ],
     ids=["http-503", "repeated-key", "listing-without-meta1", "unit", "two-families"],

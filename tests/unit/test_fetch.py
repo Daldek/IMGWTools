@@ -181,14 +181,14 @@ async def test_download_failure_is_source_unavailable(respx_mock, mock, reason, 
 @pytest.mark.parametrize(
     "response, message",
     [
-        (httpx.Response(200, content=b"<html>"), "Niepoprawne archiwum ZIP"),
+        (httpx.Response(200, content=b"<html>"), "Invalid ZIP archive"),
         (
             httpx.Response(
                 200,
                 stream=httpx.ByteStream(_zip_bytes()),
                 headers={"Content-Length": "duzo"},
             ),
-            "Niepoprawny nagłówek Content-Length",
+            "Invalid Content-Length header",
         ),
     ],
 )

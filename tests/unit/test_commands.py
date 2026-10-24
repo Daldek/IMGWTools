@@ -984,7 +984,7 @@ def test_cancelled_error_gives_cancelled_envelope_with_notices_before_it(monkeyp
     def export(*args, on_notice=None, **kwargs):
         on_notice(notice)
         on_notice(notice)
-        raise IMGWCancelledError("Anulowano eksport")
+        raise IMGWCancelledError("The export was cancelled")
 
     monkeypatch.setattr(store, "export_series", export)
     seen = []

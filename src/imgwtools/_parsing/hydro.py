@@ -24,6 +24,7 @@ from imgwtools._parsing.common import (
     hydro_to_calendar_date,
 )
 from imgwtools.exceptions import IMGWDataError
+from imgwtools.messages import message, reason
 from imgwtools.models import (
     HydroArchiveStation,
     HydroDailyRecord,
@@ -82,7 +83,11 @@ def _semi_annual_layout(rows: list[list[str]], filename: str) -> _SemiAnnualLayo
     widths = sorted({len(row) for row in rows})
     if len(widths) > 1:
         raise IMGWDataError(
-            f"Niejednolita liczba kolumn ({', '.join(map(str, widths))}) w {filename}"
+            message(
+                "hydro.inconsistent_number_columns",
+                widths=", ".join(map(str, widths)),
+                filename=filename,
+            )
         )
     width = widths[0] if widths else 8
     if width == 17 and all(_text(row[8]) == _text(row[3]) for row in rows):
@@ -90,7 +95,9 @@ def _semi_annual_layout(rows: list[list[str]], filename: str) -> _SemiAnnualLayo
     layout = _SEMI_ANNUAL_LAYOUTS.get(width)
     if layout is None:
         raise IMGWDataError(
-            f"Nieznany układ pliku półrocznego ({width} kolumn) w {filename}"
+            message(
+                "hydro.unknown_layout_semi_annual_file", width=width, filename=filename
+            )
         )
     return layout
 
@@ -143,25 +150,35 @@ def _parse_semi_annual(
         if len(row) >= 8 and _safe_int(row[3]) is not None:
             rows.append((number, row))
         elif strict and not header:
-            raise IMGWDataError(f"Błędny rekord {filename}, wiersz {number}")
-    layout = _semi_annual_layout([row for _, row in rows], filename or "pliku CSV")
+            raise IMGWDataError(
+                message("hydro.invalid_record_row", filename=filename, number=number)
+            )
+    layout = _semi_annual_layout(
+        [row for _, row in rows], filename or message("hydro.csv_content")
+    )
     for number, row in rows:
         try:
             station, year = _base(row)
             code = station.station_code
             if strict and not re.fullmatch(r"\d{9}", code):
-                raise ValueError("Niepoprawny kod stacji")
+                raise ValueError(message("hydro.invalid_station_code"))
             period = PERIOD_MAP[int(row[4])]
             param = row[5].strip().strip('"').upper()
             if param not in {"H", "Q", "T"}:
-                raise ValueError("Nieznany parametr")
+                raise ValueError(message("hydro.unknown_parameter"))
             extremum = EXTREMUM_MAP[int(row[6])]
             sentinel = {"H": MISSING_WATER_LEVEL, "Q": MISSING_FLOW, "T": MISSING_TEMP}[
                 param
             ]
             for column in layout.extra:
                 if column < len(row) and not re.fullmatch(r"\d?", _text(row[column])):
-                    raise ValueError(f"Nieznana treść pola {column + 1}: {row[column]}")
+                    raise ValueError(
+                        message(
+                            "hydro.unknown_content_field",
+                            field=column + 1,
+                            content=row[column],
+                        )
+                    )
             start, end = (
                 _extremum_time(row[offset : offset + layout.fields])
                 for offset in (layout.start, layout.end)
@@ -174,7 +191,12 @@ def _parse_semi_annual(
         except (IndexError, ValueError, KeyError) as exc:
             if strict:
                 raise IMGWDataError(
-                    f"Błędny rekord {filename}, wiersz {number}: {exc}"
+                    message(
+                        "hydro.invalid_record_row_2",
+                        filename=filename,
+                        number=number,
+                        exc=reason(exc),
+                    )
                 ) from exc
             continue
         yield (
@@ -264,13 +286,17 @@ def _parse(
             continue
         if len(row) < 9 or _safe_int(row[3]) is None:
             if strict and row[0].strip().isdigit():
-                raise IMGWDataError(f"Błędny rekord {filename}, wiersz {number}")
+                raise IMGWDataError(
+                    message(
+                        "hydro.invalid_record_row", filename=filename, number=number
+                    )
+                )
             continue  # existing hydro API ignores header and malformed legacy rows
         try:
             station, year = _base(row)
             code = station.station_code
             if strict and not re.fullmatch(r"\d{9}", code):
-                raise ValueError("Niepoprawny kod stacji")
+                raise ValueError(message("hydro.invalid_station_code"))
             month = int(row[4])
             calendar_month = _safe_int(row[9]) if len(row) > 9 else None
             if strict:
@@ -301,7 +327,12 @@ def _parse(
         except (IndexError, ValueError, KeyError) as exc:
             if strict:
                 raise IMGWDataError(
-                    f"Błędny rekord {filename}, wiersz {number}: {exc}"
+                    message(
+                        "hydro.invalid_record_row_2",
+                        filename=filename,
+                        number=number,
+                        exc=reason(exc),
+                    )
                 ) from exc
 
 
@@ -478,7 +509,7 @@ def parse_zip_file(
         ``parse_semi_annual_csv``).
     """
     if interval not in {"dobowe", "miesieczne", "polroczne", "polroczne_i_roczne"}:
-        raise ValueError(f"Nieznany interwał: {interval}")
+        raise ValueError(f"Unknown interval: {interval}")
     interval = "polroczne_i_roczne" if interval == "polroczne" else interval
     for _, content in archive_csv_members(zip_data):
         yield from _parse(content, interval)
@@ -610,7 +641,12 @@ def normalize_hydro_archive(
                     value = _measurement(getattr(record, field))
                     if column in values and values[column] != value:
                         raise IMGWDataError(
-                            f"Sprzeczne wartości {column} w {archive_name}/{member}"
+                            message(
+                                "hydro.conflicting_values",
+                                column=column,
+                                archive_name=archive_name,
+                                member=member,
+                            )
                         )
                     values[column] = value
                 monthly[key] = NormalizedRecord(
@@ -643,8 +679,15 @@ def normalize_hydro_archive(
                     continue
                 if merged.measurement != measurement:
                     raise IMGWDataError(
-                        f"Sprzeczne wartości {column} stacji {station.station_code} "
-                        f"({period} {record.hydro_year}) w {archive_name}/{member}"
+                        message(
+                            "hydro.conflicting_values_station",
+                            column=column,
+                            station_code=station.station_code,
+                            period=period,
+                            hydro_year=record.hydro_year,
+                            archive_name=archive_name,
+                            member=member,
+                        )
                     )
                 merged.first = _earliest(merged.first, first)
                 merged.last = _latest(merged.last, last)

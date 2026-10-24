@@ -416,7 +416,7 @@ async def test_arguments_other_than_an_object_are_a_protocol_error():
 
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
-async def test_an_error_is_the_cli_document_with_a_title_of_the_server_language(lang):
+async def test_an_error_is_the_cli_document_in_the_server_language(lang):
     options = {"latitude": "1", "longitude": 21.01}
     with pytest.raises(IMGWValidationError) as raised:
         validate_command("pmaxtp fetch", options=options)
@@ -427,7 +427,7 @@ async def test_an_error_is_the_cli_document_with_a_title_of_the_server_language(
     assert error_of(result) == {
         "code": "validation_error",
         "title": spec.title.localized(lang),
-        "detail": raised.value.detail,
+        "detail": raised.value.localized(lang),
         "details": dict(raised.value.details),
     }
 

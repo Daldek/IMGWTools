@@ -76,7 +76,7 @@ def test_version_relative_to_root_and_license_terms_before_the_first_line(root):
 def test_target_inside_a_store_is_rejected_without_writing(root):
     version = stored(root, "hydro_daily_2024")
     target = version.parent / "export.csv"
-    with pytest.raises(IMGWValidationError, match="poza magazynem") as error:
+    with pytest.raises(IMGWValidationError, match="outside the IMGW store") as error:
         export_archive(version, path=target)
     assert (error.value.code, error.value.details["option"]) == (
         "validation_error",

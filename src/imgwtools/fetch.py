@@ -34,6 +34,7 @@ from imgwtools.exceptions import (
     IMGWError,
     IMGWValidationError,
 )
+from imgwtools.messages import message, reason
 from imgwtools.models import (
     HydroCurrentData,
     MeteoCurrentData,
@@ -91,13 +92,15 @@ def _download_result(
             ZipFile(BytesIO(data)).close()
         except BadZipFile as exc:
             raise IMGWDataError(
-                f"Niepoprawne archiwum ZIP z adresu {response.url}"
+                message("fetch.invalid_zip_archive_from", url=response.url)
             ) from exc
     length = response.headers.get("Content-Length")
     try:
         content_length = int(length) if length is not None else None
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawny nagłówek Content-Length: {length}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_content_length_header", length=length)
+        ) from exc
     return DownloadResult(
         data=data,
         url=str(response.url),
@@ -111,7 +114,9 @@ def _json_payload(response: httpx.Response) -> Any:
     try:
         return response.json()
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {response.url}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_json_response_from", url=response.url)
+        ) from exc
 
 
 def _source_error(
@@ -137,17 +142,21 @@ def _source_error(
     """
     if isinstance(exc, httpx.TimeoutException):
         return IMGWConnectionError(
-            f"Przekroczono czas oczekiwania na serwer {source}: {url}",
+            message("fetch.timeout_waiting_server", source=source, url=url),
             details={"url": url, "reason": "timeout"},
         )
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return IMGWConnectionError(
-            f"Serwer {source} zwrócił HTTP {status}: {url}",
+            message(
+                "fetch.server_returned_http", source=source, status=status, url=url
+            ),
             details={"url": url, "reason": "http_status", "status": status},
         )
     return IMGWConnectionError(
-        f"Błąd połączenia z serwerem {source} ({exc}): {url}",
+        message(
+            "fetch.connection_error_server", source=source, exc=reason(exc), url=url
+        ),
         details={"url": url, "reason": "network"},
     )
 
@@ -226,19 +235,33 @@ def _records[T](
     items = [payload] if isinstance(payload, dict) else payload
     if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
         raise IMGWDataError(
-            f"Nieoczekiwana odpowiedź z {url}: oczekiwano listy obiektów"
+            message("fetch.unexpected_response_from_list_objects", url=url)
         )
     try:
         return [parse(cast(dict[str, Any], item)) for item in items]
     except (ValidationError, TypeError, ValueError) as exc:
-        raise IMGWDataError(f"Niepoprawny rekord w odpowiedzi z {url}: {exc}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_record_response_from", url=url, exc=reason(exc))
+        ) from exc
 
 
 def _validate_poland_coords(latitude: float, longitude: float) -> None:
     """Validate that coordinates are numbers within the Poland bounds box."""
     for option, name, value, low, high in (
-        ("latitude", "Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
-        ("longitude", "Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
+        (
+            "latitude",
+            message("fetch.latitude"),
+            latitude,
+            POLAND_LAT_MIN,
+            POLAND_LAT_MAX,
+        ),
+        (
+            "longitude",
+            message("fetch.longitude"),
+            longitude,
+            POLAND_LON_MIN,
+            POLAND_LON_MAX,
+        ),
     ):
         if (
             isinstance(value, bool)
@@ -249,7 +272,9 @@ def _validate_poland_coords(latitude: float, longitude: float) -> None:
             if isinstance(value, int | float | str):
                 details["value"] = value
             raise IMGWValidationError(
-                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})",
+                message(
+                    "fetch.outside_poland", name=name, value=value, low=low, high=high
+                ),
                 details=details,
             )
 
@@ -292,10 +317,14 @@ def _check_pmaxtp_payload(payload: object, latitude: float, longitude: float) ->
     error = str(payload["error"])
     if any(marker in error.lower() for marker in _PMAXTP_OUTSIDE_GRID):
         raise IMGWValidationError(
-            f"Punkt {latitude}, {longitude} leży poza siatką PMAXTP IMGW-PIB "
-            f"(brak danych dla tego miejsca); odpowiedź API: {error}"
+            message(
+                "fetch.point_lies_outside_pmaxtp_grid",
+                latitude=latitude,
+                longitude=longitude,
+                error=error,
+            )
         )
-    raise IMGWDataError(f"API PMAXTP zwróciło błąd: {error}")
+    raise IMGWDataError(message("fetch.pmaxtp_api_returned_error", error=error))
 
 
 def _pmaxtp_result(
@@ -314,9 +343,11 @@ def _pmaxtp_result(
             data=PMaXTPData.from_api_response(cast(dict[str, Any], raw_data)),
         )
     except (ValidationError, AttributeError, TypeError, ValueError) as exc:
-        raise IMGWDataError(f"Niepoprawna odpowiedź PMAXTP: {exc}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_pmaxtp_response", exc=reason(exc))
+        ) from exc
     if not result.data.ks:
-        raise IMGWDataError("Odpowiedź PMAXTP bez danych (pusta tabela ks)")
+        raise IMGWDataError(message("fetch.pmaxtp_response_has_no_data"))
     return result
 
 
@@ -609,7 +640,7 @@ def _warning_sources(
     """Warning families to fetch with their endpoint URLs, hydro first."""
     if kind is not None and kind not in _WARNING_KINDS:
         raise IMGWValidationError(
-            f"Nieznany rodzaj ostrzeżeń: {kind!r}; dozwolone hydro, meteo",
+            message("fetch.unknown_kind_warnings_allowed_hydro", kind=kind),
             details={"option": "kind", "allowed": list(_WARNING_KINDS)},
         )
     kinds = _WARNING_KINDS if kind is None else (kind,)
@@ -714,19 +745,20 @@ def _single_archive(
     if len(files) == 1:
         return files[0]
     if option == "param":
-        message = f"Archiwum {files[0].dataset} wymaga parametru T, Q albo H"
+        text = message("fetch.archive_needs_parameter_t_q", dataset=files[0].dataset)
     else:
-        message = (
-            f"Archiwum {files[0].dataset} {files[0].year} jest publikowane w plikach "
-            "miesięcznych; podaj miesiąc (1–12)"
+        text = message(
+            "fetch.archive_published_monthly_files_give",
+            dataset=files[0].dataset,
+            year=files[0].year,
         )
-    raise IMGWValidationError(message, details={"option": option})
+    raise IMGWValidationError(text, details={"option": option})
 
 
 def _legacy_year(year: object) -> int:
     if isinstance(year, bool) or not isinstance(year, int):
         raise IMGWValidationError(
-            f"Rok musi być liczbą całkowitą: {year!r}",
+            message("fetch.year_must_integer", year=year),
             details={"option": "year", "value": str(year)},
         )
     return year
@@ -1106,7 +1138,11 @@ def download_archives(
                     archive.url,
                     "failed",
                     None,
-                    f"Nie można zapisać {archive.server_path}: {exc}",
+                    message(
+                        "fetch.cannot_save_archive",
+                        path=archive.server_path,
+                        exc=reason(exc),
+                    ),
                     "io_error",
                 )
             else:

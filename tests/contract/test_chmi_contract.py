@@ -1160,7 +1160,9 @@ def mcp_answer(
         arguments["check"] = False
 
     async def ask() -> Any:
-        async with Client(create_server(mode="write" if writes else "read")) as client:
+        async with Client(
+            create_server(mode="write" if writes else "read", lang="en")
+        ) as client:
             return await client.call_tool(meta["operation_id"], arguments)
 
     return anyio.run(ask)
@@ -1345,7 +1347,9 @@ def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
 
     printed = cli(*cli_words(command, rooted(options, root)))
     line = json.loads(printed.stderr.splitlines()[-1])
-    answered = rest.request(**rest_request(command, options))
+    answered = rest.request(
+        **rest_request(command, options), headers={"Accept-Language": "en"}
+    )
     body = answered.json()
 
     assert (error.details["option"], error.details.get("value")) == (option, value)

@@ -458,16 +458,16 @@ def test_series_validation_and_tampered_parquet(root):
 
     parquet = version.parent / "stations" / f"{STATION}.parquet"
     parquet.write_bytes(parquet.read_bytes() + b"\0")
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="checksum"):
         read_series(version, station=STATION, variables=["H"])
     parquet.unlink()
-    with pytest.raises(IMGWDataError, match="brak pliku"):
+    with pytest.raises(IMGWDataError, match="a missing file"):
         read_series_index(version)
 
     index = json.loads(version.read_text(encoding="utf-8"))
     index["schema"] = "imgw-series/2"
     version.write_text(json.dumps(index), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="checksum"):
         read_series_index(version)
 
 
@@ -490,7 +490,7 @@ def test_unknown_series_schema_is_a_scan_problem_not_a_version(root, offline):
     }
     assert problems == {(later, "unknown_schema")}
     assert [entry.version for entry in iter_store(root, kind="series")] == [version]
-    with pytest.raises(IMGWDataError, match="nieobsługiwany schemat szeregu"):
+    with pytest.raises(IMGWDataError, match="an unsupported series schema"):
         current_version(root, slot=SERIES_DAILY)
 
 
@@ -502,7 +502,7 @@ def test_catalog_is_verified_against_sidecar(complete, tmp_path):
     data = json.loads((copy / "stations.geojson").read_text(encoding="utf-8"))
     data["features"] = data["features"][:1]
     (copy / "stations.geojson").write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="checksum"):
         read_catalog(copy)
 
 
@@ -563,11 +563,13 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
     assert valid.version == newest.path and valid.meta.extra["future"] is True
     assert read_meta(newest.path).sha256 == newest.sha256
 
-    with pytest.raises(IMGWDataError, match="Uszkodzona wersja"):
+    with pytest.raises(IMGWDataError, match="A corrupt version"):
         current_version(root, slot=DAILY_2024)
-    with pytest.raises(IMGWDataError, match="unknown_schema|nieobsługiwany schemat"):
+    with pytest.raises(
+        IMGWDataError, match="unknown_schema|an unsupported sidecar schema"
+    ):
         read_meta(oldest.path)
-    with pytest.raises(IMGWStoreError, match="Brak sidecara") as missing:
+    with pytest.raises(IMGWStoreError, match="No sidecar") as missing:
         read_meta(no_sidecar / "codz_2024.zip")
     assert missing.value.code == "not_found"
     with pytest.raises(IMGWValidationError):
@@ -629,9 +631,7 @@ def test_current_version_follows_last_modified_rule(root):
     ],
 )
 def test_current_version_rejects_slots_outside_the_grammar(root, slot):
-    with pytest.raises(
-        IMGWValidationError, match="oczekiwano archive:<klucz>"
-    ) as error:
+    with pytest.raises(IMGWValidationError, match="expected archive:<key>") as error:
         current_version(root, slot=slot)
     assert error.value.code == "validation_error"
     assert error.value.details == {"option": "slot", "value": slot}
@@ -886,7 +886,7 @@ def test_scan_enforces_content_pair_and_registry_origin_of_known_datasets(
         document = {**original, **change}
         assert schema_errors(document, "imgw-meta/1") == []
         assert scan(document) == [("problem", DAILY_2024, "invalid_meta")]
-        with pytest.raises(IMGWDataError, match="rejestrze"):
+        with pytest.raises(IMGWDataError, match="the registry gives the dataset"):
             read_meta(written.path)
 
 
@@ -958,7 +958,7 @@ def test_read_meta_gives_no_dataset_key_for_an_unknown_well_formed_key(root, off
     ]
     assert (sidecar.read_bytes(), sidecar.stat().st_mtime_ns) == before
     _rewrite_dataset(written.path, "pl.imgw.Hydro_day")
-    with pytest.raises(IMGWDataError, match="kluczem zbioru"):
+    with pytest.raises(IMGWDataError, match="must be a dataset key"):
         read_meta(written.path)
 
 
@@ -1002,7 +1002,7 @@ def test_series_index_reads_wigos_station_codes_without_pyarrow(
     )
     for code in ("0-203-1-cb900003", "12345678"):
         assert schema_errors(index_with(code), "imgw-series/1")
-        with pytest.raises(IMGWDataError, match="kod stacji"):
+        with pytest.raises(IMGWDataError, match="an invalid station code"):
             read_series_index(moved)
 
 
@@ -1133,11 +1133,11 @@ def test_reference_signal_is_the_newest_observation_of_the_current_version(
 
     broken = observe(newer.path, seen_at="2026-10-22T06:00:00Z", etag='"v5"')
     broken.write_text("{zepsuty", encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="obserwacja"):
+    with pytest.raises(IMGWDataError, match="corrupt observation"):
         _reference_signal(root, slot=DAILY_2024)
     broken.unlink()
     observe(newer.path, etag='"v6"', content_sha256="3" * 64)
-    with pytest.raises(IMGWDataError, match="pola treści"):
+    with pytest.raises(IMGWDataError, match="the content fields differ"):
         _reference_signal(root, slot=DAILY_2024)
     assert (
         _reference_signal(root, slot="archive:pl.imgw.hydro_daily:2030/x.zip") is None

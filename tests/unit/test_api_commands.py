@@ -361,7 +361,7 @@ def test_api_lang_comes_from_the_query_then_accept_language_then_polish(
     assert ("accept-language" in vary) == (query is None)
 
 
-def test_api_problem_title_follows_accept_language_and_detail_stays_polish(client):
+def test_api_problem_title_and_detail_follow_accept_language(client):
     english = {"Accept-Language": "en-US, pl;q=0.5"}
     invalid = client.get(
         "/api/v1/pmaxtp/fetch",
@@ -372,14 +372,20 @@ def test_api_problem_title_follows_accept_language_and_detail_stays_polish(clien
         "/api/v1/commands/schema", params={"lang": "de"}, headers=english
     )
     unknown = client.get("/api/v1/nothing/here", headers=english)
-    polish = client.get("/api/v1/nothing/here")
+    polish = client.get("/api/v1/nothing/here", headers={"Accept-Language": "pl"})
+    polish_invalid = client.get(
+        "/api/v1/pmaxtp/fetch",
+        params={"latitude": "1", "longitude": "21.01"},
+        headers={"Accept-Language": "pl"},
+    )
 
     assert (invalid.status_code, invalid.json()["title"]) == (
         400,
         ERROR_CODES["validation_error"].title,
     )
+    assert invalid.json()["detail"] == "Latitude 1.0 is outside Poland (49.0–55.0)"
     assert (
-        invalid.json()["detail"]
+        polish_invalid.json()["detail"]
         == "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)"
     )
     assert refused.json()["details"] == {

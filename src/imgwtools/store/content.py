@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.messages import message
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,11 @@ def content_sha256(data: bytes, /, *, form: str) -> str:
     content_form = CONTENT_FORMS.get(form) if isinstance(form, str) else None
     if content_form is None:
         raise IMGWValidationError(
-            f"Nieznana forma treści {form!r}; dozwolone: {', '.join(CONTENT_FORMS)}",
+            message(
+                "content.unknown_content_form_allowed",
+                form=form,
+                content_forms=", ".join(CONTENT_FORMS),
+            ),
             details={
                 "option": "form",
                 "value": form if isinstance(form, str) else repr(form),
@@ -100,15 +105,17 @@ def content_sha256(data: bytes, /, *, form: str) -> str:
         )
     document = _parse(data)
     if not isinstance(document, dict):
-        raise IMGWDataError("wartość główna dokumentu JSON nie jest obiektem")
+        raise IMGWDataError(message("content.root_value_json_document_not"))
     for key in content_form.volatile_fields:
         document.pop(key, None)
     try:
         canonical = _serialize(document).encode("utf-8")
     except UnicodeEncodeError as exc:
-        raise IMGWDataError("napis JSON zawiera niesparowany surogat UTF-16") from exc
+        raise IMGWDataError(
+            message("content.json_string_contains_unpaired_utf")
+        ) from exc
     except RecursionError as exc:
-        raise IMGWDataError("zbyt głębokie zagnieżdżenie dokumentu JSON") from exc
+        raise IMGWDataError(message("content.json_document_nested_too_deeply")) from exc
     return hashlib.sha256(canonical).hexdigest()
 
 
@@ -118,7 +125,7 @@ def _parse(data: bytes) -> object:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise IMGWDataError(
-            f"treść nie jest poprawnym UTF-8 (bajt {exc.start})"
+            message("content.content_not_valid_utf_8", start=exc.start)
         ) from exc
     try:
         return json.loads(
@@ -130,10 +137,15 @@ def _parse(data: bytes) -> object:
         )
     except json.JSONDecodeError as exc:
         raise IMGWDataError(
-            f"niepoprawny JSON: {exc.msg} (wiersz {exc.lineno}, kolumna {exc.colno})"
+            message(
+                "content.invalid_json_line_column",
+                msg=exc.msg,
+                lineno=exc.lineno,
+                colno=exc.colno,
+            )
         ) from exc
     except RecursionError as exc:
-        raise IMGWDataError("zbyt głębokie zagnieżdżenie dokumentu JSON") from exc
+        raise IMGWDataError(message("content.json_document_nested_too_deeply")) from exc
 
 
 def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -141,21 +153,23 @@ def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     document: dict[str, object] = {}
     for key, value in pairs:
         if key in document:
-            raise IMGWDataError(f"powtórzony klucz {key!r} w obiekcie JSON")
+            raise IMGWDataError(message("content.repeated_key_json_object", key=key))
         document[key] = value
     return document
 
 
 def _constant(name: str) -> float:
     """Reject the ``NaN``, ``Infinity`` and ``-Infinity`` extensions of Python."""
-    raise IMGWDataError(f"niedozwolona stała {name} w dokumencie JSON")
+    raise IMGWDataError(message("content.disallowed_constant_json_document", name=name))
 
 
 def _double(literal: str) -> float:
     """A JSON number as an IEEE 754 double, like ``JSON.parse``."""
     value = float(literal)
     if not math.isfinite(value):
-        raise IMGWDataError(f"liczba {literal[:32]} poza zakresem IEEE 754 double")
+        raise IMGWDataError(
+            message("content.number_outside_ieee_754_double", literal=literal[:32])
+        )
     return value
 
 
@@ -185,7 +199,7 @@ def _serialize(value: object) -> str:
             )
             + "}"
         )
-    raise TypeError(f"wartość spoza modelu JSON: {type(value).__name__}")
+    raise TypeError(f"a value outside the JSON model: {type(value).__name__}")
 
 
 def _number(value: float) -> str:

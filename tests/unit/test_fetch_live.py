@@ -190,9 +190,9 @@ async def test_live_read_non_json_body_is_data_error(
     respx_mock, sync, asynchronous, kwargs, url, body
 ):
     respx_mock.get(url).respond(200, text="<html>przerwa</html>")
-    with pytest.raises(IMGWDataError, match="Niepoprawna odpowiedź JSON"):
+    with pytest.raises(IMGWDataError, match="Invalid JSON response"):
         sync(**kwargs)
-    with pytest.raises(IMGWDataError, match="Niepoprawna odpowiedź JSON"):
+    with pytest.raises(IMGWDataError, match="Invalid JSON response"):
         await asynchronous(**kwargs)
 
 
@@ -207,7 +207,7 @@ async def test_live_read_non_json_body_is_data_error(
 @pytest.mark.parametrize("body", [["149190310"], 42])
 def test_current_reads_reject_non_record_bodies(respx_mock, function, url, body):
     respx_mock.get(url).respond(json=body)
-    with pytest.raises(IMGWDataError, match="oczekiwano listy obiektów"):
+    with pytest.raises(IMGWDataError, match="a list of objects was expected"):
         function()
 
 
@@ -255,9 +255,9 @@ def test_fetch_pmaxtp_latitude_bounds_are_inclusive(respx_mock, latitude):
 @pytest.mark.parametrize(
     "latitude, longitude, word, option, value",
     [
-        (48.99, 20.0, "Szerokość", "latitude", 48.99),
-        (52.0, 24.51, "Długość", "longitude", 24.51),
-        (52.0, 13.99, "Długość", "longitude", 13.99),
+        (48.99, 20.0, "Latitude", "latitude", 48.99),
+        (52.0, 24.51, "Longitude", "longitude", 24.51),
+        (52.0, 13.99, "Longitude", "longitude", 13.99),
     ],
 )
 async def test_fetch_pmaxtp_rejects_coords_outside_poland_before_request(
@@ -298,11 +298,11 @@ def test_fetch_pmaxtp_validate_coords_false_sends_request(respx_mock):
         (
             {"data": {}, "error": "Brak pliku, pradopodobnie poza obszarem PL"},
             IMGWValidationError,
-            "poza siatką PMAXTP",
+            "outside the PMAXTP grid",
         ),
         ({"data": {}, "error": "Awaria"}, IMGWDataError, "Awaria"),
-        ({"data": {}}, IMGWDataError, "bez danych"),
-        ({"data": {"ks": "zle"}}, IMGWDataError, "Niepoprawna odpowiedź PMAXTP"),
+        ({"data": {}}, IMGWDataError, "has no data"),
+        ({"data": {"ks": "zle"}}, IMGWDataError, "Invalid PMAXTP response"),
     ],
 )
 async def test_fetch_pmaxtp_error_bodies_are_not_results(

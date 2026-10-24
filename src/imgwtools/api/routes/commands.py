@@ -73,6 +73,7 @@ from imgwtools.exceptions import (
     IMGWStoreError,
     IMGWValidationError,
 )
+from imgwtools.messages import message
 from imgwtools.models import PMaXTPResult
 from imgwtools.store import store_info
 from imgwtools.store.types import (
@@ -249,23 +250,27 @@ def _refuse(route: _Route, name: str) -> NoReturn:
     option = next((o for o in route.spec.options if o.name == name), None)
     details: dict[str, object] = {"option": name}
     if option is not None and option.rest == "server":
-        detail = f"Opcję {name} ustawia serwer (IMGW_STORE_ROOT); usuń ją z żądania"
+        detail = message("api.server_sets_option_imgw_store", name=name)
     elif option is not None and option.rest == "local":
-        detail = (
-            f"Opcja {name} komendy {route.spec.name} jest dostępna wyłącznie "
-            "lokalnie (CLI i Python), nie w REST"
+        detail = message(
+            "api.option_command_available_only_locally",
+            name=name,
+            name_2=route.spec.name,
         )
     elif route.method == "POST":
-        detail = (
-            f"Nieznany parametr zapytania {name!r}: opcje komendy {route.spec.name} "
-            "podaje się w ciele JSON, a w zapytaniu wyłącznie check"
+        detail = message(
+            "api.unknown_query_parameter_options_command",
+            name=name,
+            name_2=route.spec.name,
         )
         details["allowed"] = ["check"]
     else:
         allowed = [option.name for option in route.params]
-        detail = (
-            f"Nieznany parametr {name!r} komendy {route.spec.name}; dostępne: "
-            f"{', '.join(allowed) or 'brak'}"
+        detail = message(
+            "api.unknown_parameter_command_available",
+            name=name,
+            name_2=route.spec.name,
+            allowed=", ".join(allowed) or message("common.none"),
         )
         details["allowed"] = allowed
     raise IMGWValidationError(detail, details=details)
@@ -283,7 +288,8 @@ def _query_options(route: _Route, request: Request) -> dict[str, object]:
             cast(list[str], options.setdefault(name, [])).append(value)
         elif name in options:
             raise IMGWValidationError(
-                f"Parametr {name} podano więcej niż raz", details={"option": name}
+                message("api.parameter_given_more_than_once", name=name),
+                details={"option": name},
             )
         else:
             options[name] = value
@@ -297,8 +303,7 @@ def _check_flag(request: Request) -> bool:
     text = values[0].strip().lower()
     if len(values) > 1 or text not in ("true", "false"):
         raise IMGWValidationError(
-            "Parametr check podaje się raz, z wartością true albo false: "
-            f"{', '.join(values)}",
+            message("api.parameter_check_given_once_value", values=", ".join(values)),
             details={
                 "option": "check",
                 "value": values[0],
@@ -319,20 +324,20 @@ def _write_access(request: Request, api_key: str | None = Security(_API_KEY)) ->
         return True
     if not settings.store_writes_enabled:
         raise _forbidden(
-            "Zapis do magazynu przez REST jest wyłączony (IMGW_STORE_WRITES_ENABLED)",
+            message("api.writing_store_over_rest_disabled"),
             "writes_disabled",
         )
     token = settings.store_write_token
     secret = token.get_secret_value() if token is not None else ""
     if not secret:
         raise _forbidden(
-            "Zapis do magazynu wymaga skonfigurowanego IMGW_STORE_WRITE_TOKEN",
+            message("api.writing_store_needs_configured_imgw"),
             "write_token_missing",
         )
     if api_key is None or not hmac.compare_digest(
         api_key.encode("utf-8"), secret.encode("utf-8")
     ):
-        raise _forbidden("Brak lub niepoprawny nagłówek X-API-Key", "invalid_api_key")
+        raise _forbidden(message("api.missing_invalid_x_api_key"), "invalid_api_key")
     return False
 
 
@@ -357,23 +362,20 @@ def _server_root(route: _Route, options: Mapping[str, object]) -> Path | None:
     root = settings.store_root
     if root is None:
         raise _unavailable(
-            "Magazyn nie jest skonfigurowany: ustaw IMGW_STORE_ROOT na bezwzględną "
-            "ścieżkę magazynu na serwerze",
+            message("api.store_not_configured_set_imgw"),
             "not_configured",
         )
     if not root.is_absolute():
-        raise _unavailable(
-            "IMGW_STORE_ROOT musi być ścieżką bezwzględną", "root_invalid"
-        )
+        raise _unavailable(message("api.imgw_store_root_must_absolute"), "root_invalid")
     try:
         info = store_info(root)
     except IMGWError as exc:
         raise _unavailable(
-            f"Niepoprawny IMGW_STORE_ROOT: {exc.detail}", "root_invalid"
+            message("api.invalid_imgw_store_root", detail=exc.detail), "root_invalid"
         ) from exc
     if not info.supported and route.spec.name not in _DIAGNOSTIC:
         raise _unavailable(
-            "Magazyn pod IMGW_STORE_ROOT jest niedostępny: " + "; ".join(info.problems),
+            message("api.store_unavailable", problems="; ".join(info.problems)),
             "unsupported",
         )
     return info.root
@@ -391,15 +393,18 @@ def _confine_version(route: _Route, root: Path, value: object) -> None:
         or any(part in ("", ".", "..") for part in parts)
     ):
         raise IMGWValidationError(
-            "Wersja musi być ścieżką względną do magazynu, bez '..', '\\' i pustych "
-            f"segmentów: {text!r}",
+            message("api.version_must_path_relative_store", text=text),
             details=details,
         )
     kind = _VERSION_DIRS[route.group]
     if len(parts) < 3 or parts[:2] != [kind, "versions"]:
         raise IMGWValidationError(
-            f"Wersja komendy {route.spec.name} musi leżeć pod {kind}/versions/ "
-            f"magazynu: {text!r}",
+            message(
+                "api.version_command_must_lie_under",
+                name=route.spec.name,
+                kind=kind,
+                text=text,
+            ),
             details=details,
         )
     path = root
@@ -407,12 +412,14 @@ def _confine_version(route: _Route, root: Path, value: object) -> None:
         path = path / part
         if path.is_symlink():
             raise IMGWValidationError(
-                f"Wersja nie może prowadzić przez dowiązanie: {text!r}",
+                message("api.version_must_not_lead_through", text=text),
                 details=details,
             )
         if not path.exists():
             raise IMGWStoreError(
-                f"Brak wersji w magazynie: {text}", code="not_found", details=details
+                message("api.no_version_store", text=text),
+                code="not_found",
+                details=details,
             )
 
 
@@ -421,25 +428,26 @@ def _user_locations(value: object) -> Path:
     directory = settings.user_locations_dir
     if directory is None or not directory.is_absolute() or not directory.is_dir():
         raise _unavailable(
-            "Serwer nie udostępnia plików położeń użytkownika: IMGW_USER_LOCATIONS_DIR "
-            "musi wskazywać istniejący katalog bezwzględny",
+            message("api.server_does_not_provide_user"),
             "user_locations_dir_invalid",
         )
     name = value if isinstance(value, str) else ""
     details = {"option": "user_locations", "value": name}
     if name in ("", ".", "..") or "/" in name or "\\" in name or "\0" in name:
         raise IMGWValidationError(
-            f"Podaj samą nazwę pliku położeń z IMGW_USER_LOCATIONS_DIR: {name!r}",
+            message("api.give_only_name_location_file", name=name),
             details=details,
         )
     path = directory / name
     if path.is_symlink():
         raise IMGWValidationError(
-            f"Plik położeń nie może być dowiązaniem: {name!r}", details=details
+            message("api.location_file_must_not_link", name=name), details=details
         )
     if not path.is_file():
         raise IMGWStoreError(
-            f"Brak pliku położeń: {name}", code="not_found", details=details
+            message("api.no_location_file", name=name),
+            code="not_found",
+            details=details,
         )
     return path
 
@@ -448,9 +456,7 @@ def _scratch(root: Path) -> Path:
     """New private temporary directory outside the store."""
     base, store = Path(tempfile.gettempdir()).resolve(), root.resolve()
     if base == store or store in base.parents:
-        raise IMGWError(
-            "Katalog tymczasowy serwera leży w magazynie IMGW_STORE_ROOT; zmień TMPDIR"
-        )
+        raise IMGWError(message("api.temporary_directory_server_lies_imgw"))
     return Path(tempfile.mkdtemp(prefix="imgw-rest-"))
 
 
@@ -460,7 +466,7 @@ def _plan_file(document: object, root: Path) -> Iterator[Path]:
     plan = cast(Mapping[str, object], document)
     if plan.get("root") not in (".", str(root)):
         raise IMGWValidationError(
-            'Plan dotyczy innego magazynu niż IMGW_STORE_ROOT (root musi być ".")',
+            message("api.plan_concerns_another_store_than"),
             details={"option": "plan", "value": plan.get("root")},
         )
     directory = _scratch(root)
@@ -474,7 +480,7 @@ def _plan_file(document: object, root: Path) -> Iterator[Path]:
             StorePlan.from_json(path)
         except IMGWDataError as exc:
             raise IMGWValidationError(
-                f"Niepoprawny plan imgw-plan/1: {exc.detail}",
+                message("api.invalid_imgw_plan_1_plan", detail=exc.detail),
                 details={"option": "plan"},
             ) from exc
         yield path
@@ -495,8 +501,7 @@ def _paged(options: dict[str, object]) -> None:
         options["limit"] = maximum
     elif cast(int, limit) > maximum:
         raise IMGWValidationError(
-            f"Opcja limit może wynosić co najwyżej {maximum} (IMGW_API_MAX_LIMIT): "
-            f"{limit}",
+            message("api.option_limit_may_most_imgw", maximum=maximum, limit=limit),
             details={"option": "limit", "value": limit, "maximum": maximum},
         )
 
@@ -565,9 +570,7 @@ def _respond(route: _Route, options: dict[str, object], *, check: bool) -> Respo
                 _paged(normalized)
             envelope = run_command(route.spec.name, options=normalized)
     if envelope.status == "cancelled":
-        raise IMGWError(
-            "Operację przerwano bez raportu; REST nie przekazuje anulowania"
-        )
+        raise IMGWError(message("api.operation_was_interrupted_without_report"))
     if route.spec.result == "stream" and not check:
         response: Response = _stream(route, envelope, normalized, root)
     else:

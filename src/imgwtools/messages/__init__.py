@@ -43,6 +43,7 @@ __all__ = [
     "localize",
     "message",
     "placeholders",
+    "reason",
     "valid_key",
 ]
 
@@ -242,6 +243,27 @@ def placeholders(template: str) -> frozenset[str]:
             raise ValueError(f"Placeholder {field!r} is not a plain name: {template!r}")
         names.add(field)
     return frozenset(names)
+
+
+def reason(exc: BaseException, /) -> str:
+    """
+    Text of an exception for use as a value inside another message.
+
+    Parameters
+    ----------
+    exc : BaseException
+        A caught exception.
+
+    Returns
+    -------
+    str
+        The `Message` the exception was raised with (an `IMGWError` or an internal
+        ``ValueError`` that carries a catalog text), so a message that embeds it
+        stays translatable; ``str(exc)`` for any other exception, whose text is
+        the foreign (English) text of the library that raised it.
+    """
+    first = exc.args[0] if len(exc.args) == 1 else None
+    return first if isinstance(first, Message) else str(exc)
 
 
 @cache

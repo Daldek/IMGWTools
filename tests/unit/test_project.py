@@ -170,10 +170,10 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     (foreign / "notes.txt").write_text("x")
-    with pytest.raises(IMGWProjectError, match="magazynem IMGW"):
+    with pytest.raises(IMGWProjectError, match="is not a supported IMGW store"):
         init_project(tmp_path / "third", store_dir=foreign)
     store = init_store(tmp_path / "own").root
-    with pytest.raises(IMGWProjectError, match="nie może leżeć"):
+    with pytest.raises(IMGWProjectError, match="must not lie in the store"):
         init_project(store / "project", store_dir=store)
     assert not (tmp_path / "third").exists() and not (store / "project").exists()
 
@@ -181,21 +181,21 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
-        (lambda d: d.update(note=1), "nieznane klucze 'note'"),
-        (lambda d: d["tasks"][0].update(note=1), r"tasks\[0\]: nieznane klucze 'note'"),
+        (lambda d: d.update(note=1), "unknown keys 'note'"),
+        (lambda d: d["tasks"][0].update(note=1), "tasks\\[0\\]: unknown keys 'note'"),
         (
             lambda d: d["tasks"][0]["files"][0].update(size=1),
-            r"files\[0\]: nieznane klucze 'size'",
+            "files\\[0\\]: unknown keys 'size'",
         ),
         (lambda d: d.update(schema="imgw-project/2"), "imgw-project/2"),
         (lambda d: d.update(extensions=[]), "extensions"),
-        (lambda d: d["tasks"][0].update(name="Raba"), "nazwa zadania"),
+        (lambda d: d["tasks"][0].update(name="Raba"), "the task name"),
         (lambda d: d["tasks"][0].update(command="store init"), "store init"),
         (lambda d: d["tasks"][0]["options"].update(root="/x"), "root"),
         (lambda d: d["tasks"][0]["options"].update(stations=["12345"]), "9 cyfr"),
         (
             lambda d: d["tasks"][0]["options"].pop("year_type"),
-            "jawnych opcji: year_type",
+            "explicit options: year_type",
         ),
         (
             lambda d: d["tasks"][0]["options"].update(geometry="../obszar.geojson"),
@@ -209,11 +209,11 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
         ),
         (
             lambda d: d["tasks"][0].update(pinned_at=None),
-            "pinned_at i imgwtools_version",
+            "pinned_at and imgwtools_version",
         ),
         (
             lambda d: d["tasks"][0].update(pinned_at="2026-10-17T12:00:00"),
-            "strefę czasową",
+            "time zone",
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(
@@ -223,7 +223,7 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(path="/etc/passwd"),
-            "względną POSIX",
+            "relative POSIX path",
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(path="imgw-store.json"),
@@ -236,22 +236,22 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(station=RABA),
-            "nieznane klucze 'station'",
+            "unknown keys 'station'",
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(
                 path=PIN["path"].replace("codz_2024/", "codz_2023/")
             ),
-            "slocie",
+            "with a slot of",
         ),
-        (lambda d: d["tasks"][0]["files"].append(dict(PIN)), "powtórzona ścieżka"),
+        (lambda d: d["tasks"][0]["files"].append(dict(PIN)), "a repeated path"),
         (
             lambda d: d["tasks"][0]["files"][0].update(content_sha256="1" * 64),
-            "razem albo wcale",
+            "together or not at all",
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(content_form="chmi-json/1"),
-            "razem albo wcale",
+            "together or not at all",
         ),
         (
             lambda d: d["tasks"][0]["files"][0].update(
@@ -273,7 +273,7 @@ def test_init_writes_canonical_manifest_and_is_idempotent_for_the_same_store(
             lambda d: d["tasks"][0]["files"][0].update(station_code="12345678"),
             "WIGOS",
         ),
-        (lambda d: d["tasks"].append(dict(d["tasks"][0])), "powtórzona nazwa"),
+        (lambda d: d["tasks"].append(dict(d["tasks"][0])), "a repeated task name"),
     ],
 )
 def test_open_project_rejects_unknown_keys_bad_values_and_unsafe_paths(
@@ -307,7 +307,7 @@ def test_open_project_rejects_duplicate_json_keys_and_non_finite_numbers(tmp_pat
     (project / PROJECT_FILE).write_text(
         '{"schema":"imgw-project/1","store_dir":"s","store_dir":"t","tasks":[]}'
     )
-    with pytest.raises(IMGWProjectError, match="powtórzony klucz"):
+    with pytest.raises(IMGWProjectError, match="a repeated key"):
         open_project(project)
     (project / PROJECT_FILE).write_text(
         '{"schema":"imgw-project/1","store_dir":"s","tasks":[],"extensions":{"x":NaN}}'
@@ -392,7 +392,7 @@ def test_symlinks_in_pinned_and_project_paths_are_rejected(tmp_path, fixture_roo
         }
     ]
     write(project, document)
-    with pytest.raises(IMGWProjectError, match="Dowiązanie symboliczne"):
+    with pytest.raises(IMGWProjectError, match="A symbolic link"):
         open_project(project)
 
     document["tasks"] = []
@@ -403,8 +403,8 @@ def test_symlinks_in_pinned_and_project_paths_are_rejected(tmp_path, fixture_roo
     (project / "obszary").symlink_to(elsewhere)
     options = {"dataset": DAILY, "years": [2024]}
     for geometry, message in [
-        ("obszary/obszar.geojson", "Dowiązanie symboliczne"),
-        (elsewhere / "obszar.geojson", "musi leżeć w katalogu"),
+        ("obszary/obszar.geojson", "A symbolic link"),
+        (elsewhere / "obszar.geojson", "must lie in the directory"),
         ("../elsewhere/obszar.geojson", r"'\.\.'"),
     ]:
         with pytest.raises(IMGWValidationError, match=message):
@@ -451,7 +451,7 @@ def test_add_materializes_explicit_options_and_writes_keep_extensions(
     assert manifest(project)["extensions"] == {"hydrograf": {"warstwa": "raba"}}
 
     before = (project / PROJECT_FILE).read_bytes()
-    with pytest.raises(IMGWProjectError, match="już istnieje"):
+    with pytest.raises(IMGWProjectError, match="already exists"):
         add_project_task(project, name="raba", command="store info", options={})
     for name, command, options in [
         ("bez-lat", "series select", {"dataset": DAILY, "stations": RABA}),
@@ -471,7 +471,7 @@ def test_add_materializes_explicit_options_and_writes_keep_extensions(
     assert [task.name for task in remove_project_task(project, name="raba").tasks] == [
         "info"
     ]
-    with pytest.raises(IMGWProjectError, match="Brak zadania"):
+    with pytest.raises(IMGWProjectError, match="No task"):
         remove_project_task(project, name="raba")
     assert open_project(project).extensions == {"hydrograf": {"warstwa": "raba"}}
 
@@ -523,7 +523,7 @@ def test_area_selection_hashes_geometry_and_stores_an_explicit_station_list(
         geometry="obszar.geojson",
     )
     assert meteo.tasks[-1].options["stations"] == ["123750000"]
-    with pytest.raises(IMGWValidationError, match="nie objął żadnej stacji"):
+    with pytest.raises(IMGWValidationError, match="covered no station"):
         add_project_task(
             project,
             name="pusty",
@@ -648,10 +648,10 @@ def test_upgrade_with_a_stale_plan_fails_and_keeps_pins(pinned, imgw, tmp_path):
     )
     assert (pinned / PROJECT_FILE).read_bytes() == before
     foreign = StorePlan("imgw-plan/1", tmp_path / "inny", datetime.now(UTC), (), {})
-    with pytest.raises(IMGWValidationError, match="innego magazynu") as error:
+    with pytest.raises(IMGWValidationError, match="another store") as error:
         download_project(pinned, plan=foreign)
     assert error.value.details["option"] == "plan"
-    with pytest.raises(IMGWProjectError, match="Nieznane zadania") as error:
+    with pytest.raises(IMGWProjectError, match="Unknown project tasks") as error:
         download_project(pinned, tasks=["brak"])
     assert (error.value.code, error.value.details) == (
         "not_found",
@@ -717,7 +717,7 @@ def test_set_store_moves_to_a_verified_copy_and_refuses_other_stores(pinned, tmp
     for store, message in [
         (partial, "brak przypiętego pliku"),
         (tampered, "SHA-256"),
-        (foreign, "magazynem IMGW"),
+        (foreign, "is not a supported IMGW store"),
     ]:
         with pytest.raises(IMGWProjectError, match=message):
             set_project_store(pinned, store_dir=store)
@@ -817,7 +817,7 @@ def test_conflicting_change_of_the_same_task_is_an_explicit_error(tmp_path, imgw
     report = download_project(
         project, on_progress=other_process, on_notice=notices.append
     )
-    assert report.tasks == {"a": "failed"} and "Konflikt" in report.files[-1].error
+    assert report.tasks == {"a": "failed"} and "Conflict" in report.files[-1].error
     conflict = report.files[-1]
     assert (conflict.slot, conflict.task, conflict.error_code) == (
         None,
@@ -856,7 +856,7 @@ def test_lock_serializes_writers_and_a_stale_lock_is_never_taken_over(
     (lock / "owner").write_text("stacja-robocza pid 4242\n", encoding="utf-8")
     before = (project / PROJECT_FILE).read_bytes()
     monkeypatch.setattr(project_module, "LOCK_TIMEOUT_S", 0.2)
-    with pytest.raises(IMGWProjectError, match="zablokowany") as error:
+    with pytest.raises(IMGWProjectError, match="is locked") as error:
         remove_project_task(project, name="t0")
     assert error.value.code == "conflict"
     assert error.value.details == {
@@ -929,14 +929,14 @@ def test_station_files_are_pinned_under_station_code(pinned, fixture_root):
         if "station_code" in pin:
             pin["station"] = pin.pop("station_code")  # dawna nazwa pola
     write(pinned, document)
-    with pytest.raises(IMGWProjectError, match="nieznane klucze 'station'") as error:
+    with pytest.raises(IMGWProjectError, match="unknown keys 'station'") as error:
         open_project(pinned)
     assert error.value.code == "validation_error"
 
 
 def test_manifest_and_task_errors_carry_section_13_5_codes(tmp_path, fixture_root):
     project = tmp_path / "project"
-    with pytest.raises(IMGWProjectError, match="Brak manifestu") as error:
+    with pytest.raises(IMGWProjectError, match="No project manifest") as error:
         open_project(project)
     assert (error.value.code, error.value.details) == (
         "not_found",
@@ -944,7 +944,9 @@ def test_manifest_and_task_errors_carry_section_13_5_codes(tmp_path, fixture_roo
     )
     project.mkdir()
     (project / PROJECT_FILE).mkdir()  # nieczytelny manifest
-    with pytest.raises(IMGWProjectError, match="Nie można odczytać") as error:
+    with pytest.raises(
+        IMGWProjectError, match="Cannot read the project manifest"
+    ) as error:
         open_project(project)
     assert error.value.code == "io_error"
     (project / PROJECT_FILE).rmdir()
@@ -962,14 +964,16 @@ def test_manifest_and_task_errors_carry_section_13_5_codes(tmp_path, fixture_roo
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     (foreign / "notes.txt").write_text("x")
-    with pytest.raises(IMGWProjectError, match="magazynem IMGW") as error:
+    with pytest.raises(
+        IMGWProjectError, match="is not a supported IMGW store"
+    ) as error:
         init_project(project, store_dir=foreign)
     assert (error.value.code, error.value.details) == (
         "store_unavailable",
         {"option": "store_dir", "reason": "unsupported"},
     )
     store = init_store(tmp_path / "own").root
-    with pytest.raises(IMGWProjectError, match="nie może leżeć") as error:
+    with pytest.raises(IMGWProjectError, match="must not lie in the store") as error:
         init_project(store / "project", store_dir=store)
     assert error.value.code == "validation_error"
 
@@ -978,13 +982,13 @@ def test_manifest_and_task_errors_carry_section_13_5_codes(tmp_path, fixture_roo
         init_project(project, store_dir=store)
     assert error.value.code == "conflict"
     add_project_task(project, name="info", command="store info", options={})
-    with pytest.raises(IMGWProjectError, match="już istnieje") as error:
+    with pytest.raises(IMGWProjectError, match="already exists") as error:
         add_project_task(project, name="info", command="store info", options={})
     assert (error.value.code, error.value.details) == (
         "conflict",
         {"option": "name", "value": "info"},
     )
-    with pytest.raises(IMGWProjectError, match="Brak zadania") as error:
+    with pytest.raises(IMGWProjectError, match="No task") as error:
         remove_project_task(project, name="brak")
     assert (error.value.code, error.value.details) == (
         "not_found",
@@ -1024,7 +1028,7 @@ def test_task_options_use_only_the_section_13_2_names(
     project = tmp_path / "project"
     init_project(project, store_dir=fixture_root)
     with pytest.raises(
-        IMGWValidationError, match=f"Nieznana opcja '{option}'"
+        IMGWValidationError, match=f"Unknown option '{option}'"
     ) as error:
         add_project_task(project, name="zadanie", command=command, options=old)
     assert error.value.details["option"] == "options"  # flaga --options komendy

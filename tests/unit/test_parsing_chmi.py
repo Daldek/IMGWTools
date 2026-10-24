@@ -265,10 +265,10 @@ def test_hydro_malformed_content_names_file_and_json_path(content, location):
 @pytest.mark.parametrize(
     ("content", "fragment"),
     [
-        (b'{"objID": "0-203-1-900001", "tsList": [}', "wiersz 1, kolumna"),
+        (b'{"objID": "0-203-1-900001", "tsList": [}', "line 1, column"),
         (
             b'{"objID": "0-203-1-900001", "objID": "0-203-1-900001", "tsList": []}',
-            "powtórzony klucz",
+            "a repeated key",
         ),
         (b'{"objID": "0-203-1-900001", "tsList": [], "x": NaN}', "NaN"),
         (b'{"objID": "0-203-1-90\xff", "tsList": []}', "UTF-8"),
@@ -437,7 +437,7 @@ def test_meteo_malformed_content_names_file_and_line(content, line):
 
     assert error.value.code == "data_error"
     assert error.value.details == {"file": path, "line": line}
-    assert f"{path}, wiersz {line}:" in str(error.value)
+    assert f"{path}, row {line}:" in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -763,7 +763,7 @@ def test_listing_fixtures_list_every_fixture_file_with_its_exact_size(
     ids=["only-parent", "error-page", "empty"],
 )
 def test_listing_without_rows_is_a_data_error(body):
-    with pytest.raises(IMGWDataError, match="brak wierszy") as error:
+    with pytest.raises(IMGWDataError, match="no file and directory rows") as error:
         parse_listing(body, url=LISTING_URL)
     assert error.value.details == {"url": LISTING_URL}
 
@@ -799,7 +799,7 @@ def test_listing_unreadable_row_is_a_data_error_with_line(row):
 
 def test_listing_repeated_name_is_a_data_error():
     row = '<a href="x.json">x.json</a>    18-Oct-2026 17:05      123'
-    with pytest.raises(IMGWDataError, match="powtórzona"):
+    with pytest.raises(IMGWDataError, match="a repeated name"):
         parse_listing(listing(row, row), url=LISTING_URL)
 
 

@@ -32,6 +32,7 @@ from urllib.parse import unquote
 
 from imgwtools.datasets import _CHMI_HYDRO_FILE, _CHMI_METEO_FILE
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.messages import message, reason
 from imgwtools.models import Measurement, NormalizedRecord, StationListEntry
 
 HYDRO_DATASET = "cz.chmi.hydro_daily"
@@ -106,7 +107,11 @@ def _decode(content: bytes | str, filename: str) -> str:
             text = content.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise IMGWDataError(
-                f"Niepoprawne kodowanie UTF-8 w {filename} (bajt {exc.start})",
+                message(
+                    "chmi.invalid_utf_8_encoding_byte",
+                    filename=filename,
+                    start=exc.start,
+                ),
                 details={"file": filename, "byte": exc.start},
             ) from exc
     return text.removeprefix("\ufeff")
@@ -116,13 +121,13 @@ def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise _JSONContentError(f"powtórzony klucz {key!r}")
+            raise _JSONContentError(message("chmi.repeated_key", key=key))
         result[key] = value
     return result
 
 
 def _reject_constant(name: str) -> NoReturn:
-    raise _JSONContentError(f"niedozwolona stała {name}")
+    raise _JSONContentError(message("chmi.disallowed_constant", name=name))
 
 
 def _load_json(text: str, filename: str, *, decimal: bool) -> object:
@@ -136,26 +141,34 @@ def _load_json(text: str, filename: str, *, decimal: bool) -> object:
         )
     except json.JSONDecodeError as exc:
         raise IMGWDataError(
-            f"Niepoprawny JSON w {filename}: {exc.msg} "
-            f"(wiersz {exc.lineno}, kolumna {exc.colno})",
+            message(
+                "chmi.invalid_json_line_column",
+                filename=filename,
+                msg=exc.msg,
+                lineno=exc.lineno,
+                colno=exc.colno,
+            ),
             details={"file": filename, "line": exc.lineno, "column": exc.colno},
         ) from exc
     except _JSONContentError as exc:
         raise IMGWDataError(
-            f"Niepoprawny JSON w {filename}: {exc}", details={"file": filename}
+            message("chmi.invalid_json", filename=filename, exc=reason(exc)),
+            details={"file": filename},
         ) from exc
 
 
 def _json_error(filename: str, location: str, reason: str) -> IMGWDataError:
     return IMGWDataError(
-        f"Błędny plik ČHMÚ {filename}, {location}: {reason}",
+        message(
+            "chmi.invalid_hm_file", filename=filename, location=location, reason=reason
+        ),
         details={"file": filename, "location": location},
     )
 
 
 def _csv_error(filename: str, line: int, reason: str) -> IMGWDataError:
     return IMGWDataError(
-        f"Błędny rekord {filename}, wiersz {line}: {reason}",
+        message("chmi.invalid_record_row", filename=filename, line=line, reason=reason),
         details={"file": filename, "line": line},
     )
 
@@ -176,7 +189,7 @@ def _filename_match(
     match = pattern.fullmatch(_basename(filename))
     if match is None:
         raise IMGWValidationError(
-            f"Nazwa pliku {filename!r} nie jest plikiem ČHMÚ {expected}",
+            message("chmi.file_name_not_hm_file", filename=filename, expected=expected),
             details={"option": "filename", "value": filename},
         )
     return match
@@ -249,28 +262,34 @@ def parse_chmi_hydro_daily(
     code, year = match.group(1), int(match.group(2))
     root = _load_json(_decode(content, filename), filename, decimal=False)
     if not isinstance(root, dict):
-        raise _json_error(filename, "$", "wartość główna nie jest obiektem")
+        raise _json_error(filename, "$", message("chmi.root_value_not_object"))
     obj_id = root.get("objID")
     if not isinstance(obj_id, str):
-        raise _json_error(filename, "objID", "brak kodu stacji (tekst)")
+        raise _json_error(filename, "objID", message("chmi.no_station_code_text"))
     if obj_id != code:
         raise _json_error(
-            filename, "objID", f"kod {obj_id!r} niezgodny z nazwą pliku ({code})"
+            filename,
+            "objID",
+            message("chmi.code_does_not_match_file", obj_id=obj_id, code=code),
         )
     series = root.get("tsList")
     if not isinstance(series, list):
-        raise _json_error(filename, "tsList", "brak listy szeregów")
+        raise _json_error(filename, "tsList", message("chmi.no_list_series"))
     by_day: dict[date, dict[str, Measurement]] = {}
     for index, entry in enumerate(series):
         where = f"tsList[{index}]"
         if not isinstance(entry, dict):
-            raise _json_error(filename, where, "szereg nie jest obiektem")
+            raise _json_error(filename, where, message("chmi.series_not_object"))
         con = entry.get("tsConID")
         if not isinstance(con, str) or con not in _HYDRO_CODES:
             raise _json_error(
                 filename,
                 f"{where}.tsConID",
-                f"nieznany szereg {con!r} (dozwolone {', '.join(_HYDRO_CODES)})",
+                message(
+                    "chmi.unknown_series_allowed",
+                    con=con,
+                    hydro_codes=", ".join(_HYDRO_CODES),
+                ),
             )
         unit = entry.get("unit")
         variable: str | None = None
@@ -280,46 +299,57 @@ def parse_chmi_hydro_daily(
                 raise _json_error(
                     filename,
                     f"{where}.unit",
-                    f"jednostka {unit!r} szeregu {con}; oczekiwano {expected}",
+                    message(
+                        "chmi.unit_series_expected",
+                        unit=unit,
+                        con=con,
+                        expected=expected,
+                    ),
                 )
         elif not isinstance(unit, str):
-            raise _json_error(filename, f"{where}.unit", "brak jednostki (tekst)")
+            raise _json_error(filename, f"{where}.unit", message("chmi.no_unit_text"))
         data = entry.get("tsData")
         table = data.get("data") if isinstance(data, dict) else None
         if not isinstance(table, dict):
-            raise _json_error(filename, f"{where}.tsData.data", "brak tabeli danych")
+            raise _json_error(
+                filename, f"{where}.tsData.data", message("chmi.no_data_table")
+            )
         header = table.get("header")
         if header != "DT,VAL":
             raise _json_error(
                 filename,
                 f"{where}.tsData.data.header",
-                f"nagłówek {header!r}; oczekiwano 'DT,VAL'",
+                message("chmi.header_expected_dt_val", header=header),
             )
         rows = table.get("values")
         if not isinstance(rows, list):
             raise _json_error(
-                filename, f"{where}.tsData.data.values", "brak listy wierszy"
+                filename, f"{where}.tsData.data.values", message("chmi.no_list_rows")
             )
         for number, row in enumerate(rows):
             place = f"{where}.tsData.data.values[{number}]"
             if not isinstance(row, list) or len(row) != 2:
-                raise _json_error(filename, place, "wiersz nie jest parą [DT, VAL]")
+                raise _json_error(filename, place, message("chmi.row_not_pair_dt_val"))
             moment = _utc_moment(row[0])
             if moment is None:
                 raise _json_error(
                     filename,
                     f"{place}[0]",
-                    f"czas {row[0]!r} nie jest czasem ISO 8601 UTC z 'Z'",
+                    message("chmi.time_not_iso_8601_utc", row=row[0]),
                 )
             day = moment.date()
             if day.year != year:
                 raise _json_error(
-                    filename, f"{place}[0]", f"data {day} spoza roku pliku {year}"
+                    filename,
+                    f"{place}[0]",
+                    message("chmi.date_outside_year_file", day=day, year=year),
                 )
             measurement = _hydro_measurement(row[1])
             if measurement is None:
                 raise _json_error(
-                    filename, f"{place}[1]", f"wartość {row[1]!r} nie jest liczbą"
+                    filename,
+                    f"{place}[1]",
+                    message("chmi.value_not_number", row=row[1]),
                 )
             if variable is None:
                 continue
@@ -329,7 +359,11 @@ def parse_chmi_hydro_daily(
                 raise _json_error(
                     filename,
                     place,
-                    f"powtórzona data {day} zmiennej {variable} z inną wartością",
+                    message(
+                        "chmi.repeated_date_variable_has_different",
+                        day=day,
+                        variable=variable,
+                    ),
                 )
     for day in sorted(by_day):
         values = by_day[day]
@@ -356,17 +390,21 @@ def _meteo_measurement(
         quality = None
     else:
         if _NUMBER.fullmatch(raw_quality) is None:
-            raise ValueError(f"QUALITY {raw_quality!r} nie jest liczbą")
+            raise ValueError(
+                message("chmi.quality_not_number", raw_quality=raw_quality)
+            )
         parsed = Decimal(raw_quality)
         if parsed != parsed.to_integral_value():
-            raise ValueError(f"QUALITY {raw_quality!r} nie jest liczbą całkowitą")
+            raise ValueError(
+                message("chmi.quality_not_integer", raw_quality=raw_quality)
+            )
         quality = int(parsed)
     source_flag = raw_flag or None
     if raw_value == "":
         return Measurement(None, "missing", quality, source_flag)
     value = float(raw_value) if _NUMBER.fullmatch(raw_value) else math.nan
     if not math.isfinite(value):
-        raise ValueError(f"VALUE {raw_value!r} nie jest liczbą")
+        raise ValueError(message("chmi.value_not_number_2", raw_value=raw_value))
     if variable == "P" and value == 0 and source_flag is None:
         return Measurement(0.0, "no_phenomenon", quality, None)
     return Measurement(value, "value", quality, source_flag)
@@ -440,7 +478,11 @@ def parse_chmi_meteo_daily(
             raise _csv_error(
                 filename,
                 1,
-                f"nagłówek {shown!r}; oczekiwano {','.join(_CSV_HEADER)}",
+                message(
+                    "chmi.header_expected",
+                    shown=shown,
+                    csv_header=",".join(_CSV_HEADER),
+                ),
             )
         for row in reader:
             line = reader.line_num
@@ -448,20 +490,28 @@ def parse_chmi_meteo_daily(
                 continue
             if len(row) not in (7, 8) or row[7:] not in ([], [""]):
                 raise _csv_error(
-                    filename, line, f"{len(row)} kolumn; oczekiwano 7 (ósma pusta)"
+                    filename,
+                    line,
+                    message("chmi.columns_expected_7_eighth_empty", count=len(row)),
                 )
             station, row_element, row_timefunc, moment = row[:4]
             if station != code:
                 raise _csv_error(
                     filename,
                     line,
-                    f"STATION {station!r} niezgodny z nazwą pliku ({code})",
+                    message(
+                        "chmi.station_does_not_match_file", station=station, code=code
+                    ),
                 )
             if row_element != element:
                 raise _csv_error(
                     filename,
                     line,
-                    f"ELEMENT {row_element!r} niezgodny z nazwą pliku ({element})",
+                    message(
+                        "chmi.element_does_not_match_file",
+                        row_element=row_element,
+                        element=element,
+                    ),
                 )
             parts = _CSV_TIME.fullmatch(moment)
             try:
@@ -469,7 +519,9 @@ def parse_chmi_meteo_daily(
             except ValueError:
                 day = None
             if parts is None or day is None:
-                raise _csv_error(filename, line, f"DT {moment!r} nie jest datą UTC")
+                raise _csv_error(
+                    filename, line, message("chmi.dt_not_utc_date", moment=moment)
+                )
             seconds = parts.group(3)
             time = parts.group(2)
             if seconds not in (None, "00"):
@@ -480,8 +532,12 @@ def parse_chmi_meteo_daily(
                 raise _csv_error(
                     filename,
                     line,
-                    f"TIMEFUNC {row_timefunc!r} z DT {moment!r} niedozwolone "
-                    f"dla elementu {element}",
+                    message(
+                        "chmi.timefunc_dt_not_allowed_element",
+                        row_timefunc=row_timefunc,
+                        moment=moment,
+                        element=element,
+                    ),
                 )
             try:
                 measurement = _meteo_measurement(variable, *row[4:7])
@@ -490,10 +546,14 @@ def parse_chmi_meteo_daily(
             previous = by_day.setdefault(day, measurement)
             if previous != measurement:
                 raise _csv_error(
-                    filename, line, f"powtórzona data {day} z inną wartością"
+                    filename,
+                    line,
+                    message("chmi.repeated_date_has_different_value", day=day),
                 )
     except csv.Error as exc:
-        raise _csv_error(filename, reader.line_num, f"nieczytelny CSV: {exc}") from exc
+        raise _csv_error(
+            filename, reader.line_num, message("chmi.unreadable_csv", exc=reason(exc))
+        ) from exc
     for day in sorted(by_day):
         yield NormalizedRecord(
             code, METEO_DATASET, day, _hydro_year(day), None, {variable: by_day[day]}
@@ -567,7 +627,10 @@ class MetadataTable:
         """
         missing = [column for column in columns if column not in self._columns]
         if missing:
-            raise self.error("data.data.header", f"brak kolumn {', '.join(missing)}")
+            raise self.error(
+                "data.data.header",
+                message("chmi.missing_columns", columns=", ".join(missing)),
+            )
 
     def text(self, index: int, column: str) -> str | None:
         """
@@ -594,7 +657,7 @@ class MetadataTable:
         if value is None or value == "":
             return None
         if not isinstance(value, str):
-            raise self.cell_error(index, column, f"{value!r} nie jest tekstem")
+            raise self.cell_error(index, column, message("chmi.not_text", value=value))
         return value
 
     def number(self, index: int, column: str) -> Decimal | int | None:
@@ -622,7 +685,9 @@ class MetadataTable:
         if value is None or value == "":
             return None
         if isinstance(value, bool) or not isinstance(value, Decimal | int):
-            raise self.cell_error(index, column, f"{value!r} nie jest liczbą")
+            raise self.cell_error(
+                index, column, message("chmi.not_number", value=value)
+            )
         return value
 
     def timestamp(self, index: int, column: str) -> datetime | None:
@@ -652,7 +717,7 @@ class MetadataTable:
         moment = _utc_moment(value)
         if moment is None:
             raise self.cell_error(
-                index, column, f"{value!r} nie jest czasem ISO 8601 UTC z 'Z'"
+                index, column, message("chmi.not_iso_8601_utc_time", value=value)
             )
         return moment
 
@@ -728,18 +793,20 @@ def read_metadata(content: bytes | str, /, *, filename: str) -> MetadataTable:
     outer = root.get("data") if isinstance(root, dict) else None
     inner = outer.get("data") if isinstance(outer, dict) else None
     if not isinstance(inner, dict):
-        raise _metadata_error(filename, "data.data", "brak tabeli danych")
+        raise _metadata_error(filename, "data.data", message("chmi.no_data_table"))
     header = inner.get("header")
     names = tuple(header.split(",")) if isinstance(header, str) else ()
     if not names or "" in names or len(set(names)) != len(names):
         raise _metadata_error(
             filename,
             "data.data.header",
-            f"nagłówek {header!r} nie jest listą różnych nazw kolumn",
+            message("chmi.header_not_list_distinct_column", header=header),
         )
     values = inner.get("values")
     if not isinstance(values, list):
-        raise _metadata_error(filename, "data.data.values", "brak listy wierszy")
+        raise _metadata_error(
+            filename, "data.data.values", message("chmi.no_list_rows")
+        )
     rows: list[tuple[object, ...]] = []
     for index, row in enumerate(values):
         if not isinstance(row, list) or len(row) != len(names):
@@ -747,7 +814,7 @@ def read_metadata(content: bytes | str, /, *, filename: str) -> MetadataTable:
             raise _metadata_error(
                 filename,
                 f"data.data.values[{index}]",
-                f"wiersz ma {size} pól; nagłówek ma {len(names)} kolumn",
+                message("chmi.row_has_fields_header_has", size=size, count=len(names)),
             )
         rows.append(tuple(row))
     return MetadataTable(filename, names, tuple(rows))
@@ -755,7 +822,12 @@ def read_metadata(content: bytes | str, /, *, filename: str) -> MetadataTable:
 
 def _metadata_error(filename: str, location: str, reason: str) -> IMGWDataError:
     return IMGWDataError(
-        f"Błędne metadane ČHMÚ {filename}, {location}: {reason}",
+        message(
+            "chmi.invalid_hm_metadata",
+            filename=filename,
+            location=location,
+            reason=reason,
+        ),
         details={"file": filename, "location": location},
     )
 
@@ -818,11 +890,13 @@ def station_rows(
     for index in range(len(table.rows)):
         code = table.text(index, column)
         if code is None:
-            raise table.cell_error(index, column, "pusty kod stacji")
+            raise table.cell_error(index, column, message("chmi.empty_station_code"))
         if periods:
             begin = table.timestamp(index, "BEGIN_DATE")
             if begin is None:
-                raise table.cell_error(index, "BEGIN_DATE", "brak początku okresu")
+                raise table.cell_error(
+                    index, "BEGIN_DATE", message("chmi.no_start_period")
+                )
             if code not in begins or begin > begins[code]:
                 chosen[code] = index
                 begins[code] = begin
@@ -873,7 +947,8 @@ def _degrees(
     number = float(value)
     if not math.isfinite(number):
         raise table.error(
-            f"data.data.values[{index}]", f"współrzędna {value} poza zakresem"
+            f"data.data.values[{index}]",
+            message("chmi.coordinate_out_of_range", value=value),
         )
     return number
 
@@ -916,7 +991,7 @@ def iter_stations(
     """
     if kind not in ("hydro", "meteo"):
         raise IMGWValidationError(
-            f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo",
+            message("chmi.unknown_kind_station_list_allowed", kind=kind),
             details={"option": "kind", "value": kind, "allowed": ["hydro", "meteo"]},
         )
     table = read_metadata(content, filename=filename)
@@ -989,7 +1064,9 @@ def parse_chmi_stations(
         a cell has the wrong type.
     """
     yield from iter_stations(
-        content, kind=kind, filename=f"metadane stacji ČHMÚ ({kind})"
+        content,
+        kind=kind,
+        filename=message("chmi.station_metadata_label", kind=kind),
     )
 
 
@@ -1021,7 +1098,7 @@ class ListingEntry:
 
 def _listing_error(url: str, line: int, reason: str) -> IMGWDataError:
     return IMGWDataError(
-        f"Nieczytelny listing {url}, wiersz {line}: {reason}",
+        message("chmi.unreadable_listing_row", url=url, line=line, reason=reason),
         details={"url": url, "line": line},
     )
 
@@ -1058,8 +1135,9 @@ def parse_listing(html: str | bytes, /, *, url: str) -> tuple[ListingEntry, ...]
             html = html.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise IMGWDataError(
-                f"Nieczytelny listing {url}: niepoprawne kodowanie UTF-8 "
-                f"(bajt {exc.start})",
+                message(
+                    "chmi.unreadable_listing_invalid_utf_8", url=url, start=exc.start
+                ),
                 details={"url": url, "byte": exc.start},
             ) from exc
     entries: list[ListingEntry] = []
@@ -1071,14 +1149,16 @@ def parse_listing(html: str | bytes, /, *, url: str) -> tuple[ListingEntry, ...]
             continue
         row = _LISTING_ROW.fullmatch(line, anchor.start())
         if row is None:
-            raise _listing_error(url, line_number, "wiersz bez czasu lub rozmiaru")
+            raise _listing_error(
+                url, line_number, message("chmi.row_without_time_size")
+            )
         href, size = row.group("href"), row.group("size")
         directory = href.endswith("/")
         if directory != (size == "-"):
             raise _listing_error(
                 url,
                 line_number,
-                f"rozmiar {size!r} niezgodny z rodzajem wpisu {href!r}",
+                message("chmi.size_does_not_match_kind", size=size, href=href),
             )
         try:
             modified = datetime(
@@ -1092,7 +1172,9 @@ def parse_listing(html: str | bytes, /, *, url: str) -> tuple[ListingEntry, ...]
         except (KeyError, ValueError):
             modified = None
         if modified is None:
-            raise _listing_error(url, line_number, "niepoprawny czas modyfikacji")
+            raise _listing_error(
+                url, line_number, message("chmi.invalid_modification_time")
+            )
         rows += 1
         if directory:
             continue
@@ -1101,14 +1183,18 @@ def parse_listing(html: str | bytes, /, *, url: str) -> tuple[ListingEntry, ...]
         except UnicodeDecodeError:
             name = ""
         if name in ("", ".", "..") or "/" in name or "\x00" in name:
-            raise _listing_error(url, line_number, f"niepoprawna nazwa {href!r}")
+            raise _listing_error(
+                url, line_number, message("chmi.invalid_name", href=href)
+            )
         if name in names:
-            raise _listing_error(url, line_number, f"powtórzona nazwa {name!r}")
+            raise _listing_error(
+                url, line_number, message("chmi.repeated_name", name=name)
+            )
         names.add(name)
         entries.append(ListingEntry(name, modified, int(size)))
     if rows == 0:
         raise IMGWDataError(
-            f"Nieczytelny listing {url}: brak wierszy plików i katalogów",
+            message("chmi.unreadable_listing_no_file_directory", url=url),
             details={"url": url},
         )
     return tuple(entries)

@@ -309,7 +309,7 @@ def test_concurrent_imgw_processes_merge_tasks_and_refuse_a_conflict(
         "conflict",
         {"option": "name", "value": "x"},
     )
-    assert error["detail"] == "Zadanie 'x' już istnieje w projekcie"
+    assert error["detail"] == "The task 'x' already exists in the project"
     winner = rivals.index(next(result for result in rivals if result.returncode == 0))
     (task,) = [task for task in open_project(project).tasks if task.name == "x"]
     assert list(task.options["stations"]) == [[RABA], [BEZ_Q]][winner]

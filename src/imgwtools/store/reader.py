@@ -38,6 +38,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
     io_error,
 )
+from imgwtools.messages import message, reason
 from imgwtools.models import Measurement, NormalizedRecord, StationListEntry
 from imgwtools.store.catalog import (
     _CATALOG_DIRS,
@@ -146,31 +147,43 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
         return info, code
 
     if not path.exists():
-        return unusable("missing_store", f"Katalog magazynu nie istnieje: {path}")
+        return unusable(
+            "missing_store", message("reader.store_directory_does_not_exist", path=path)
+        )
     marker = path / _MARKER
     if marker.is_symlink() or not marker.is_file():
         return unusable(
             "missing_marker",
-            f"Brak znacznika {_MARKER}: {path} nie jest magazynem IMGW",
+            message("reader.no_marker_not_imgw_store", marker=_MARKER, path=path),
         )
     try:
         payload = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        return unusable("invalid_marker", f"Nieczytelny znacznik {marker}: {exc}")
+        return unusable(
+            "invalid_marker",
+            message("reader.unreadable_marker", marker=marker, exc=reason(exc)),
+        )
     schema = payload.get("schema") if isinstance(payload, dict) else None
     if not isinstance(schema, str):
-        return unusable("invalid_marker", f"Znacznik {marker} nie ma pola schema")
+        return unusable(
+            "invalid_marker",
+            message("reader.marker_has_no_schema_field", marker=marker),
+        )
     if schema != STORE_SCHEMA:
         return unusable(
             "unsupported_store",
-            f"Nieobsługiwana wersja magazynu {schema}; ta wersja imgwtools obsługuje {STORE_SCHEMA}",
+            message(
+                "reader.unsupported_store_version_this_version",
+                schema=schema,
+                store_schema=STORE_SCHEMA,
+            ),
             schema=schema,
         )
     created_by = payload.get("created_by")
     if not isinstance(created_by, str) or not created_by:
         return unusable(
             "invalid_marker",
-            f"Znacznik {marker} nie ma poprawnego pola created_by",
+            message("reader.marker_has_no_valid_created", marker=marker),
             schema=schema,
         )
     return StoreInfo(path, True, schema, True, contracts, (), providers()), None
@@ -223,16 +236,21 @@ def _open(root: RootArg) -> Path:
 def _text(payload: Mapping[str, Any], key: str, *, const: str | None = None) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value:
-        raise _Invalid("invalid_meta", f"pole {key} musi być niepustym tekstem")
+        raise _Invalid(
+            "invalid_meta", message("reader.field_must_non_empty_text", key=key)
+        )
     if const is not None and value != const:
-        raise _Invalid("invalid_meta", f"pole {key} musi mieć wartość {const}")
+        raise _Invalid(
+            "invalid_meta",
+            message("reader.field_must_have_value", key=key, const=const),
+        )
     return value
 
 
 def _object(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
     value = payload.get(key)
     if not isinstance(value, dict):
-        raise _Invalid("invalid_meta", f"pole {key} musi być obiektem")
+        raise _Invalid("invalid_meta", message("reader.field_must_object", key=key))
     return value
 
 
@@ -254,44 +272,50 @@ def _content_fields(payload: Mapping[str, Any]) -> tuple[str | None, str | None]
     if len(present) == 1:
         raise _Invalid(
             "invalid_meta",
-            "pola content_sha256 i content_form występują razem albo wcale",
+            message("reader.fields_content_sha256_content_form"),
         )
     digest = payload["content_sha256"]
     if not isinstance(digest, str) or not _SHA.fullmatch(digest):
-        raise _Invalid(
-            "invalid_meta", "pole content_sha256 musi mieć 64 małe cyfry szesnastkowe"
-        )
+        raise _Invalid("invalid_meta", message("reader.field_content_sha256_must_have"))
     return digest, _text(payload, "content_form")
 
 
 def _parse_meta(payload: object) -> Meta:
     """Validate the required ``imgw-meta/1`` fields; additional fields are tolerated."""
     if not isinstance(payload, dict):
-        raise _Invalid("invalid_meta", "sidecar nie jest obiektem JSON")
+        raise _Invalid("invalid_meta", message("reader.sidecar_not_json_object"))
     schema = payload.get("schema")
     if not isinstance(schema, str):
-        raise _Invalid("invalid_meta", "brak pola schema")
+        raise _Invalid("invalid_meta", message("reader.missing_field_schema"))
     if schema != META_SCHEMA:
-        raise _Invalid("unknown_schema", f"nieobsługiwany schemat sidecara {schema}")
+        raise _Invalid(
+            "unknown_schema",
+            message("reader.unsupported_sidecar_schema", schema=schema),
+        )
     _text(payload, "producer", const="imgwtools")
     _text(payload, "producer_version")
     dataset = _text(payload, "dataset")
     if not _DATASET.fullmatch(dataset):
         raise _Invalid(
             "invalid_meta",
-            "pole dataset musi być kluczem zbioru <kraj>.<dostawca>.<nazwa>",
+            message("reader.field_dataset_must_dataset_key"),
         )
     country = _text(payload, "country")
     if not _COUNTRY.fullmatch(country):
         raise _Invalid(
-            "invalid_meta", "pole country musi być kodem kraju z dwóch wielkich liter"
+            "invalid_meta", message("reader.field_country_must_country_code")
         )
     provider = _text(payload, "provider")
     origin = _registry_origin(dataset)
     if origin is not None and (country, provider) != origin:
         raise _Invalid(
             "invalid_meta",
-            f"zbiór {dataset} ma w rejestrze country {origin[0]} i provider {origin[1]}",
+            message(
+                "reader.registry_gives_dataset_country_provider",
+                dataset=dataset,
+                origin=origin[0],
+                origin_2=origin[1],
+            ),
         )
     request = _object(payload, "request")
     license_ = _object(payload, "license")
@@ -301,26 +325,29 @@ def _parse_meta(payload: object) -> Meta:
     url = _text(license_, "url")
     sha = payload.get("sha256")
     if not isinstance(sha, str) or not _SHA.match(sha):
-        raise _Invalid(
-            "invalid_meta", "pole sha256 musi mieć 64 małe cyfry szesnastkowe"
-        )
+        raise _Invalid("invalid_meta", message("reader.field_sha256_must_have_64"))
     size = payload.get("size_bytes")
     if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-        raise _Invalid(
-            "invalid_meta", "pole size_bytes musi być nieujemną liczbą całkowitą"
-        )
+        raise _Invalid("invalid_meta", message("reader.field_size_bytes_must_non"))
     try:
         downloaded_at = _timestamp(_text(payload, "downloaded_at"))
     except ValueError as exc:
-        raise _Invalid("invalid_meta", "pole downloaded_at nie jest datą ISO") from exc
+        raise _Invalid(
+            "invalid_meta", message("reader.field_downloaded_not_iso_date")
+        ) from exc
     if downloaded_at.tzinfo is None:
-        raise _Invalid("invalid_meta", "pole downloaded_at musi mieć strefę czasową")
+        raise _Invalid(
+            "invalid_meta", message("reader.field_downloaded_must_have_time")
+        )
     version = _object(extra, "version")
     _text(version, "label")
     if version.get("label_source") not in _LABEL_SOURCES:
         raise _Invalid(
             "invalid_meta",
-            f"pole label_source musi być jednym z {', '.join(_LABEL_SOURCES)}",
+            message(
+                "reader.field_label_source_must_one",
+                label_sources=", ".join(_LABEL_SOURCES),
+            ),
         )
     content_sha256, content_form = _content_fields(payload)
     terms_url = license_.get("terms_url")
@@ -349,21 +376,26 @@ def _parse_meta(payload: object) -> Meta:
 def _load_meta(sidecar: Path) -> Meta:
     if sidecar.is_symlink():
         raise _Invalid(
-            "symlink", f"dowiązanie symboliczne zamiast sidecara {sidecar.name}"
+            "symlink",
+            message("reader.symbolic_link_instead_sidecar", name=sidecar.name),
         )
     try:
         text = sidecar.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        raise _Invalid("missing_sidecar", f"brak sidecara {sidecar.name}") from exc
+        raise _Invalid(
+            "missing_sidecar", message("reader.missing_sidecar", name=sidecar.name)
+        ) from exc
     except OSError as exc:
         raise _Invalid(
-            "unreadable", f"nieczytelny sidecar {sidecar.name}: {exc}"
+            "unreadable",
+            message("reader.unreadable_sidecar", name=sidecar.name, exc=reason(exc)),
         ) from exc
     try:
         payload = json.loads(text)
     except ValueError as exc:
         raise _Invalid(
-            "invalid_json", f"uszkodzony JSON sidecara {sidecar.name}: {exc}"
+            "invalid_json",
+            message("reader.corrupt_json_sidecar", name=sidecar.name, exc=reason(exc)),
         ) from exc
     return _parse_meta(payload)
 
@@ -404,10 +436,14 @@ def read_meta(path: PathArg, /) -> Meta:
         return _load_meta(sidecar)
     except _Invalid as exc:
         if exc.code == "missing_sidecar":
-            raise IMGWStoreError(f"Brak sidecara {sidecar}", code="not_found") from exc
+            raise IMGWStoreError(
+                message("reader.no_sidecar", sidecar=sidecar), code="not_found"
+            ) from exc
         if isinstance(exc.__cause__, OSError):
             raise io_error(exc.__cause__) from exc.__cause__
-        raise IMGWDataError(f"Nieprawidłowy sidecar {sidecar}: {exc}") from exc
+        raise IMGWDataError(
+            message("reader.invalid_sidecar", sidecar=sidecar, exc=reason(exc))
+        ) from exc
 
 
 # --------------------------------------------------------------------------
@@ -432,15 +468,20 @@ def _check_version(
     valid (written before attachments existed).
     """
     if directory.is_symlink():
-        raise _Invalid("symlink", "dowiązanie symboliczne zamiast katalogu wersji")
+        raise _Invalid(
+            "symlink", message("reader.symbolic_link_instead_version_directory")
+        )
     files: set[str] = set()
     for child in directory.iterdir():
         if child.is_symlink():
-            raise _Invalid("symlink", f"dowiązanie symboliczne w wersji: {child.name}")
+            raise _Invalid(
+                "symlink", message("reader.symbolic_link_version", name=child.name)
+            )
         if child.is_dir():
             if child.name not in subdirs:
                 raise _Invalid(
-                    "unknown_entry", f"nieznany katalog w wersji: {child.name}"
+                    "unknown_entry",
+                    message("reader.unknown_directory_version", name=child.name),
                 )
         else:
             files.add(child.name)
@@ -448,14 +489,19 @@ def _check_version(
         # The sidecar is published last and commits the version (Kartograf D18).
         raise _Invalid(
             "missing_sidecar",
-            f"brak sidecara {name}{_SIDECAR} (niedokończona publikacja wersji)",
+            message(
+                "reader.missing_sidecar_unfinished_publication_version",
+                name=name,
+                sidecar=_SIDECAR,
+            ),
         )
     if name not in files:
-        raise _Invalid("missing_file", f"brak pliku głównego {name}")
+        raise _Invalid("missing_file", message("reader.missing_main_file", name=name))
     unexpected = sorted(files - {name, name + _SIDECAR, *attachments})
     if unexpected:
         raise _Invalid(
-            "unknown_entry", f"nieznane pliki w wersji: {', '.join(unexpected)}"
+            "unknown_entry",
+            message("reader.unknown_files_version", unexpected=", ".join(unexpected)),
         )
     main = directory / name
     meta = _load_meta(directory / (name + _SIDECAR))
@@ -463,11 +509,11 @@ def _check_version(
     if directory.name != f"{label}_{meta.sha256[:8]}":
         raise _Invalid(
             "invalid_meta",
-            f"nazwa katalogu wersji nie odpowiada etykiecie {label} i sumie sidecara",
+            message("reader.name_version_directory_does_not", label=label),
         )
     if main.stat().st_size != meta.size_bytes:
         raise _Invalid(
-            "size_mismatch", f"rozmiar {name} różni się od size_bytes w sidecarze"
+            "size_mismatch", message("reader.size_differs_from_size_bytes", name=name)
         )
     for attachment in attachments:
         _check_attachment(directory, attachment, meta, present=attachment in files)
@@ -480,11 +526,13 @@ def _check_attachment(directory: Path, name: str, meta: Meta, *, present: bool) 
     if info is None:
         if present:
             raise _Invalid(
-                "unknown_entry", f"plik {name} bez opisu extra.response w sidecarze"
+                "unknown_entry", message("reader.file_has_no_extra_response", name=name)
             )
         return
     if not isinstance(info, Mapping):
-        raise _Invalid("invalid_meta", "pole extra.response musi być obiektem")
+        raise _Invalid(
+            "invalid_meta", message("reader.field_extra_response_must_object")
+        )
     size = info.get("size_bytes")
     sha = info.get("sha256")
     if (
@@ -497,13 +545,16 @@ def _check_attachment(directory: Path, name: str, meta: Meta, *, present: bool) 
     ):
         raise _Invalid(
             "invalid_meta",
-            f"pole extra.response musi mieć name={name}, sha256 i size_bytes",
+            message("reader.field_extra_response_must_have", name=name),
         )
     if not present:
-        raise _Invalid("missing_file", f"brak pliku {name} opisanego w sidecarze")
+        raise _Invalid(
+            "missing_file", message("reader.missing_file_described_sidecar", name=name)
+        )
     if (directory / name).stat().st_size != size:
         raise _Invalid(
-            "size_mismatch", f"rozmiar {name} różni się od extra.response w sidecarze"
+            "size_mismatch",
+            message("reader.size_differs_from_extra_response", name=name),
         )
 
 
@@ -529,7 +580,7 @@ def _unknown(root: Path, path: Path) -> StoreEntry:
         None,
         path,
         "unknown_entry",
-        f"Nieznany element magazynu: {_relative(root, path)}",
+        message("reader.unknown_store_item", relative=_relative(root, path)),
     )
 
 
@@ -558,34 +609,51 @@ def _entry(
         ):
             raise _Invalid(
                 "invalid_meta",
-                "request.server_path w sidecarze nie odpowiada ścieżce wersji",
+                message("reader.request_server_path_sidecar_does"),
             )
         if kind == "catalog" and meta.dataset_key != slot.split(":")[1]:
             raise _Invalid(
                 "invalid_meta",
-                f"zbiór {meta.dataset} sidecara nie odpowiada slotowi {slot}",
+                message(
+                    "reader.dataset_sidecar_does_not_match",
+                    dataset=meta.dataset,
+                    slot=slot,
+                ),
             )
         if kind == "series":
             series_schema = meta.extra.get("series_schema")
             if not isinstance(series_schema, str):
                 raise _Invalid(
-                    "invalid_meta", "pole extra.series_schema musi być tekstem"
+                    "invalid_meta", message("reader.field_extra_series_schema_must")
                 )
             if series_schema != SERIES_SCHEMA:
                 raise _Invalid(
-                    "unknown_schema", f"nieobsługiwany schemat szeregu {series_schema}"
+                    "unknown_schema",
+                    message(
+                        "reader.unsupported_series_schema", series_schema=series_schema
+                    ),
                 )
     except _Invalid as exc:
         if strict and exc.code == "unreadable" and isinstance(exc.__cause__, OSError):
             raise io_error(exc.__cause__) from exc.__cause__
         return _problem(
-            slot, directory, exc.code, f"Wersja {_relative(root, directory)}: {exc}"
+            slot,
+            directory,
+            exc.code,
+            message(
+                "reader.version", relative=_relative(root, directory), exc=reason(exc)
+            ),
         )
     except OSError as exc:
         if strict:
             raise io_error(exc) from exc
         return _problem(
-            slot, directory, "unreadable", f"Wersja {_relative(root, directory)}: {exc}"
+            slot,
+            directory,
+            "unreadable",
+            message(
+                "reader.version", relative=_relative(root, directory), exc=reason(exc)
+            ),
         )
     return StoreEntry(kind, slot, main, meta, None, None, provider=_slot_provider(slot))
 
@@ -598,11 +666,11 @@ def _entry(
 def _optional_text(payload: Mapping[str, Any], key: str) -> str | None:
     """A required field holding a non-empty text or null."""
     if key not in payload:
-        raise _Invalid("invalid_meta", f"brak pola {key}")
+        raise _Invalid("invalid_meta", message("reader.missing_field", key=key))
     value = payload[key]
     if value is not None and (not isinstance(value, str) or not value):
         raise _Invalid(
-            "invalid_meta", f"pole {key} musi być niepustym tekstem albo null"
+            "invalid_meta", message("reader.field_must_non_empty_text_2", key=key)
         )
     return value
 
@@ -612,7 +680,7 @@ def _digest(payload: Mapping[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not _SHA.fullmatch(value):
         raise _Invalid(
-            "invalid_meta", f"pole {key} musi mieć 64 małe cyfry szesnastkowe"
+            "invalid_meta", message("reader.field_must_have_64_lowercase", key=key)
         )
     return value
 
@@ -620,33 +688,32 @@ def _digest(payload: Mapping[str, Any], key: str) -> str:
 def _parse_observation(payload: object) -> Observation:
     """Validate the ``imgw-observation/1`` fields; additional fields are tolerated."""
     if not isinstance(payload, dict):
-        raise _Invalid("invalid_meta", "obserwacja nie jest obiektem JSON")
+        raise _Invalid("invalid_meta", message("reader.observation_not_json_object"))
     schema = payload.get("schema")
     if not isinstance(schema, str):
-        raise _Invalid("invalid_meta", "brak pola schema")
+        raise _Invalid("invalid_meta", message("reader.missing_field_schema"))
     if schema != OBSERVATION_SCHEMA:
-        raise _Invalid("unknown_schema", f"nieobsługiwany schemat obserwacji {schema}")
+        raise _Invalid(
+            "unknown_schema",
+            message("reader.unsupported_observation_schema", schema=schema),
+        )
     _text(payload, "producer")
     _text(payload, "producer_version")
     dataset = _text(payload, "dataset")
     if not _DATASET.fullmatch(dataset):
         raise _Invalid(
             "invalid_meta",
-            "pole dataset musi być kluczem zbioru <kraj>.<dostawca>.<nazwa>",
+            message("reader.field_dataset_must_dataset_key"),
         )
     seen_at = payload.get("seen_at")
     if not isinstance(seen_at, str) or not _is_seen_at(seen_at):
-        raise _Invalid(
-            "invalid_meta", "pole seen_at musi być czasem UTC RRRR-MM-DDTGG:MM:SSZ"
-        )
+        raise _Invalid("invalid_meta", message("reader.field_seen_must_utc_time"))
     url = _text(payload, "url")
     last_modified = _optional_text(payload, "last_modified")
     etag = _optional_text(payload, "etag")
     size = payload.get("size_bytes")
     if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-        raise _Invalid(
-            "invalid_meta", "pole size_bytes musi być nieujemną liczbą całkowitą"
-        )
+        raise _Invalid("invalid_meta", message("reader.field_size_bytes_must_non"))
     sha = _digest(payload, "sha256")
     content_sha256 = _digest(payload, "content_sha256")
     content_form = _text(payload, "content_form")
@@ -654,7 +721,7 @@ def _parse_observation(payload: object) -> Observation:
     if not isinstance(same, str) or not _SAME_CONTENT.fullmatch(same):
         raise _Invalid(
             "invalid_meta",
-            "pole same_content_as musi być nazwą katalogu wersji <etykieta>_<sha8>",
+            message("reader.field_same_content_as_must"),
         )
     return Observation(
         dataset,
@@ -676,13 +743,15 @@ def _load_observation(path: Path) -> Observation:
         data = path.read_bytes()
     except OSError as exc:
         raise _Invalid(
-            "unreadable", f"nieczytelna obserwacja {path.name}: {exc}"
+            "unreadable",
+            message("reader.unreadable_observation", name=path.name, exc=reason(exc)),
         ) from exc
     try:
         payload = json.loads(data.decode("utf-8"))
     except ValueError as exc:
         raise _Invalid(
-            "invalid_json", f"uszkodzony JSON obserwacji {path.name}: {exc}"
+            "invalid_json",
+            message("reader.corrupt_json_observation", name=path.name, exc=reason(exc)),
         ) from exc
     return _parse_observation(payload)
 
@@ -701,24 +770,36 @@ def _check_observation(
     if not path.name.startswith(f"{observation.seen_at[:10]}_"):
         raise _Invalid(
             "invalid_meta",
-            f"nazwa {path.name} nie odpowiada dacie seen_at {observation.seen_at}",
+            message(
+                "reader.name_does_not_match_date",
+                name=path.name,
+                seen_at=observation.seen_at,
+            ),
         )
     if path.name != expected:
         raise _Invalid(
             "invalid_meta",
-            f"nazwa {path.name} nie odpowiada sygnałowi obserwacji (oczekiwano {expected})",
+            message(
+                "reader.name_does_not_match_signal", name=path.name, expected=expected
+            ),
         )
     if resolve_dataset_key(observation.dataset) != dataset:
         raise _Invalid(
             "invalid_meta",
-            f"pole dataset {observation.dataset} różni się od zbioru slotu {dataset}",
+            message(
+                "reader.field_dataset_differs_from_dataset",
+                dataset=observation.dataset,
+                dataset_2=dataset,
+            ),
         )
     meta = versions.get(observation.same_content_as)
     if meta is None:
         raise _Invalid(
             "invalid_meta",
-            f"same_content_as {observation.same_content_as} nie wskazuje poprawnej "
-            "wersji w slocie",
+            message(
+                "reader.same_content_as_does_not",
+                same_content_as=observation.same_content_as,
+            ),
         )
     if (meta.content_sha256, meta.content_form) != (
         observation.content_sha256,
@@ -726,7 +807,10 @@ def _check_observation(
     ):
         raise _Invalid(
             "invalid_meta",
-            f"pola treści różnią się od pól wersji {observation.same_content_as}",
+            message(
+                "reader.content_fields_differ_from_fields",
+                same_content_as=observation.same_content_as,
+            ),
         )
 
 
@@ -747,7 +831,7 @@ def _scan_register(
                 slot,
                 child,
                 "symlink",
-                f"Dowiązanie symboliczne w rejestrze obserwacji: {relative}",
+                message("reader.symbolic_link_observation_register", relative=relative),
             )
         elif not child.is_file() or not _OBSERVATION_FILE.fullmatch(child.name):
             yield _unknown(root, child)
@@ -756,7 +840,12 @@ def _scan_register(
                 observation = _load_observation(child)
                 _check_observation(child, observation, dataset, versions)
             except _Invalid as exc:
-                yield _problem(slot, child, exc.code, f"Obserwacja {relative}: {exc}")
+                yield _problem(
+                    slot,
+                    child,
+                    exc.code,
+                    message("reader.observation", relative=relative, exc=reason(exc)),
+                )
             else:
                 yield StoreEntry(
                     "observation",
@@ -774,10 +863,8 @@ def _scan_register(
 # Slots (spec §13.7)
 # --------------------------------------------------------------------------
 
-_SLOT_GRAMMAR = (
-    "archive:<klucz>:<ścieżka>, series:<klucz>, catalog:<klucz katalogu> "
-    f"({', '.join(_CATALOG_DATASETS.values())}) "
-    "albo pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>"
+_SLOT_GRAMMAR = message(
+    "reader.archive_key_path_series_key", values=", ".join(_CATALOG_DATASETS.values())
 )
 _PMAXTP_KEY = "pl.imgw.pmaxtp"
 
@@ -851,7 +938,7 @@ def _directories(root: Path, path: Path) -> Iterator[Path | StoreEntry]:
                 _relative(root, child),
                 child,
                 "symlink",
-                f"Dowiązanie symboliczne w magazynie: {_relative(root, child)}",
+                message("reader.symbolic_link_store", relative=_relative(root, child)),
             )
         elif not child.is_dir():
             yield _unknown(root, child)
@@ -1043,7 +1130,7 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
                 None,
                 child,
                 "symlink",
-                f"Dowiązanie symboliczne w magazynie: {child.name}",
+                message("reader.symbolic_link_store", relative=child.name),
             )
         elif child.name == ".incoming" and child.is_dir():
             # Young staging directories are private to a running writer, never versions.
@@ -1054,7 +1141,9 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
                         None,
                         staging,
                         "stale_incoming",
-                        f"Porzucony staging starszy niż 24 h: {relative}",
+                        message(
+                            "reader.abandoned_staging_older_than_24", relative=relative
+                        ),
                     )
         elif (
             child.name in ("archives", "stations", "series", "pmaxtp")
@@ -1109,7 +1198,11 @@ def iter_store(
     """
     if kind is not None and kind not in _KINDS:
         raise IMGWValidationError(
-            f"Nieznany rodzaj wpisu magazynu: {kind!r}; dozwolone {', '.join(_KINDS)}"
+            message(
+                "reader.unknown_kind_store_item_allowed",
+                kind=kind,
+                kinds=", ".join(_KINDS),
+            )
         )
     owner = None if provider is None else get_provider(provider).id
     path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
@@ -1123,7 +1216,12 @@ def iter_store(
 
 def _invalid_slot(slot: object, reason: str) -> IMGWValidationError:
     return IMGWValidationError(
-        f"Nieprawidłowy slot {slot!r}: {reason}; oczekiwano {_SLOT_GRAMMAR}",
+        message(
+            "reader.invalid_slot_expected",
+            slot=slot,
+            reason=reason,
+            slot_grammar=_SLOT_GRAMMAR,
+        ),
         details={"option": "slot", "value": slot if isinstance(slot, str) else None},
     )
 
@@ -1133,7 +1231,7 @@ def _slot_location(
 ) -> tuple[EntryKind, Path, str, dict[str, Any]]:
     """Kind, slot directory, main file name and `_entry` options of a §13.7 slot."""
     if not isinstance(slot, str):
-        raise _invalid_slot(slot, "slot musi być tekstem")
+        raise _invalid_slot(slot, message("reader.slot_must_text"))
     kind, _, rest = slot.partition(":")
     key, has_selector, selector = rest.partition(":")
     if kind == "archive":
@@ -1141,11 +1239,13 @@ def _slot_location(
             (item for item in _archive_descriptors() if item.key == key), None
         )
         if descriptor is None:
-            raise _invalid_slot(slot, f"{key!r} nie jest kluczem zbioru archiwów")
+            raise _invalid_slot(
+                slot, message("reader.not_key_archive_dataset", key=key)
+            )
         server_path = f"{descriptor.server_dir}/{selector}"
         if not has_selector or _archive_slot(server_path) != slot:
             raise _invalid_slot(
-                slot, f"nieprawidłowa ścieżka pliku zbioru {descriptor.key}"
+                slot, message("reader.invalid_file_path_dataset", key=descriptor.key)
             )
         relative = PurePosixPath(server_path)
         directory = _validate_slot(
@@ -1155,7 +1255,7 @@ def _slot_location(
     if has_selector:
         cell = re.fullmatch(r"(POT|AMP)/([0-9]+_[0-9]+)", selector)
         if kind != "pmaxtp" or key != _PMAXTP_KEY or cell is None:
-            raise _invalid_slot(slot, "nieoczekiwany selektor")
+            raise _invalid_slot(slot, message("reader.unexpected_selector"))
         return (
             "pmaxtp",
             _validate_slot(root, f"pmaxtp/versions/{cell[1]}/{cell[2]}"),
@@ -1176,7 +1276,7 @@ def _slot_location(
     )
     if kind == "catalog" and owner is not None:
         return "catalog", _validate_slot(root, _CATALOG_DIRS[owner]), CATALOG_FILE, {}
-    raise _invalid_slot(slot, "nieznany rodzaj lub klucz")
+    raise _invalid_slot(slot, message("reader.unknown_kind_key"))
 
 
 def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
@@ -1251,7 +1351,9 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
         if entry.kind == "problem" and entry.problem_code == "missing_sidecar":
             continue
         if entry.kind == "problem" or entry.meta is None or entry.version is None:
-            raise IMGWDataError(f"Uszkodzona wersja w slocie {slot}: {entry.problem}")
+            raise IMGWDataError(
+                message("reader.corrupt_version_slot", slot=slot, problem=entry.problem)
+            )
         meta = entry.meta
         versions.append(
             (
@@ -1334,7 +1436,9 @@ def _reference_signal(root: RootArg, /, *, slot: str) -> _Reference | None:
         code ``io_error`` if the system cannot read one.
     """
     if not slot.startswith("archive:"):
-        raise _invalid_slot(slot, "sygnał odniesienia ma wyłącznie slot archiwum")
+        raise _invalid_slot(
+            slot, message("reader.reference_signal_exists_only_archive")
+        )
     entry = current_version(root, slot=slot)
     if entry is None or entry.version is None or entry.meta is None:
         return None
@@ -1348,7 +1452,9 @@ def _reference_signal(root: RootArg, /, *, slot: str) -> _Reference | None:
             continue
         try:
             if child.is_symlink():
-                raise _Invalid("symlink", "dowiązanie symboliczne zamiast obserwacji")
+                raise _Invalid(
+                    "symlink", message("reader.symbolic_link_instead_observation")
+                )
             observation = _load_observation(child)
             if observation.same_content_as != current.name:
                 continue
@@ -1359,7 +1465,12 @@ def _reference_signal(root: RootArg, /, *, slot: str) -> _Reference | None:
             if exc.code == "unreadable" and isinstance(exc.__cause__, OSError):
                 raise io_error(exc.__cause__) from exc.__cause__
             raise IMGWDataError(
-                f"Uszkodzona obserwacja w slocie {slot}: {child.name}: {exc}"
+                message(
+                    "reader.corrupt_observation_slot",
+                    slot=slot,
+                    name=child.name,
+                    exc=reason(exc),
+                )
             ) from exc
         order = (observation.seen_at, child.name)
         if newest is None or order > newest[0]:
@@ -1381,8 +1492,7 @@ def _reference_signal(root: RootArg, /, *, slot: str) -> _Reference | None:
         value = signal.get(key)
         if value is not None and not isinstance(value, str):
             raise IMGWDataError(
-                f"Uszkodzona wersja w slocie {slot}: extra.http.{key} musi być "
-                "tekstem albo null"
+                message("reader.corrupt_version_slot_extra_http", slot=slot, key=key)
             )
         texts.append(value)
     url, etag, last_modified = texts
@@ -1402,7 +1512,11 @@ def _main_file(version: PathArg, name: str) -> Path:
         path = path.with_name(name)
     if path.name != name:
         raise IMGWValidationError(
-            f"Wersja musi wskazywać katalog wersji, plik {name} albo jego sidecar: {version}",
+            message(
+                "reader.version_must_point_version_directory",
+                name=name,
+                version=version,
+            ),
             details={"option": "version"},
         )
     return path
@@ -1411,17 +1525,21 @@ def _main_file(version: PathArg, name: str) -> Path:
 def _verified(path: Path) -> bytes:
     """Bytes of a version's main file, verified against its sidecar."""
     if path.is_symlink():
-        raise IMGWDataError(f"Dowiązanie symboliczne zamiast pliku wersji: {path}")
+        raise IMGWDataError(
+            message("reader.symbolic_link_instead_version_file", path=path)
+        )
     try:
         data = path.read_bytes()
     except FileNotFoundError as exc:
-        raise IMGWStoreError(f"Brak pliku wersji: {path}", code="not_found") from exc
+        raise IMGWStoreError(
+            message("reader.no_version_file", path=path), code="not_found"
+        ) from exc
     except OSError as exc:
         raise io_error(exc) from exc
     meta = read_meta(path)
     if hashlib.sha256(data).hexdigest() != meta.sha256 or len(data) != meta.size_bytes:
         raise IMGWDataError(
-            f"Suma kontrolna {path.name} nie zgadza się z sidecarem: {path}"
+            message("reader.checksum_does_not_match_sidecar", name=path.name, path=path)
         )
     return data
 
@@ -1430,12 +1548,14 @@ def _json(path: Path) -> Any:
     try:
         return json.loads(_verified(path))
     except ValueError as exc:
-        raise IMGWDataError(f"Uszkodzony JSON {path}: {exc}") from exc
+        raise IMGWDataError(
+            message("reader.corrupt_json", path=path, exc=reason(exc))
+        ) from exc
 
 
 def _number(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("współrzędna nie jest liczbą")
+        raise ValueError(message("reader.coordinate_not_number"))
     return float(value)
 
 
@@ -1460,10 +1580,10 @@ def _catalog_features(path: Path) -> tuple[StationFeature, ...]:
             not isinstance(document, dict)
             or document.get("type") != "FeatureCollection"
         ):
-            raise ValueError("oczekiwano FeatureCollection")
+            raise ValueError(message("reader.featurecollection_was_expected"))
         features = document["features"]
         if not isinstance(features, list):
-            raise ValueError("features musi być listą")
+            raise ValueError(message("reader.features_must_list"))
         for feature in features:
             code = feature["id"]
             if (
@@ -1471,7 +1591,7 @@ def _catalog_features(path: Path) -> tuple[StationFeature, ...]:
                 or not isinstance(code, str)
                 or not _CODE.fullmatch(code)
             ):
-                raise ValueError(f"nieprawidłowy obiekt stacji {code!r}")
+                raise ValueError(message("reader.invalid_station_object", code=code))
             properties = feature["properties"]
             # ČHMÚ hydro stations carry the SPA thresholds as an object (§7.4).
             if not isinstance(properties, dict) or not all(
@@ -1479,11 +1599,12 @@ def _catalog_features(path: Path) -> tuple[StationFeature, ...]:
                 for key, value in properties.items()
             ):
                 raise ValueError(
-                    f"właściwości stacji {code} muszą być wartościami prostymi "
-                    "(thresholds: obiektem progów)"
+                    message("reader.properties_station_must_simple_values", code=code)
                 )
             if properties.get("station_code", code) != code:
-                raise ValueError(f"station_code stacji {code} różni się od id")
+                raise ValueError(
+                    message("reader.station_code_station_differs_from", code=code)
+                )
             geometry = feature["geometry"]
             point: tuple[float, float] | None = None
             if geometry is not None:
@@ -1494,12 +1615,14 @@ def _catalog_features(path: Path) -> tuple[StationFeature, ...]:
                     or len(coordinates) != 2
                 ):
                     raise ValueError(
-                        f"geometria stacji {code} musi być punktem [lon, lat]"
+                        message("reader.geometry_station_must_point_lon", code=code)
                     )
                 point = (_number(coordinates[0]), _number(coordinates[1]))
             result.append(StationFeature(code, point, properties, provider))
     except (KeyError, TypeError, ValueError) as exc:
-        raise IMGWDataError(f"Nieprawidłowy katalog stacji {path}: {exc}") from exc
+        raise IMGWDataError(
+            message("reader.invalid_station_catalog", path=path, exc=reason(exc))
+        ) from exc
     return tuple(result)
 
 
@@ -1556,15 +1679,13 @@ def read_catalog(
     if version is not None and root is None:
         if provider is not None:
             raise IMGWValidationError(
-                "Opcja provider wybiera bieżący katalog magazynu i wymaga root "
-                "zamiast version",
+                message("reader.option_provider_selects_current_store"),
                 details={"option": "provider", "value": provider},
             )
         return _catalog_features(_main_file(version, CATALOG_FILE))
     if root is None or version is not None:
         raise IMGWValidationError(
-            "Podaj dokładnie jedno z: version (wersja katalogu) albo root "
-            "(bieżące katalogi stacji magazynu)",
+            message("reader.give_exactly_one_version_catalog"),
             details={"option": "version" if root is None else "root"},
         )
     owners = providers() if provider is None else (get_provider(provider),)
@@ -1575,8 +1696,12 @@ def read_catalog(
         if entry is None or entry.version is None:
             if provider is not None:
                 raise IMGWStoreError(
-                    f"Magazyn nie zawiera katalogu stacji {owner.short_name} ({key}); "
-                    f"buduje go imgw store catalog --provider {owner.id}",
+                    message(
+                        "reader.store_has_no_station_catalog",
+                        short_name=owner.short_name,
+                        key=key,
+                        id=owner.id,
+                    ),
                     code="not_found",
                 )
             continue
@@ -1652,7 +1777,7 @@ def read_station_list(
     lists = _station_lists(owner.id)
     if kind not in lists:
         raise IMGWValidationError(
-            f"Nieznany rodzaj listy stacji: {kind!r}; dozwolone hydro, meteo",
+            message("reader.unknown_kind_station_list_allowed", kind=kind),
             details={"option": "kind", "value": kind, "allowed": list(lists)},
         )
     source = lists[kind]
@@ -1665,14 +1790,19 @@ def read_station_list(
             f"--provider {owner.id}"
         )
         raise IMGWStoreError(
-            f"Magazyn nie zawiera listy stacji {source.dataset}; zapisuje ją "
-            f"budowa katalogu stacji ({hint})",
+            message(
+                "reader.store_has_no_station_list", dataset=source.dataset, hint=hint
+            ),
             code="not_found",
         )
     if entry.meta.dataset_key != source.dataset:
         raise IMGWDataError(
-            f"Wersja {entry.version} należy do zbioru {entry.meta.dataset}, "
-            f"a nie {source.dataset}"
+            message(
+                "reader.version_belongs_dataset_not",
+                version=entry.version,
+                dataset=entry.meta.dataset,
+                dataset_2=source.dataset,
+            )
         )
     data = _verified(entry.version)
     if get_dataset(source.dataset).parser == "parse_chmi_stations":
@@ -1689,8 +1819,9 @@ def _archive_main(version: PathArg) -> Path:
         )
         if len(sidecars) != 1:
             raise IMGWValidationError(
-                f"Katalog {version} nie jest katalogiem wersji archiwum "
-                "(oczekiwano dokładnie jednego sidecara)"
+                message(
+                    "reader.directory_not_archive_version_directory", version=version
+                )
             )
         return path / sidecars[0].removesuffix(_SIDECAR)
     if path.name.endswith(_SIDECAR):
@@ -1739,8 +1870,11 @@ def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
     descriptor = next((d for d in datasets() if d.key == meta.dataset_key), None)
     if not isinstance(server_path, str) or descriptor is None:
         raise IMGWValidationError(
-            f"{main} nie jest wersją archiwum (zbiór {meta.dataset}); szeregi "
-            "czyta read_series, katalog read_catalog, komórki PMAXTP read_pmaxtp"
+            message(
+                "reader.not_archive_version_dataset_series",
+                main=main,
+                dataset=meta.dataset,
+            )
         )
     if descriptor.time_unit == "station_list":
         kind = next(
@@ -1754,12 +1888,21 @@ def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
             else f", provider={descriptor.provider!r}"
         )
         raise IMGWValidationError(
-            f"{main} jest wersją listy stacji {meta.dataset}; listy stacji czyta "
-            f"read_station_list(root, kind={kind!r}{option})"
+            message(
+                "reader.version_station_list_station_lists",
+                main=main,
+                dataset=meta.dataset,
+                kind=kind,
+                option=option,
+            )
         )
     if PurePosixPath(server_path).name != main.name:
         raise IMGWDataError(
-            f"Plik {main.name} nie odpowiada request.server_path {server_path} sidecara"
+            message(
+                "reader.file_does_not_match_request",
+                name=main.name,
+                server_path=server_path,
+            )
         )
     archive = _archive_from_path(descriptor.key, server_path)
     mismatch = (
@@ -1776,47 +1919,59 @@ def read_archive(version: PathArg, /) -> Iterator[NormalizedRecord]:
     )
     if archive is None or mismatch is not None:
         reason = (
-            f"ścieżka {server_path} nie należy do zbioru {descriptor.key}"
+            message(
+                "reader.path_does_not_belong_dataset",
+                server_path=server_path,
+                key=descriptor.key,
+            )
             if archive is None
-            else f"request.{mismatch} nie odpowiada ścieżce {server_path}"
+            else message(
+                "reader.request_does_not_match_path",
+                mismatch=mismatch,
+                server_path=server_path,
+            )
         )
-        raise IMGWDataError(f"Sidecar {main} nie opisuje archiwum: {reason}")
+        raise IMGWDataError(
+            message(
+                "reader.sidecar_does_not_describe_archive", main=main, reason=reason
+            )
+        )
     return normalize_archive(archive, data=_verified(main))
 
 
 def _date(value: object) -> date:
     if not isinstance(value, str):
-        raise ValueError(f"data musi być tekstem ISO: {value!r}")
+        raise ValueError(message("reader.date_must_iso_text", value=value))
     return date.fromisoformat(value)
 
 
 def _span(value: object) -> tuple[date, date]:
     if not isinstance(value, list) or len(value) != 2:
-        raise ValueError("przedział musi być parą dat")
+        raise ValueError(message("reader.range_must_pair_dates"))
     start, end = _date(value[0]), _date(value[1])
     if start > end:
-        raise ValueError(f"przedział {start}–{end} ma odwróconą kolejność")
+        raise ValueError(message("reader.range_reversed", start=start, end=end))
     return start, end
 
 
 def _count(value: object, name: str, *, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ValueError(f"{name} musi być liczbą całkowitą ≥ {minimum}")
+        raise ValueError(message("reader.must_integer", name=name, minimum=minimum))
     return value
 
 
 def _coverage(code: str, key: str, value: Any) -> StationCoverage:
     variable, _, period = key.partition("@")
     if period and period not in _PERIODS:
-        raise ValueError(f"nieznany okres zmiennej {key}")
+        raise ValueError(message("reader.unknown_period_variable", key=key))
     unit = value["unit"]
     if not isinstance(unit, str):
-        raise ValueError(f"jednostka zmiennej {key} musi być tekstem")
+        raise ValueError(message("reader.unit_variable_must_text", key=key))
     first = None if value["first"] is None else _date(value["first"])
     last = None if value["last"] is None else _date(value["last"])
     gaps = value["gaps"]
     if not isinstance(gaps, list):
-        raise ValueError(f"gaps zmiennej {key} musi być listą")
+        raise ValueError(message("reader.gaps_variable_must_list", key=key))
     return StationCoverage(
         code,
         variable,
@@ -1835,12 +1990,12 @@ def _station_periods(code: str, value: object) -> tuple[tuple[date, date], ...] 
     if value is None:
         return None
     if not isinstance(value, list):
-        raise ValueError(f"periods stacji {code} musi być listą przedziałów")
+        raise ValueError(message("reader.periods_station_must_list_ranges", code=code))
     spans = tuple(_span(item) for item in value)
     for (_, end), (start, _) in zip(spans, spans[1:], strict=False):
         if start <= end:
             raise ValueError(
-                f"periods stacji {code} nie są rosnącymi, rozłącznymi przedziałami"
+                message("reader.periods_station_not_increasing_disjoint", code=code)
             )
     return spans
 
@@ -1883,37 +2038,45 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
     document = _json(path)
     try:
         if not isinstance(document, dict):
-            raise ValueError("series.json nie jest obiektem")
+            raise ValueError(message("reader.series_json_not_object"))
         if document.get("schema") != SERIES_SCHEMA:
-            raise ValueError(f"nieobsługiwany schemat {document.get('schema')!r}")
+            raise ValueError(
+                message("reader.unsupported_schema", schema=document.get("schema"))
+            )
         dataset = document["dataset"]
         descriptor = get_dataset(dataset) if isinstance(dataset, str) else None
         if descriptor is None or descriptor.slug not in _series_datasets():
-            raise ValueError(f"zbiór {dataset!r} nie tworzy szeregów")
+            raise ValueError(
+                message("reader.dataset_does_not_build_series", dataset=dataset)
+            )
         year_type = document["year_type"]
         if year_type not in ("hydrological", "calendar"):
-            raise ValueError(f"nieznany year_type {year_type!r}")
+            raise ValueError(message("reader.unknown_year_type", year_type=year_type))
         periods = tuple(_span(item) for item in document["periods"])
         raw_stations = document["stations"]
         if not isinstance(raw_stations, dict):
-            raise ValueError("stations musi być obiektem")
+            raise ValueError(message("reader.stations_must_object"))
         stations: dict[str, StationSeriesIndex] = {}
         for code, entry in raw_stations.items():
             if not _CODE.fullmatch(code):
-                raise ValueError(f"nieprawidłowy kod stacji {code!r}")
+                raise ValueError(message("reader.invalid_station_code", code=code))
             file, sha = entry["file"], entry["sha256"]
             if not isinstance(file, str) or not _PARQUET.fullmatch(file):
                 raise ValueError(
-                    f"nieprawidłowa ścieżka Parquet stacji {code}: {file!r}"
+                    message("reader.invalid_parquet_path_station", code=code, file=file)
                 )
             if not isinstance(sha, str) or not _SHA.match(sha):
-                raise ValueError(f"nieprawidłowa suma Parquet stacji {code}")
+                raise ValueError(
+                    message("reader.invalid_parquet_checksum_station", code=code)
+                )
             parquet = path.parent / file
             if parquet.is_symlink() or not parquet.is_file():
-                raise ValueError(f"brak pliku {file}")
+                raise ValueError(message("reader.missing_file", file=file))
             variables = entry["variables"]
             if not isinstance(variables, dict):
-                raise ValueError(f"variables stacji {code} musi być obiektem")
+                raise ValueError(
+                    message("reader.variables_station_must_object", code=code)
+                )
             stations[code] = StationSeriesIndex(
                 Path(file),
                 sha,
@@ -1922,7 +2085,9 @@ def read_series_index(version: PathArg, /) -> SeriesIndex:
                 _station_periods(code, entry.get("periods")),
             )
     except (IMGWValidationError, KeyError, TypeError, ValueError) as exc:
-        raise IMGWDataError(f"Nieprawidłowy spis szeregu {path}: {exc}") from exc
+        raise IMGWDataError(
+            message("reader.invalid_series_index", path=path, exc=reason(exc))
+        ) from exc
     return SeriesIndex(SERIES_SCHEMA, dataset, year_type, periods, stations)
 
 
@@ -1939,8 +2104,7 @@ def _series_path(
     """
     if (version is None) == (dataset is None):
         raise IMGWValidationError(
-            "Wskaż wersję szeregu (version) albo magazyn i zbiór (root i dataset), "
-            "nie oba naraz ani żadne",
+            message("reader.give_series_version_version_store"),
             details={"option": "version"},
         )
     if version is not None:
@@ -1949,15 +2113,14 @@ def _series_path(
         return _main_file(_open(root) / Path(version).expanduser(), SERIES_FILE)
     if root is None:
         raise IMGWValidationError(
-            "Zbiór (dataset) wskazuje bieżącą wersję szeregu wyłącznie razem z "
-            "magazynem (root)",
+            message("reader.dataset_dataset_selects_current_series"),
             details={"option": "root"},
         )
     descriptor = _series_descriptor(str(dataset))
     entry = current_version(root, slot=f"series:{descriptor.key}")
     if entry is None or entry.version is None:
         raise IMGWStoreError(
-            f"Brak szeregu {descriptor.key} w magazynie; najpierw uruchom series build",
+            message("reader.store_has_no_series_run", key=descriptor.key),
             code="not_found",
         )
     return entry.version
@@ -1971,14 +2134,18 @@ def _variables(
         return tuple(descriptor.variables)
     if isinstance(variables, str):
         raise IMGWValidationError(
-            "variables musi być listą nazw zmiennych, nie pojedynczym tekstem",
+            message("reader.variables_must_list_variable_names"),
             details={"option": "variables", "value": variables},
         )
     names = tuple(dict.fromkeys(variables))
     unknown = [name for name in names if name not in descriptor.variables]
     if not names or unknown:
         raise IMGWValidationError(
-            f"Nieznane zmienne {', '.join(map(str, unknown)) or '(brak)'}; dostępne: {', '.join(descriptor.variables)}",
+            message(
+                "reader.unknown_variables_available",
+                unknown=", ".join(map(str, unknown)) or message("common.none"),
+                available=", ".join(descriptor.variables),
+            ),
             details={
                 "option": "variables",
                 "value": unknown,
@@ -1992,16 +2159,17 @@ def _stations(stations: Iterable[str]) -> tuple[str, ...]:
     """Non-empty station codes (``STATION_CODE_PATTERN``) without duplicates, in order."""
     if isinstance(stations, str) or not isinstance(stations, Iterable):
         raise IMGWValidationError(
-            "stations musi być listą kodów stacji, nie pojedynczym tekstem",
+            message("reader.stations_must_list_station_codes"),
             details={"option": "stations", "value": str(stations)},
         )
     codes = tuple(dict.fromkeys(stations))
     invalid = [str(code) for code in codes if not _CODE.fullmatch(str(code))]
     if not codes or invalid:
         raise IMGWValidationError(
-            f"Nieprawidłowe kody stacji {', '.join(invalid) or '(brak)'}; "
-            "oczekiwano co najmniej jednego kodu z 9 cyfr (IMGW-PIB) albo "
-            "identyfikatora WIGOS",
+            message(
+                "reader.invalid_station_codes_expected",
+                codes=", ".join(invalid) or message("common.none"),
+            ),
             details={"option": "stations", "value": invalid},
         )
     return codes
@@ -2011,7 +2179,11 @@ def _outside(codes: Iterable[str], index: SeriesIndex) -> None:
     missing = [code for code in codes if code not in index.stations]
     if missing:
         raise IMGWValidationError(
-            f"Stacje spoza szeregu {index.dataset}: {', '.join(missing)}",
+            message(
+                "reader.stations_outside_series",
+                dataset=index.dataset,
+                missing=", ".join(missing),
+            ),
             details={"option": "stations", "value": missing},
         )
 
@@ -2091,7 +2263,9 @@ def read_series(
     index = read_series_index(path)
     if station not in index.stations:
         raise IMGWValidationError(
-            f"Stacja {station!r} nie występuje w szeregu {index.dataset}",
+            message(
+                "reader.station_not_series", station=station, dataset=index.dataset
+            ),
             details={"option": "station", "value": station},
         )
     descriptor = get_dataset(index.dataset)
@@ -2100,10 +2274,12 @@ def read_series(
         if bound is not None and (
             not isinstance(bound, date) or isinstance(bound, datetime)
         ):
-            raise IMGWValidationError(f"Granica zakresu musi być datą: {bound!r}")
+            raise IMGWValidationError(
+                message("reader.range_bound_must_date", bound=bound)
+            )
     if start is not None and end is not None and start > end:
         raise IMGWValidationError(
-            f"Początek zakresu {start} jest późniejszy niż koniec {end}"
+            message("reader.start_range_later_than_end", start=start, end=end)
         )
     pa, pq = _pyarrow()
     entry = index.stations[station]
@@ -2112,13 +2288,21 @@ def read_series(
         data = parquet.read_bytes()
     except FileNotFoundError as exc:
         raise IMGWDataError(
-            f"Brak pliku Parquet stacji {station} ze spisu: {parquet}"
+            message(
+                "reader.missing_parquet_file_station_from",
+                station=station,
+                parquet=parquet,
+            )
         ) from exc
     except OSError as exc:
         raise io_error(exc) from exc
     if hashlib.sha256(data).hexdigest() != entry.sha256:
         raise IMGWDataError(
-            f"Suma kontrolna Parquet stacji {station} nie zgadza się ze spisem: {parquet}"
+            message(
+                "reader.parquet_checksum_station_does_not",
+                station=station,
+                parquet=parquet,
+            )
         )
     half_year = descriptor.time_unit == "half_year"
     columns = ["date", "hydro_year", *(["period"] if half_year else [])]
@@ -2138,15 +2322,24 @@ def read_series(
             metadata.get(b"imgw_schema") != SERIES_SCHEMA.encode()
             or metadata.get(b"dataset") != index.dataset.encode()
         ):
-            raise ValueError("metadane Parquet nie odpowiadają spisowi")
+            raise ValueError(message("reader.parquet_metadata_do_not_match"))
         if table.num_rows != entry.rows:
             raise ValueError(
-                f"liczba wierszy {table.num_rows} różni się od spisu ({entry.rows})"
+                message(
+                    "reader.number_rows_differs_from_index",
+                    num_rows=table.num_rows,
+                    rows=entry.rows,
+                )
             )
         rows = table.to_pylist()
     except (pa.ArrowException, ValueError) as exc:
         raise IMGWDataError(
-            f"Nieprawidłowy Parquet stacji {station} ({parquet}): {exc}"
+            message(
+                "reader.invalid_parquet_station",
+                station=station,
+                parquet=parquet,
+                exc=reason(exc),
+            )
         ) from exc
     return _records(
         rows,
@@ -2181,7 +2374,13 @@ def _records(
             value, flag = row[f"{name}_value"], row[f"{name}_flag"]
             if flag not in _FLAGS or (value is None) != (flag == "missing"):
                 raise IMGWDataError(
-                    f"Niespójna flaga {flag!r} zmiennej {name} stacji {station} z {day}"
+                    message(
+                        "reader.inconsistent_flag_variable_station",
+                        flag=flag,
+                        name=name,
+                        station=station,
+                        day=day,
+                    )
                 )
             quality = row[f"{name}_quality"] if with_quality else None
             source_flag = row[f"{name}_source_flag"] if with_source_flag else None
@@ -2189,8 +2388,12 @@ def _records(
                 source_flag is None or isinstance(source_flag, str)
             ):
                 raise IMGWDataError(
-                    f"Niepoprawna jakość lub flaga źródła zmiennej {name} stacji "
-                    f"{station} z {day}"
+                    message(
+                        "reader.invalid_quality_source_flag_variable",
+                        name=name,
+                        station=station,
+                        day=day,
+                    )
                 )
             measurements[name] = Measurement(value, flag, quality, source_flag)
         extrema = (
@@ -2376,7 +2579,9 @@ def select_series(
     names = _variables(variables, descriptor)
     if year_type is not None and year_type not in ("hydrological", "calendar"):
         raise IMGWValidationError(
-            f"Nieznany rodzaj roku {year_type!r}; dozwolone hydrological, calendar",
+            message(
+                "reader.unknown_kind_year_allowed_hydrological", year_type=year_type
+            ),
             details={
                 "option": "year_type",
                 "value": str(year_type),
@@ -2385,7 +2590,7 @@ def select_series(
         )
     if descriptor.time_unit == "half_year" and year_type == "calendar":
         raise IMGWValidationError(
-            "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
+            message("reader.semi_annual_series_supports_only"),
             details={"option": "year_type", "value": year_type},
         )
     selected = parse_years(years) if years is not None else None
@@ -2398,7 +2603,12 @@ def select_series(
     outside = [year for year in chosen if year not in available]
     if outside:
         raise IMGWValidationError(
-            f"Lata spoza szeregu {descriptor.key} ({kind}): {', '.join(map(str, outside))}",
+            message(
+                "reader.years_outside_series",
+                key=descriptor.key,
+                kind=kind,
+                years=", ".join(map(str, outside)),
+            ),
             details={"option": "years", "value": outside},
         )
     return SeriesSelection(descriptor.key, path, codes, names, chosen, kind)

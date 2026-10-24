@@ -166,7 +166,7 @@ def test_reference_data_main_invalid_map_json_reports_error(
 
     assert reference_data.main() == 1
 
-    assert "Niepoprawna odpowiedź JSON" in capsys.readouterr().err
+    assert "Invalid JSON response" in capsys.readouterr().err
     assert not (isolated_reference_dir / "hydro_stations_locations.csv").exists()
 
 

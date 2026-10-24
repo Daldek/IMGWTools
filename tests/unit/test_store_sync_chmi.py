@@ -765,7 +765,7 @@ def test_cancel_before_the_listing_and_between_files(root, server):
     )
     assert plan.cancelled and not server.calls
     assert [(item.status, item.error) for item in plan.items] == [
-        ("unverifiable", "anulowano")
+        ("unverifiable", "cancelled")
     ] * 2
 
     polls = iter([False, False, True])
@@ -779,7 +779,7 @@ def test_cancel_before_the_listing_and_between_files(root, server):
     assert partial.cancelled and len(server.calls) == 1
     assert [(item.status, item.error) for item in partial.items] == [
         ("missing", None),
-        ("unverifiable", "anulowano"),
+        ("unverifiable", "cancelled"),
     ]
     serve(server, "h900001_2023_head", "h900001_2023_get")
     report = sync_store(root, plan=partial, series=False)

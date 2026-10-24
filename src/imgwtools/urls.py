@@ -14,6 +14,7 @@ Examples
 from typing import Literal
 
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import message
 
 IMGW_PUBLIC_DATA_URL = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
 IMGW_API_URL = "https://danepubliczne.imgw.pl/api/data"
@@ -52,7 +53,7 @@ def build_pmaxtp_url(
     """
     if method not in _PMAXTP_METHODS:
         raise IMGWValidationError(
-            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
+            message("urls.unknown_pmaxtp_method_allowed_pot", method=method),
             details={"option": "method", "allowed": list(_PMAXTP_METHODS)},
         )
     return f"{IMGW_PMAXTP_URL}/{method[0]}/KS/{latitude:.4f}/{longitude:.4f}"

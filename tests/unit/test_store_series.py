@@ -112,7 +112,7 @@ def test_check_series_is_offline_read_only_and_tracks_state(root):
 
     cancelled = check_series(root, dataset=HYDRO, cancel=lambda: True)
     assert cancelled.cancelled and {item.error for item in cancelled.items} == {
-        "anulowano"
+        "cancelled"
     }
 
 
@@ -420,7 +420,7 @@ def test_cancel_and_broken_input_publish_no_version(root):
     (root / current.local_path).write_bytes(b"uszkodzone")
     notices = []
     failed = build_series(root, dataset=HYDRO, on_notice=notices.append)
-    assert failed.status == "failed" and "Suma kontrolna" in failed.problems[0]
+    assert failed.status == "failed" and "checksum" in failed.problems[0]
     assert failed.version is None
     assert [notice.code for notice in notices] == ["archive_failed"]
     assert series_versions(root) == []

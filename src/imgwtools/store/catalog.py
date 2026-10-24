@@ -55,6 +55,7 @@ from imgwtools.exceptions import (
     io_error,
 )
 from imgwtools.fetch import _IDENTIFY, DEFAULT_TIMEOUT, DownloadResult
+from imgwtools.messages import message, reason
 from imgwtools.models import StationListEntry
 from imgwtools.store.content import content_sha256
 from imgwtools.store.series import _current_series, _series_versions
@@ -225,7 +226,9 @@ def _publish_version(
             for old_file, old_meta in _existing(slot_dir, name, skip=skip):
                 if old_file.parent == target and old_meta["sha256"] == sha:
                     return old_file, False
-            raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
+            raise IMGWStoreConflictError(
+                message("catalog.version_directory_collision", target=target)
+            ) from exc
         return target / name, True
     finally:
         if staging.exists():
@@ -262,7 +265,7 @@ class _Border:
             for (x1, y1), (x2, y2) in zip(ring, ring[1:], strict=False)
         ]
         if not any(y1 != y2 for _, y1, _, y2 in edges):
-            raise IMGWDataError("Pusty obrys: wielokąt nie ma krawędzi")
+            raise IMGWDataError(message("catalog.empty_outline_polygon_has_no"))
         self.min_lon = min(min(e[0], e[2]) for e in edges)
         self.max_lon = max(max(e[0], e[2]) for e in edges)
         self.min_lat = min(min(e[1], e[3]) for e in edges)
@@ -434,13 +437,15 @@ def _http(
             response.raise_for_status()
             return response
     except httpx.TimeoutException as exc:
-        raise IMGWConnectionError(f"Przekroczono czas oczekiwania na {url}") from exc
+        raise IMGWConnectionError(message("catalog.timeout_waiting", url=url)) from exc
     except httpx.HTTPStatusError as exc:
         raise IMGWConnectionError(
-            f"Błąd HTTP {exc.response.status_code} dla {url}"
+            message("catalog.http_error", status_code=exc.response.status_code, url=url)
         ) from exc
     except httpx.HTTPError as exc:
-        raise IMGWConnectionError(f"Błąd połączenia z {url}: {exc}") from exc
+        raise IMGWConnectionError(
+            message("catalog.connection_error", url=url, exc=reason(exc))
+        ) from exc
 
 
 def _headers(provider: str) -> Mapping[str, str] | None:
@@ -453,7 +458,9 @@ def _content_length(response: httpx.Response) -> int | None:
     try:
         return int(value) if value is not None else None
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawny nagłówek Content-Length: {value}") from exc
+        raise IMGWDataError(
+            message("catalog.invalid_content_length_header", value=value)
+        ) from exc
 
 
 def _signal_time(meta: Mapping[str, Any]) -> datetime:
@@ -493,7 +500,9 @@ def _archive_http(path: Path, meta: Mapping[str, Any]) -> Mapping[str, Any]:
     """``extra.http`` of a stored list version; a version without it is corrupted."""
     http = meta["extra"].get("http")
     if not isinstance(http, Mapping):
-        raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {path.parent}")
+        raise IMGWStoreConflictError(
+            message("catalog.corrupt_archive_version", parent=path.parent)
+        )
     return http
 
 
@@ -590,7 +599,9 @@ def _station_list(
         current = _current_archive(handle.root, archive)
     if current is None:  # pragma: no cover - write_archive always leaves a version
         raise IMGWStoreConflictError(
-            f"Brak zapisanej wersji listy {archive.server_path}"
+            message(
+                "catalog.no_stored_version_listing", server_path=archive.server_path
+            )
         )
     path, meta = current
     data = path.read_bytes()
@@ -616,11 +627,13 @@ def _api(
     try:
         payload = response.json()
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {url}") from exc
+        raise IMGWDataError(
+            message("catalog.invalid_json_response_from", url=url)
+        ) from exc
     if not isinstance(payload, list) or not all(
         isinstance(row, dict) for row in payload
     ):
-        raise IMGWDataError(f"Nieoczekiwany format odpowiedzi z {url}")
+        raise IMGWDataError(message("catalog.unexpected_format_response_from", url=url))
     rows: dict[str, dict[str, Any]] = {}
     for row in payload:
         code = str(row.get(code_key) or "").strip()
@@ -652,17 +665,18 @@ def _read_locations(
     reader = csv.DictReader(io.StringIO(text))
     fields = [name.strip() for name in reader.fieldnames or ()]
     if tuple(fields[: len(_LOCATION_COLUMNS)]) != _LOCATION_COLUMNS:
-        found = ",".join(fields) or "brak"
+        found = ",".join(fields) or message("common.none")
         if user:
             raise IMGWValidationError(
-                "Plik położeń użytkownika musi mieć kolumny "
-                f"station_code,latitude,longitude[,source]; znaleziono {found}",
+                message("catalog.user_location_file_must_have", found=found),
                 details={"option": "user_locations", "found": fields},
             )
         raise IMGWValidationError(
-            f"Lokalny plik położeń {STATIC_LOCATIONS} ma nieobsługiwany nagłówek "
-            f"{found}; wymagane kolumny station_code,latitude,longitude — wygeneruj "
-            "plik ponownie poleceniem python -m imgwtools.reference_data",
+            message(
+                "catalog.local_location_file_has_unsupported",
+                static_locations=STATIC_LOCATIONS,
+                found=found,
+            ),
             details={"file": STATIC_LOCATIONS, "found": fields},
         )
     own = re.compile(provider.station_code_pattern)
@@ -735,10 +749,14 @@ def _series_codes(
         try:
             stations = json.loads(current.path.read_bytes())["stations"]
             if not isinstance(stations, dict):
-                raise TypeError("pole stations nie jest obiektem")
+                raise TypeError(message("catalog.field_stations_not_object"))
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
-                f"Nieczytelny indeks szeregu {relative}: {exc}"
+                message(
+                    "catalog.unreadable_series_index",
+                    relative=relative,
+                    exc=reason(exc),
+                )
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
@@ -884,7 +902,9 @@ def _catalog_bytes(
     shared = sorted(codes["hydro"] & codes["meteo"])
     if shared:
         raise IMGWDataError(
-            f"Kody stacji występują jednocześnie w rodzinie hydro i meteo: {', '.join(shared[:10])}"
+            message(
+                "catalog.station_codes_appear_both_hydro", shared=", ".join(shared[:10])
+            )
         )
     # The static file holds IMGW-PIB hydrological gauge coordinates, so a code known
     # only from it is still a (historical) hydro station: no code may disappear. The
@@ -1019,7 +1039,9 @@ class _Metadata:
             return value
         number = float(value)
         if not math.isfinite(number):
-            raise self.table.cell_error(index, column, f"liczba {value} poza zakresem")
+            raise self.table.cell_error(
+                index, column, message("catalog.number_out_range", value=value)
+            )
         return number
 
 
@@ -1065,7 +1087,8 @@ def _chmi_get(url: str, *, source: str, form: str) -> tuple[bytes, dict[str, Any
         content = content_sha256(data, form=form)
     except IMGWDataError as exc:
         raise IMGWDataError(
-            f"Niepoprawny dokument JSON {url}: {exc}", details={"url": url}
+            message("catalog.invalid_json_document", url=url, exc=reason(exc)),
+            details={"url": url},
         ) from exc
     return data, {
         "source": source,
@@ -1090,7 +1113,7 @@ def _chmi_meteo_now_url(base_url: str) -> str:
     )
     if not names:
         raise IMGWDataError(
-            f"Nieczytelny listing {listing}: brak pliku meta1-<RRRRMMDD>.json",
+            message("catalog.unreadable_listing_no_file_meta1", listing=listing),
             details={"url": listing},
         )
     return listing + names[-1]
@@ -1121,7 +1144,9 @@ def _thresholds(source: _Metadata, code: str) -> dict[str, Any] | None:
         unit = source.text(code, f"SPA{variable}_UNIT")
         if unit is not None and unit not in _THRESHOLD_UNITS:
             raise source.table.cell_error(
-                source.rows[code], f"SPA{variable}_UNIT", f"nieznana jednostka {unit!r}"
+                source.rows[code],
+                f"SPA{variable}_UNIT",
+                message("catalog.unknown_unit", unit=unit),
             )
         levels[variable] = {
             "unit": None if unit is None else _THRESHOLD_UNITS[unit],
@@ -1272,7 +1297,9 @@ def _chmi_catalog_bytes(
     shared = sorted(codes["hydro"] & codes["meteo"])
     if shared:
         raise IMGWDataError(
-            f"Kody stacji występują jednocześnie w rodzinie hydro i meteo: {', '.join(shared[:10])}"
+            message(
+                "catalog.station_codes_appear_both_hydro", shared=", ".join(shared[:10])
+            )
         )
     known = codes["hydro"] | codes["meteo"]
     series_only = sorted(
@@ -1334,7 +1361,7 @@ def _user_file(user_locations: PathArg | None) -> tuple[Path, bytes] | None:
         return path, path.read_bytes()
     except OSError as exc:
         raise IMGWValidationError(
-            f"Nie można odczytać pliku położeń użytkownika: {path}"
+            message("catalog.cannot_read_user_location_file", path=path)
         ) from exc
 
 
@@ -1359,7 +1386,7 @@ def _static_file() -> tuple[Path, bytes | None]:
         return path, None
     except OSError as exc:
         raise IMGWValidationError(
-            f"Nie można odczytać lokalnego pliku położeń: {path}"
+            message("catalog.cannot_read_local_location_file", path=path)
         ) from exc
 
 
@@ -1380,14 +1407,16 @@ def _catalog_meteo_kinds(path: Path, meta: Mapping[str, Any]) -> dict[str, objec
     try:
         data = path.read_bytes()
         if hashlib.sha256(data).hexdigest() != meta["sha256"]:
-            raise ValueError("SHA-256 niezgodne z sidecarem")
+            raise ValueError(message("catalog.sha_256_does_not_match"))
         return {
             feature["id"]: feature["properties"]["meteo_kind"]
             for feature in json.loads(data)["features"]
         }
     except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         raise IMGWStoreConflictError(
-            f"Uszkodzona wersja katalogu stacji {path}: {exc}"
+            message(
+                "catalog.corrupt_version_station_catalog", path=path, exc=reason(exc)
+            )
         ) from exc
     except OSError as exc:
         raise io_error(exc) from exc
@@ -1476,7 +1505,7 @@ def check_catalog(
         signal.
     cancel : Cancel or None, optional
         Polled before each station list; once it returns ``True`` the remaining
-        lists are reported as ``unverifiable`` with error ``"anulowano"``.
+        lists are reported as ``unverifiable`` with error ``"cancelled"``.
 
     Returns
     -------
@@ -1529,7 +1558,14 @@ def check_catalog(
             cancelled = True
             items.append(
                 PlanItem(
-                    archive, "unverifiable", None, None, None, None, None, "anulowano"
+                    archive,
+                    "unverifiable",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    message("common.cancelled"),
                 )
             )
             continue
@@ -2133,7 +2169,9 @@ def _build_chmi(build: _Build) -> CatalogReport:
     hydro_list, meteo_list = station_source_files(provider=owner.id)
     form = get_dataset(hydro_list.dataset).content_form
     if form is None:  # pragma: no cover - registry invariant (spec §3.1)
-        raise IMGWDataError(f"Zbiór {hydro_list.dataset} nie ma formy treści")
+        raise IMGWDataError(
+            message("catalog.dataset_has_no_content_form", dataset=hydro_list.dataset)
+        )
     stored: dict[str, tuple[bytes, dict[str, Any]]] = {}
     for step, archive in enumerate((hydro_list, meteo_list), start=1):
         if (report := build.stopped()) is not None:

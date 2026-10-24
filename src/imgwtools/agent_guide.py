@@ -728,9 +728,9 @@ def _render(template: str, blocks: Mapping[str, Callable[[], str]]) -> list[str]
 
     def block(name: str) -> str:
         if name not in blocks:
-            raise ValueError(f"Nieznany blok przewodnika {name!r} w szablonie")
+            raise ValueError(f"Unknown guide block {name!r} in the template")
         if name in used:
-            raise ValueError(f"Blok przewodnika {name!r} użyty w szablonie dwa razy")
+            raise ValueError(f"Guide block {name!r} used twice in the template")
         used.add(name)
         return blocks[name]()
 
@@ -738,8 +738,7 @@ def _render(template: str, blocks: Mapping[str, Callable[[], str]]) -> list[str]
         text = block(match["name"])
         if "\n" in text:
             raise ValueError(
-                f"Blok przewodnika {match['name']!r} ma wiele linii, a znacznik stoi "
-                "wewnątrz linii szablonu"
+                f"Guide block {match['name']!r} has several lines, but the marker stands inside a template line"
             )
         return text
 

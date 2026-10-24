@@ -153,7 +153,7 @@ def test_plan_url_must_match_dataset_registry(tmp_path):
     payload = json.loads(path.read_text())
     payload["items"][0]["url"] = "http://127.0.0.1:22/x"
     path.write_text(json.dumps(payload))
-    with pytest.raises(IMGWDataError, match="nie odpowiada rejestrowi"):
+    with pytest.raises(IMGWDataError, match="does not match the dataset registry"):
         StorePlan.from_json(path)
 
 
@@ -427,10 +427,16 @@ def test_plan_without_the_chmi_fields_reads_with_defaults(tmp_path):
 @pytest.mark.parametrize(
     ("change", "text"),
     [
-        (lambda d: d["items"][0].update(signal="ftp"), "sygnał"),
+        (lambda d: d["items"][0].update(signal="ftp"), "Unknown signal"),
         (lambda d: d.update(requests={"made": -1}), "requests"),
-        (lambda d: d["items"][0].update(station_code="0-203-1-900002"), "ścieżka"),
-        (lambda d: d["items"][0].update(server_path="hydrology/x/y.json"), "ścieżka"),
+        (
+            lambda d: d["items"][0].update(station_code="0-203-1-900002"),
+            "Unknown source path",
+        ),
+        (
+            lambda d: d["items"][0].update(server_path="hydrology/x/y.json"),
+            "Unknown source path",
+        ),
     ],
 )
 def test_plan_with_invalid_chmi_fields_is_a_data_error(tmp_path, change, text):
