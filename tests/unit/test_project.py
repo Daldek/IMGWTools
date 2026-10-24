@@ -667,7 +667,7 @@ def test_restore_recreates_only_identical_bytes_and_never_repins(pinned, imgw):
     report = download_project(pinned)
     assert report.tasks == {"raba": "current"} and {
         result.status for result in report.files
-    } == {"created"}
+    } == {"new"}
     assert (pinned / PROJECT_FILE).read_bytes() == before
     assert verify_project(pinned).tasks == {"raba": "current"}
 
@@ -752,7 +752,7 @@ def test_set_store_to_new_empty_store_then_download_restores_identical_pins(
     report = download_project(pinned)
 
     assert report.tasks == {"raba": "current"}
-    assert {result.status for result in report.files} == {"created"}
+    assert {result.status for result in report.files} == {"new"}
     assert open_project(pinned).tasks[0].files == pins
     for pin in pins:
         restored = (new_store / pin.path).read_bytes()

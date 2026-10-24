@@ -156,7 +156,7 @@ _TASK_COMMANDS = (
 )
 # Options of paths relative to the project directory, kept as given.
 _PROJECT_PATHS = ("store_dir", "geometry")
-_DONE = ("created", "relabeled", "unchanged", "reused")
+_DONE = ("new", "relabeled", "unchanged")
 _EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
 _GROUPS = {
     "datasets": message("commands.group_datasets"),

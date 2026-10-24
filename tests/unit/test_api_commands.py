@@ -549,7 +549,7 @@ def test_api_checked_plan_syncs_and_a_stale_item_makes_the_envelope_partial(
     body = response.json()
     assert body["status"] == "partial"
     assert [(item["slot"], item["status"]) for item in body["result"]["items"]] == [
-        (f"archive:{DAILY}:2023/codz_2023.zip", "created"),
+        (f"archive:{DAILY}:2023/codz_2023.zip", "new"),
         (f"archive:{DAILY}:2024/codz_2024.zip", "stale_plan"),
     ]
     assert (empty_root / body["result"]["items"][0]["version"]).is_file()

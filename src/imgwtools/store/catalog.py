@@ -1907,7 +1907,7 @@ class _Build:
         Returns
         -------
         CatalogReport
-            ``created`` with the new version or ``unchanged`` with the
+            ``new`` with the new version or ``unchanged`` with the
             current one.
         """
         provider = self.provider
@@ -1956,7 +1956,7 @@ class _Build:
             on_notice=self.on_notice,
             skip=_skip(provider.id),
         )
-        status: Literal["created", "unchanged"] = "created" if created else "unchanged"
+        status: Literal["new", "unchanged"] = "new" if created else "unchanged"
         self.progress(
             self.total,
             status,
@@ -2059,7 +2059,7 @@ def build_catalog(
     Returns
     -------
     CatalogReport
-        Status ``created``, ``unchanged`` or ``cancelled``, the path of the
+        Status ``new``, ``unchanged`` or ``cancelled``, the path of the
         current ``stations.geojson``, the station count, the number of stations
         without location, the number of stations known only from series indexes,
         the problems found in the sources and the provider.

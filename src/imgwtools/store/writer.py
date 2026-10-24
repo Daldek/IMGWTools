@@ -1029,7 +1029,7 @@ def write_archive(
     response : DownloadResult
         Downloaded bytes and HTTP headers (``ETag``, ``Last-Modified``).
     on_progress : ProgressHook or None, optional
-        Called once with a ``created`` progress event after publication.
+        Called once with a ``new`` progress event after publication.
     on_notice : NoticeHook or None, optional
         Called with a ``leftover_incoming`` warning for every abandoned
         staging directory removed from ``.incoming``, with the
@@ -1043,7 +1043,7 @@ def write_archive(
     Returns
     -------
     VersionResult
-        ``status`` is ``"created"`` for new content, ``"relabeled"`` for
+        ``status`` is ``"new"`` for new content, ``"relabeled"`` for
         already stored bytes with a new HTTP signal, or ``"unchanged"``
         when bytes and signal match an existing version or the bytes carry
         the canonical content of the current version (then ``path`` and
@@ -1235,7 +1235,7 @@ def write_archive(
                     1,
                     1,
                     "archive",
-                    "created",
+                    "new",
                     message("writer.archive_written", filename=filename),
                 )
             )
@@ -1248,7 +1248,7 @@ def write_archive(
                 )
             )
         return VersionResult(
-            "relabeled" if matching else "created", target / filename, sha, label
+            "relabeled" if matching else "new", target / filename, sha, label
         )
     finally:
         if staging.exists():

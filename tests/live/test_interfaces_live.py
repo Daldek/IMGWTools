@@ -642,21 +642,21 @@ class Live:
             synced = _patiently(
                 lambda: sync_store(root, datasets=[DAILY], years=[YEAR], months=[MONTH])
             )
-            assert [item.status for item in synced.items] == ["created"], synced
-            assert [series.status for series in synced.series] == ["created"], synced
+            assert [item.status for item in synced.items] == ["new"], synced
+            assert [series.status for series in synced.series] == ["new"], synced
             self.save("synced", root)
             catalog = _patiently(lambda: build_catalog(root))
-            assert catalog.status == "created", catalog
+            assert catalog.status == "new", catalog
             cell = _patiently(
                 lambda: sync_pmaxtp(root, latitude=LATITUDE, longitude=LONGITUDE)
             )
-            assert cell.status == "created", cell
+            assert cell.status == "new", cell
             precip = _patiently(
                 lambda: sync_store(
                     root, datasets=[PRECIP], years=[YEAR], months=[MONTH], series=False
                 )
             )
-            assert [item.status for item in precip.items] == ["created"], precip
+            assert [item.status for item in precip.items] == ["new"], precip
             self.save("full", root)
             self.values = {
                 ROOT: str(root),

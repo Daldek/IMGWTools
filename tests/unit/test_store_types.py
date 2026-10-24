@@ -69,8 +69,8 @@ def test_frozen_contracts():
         Notice("warning", "missing", "Brak danych"),
         StoreInfo(Path("/tmp/store"), False, None, False, {}, ()),
         StoreEntry("problem", "archive:abc", None, None, "missing", "Brak"),
-        VersionResult("created", Path("/tmp/zip"), "a" * 64, "2026-10-17"),
-        SeriesReport("reused", None, 0, (), ()),
+        VersionResult("new", Path("/tmp/zip"), "a" * 64, "2026-10-17"),
+        SeriesReport("unchanged", None, 0, (), ()),
         SyncReport((), (), False),
         CatalogReport("unchanged", None, 0, 0, 0, ()),
         Page((1, 2), 2, None, 0),
@@ -327,7 +327,7 @@ def test_to_json_rejects_values_without_json_form():
 
 
 def test_new_fields_have_defaults_and_catalog_constructs():
-    operation = OperationResult("archive:x", "created", None, None)
+    operation = OperationResult("archive:x", "new", None, None)
     option = CommandOption("root", "path", True, "--root", (), "Katalog magazynu")
     command = DataCommand(
         "store info", "Opis", (option,), "store_info", None, "object", "GET"
@@ -361,7 +361,7 @@ def test_chmi_fields_default_so_3_0_constructors_keep_working():
     assert (item.local_observation, plan.requests) == (None, None)
     assert StoreInfo(Path("/s"), True, None, True, {}, ()).providers == ()
     assert StoreEntry("problem", None, None, None, "x", "Brak").provider is None
-    assert CatalogReport("created", None, 0, 0, 0, ()).provider == "IMGW-PIB"
+    assert CatalogReport("new", None, 0, 0, 0, ()).provider == "IMGW-PIB"
 
 
 def _chmi_plan(tmp_path):

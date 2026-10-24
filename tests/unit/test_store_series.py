@@ -94,7 +94,7 @@ def test_check_series_is_offline_read_only_and_tracks_state(root):
     }
     assert plan.actions[0].status == "missing"
 
-    assert build_series(root, dataset=HYDRO).status == "created"
+    assert build_series(root, dataset=HYDRO).status == "new"
     assert check_series(root, dataset=HYDRO).series_state == {"hydro_daily": "current"}
 
     archive = archive_files(HYDRO, years=[2024])[0]
@@ -119,7 +119,7 @@ def test_check_series_is_offline_read_only_and_tracks_state(root):
 def test_daily_hydro_snapshot_covers_every_day_and_all_stations(root):
     written = store_archives(root, HYDRO, [2022, 2023, 2024], [1])
     report = build_series(root, dataset=HYDRO)
-    assert report.status == "created" and report.stations == 2 and report.problems == ()
+    assert report.status == "new" and report.stations == 2 and report.problems == ()
     assert set(report.source_files) == {entry.path for entry in written}
     version_dir = report.version.parent
     assert version_dir.parent == root / "series/versions/hydro_daily"
@@ -319,7 +319,7 @@ def test_semiannual_repeated_extremum_rows_build_one_value_with_occurrences(root
     )
     put_csv(root, archive, "polr_H_2024.csv", rows)
     report = build_series(root, dataset="pl.imgw.hydro_semiannual")
-    assert report.status == "created", report.problems
+    assert report.status == "new", report.problems
     table = station_table(report, "149190310")
     assert table.schema.field("H_max_occurrences").type == pa.int32()
     winter = table.to_pylist()[0]
@@ -362,7 +362,7 @@ def test_parsing_memory_does_not_grow_with_the_dataset(root, monkeypatch):
         report = build_series(root, dataset=HYDRO, on_progress=progress)
     finally:
         tracemalloc.stop()
-    assert report.status == "created" and report.stations == 60
+    assert report.status == "new" and report.stations == 60
     assert len(traced) == 12
     assert max(traced[1:]) - traced[1] < 512 * 1024
     table = station_table(report, "149190059")
@@ -381,7 +381,7 @@ def test_second_build_is_reused_without_parquet_writer(root, monkeypatch):
     monkeypatch.setattr(pq, "ParquetWriter", refuse)
     again = build_series(root, dataset=HYDRO)
     assert (
-        again.status == "reused"
+        again.status == "unchanged"
         and again.version == first.version
         and again.stations == first.stations
     )
@@ -391,7 +391,7 @@ def test_second_build_is_reused_without_parquet_writer(root, monkeypatch):
         root, HYDRO, [2024], signal=('"v2"', "Sun, 18 Oct 2026 12:00:00 GMT")
     )
     assert [entry.status for entry in relabeled] == ["relabeled"]
-    assert build_series(root, dataset=HYDRO).status == "reused"
+    assert build_series(root, dataset=HYDRO).status == "unchanged"
     assert check_series(root, dataset=HYDRO).series_state == {"hydro_daily": "current"}
     assert len(series_versions(root)) == 1
 
@@ -449,7 +449,7 @@ def test_reverted_input_builds_new_current_series_instead_of_reusing_old(root):
     # whose input manifest equals the one of the first, now superseded, series.
     assert put_2024(root, ORIGINAL_2024, '"v3"', 30).status == "relabeled"
     third = build_series(root, dataset=HYDRO)
-    assert (first.status, second.status, third.status) == ("created",) * 3
+    assert (first.status, second.status, third.status) == ("new",) * 3
     assert third.version not in (first.version, second.version)
     assert third.version.read_bytes() == first.version.read_bytes()
     assert third.version.parent.name.startswith("2026-10-30_")
@@ -459,7 +459,7 @@ def test_reverted_input_builds_new_current_series_instead_of_reusing_old(root):
     )
     assert check_series(root, dataset=HYDRO).series_state == {"hydro_daily": "current"}
     again = build_series(root, dataset=HYDRO)
-    assert (again.status, again.version) == ("reused", third.version)
+    assert (again.status, again.version) == ("unchanged", third.version)
 
 
 def test_alternating_input_under_dominating_label_keeps_series_current(root):
@@ -471,7 +471,7 @@ def test_alternating_input_under_dominating_label_keeps_series_current(root):
     for step in range(1, 5):
         put_2024(root, (ORIGINAL_2024, CHANGED_2024)[step % 2], f'"e{step}"', 17 + step)
         report = build_series(root, dataset=HYDRO)
-        assert report.status == "created" and report.version not in built
+        assert report.status == "new" and report.version not in built
         built.append(report.version)
         assert (
             current_version(root, slot="series:pl.imgw.hydro_daily").version
@@ -495,7 +495,7 @@ def test_parsed_records_are_released_while_building(root):
                 sum(isinstance(item, NormalizedRecord) for item in gc.get_objects())
             )
 
-    assert build_series(root, dataset=HYDRO, on_progress=progress).status == "created"
+    assert build_series(root, dataset=HYDRO, on_progress=progress).status == "new"
     # Records are folded into per-station values as they are parsed; at most the
     # last one is still referenced, so memory never holds the dataset twice.
     assert len(alive) == 2 and max(alive) <= 1

@@ -467,7 +467,7 @@ def test_cli_catalog_series_build_prints_the_envelope_of_the_same_run(
         "series build", options={"root": api_root, "dataset": PRECIP}
     ).to_json(root=api_root)
     assert printed == expected
-    assert printed["result"]["status"] == "created"
+    assert printed["result"]["status"] == "new"
     assert snapshot(cli_root) == snapshot(api_root)
 
 
@@ -546,7 +546,7 @@ def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english
 
     @functools.wraps(store.sync_store)
     def sync_store(root, /, *, on_notice, on_progress, **kwargs):
-        on_progress(Progress(1, 1, "archive", "created", message("catalog.no_version")))
+        on_progress(Progress(1, 1, "archive", "new", message("catalog.no_version")))
         on_notice(Notice("warning", "other", message("catalog.no_version")))
         return SyncReport((), (), cancelled=False)
 

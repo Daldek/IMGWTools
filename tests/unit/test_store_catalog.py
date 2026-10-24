@@ -192,7 +192,7 @@ def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
             return_value=httpx.Response(200, headers=LIST_HEADERS)
         )
         plan = check_catalog(store)
-    assert second.status == "created"
+    assert second.status == "new"
     assert "150000030" in features(second) and "150000030" not in features(first)
     assert [item.status for item in plan.items] == ["current", "current"]
     hydro_versions = stored_lists(store, HYDRO_LIST)
@@ -304,7 +304,7 @@ def put_monthly(store, codes, etag, *, shift=0):
     )
     write_archive(store, archive=archive, response=response)
     report = build_series(store, dataset="pl.imgw.hydro_monthly")
-    assert report.status == "created", report.problems
+    assert report.status == "new", report.problems
     return report.version
 
 
@@ -328,7 +328,7 @@ def test_code_only_in_series_index_is_kept_as_historical_station(
         put_monthly(store, ["149190310", "150000097"], '"m2"', shift=5)
         again = build_catalog(store)
     assert empty.from_series == 0 and "150000097" not in features(empty)
-    assert report.status == "created" and report.from_series == 1
+    assert report.status == "new" and report.from_series == 1
     found = features(report)
     assert set(found) == set(features(empty)) | {"150000097"}
     closed = found["150000097"]
@@ -361,7 +361,7 @@ def put_meteo(store, dataset):
     )
     write_archive(store, archive=archive, response=response)
     report = build_series(store, dataset=dataset)
-    assert report.status == "created", report.problems
+    assert report.status == "new", report.problems
 
 
 def test_meteo_kind_comes_from_the_climate_and_precipitation_series(store):
@@ -480,7 +480,7 @@ def test_missing_static_file_is_reported_and_recorded(store, isolated_reference_
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router)
         report = build_catalog(store, on_notice=notices.append)
-    assert report.status == "created"
+    assert report.status == "new"
     expected = (isolated_reference_dir / "hydro_stations_locations.csv").as_posix()
     assert any(
         expected in problem and "static" in problem for problem in report.problems
@@ -714,7 +714,7 @@ def test_identical_content_next_day_is_unchanged(store, tmp_path, monkeypatch):
             encoding="utf-8",
         )
         third = build_catalog(store, user_locations=user)
-    assert first.status == "created" and third.status == "created"
+    assert first.status == "new" and third.status == "new"
     assert third.version.parent.name.startswith(
         (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
     )
@@ -785,7 +785,7 @@ def test_check_catalog_tracks_static_file_presence(store, isolated_reference_dir
             encoding="utf-8",
         )
         assert static_action().status == "newer"
-        assert build_catalog(store).status == "created"
+        assert build_catalog(store).status == "new"
         assert static_action().status == "current"
         static.unlink()
         assert static_action().status == "newer"
@@ -811,7 +811,7 @@ def test_code_listed_twice_is_reported_and_kept_once(store):
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router, meteo_csv=meteo)
         report = build_catalog(store)
-    assert report.status == "created"
+    assert report.status == "new"
     (problem,) = [p for p in report.problems if "250199990" in p]
     assert problem == (
         "List meteo: repeated station code 250199990 (STACJA TESTOWA, short code "

@@ -913,7 +913,7 @@ def _copy_hashed(source: Path, target: Path) -> str:
 
 
 def _report(
-    status: Literal["created", "reused", "cancelled", "failed"],
+    status: Literal["new", "unchanged", "cancelled", "failed"],
     *,
     version: Path | None = None,
     stations: int = 0,
@@ -939,7 +939,7 @@ def build_series(
     writes one Parquet file per station plus ``series.json`` (``imgw-series/1``),
     published atomically as a new version. When the current series version (the
     newest build) was built from the same input manifest (slot and full SHA-256
-    of every input) it is returned as ``reused`` without invoking the Parquet
+    of every input) it is returned as ``unchanged`` without invoking the Parquet
     writer. An older version with that manifest (inputs reverted to earlier
     content) is never reused: a new version is built and becomes current. Parsed
     records are validated and spilled per station to compressed temporary files
@@ -981,7 +981,7 @@ def build_series(
     Returns
     -------
     SeriesReport
-        Status ``created``, ``reused``, ``cancelled`` or ``failed``; ``version`` is
+        Status ``new``, ``unchanged``, ``cancelled`` or ``failed``; ``version`` is
         the path of ``series.json``, ``source_files`` the absolute paths of the input
         archive versions (for ``reused``, the inputs recorded in the reused
         current version's sidecar) and ``problems`` the reasons of a failure.
@@ -1035,12 +1035,12 @@ def build_series(
                     1,
                     1,
                     "series",
-                    "reused",
+                    "unchanged",
                     message("series.series_inputs_unchanged", slug=descriptor.slug),
                 )
             )
         return _report(
-            "reused",
+            "unchanged",
             version=current.path,
             stations=len(series["stations"]),
             sources=recorded,
@@ -1246,7 +1246,7 @@ def build_series(
                     ):
                         # A concurrent build of the same inputs published first.
                         return _report(
-                            "reused",
+                            "unchanged",
                             version=target / "series.json",
                             stations=len(index_stations),
                             sources=sources,
@@ -1261,7 +1261,7 @@ def build_series(
                         )
                     )
                 return _report(
-                    "created",
+                    "new",
                     version=target / "series.json",
                     stations=len(index_stations),
                     sources=sources,

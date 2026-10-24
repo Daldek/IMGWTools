@@ -1188,4 +1188,4 @@ def test_registers_change_no_version_choice_of_series_or_catalog(tmp_path):
             check_series(root, dataset=DAILY).series_state,
         )
     assert outcomes["observed"] == outcomes["plain"]
-    assert outcomes["plain"][1] == "unchanged" and outcomes["plain"][3] == "created"
+    assert outcomes["plain"][1] == "unchanged" and outcomes["plain"][3] == "new"

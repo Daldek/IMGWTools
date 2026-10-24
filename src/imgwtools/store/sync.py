@@ -85,7 +85,7 @@ NO_SIGNAL = message("sync.no_comparable_header")
 NO_LISTING_SIGNAL = message("sync.no_comparable_signal")
 
 _HREF = re.compile(r"""href\s*=\s*["']([^"'#?]+)""", re.IGNORECASE)
-_DONE = {"created", "relabeled", "unchanged", "reused"}
+_DONE = {"new", "relabeled", "unchanged"}
 _SYNC = "store sync"
 # File-name grammar of per-station archives (spec 2026-10-18 §2.3); group 1 is
 # the station code.
@@ -1038,10 +1038,9 @@ def _download(
 def _result(
     item: PlanItem,
     status: Literal[
-        "created",
+        "new",
         "relabeled",
         "unchanged",
-        "reused",
         "failed",
         "stale_plan",
         "cancelled",
@@ -1137,8 +1136,8 @@ def sync_store(
     Returns
     -------
     SyncReport
-        One :class:`OperationResult` per plan item (``created``, ``relabeled``,
-        ``unchanged``, ``reused``, ``failed``, ``stale_plan`` or
+        One :class:`OperationResult` per plan item (``new``, ``relabeled``,
+        ``unchanged``, ``failed``, ``stale_plan`` or
         ``cancelled``), then one ``failed`` result without a slot for every
         ``check_failed`` station action of the plan (a ČHMÚ listing that could
         not be read), one :class:`SeriesReport` per dataset when ``series`` is

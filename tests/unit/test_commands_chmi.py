@@ -366,7 +366,7 @@ def test_store_check_and_sync_pass_stations_through_the_catalog(tmp_path):
         (S1, "missing"),
         (S1, "missing"),
     ]
-    assert [item.status for item in synced.result.items] == ["created", "created"]
+    assert [item.status for item in synced.result.items] == ["new", "new"]
 
 
 def test_unpublished_files_count_as_successful_items_of_a_download(tmp_path):

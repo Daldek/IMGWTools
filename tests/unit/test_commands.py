@@ -784,7 +784,7 @@ def test_store_sync_envelope_keeps_distinct_notices_while_hooks_get_all(tmp_path
         cancel=lambda: False,
     )
     assert (result.command, result.check, result.status) == ("store sync", False, "ok")
-    assert [item.status for item in result.result.items] == ["created", "created"]
+    assert [item.status for item in result.result.items] == ["new", "new"]
     assert len(notices) > len(result.notices)
     assert result.notices == tuple(dict.fromkeys(notices))
     assert "license_terms" in {notice.code for notice in result.notices}
@@ -908,7 +908,7 @@ STATUS_CASES = [
         {"project_dir": "/p"},
         project_api,
         "download_project",
-        _project({"a": "upgraded"}, "created", "stale_plan"),
+        _project({"a": "upgraded"}, "new", "stale_plan"),
         "partial",
     ),
     (
@@ -940,7 +940,7 @@ STATUS_CASES = [
         {"root": "/s", "dataset": DAILY},
         store,
         "build_series",
-        SeriesReport("reused", Path("/s/v"), 1, (), ()),
+        SeriesReport("unchanged", Path("/s/v"), 1, (), ()),
         "ok",
     ),
     (
