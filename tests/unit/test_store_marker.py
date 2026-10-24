@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from imgwtools._version import __version__
+from imgwtools.commands import check_command
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWDataError, IMGWStoreConflictError, IMGWStoreError
 from imgwtools.fetch import DownloadResult
@@ -222,3 +223,28 @@ def test_an_existing_store_may_hold_its_own_trees(tmp_path):
     write_archive(root, archive=ARCHIVE, response=response())
 
     assert prepare_store(root).root == root
+
+
+def test_the_plan_of_store_init_follows_the_real_run(tmp_path):
+    layout(tmp_path / "good")
+    layout(tmp_path / "foreign", schema="kartograf-meta/1")
+    (tmp_path / "empty").mkdir()
+    (tmp_path / "empty" / "api_keys.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "busy").mkdir()
+    (tmp_path / "busy" / "notes.txt").write_text("mine", encoding="utf-8")
+
+    states = {
+        name: check_command("store init", options={"root": tmp_path / name})
+        .result.actions[0]
+        .status
+        for name in ("good", "foreign", "empty", "busy", "missing")
+    }
+
+    assert states == {
+        "good": "missing",
+        "foreign": "check_failed",
+        "empty": "missing",
+        "busy": "check_failed",
+        "missing": "missing",
+    }
+    assert not (tmp_path / "good" / MARKER).exists()

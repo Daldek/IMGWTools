@@ -58,6 +58,7 @@ from imgwtools.exceptions import (
 from imgwtools.messages import LANGS, Lang, localize, message, reason
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
+from imgwtools.store import writer as _writer
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -2358,7 +2359,7 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
         action = PlanAction(
             "store init", "current", message("commands.store_exists", root=root)
         )
-    elif not root.exists() or (root.is_dir() and not any(root.iterdir())):
+    elif not root.exists() or (root.is_dir() and not _writer._foreign_content(root)):
         action = PlanAction(
             "store init",
             "missing",
@@ -2366,6 +2367,22 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
                 "commands.marker_will_be_created", store_marker=_STORE_MARKER, root=root
             ),
         )
+    elif root.is_dir() and _writer._has_layout(root):
+        # The layout of a store without its marker: init verifies it first (DEV-19.13).
+        try:
+            _writer._verify_layout(root)
+        except IMGWError as exc:
+            action = PlanAction("store init", "check_failed", reason(exc))
+        else:
+            action = PlanAction(
+                "store init",
+                "missing",
+                message(
+                    "commands.marker_will_be_created",
+                    store_marker=_STORE_MARKER,
+                    root=root,
+                ),
+            )
     else:
         action = PlanAction(
             "store init",
