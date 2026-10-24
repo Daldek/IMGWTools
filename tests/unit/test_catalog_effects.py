@@ -41,13 +41,13 @@ EFFECTS = {
     "pmaxtp fetch": ("none", True, {}),
     "pmaxtp url": ("none", False, {}),
     "pmaxtp check": ("none", False, {}),
-    "pmaxtp sync": ("add", True, {}),
+    "pmaxtp sync": ("add", True, {"output_dir": "add", "force": "replace"}),
     "pmaxtp read": ("none", False, {}),
     "store init": ("add", False, {}),
     "store info": ("none", False, {}),
     "store scan": ("none", False, {}),
     "store check": ("none", True, {"plan": "replace"}),
-    "store sync": ("add", True, {}),
+    "store sync": ("add", True, {"output_dir": "add", "force": "replace"}),
     "store catalog": ("add", True, {}),
     "store export": ("none", False, {"path": "replace"}),
     "series build": ("add", False, {}),
@@ -73,6 +73,10 @@ LOCAL_WRITES = {
     ("project check", "plan"),
     ("datasets download", "output_dir"),
     ("datasets download", "force"),
+    ("store sync", "output_dir"),
+    ("store sync", "force"),
+    ("pmaxtp sync", "output_dir"),
+    ("pmaxtp sync", "force"),
 }
 
 
@@ -147,7 +151,9 @@ def writing_cases() -> list[tuple[str, Case, str]]:
         (command, cases[0], option.name)
         for command, cases in CASES.items()
         for option in SPECS[command].options
-        if option.writes != "none" and option.type == "path"
+        if option.writes != "none"
+        and option.type == "path"
+        and option.name != "output_dir"
     ]
 
 

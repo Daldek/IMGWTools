@@ -152,4 +152,8 @@ MESSAGES = {
         "{sidecar} is not an imgw-meta/1 sidecar",
         "{sidecar} nie jest sidecarem imgw-meta/1",
     ),
+    "sidecar_without_size_or_hash": Text(
+        "The sidecar {sidecar} has no readable size_bytes and sha256",
+        "Sidecar {sidecar} nie ma czytelnych pól size_bytes i sha256",
+    ),
 }

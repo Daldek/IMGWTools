@@ -4,7 +4,7 @@
 
 ## What IMGWTools is
 
-IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store — a plain directory whose versions never change and are identified by SHA-256 — from which station series are read offline. All interfaces are generated from one command catalog.
+IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store (a plain directory whose versions never change and are identified by SHA-256) or are written as plain files, and station series are read offline from the store. All interfaces are generated from one command catalog.
 
 Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep reproducible local copies and to get PMAXTP values. Not supported: forecasts, ČHMÚ operational data (`now`, `recent`), IMGW-PIB daily synoptic archives, PMAXTP outside Poland. Install: `pip install imgwtools[cli]` (`[mcp]` adds the MCP server, `[store]` the Parquet series).
 
@@ -111,9 +111,9 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 **Write — new files, versions or tasks; `--check` first**
 
 - `datasets download` — Download the source files of a dataset as plain files (--output-dir) or into the store (--root). [`output_dir`: write; `force`: overwrite; local]
-- `pmaxtp sync` — Download the PMAXTP cell of a point and save it as a version in the store.
+- `pmaxtp sync` — Download the PMAXTP cell of a point as a store version or, with --output-dir, as plain files. [`output_dir`: write; `force`: overwrite]
 - `store init` — Create an empty IMGW store (imgw-store.json marker) in the given directory. [local]
-- `store sync` — Download new or missing archives into the store, by plan or by datasets and stations.
+- `store sync` — Download new or missing archives into the store, by plan or by datasets and stations. [`output_dir`: write; `force`: overwrite]
 - `store catalog` — Build the versioned station catalog stations.geojson of one provider.
 - `series build` — Build the Parquet series of a dataset from the current archive versions of the store.
 - `project init` — Create the imgw-project.json manifest of a project pointing to a store. [local]

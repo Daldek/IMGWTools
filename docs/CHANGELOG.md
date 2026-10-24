@@ -179,6 +179,24 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   the CLI prints the paths of every result relative to the validated root, the default root
   included. Migration: `--output DIR` → `--output-dir DIR`; `output=` → `output_dir=`; read
   `report.output_dir`, `report.files[].path` and `status`.
+- **`store sync` and `pmaxtp sync` write plain files too; the options that act on versions are
+  store-only (DEV-19.9, DEV-19.17, DEV-19.18, DEV-19.19, ADR-007 D3, D7, D8):** `sync_store`,
+  `sync_pmaxtp` and `check_pmaxtp` take `output_dir` and `force` and an optional `root` (the
+  default root when neither is given). `store sync --output-dir` writes the selected archives
+  as `<dir>/<server_path>` with the rules of `datasets download` (preflight, staging,
+  `--force`, `output_in_store`) and with no freshness check, no plan and no series; ČHMÚ station
+  files need `--years` there (`details.reason="years_required_in_plain_mode"`). `pmaxtp sync
+  --output-dir` writes `<METHOD>/<indX>_<indY>/cell.json` and the raw `response.json`: the names
+  come from the answer, so only a call that gives `--ind-x` and `--ind-y` refuses before the
+  request. `plan` and `series` of `store sync` are store-only: with `output_dir` they are
+  `validation_error` with `details.reason="store_only_option"` (a project task takes no
+  `output_dir` either); `store init`, `store catalog`, `series build` and `project *` have no plain
+  mode and say so in their rules (`x-imgw.store_only`). In the store `store sync --force` fetches
+  every selected archive again (a version is never overwritten). `SyncReport`, `SeriesReport`,
+  `CatalogReport` and `PMaXTPStoreResult` list `files[]` (`{path, size_bytes, sha256, status}`
+  from the sidecar, statuses `new`, `unchanged`, `relabeled`; `written` and `replaced` for plain
+  files); `imgwtools.FileResult` is exported. The plain `--check` plan of both commands is
+  `write`, `replace` or `conflict` per target.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

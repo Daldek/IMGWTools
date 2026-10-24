@@ -111,4 +111,24 @@ MESSAGES = {
         "PMAXTP cell {cell}_{cell_2}: {name}",
         "Komórka PMAXTP {cell}_{cell_2}: {name}",
     ),
+    "cell_written": Text(
+        "PMAXTP cell {cell}_{cell_2} written to {directory}",
+        "Komórka PMAXTP {cell}_{cell_2} zapisana w {directory}",
+    ),
+    "plain_cell_what": Text(
+        "the PMAXTP cell {method} {cell}_{cell_2}",
+        "komórki PMAXTP {method} {cell}_{cell_2}",
+    ),
+    "plain_response_what": Text(
+        "the raw answer for the PMAXTP cell {method} {cell}_{cell_2}",
+        "surowej odpowiedzi dla komórki PMAXTP {method} {cell}_{cell_2}",
+    ),
+    "plain_cell_unknown": Text(
+        "The cell of the point {latitude}, {longitude} ({method}) is known only after "
+        "the request: cell.json and response.json go to {method}/<indX>_<indY>/ in "
+        "{directory}",
+        "Komórka punktu {latitude}, {longitude} ({method}) jest znana dopiero po "
+        "żądaniu: cell.json i response.json trafią do {method}/<indX>_<indY>/ w "
+        "{directory}",
+    ),
 }

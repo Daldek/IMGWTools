@@ -4,9 +4,9 @@
 
 ## Czym jest IMGWTools
 
-IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: archiwów, danych bieżących i opadów maksymalnych prawdopodobnych PMAXTP. Archiwa trafiają do wersjonowanego magazynu — zwykłego katalogu, w którym wersje są niezmienne, a ich tożsamością jest SHA-256 — i z niego, offline, czyta się szeregi stacji. Wszystkie interfejsy powstają z jednego katalogu komend.
+IMGWTools to biblioteka Pythona, CLI `imgw`, REST API i serwer MCP do publicznych danych hydrologicznych i meteorologicznych: archiwów, danych bieżących i opadów maksymalnych prawdopodobnych PMAXTP. Archiwa trafiają do wersjonowanego magazynu (zwykły katalog; wersje są niezmienne, tożsamość to SHA-256) albo jako zwykłe pliki, a z magazynu offline czyta się szeregi stacji. Wszystkie interfejsy powstają z jednego katalogu komend.
 
-Używaj go do odczytu archiwalnych i bieżących danych stacji IMGW-PIB i ČHMÚ, do odtwarzalnych lokalnych kopii i do wartości PMAXTP. Nieobsługiwane: prognozy, dane operacyjne ČHMÚ (`now`, `recent`), dobowe archiwa synoptyczne IMGW-PIB, PMAXTP poza Polską. Instalacja: `pip install imgwtools[cli]` (`[mcp]` dodaje serwer MCP, `[store]` szeregi Parquet).
+Służy do odczytu archiwalnych i bieżących danych stacji IMGW-PIB i ČHMÚ, lokalnych kopii i wartości PMAXTP. Nieobsługiwane: prognozy, dane operacyjne ČHMÚ (`now`, `recent`), dobowe archiwa synoptyczne IMGW-PIB, PMAXTP poza Polską. Instalacja: `pip install imgwtools[cli]` (`[mcp]` dodaje serwer MCP, `[store]` szeregi Parquet).
 
 <!-- imgw:providers -->
 
@@ -31,7 +31,7 @@ Ta sama komenda w każdym interfejsie: CLI `imgw <grupa> <komenda> --opcja warto
 
 ## Koperta, statusy i błędy
 
-Komenda zwraca kopertę `imgw-result/1` `{"schema", "command", "check", "status", "result", "notices"}`; `notices` to lista `{"level", "code", "text"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają stronę `{"items", "total", "limit", "offset"}`, sprawdzenie — plan `imgw-plan/1`. Komendy strumieniowe bez `path` dają same linie danych: CLI pisze je na stdout, REST odpowiada załącznikiem (status i komunikaty w `X-IMGW-Status`, `X-IMGW-Notices`). REST odpowiada 200 także dla `partial` i `failed` — decyduje `status` w treści.
+Komenda zwraca kopertę `imgw-result/1` `{"schema", "command", "check", "status", "result", "notices"}`; `notices` to lista `{"level", "code", "text"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają stronę `{"items", "total", "limit", "offset"}`, sprawdzenie — plan `imgw-plan/1`. Komendy strumieniowe bez `path` dają same linie danych: CLI pisze je na stdout, REST odpowiada załącznikiem (status i komunikaty w `X-IMGW-Status`, `X-IMGW-Notices`). REST: 200 także dla `partial` i `failed` — decyduje `status`.
 
 <!-- imgw:statuses -->
 

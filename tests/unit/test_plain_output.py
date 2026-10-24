@@ -14,10 +14,19 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools import run_command, validate_command
+from imgwtools import (
+    check_command,
+    init_store,
+    run_command,
+    sync_pmaxtp,
+    sync_store,
+    validate_command,
+)
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWError, IMGWValidationError
 from imgwtools.fetch import download_archives
+from imgwtools.testing import build_fixture_store
+from tests.contract.support import V1, FakeImgw
 
 ARCHIVES = Path(__file__).parents[1] / "fixtures" / "store" / "archives"
 SEMIANNUAL = "pl.imgw.hydro_semiannual"
@@ -254,3 +263,157 @@ def test_a_dataset_that_is_download_only_has_no_place_in_the_store(
     )
     assert outcome.status == "ok"
     assert [file.status for file in outcome.result.files] == ["written"]
+
+
+# --------------------------------------------------------------------------
+# store sync and pmaxtp sync in plain mode
+# --------------------------------------------------------------------------
+
+
+def test_a_plain_sync_writes_the_selected_archives_without_a_freshness_check(
+    respx_mock, tmp_path
+):
+    record(respx_mock)  # a HEAD request would be "not mocked" and fail the test
+    options = {"datasets": SEMIANNUAL, "years": 2024, "output_dir": tmp_path / "out"}
+
+    outcome = run_command("store sync", options=options)
+
+    assert outcome.status == "ok"
+    assert [item.status for item in outcome.result.items] == ["new"] * 3
+    assert [file.status for file in outcome.result.files] == ["written"] * 3
+    assert outcome.result.series == ()
+    assert names(tmp_path / "out") == sorted(a.server_path for a in FILES)
+
+    with pytest.raises(IMGWError) as error:
+        run_command("store sync", options=options)
+    assert error.value.details["reason"] == "output_exists"
+    assert len(error.value.details["paths"]) == 3
+
+    forced = run_command("store sync", options={**options, "force": True})
+    assert [file.status for file in forced.result.files] == ["replaced"] * 3
+    plan = check_command("store sync", options=options)
+    assert plan.status == "ok"
+    assert {action.action for action in plan.result.actions} == {"conflict"}
+
+
+@pytest.mark.parametrize("option", ["plan", "series"])
+def test_options_that_act_on_versions_name_root_when_given_with_output_dir(
+    option, tmp_path
+):
+    values = {"plan": tmp_path / "plan.json", "series": False}
+    options = {"datasets": SEMIANNUAL, "years": 2024, "output_dir": tmp_path / "out"}
+    options[option] = values[option]
+    if option == "plan":
+        del options["datasets"], options["years"]
+
+    with pytest.raises(IMGWValidationError) as error:
+        validate_command("store sync", options=options)
+    assert error.value.details["reason"] == "store_only_option"
+    assert error.value.details["option"] == option
+
+    with pytest.raises(IMGWValidationError) as direct:
+        sync_store(
+            output_dir=tmp_path / "out",
+            datasets=[SEMIANNUAL],
+            years=2024,
+            **{option: values[option]},
+        )
+    assert direct.value.details["reason"] == "store_only_option"
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_task_of_a_project_takes_no_output_dir(tmp_path):
+    with pytest.raises(IMGWValidationError) as error:
+        validate_command(
+            "project add",
+            options={
+                "project_dir": tmp_path,
+                "name": "pobranie",
+                "command": "datasets download",
+                "options": {"dataset": SEMIANNUAL, "years": 2024, "output_dir": "x"},
+            },
+        )
+    assert error.value.details["reason"] == "store_only_option"
+    assert error.value.details["option"] == "options"
+
+
+def test_a_plain_pmaxtp_sync_writes_the_cell_and_the_raw_answer(respx_mock, tmp_path):
+    FakeImgw(respx_mock).publish_pmaxtp("pmaxtp_pot_first")
+    out = tmp_path / "out"
+    point = {"latitude": 52.23, "longitude": 21.01}
+
+    plan = check_command("pmaxtp sync", options={**point, "output_dir": out})
+    assert [(a.status, a.action) for a in plan.result.actions] == [
+        ("unverifiable", None)
+    ]
+
+    result = sync_pmaxtp(output_dir=out, **point)
+
+    assert result.status == "new"
+    assert names(out) == ["POT/751_317/cell.json", "POT/751_317/response.json"]
+    assert [file.path for file in result.files] == [
+        out / "POT/751_317/cell.json",
+        out / "POT/751_317/response.json",
+    ]
+    for file in result.files:
+        data = file.path.read_bytes()
+        assert (file.size_bytes, file.sha256, file.status) == (
+            len(data),
+            hashlib.sha256(data).hexdigest(),
+            "written",
+        )
+    assert not (out / ".imgw-incoming").exists()
+
+    known = {**point, "ind_x": 751, "ind_y": 317, "output_dir": out}
+    planned = check_command("pmaxtp sync", options=known)
+    assert {a.action for a in planned.result.actions} == {"conflict"}
+    with pytest.raises(IMGWError) as error:
+        sync_pmaxtp(output_dir=out, ind_x=751, ind_y=317, **point)
+    assert error.value.details["reason"] == "output_exists"
+    assert len(error.value.details["paths"]) == 2
+    forced = sync_pmaxtp(output_dir=out, force=True, **point)
+    assert [file.status for file in forced.files] == ["replaced", "replaced"]
+
+
+# --------------------------------------------------------------------------
+# files[] of the store reports
+# --------------------------------------------------------------------------
+
+
+def test_the_store_reports_list_their_versions_as_files(respx_mock, tmp_path):
+    FakeImgw(respx_mock).publish_pmaxtp("pmaxtp_pot_first")
+    root = build_fixture_store(tmp_path / "store").root
+    point = {"latitude": 52.23, "longitude": 21.01}
+
+    first = sync_pmaxtp(root, **point)
+    again = sync_pmaxtp(root, **point)
+    series = run_command(
+        "series build", options={"root": root, "dataset": "pl.imgw.hydro_daily"}
+    )
+
+    assert [f.status for f in first.files] == ["new"]
+    assert [f.status for f in again.files] == ["unchanged"]
+    assert first.files[0].path == first.version == again.files[0].path
+    (file,) = series.result.files
+    assert file.path == series.result.version
+    assert file.status == series.result.status
+    assert file.sha256 == hashlib.sha256(file.path.read_bytes()).hexdigest()
+    assert file.size_bytes == file.path.stat().st_size
+
+
+def test_a_store_sync_without_a_target_uses_the_default_root(home, respx_mock):
+    init_store(home / "data" / "imgw")
+    imgw = FakeImgw(respx_mock)
+    for archive in FILES:
+        imgw.publish(archive, V1, (ARCHIVES / archive.server_path).read_bytes())
+
+    outcome = run_command(
+        "store sync", options={"datasets": SEMIANNUAL, "years": 2024, "series": False}
+    )
+
+    assert outcome.status == "ok"
+    assert {file.status for file in outcome.result.files} == {"new"}
+    assert all(
+        file.path.is_relative_to(home / "data" / "imgw")
+        for file in outcome.result.files
+    )

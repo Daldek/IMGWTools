@@ -4,7 +4,7 @@
 
 ## What IMGWTools is
 
-IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store — a plain directory whose versions never change and are identified by SHA-256 — from which station series are read offline. All interfaces are generated from one command catalog.
+IMGWTools is a Python library, the `imgw` CLI, a REST API and an MCP server for public hydrological and meteorological data: archives, current data and PMAXTP probable maximum precipitation. Archives go into a versioned store (a plain directory whose versions never change and are identified by SHA-256) or are written as plain files, and station series are read offline from the store. All interfaces are generated from one command catalog.
 
 Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep reproducible local copies and to get PMAXTP values. Not supported: forecasts, ČHMÚ operational data (`now`, `recent`), IMGW-PIB daily synoptic archives, PMAXTP outside Poland. Install: `pip install imgwtools[cli]` (`[mcp]` adds the MCP server, `[store]` the Parquet series).
 

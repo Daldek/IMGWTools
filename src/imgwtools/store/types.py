@@ -603,6 +603,10 @@ class SeriesReport:
         inputs recorded in the reused version's sidecar).
     problems : tuple of str
         Human-readable descriptions of problems, e.g. blocking slots.
+    files : tuple of FileResult, optional
+        The version of ``version`` as ``files[]`` (DEV-19.19): its size and
+        SHA-256 from the sidecar and the status of the report; empty when
+        nothing was built.
     """
 
     status: Literal["new", "unchanged", "cancelled", "failed"]
@@ -610,6 +614,7 @@ class SeriesReport:
     stations: int
     source_files: tuple[Path, ...]
     problems: tuple[str, ...]
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -625,11 +630,17 @@ class SyncReport:
         Outcomes of the series builds triggered by the sync.
     cancelled : bool
         Whether the sync was cancelled.
+    files : tuple of FileResult, optional
+        The files of the run as ``files[]`` (DEV-19.19): in store mode the
+        archive and series versions with their sidecar size and SHA-256 and
+        their status (``new``, ``unchanged``, ``relabeled``); in plain mode the
+        files written (``written``, ``replaced``).
     """
 
     items: tuple[OperationResult, ...]
     series: tuple[SeriesReport, ...]
     cancelled: bool
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -717,6 +728,9 @@ class CatalogReport:
         Human-readable descriptions of problems.
     provider : str, optional
         ``ProviderDescriptor.id`` of the catalog's provider.
+    files : tuple of FileResult, optional
+        The catalog version as ``files[]`` (DEV-19.19), empty when nothing was
+        built.
     """
 
     status: Literal["new", "unchanged", "cancelled", "failed"]
@@ -726,6 +740,7 @@ class CatalogReport:
     from_series: int
     problems: tuple[str, ...]
     provider: str = "IMGW-PIB"
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1013,6 +1028,9 @@ class PMaXTPStoreResult:
         Cell Y index (taken from the server response once known), or None.
     result : PMaXTPResult or None
         Stored PMAXTP data, or None.
+    files : tuple of FileResult, optional
+        ``cell.json`` as ``files[]`` (DEV-19.19) and, in plain mode, the raw
+        ``response.json`` too; empty when nothing was written or found.
     """
 
     status: Literal["new", "unchanged", "cancelled", "failed"]
@@ -1020,6 +1038,7 @@ class PMaXTPStoreResult:
     ind_x: int | None
     ind_y: int | None
     result: PMaXTPResult | None
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
