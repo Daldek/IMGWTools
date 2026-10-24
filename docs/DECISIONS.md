@@ -11,6 +11,7 @@ Każdy wpis zachowuje stan decyzji z dnia przyjęcia; późniejsze zmiany opisuj
 | [ADR-003](#adr-003-dostawca-čhmú-w-magazynie-imgw) | Dostawca ČHMÚ w magazynie IMGW | 2026-10-18 | Przyjęta |
 | [ADR-004](#adr-004-wsparcie-agentów-ai-w-wydaniu-300) | Wsparcie agentów AI w wydaniu 3.0.0 | 2026-10-19 | Przyjęta |
 | [ADR-005](#adr-005-środowisko-użytkownika-dev-18) | Środowisko użytkownika (DEV-18) | 2026-10-24 | Przyjęta |
+| [ADR-006](#adr-006-message-catalog-and-english-machine-output) | Message catalog and English machine output | 2026-10-24 | Accepted |
 
 ---
 
@@ -325,3 +326,42 @@ Użytkownik ma jedno miejsce na ustawienia wspólne z innymi narzędziami Nogat 
 ### Pytania otwarte
 
 - Czy stan serwera (klucze API) ma mieć własny katalog zamiast `<data_dir>/imgw` (egzekwowanie kluczy jest w backlogu, `docs/PROGRESS.md`).
+
+---
+
+## ADR-006: Message catalog and English machine output
+
+**Date:** 2026-10-24  
+**Status:** Accepted  
+**Standard:** Nogat 2.1, AGI-9.1, AGI-9.2, AGI-6.4, DEV-2.1, DEV-2.3, ECO-042; ADR-004 D2–D3 (the limits it recorded)  
+
+### Context and options
+
+AGI-9.2 makes every machine output English (`--json`, the error line of the CLI, MCP results,
+REST without `Accept-Language`, OpenAPI, `AGENTS.md`, `llms.txt`) and leaves Polish to the
+human-readable output on request; DEV-2.3 keeps user-facing text in translation resources, not
+inline. ADR-004 translated only the catalog texts (`help_en`, `description_en`, `title_en`) and
+left the `detail` of every error, the text of every notice and the progress lines Polish, so an
+agent got Polish by default. Options: (a) gettext with `.po` files; (b) `locales/pl.toml` keyed by
+the English sentence; (c) Python catalogs keyed by English IDs with both texts side by side; (d)
+English literals at the raise sites and a Polish dictionary keyed by the sentence.
+
+### Decisions D1–D7
+
+| ID | Decision | Rejected |
+|---|---|---|
+| D1 | **Catalog.** The package `imgwtools.messages`; one module per area (`messages/<area>.py`) with `MESSAGES: dict[str, Text]`; `Text(en, pl)` (English first); the key is `<area>.<name>` in snake_case; placeholders are `str.format` fields with plain names (a brace in the text is `{{`). A text and its translation are edited together. | (a) a compile step, no static check of keys, plural forms the texts do not need; (b), (d) the key changes with every edit of the English sentence. |
+| D2 | **`Message`.** `message(key, lang="en", **values)` renders an entry as a `Message`: a `str` that remembers its key, values and language. `Message.localized(lang)` renders it again (a `Message` among the values too), `localize(text, lang)` gives a plain `str` (a final text), `IMGWError.localized(lang)` does it for a `detail`. An f-string, `+` or `join` of a message is plain text: composition happens inside a template and a message is passed as a value. | A parser of the text; a language argument threaded through every function. |
+| D3 | **Where a text is rendered.** The raise site and the notice give English (a `Message`). REST (`problem_response`), MCP (`_error`) and the web GUI render it for their caller; `CommandResult.to_json(lang=)` and `jsonable(lang=)` render the texts of a result and of its notices (English by default); the last stderr line of the CLI is always English; the progress and notice lines of the CLI follow `IMGW_LANG`. | A Polish `detail` with an English title (ADR-004 D3). |
+| D4 | **Defaults (AGI-9.2).** English: `--json`, the CLI error line, MCP (`imgw mcp --lang`, `create_server`, `http_app`), REST without `Accept-Language`, OpenAPI, `command_schema`, `list_commands`, `agent_guide` and the committed `AGENTS.md`/`llms.txt`. Polish on request or by setting: the CLI help and human lines (`IMGW_LANG`, default `pl`, DEV-18.1), the web GUI (its templates are Polish, DEV-15.2), `Accept-Language: pl`, `imgw mcp --lang pl`, `--lang pl` of the description commands. | |
+| D5 | **Registry.** `ErrorSpec.title` is a `Message`; `title_en` is removed without an alias. `Lang` and `LANGS` (`("en", "pl")`) live in `imgwtools.messages`. | |
+| D6 | **Guards.** `tests/unit/test_messages.py`: both languages of an entry are not empty and have the same placeholders, every `message("<literal>")` call names an entry and gives exactly its placeholders, no entry is unused, no Polish literal is left outside the catalog except in the files of the `_PENDING` set (grouped by area, so every migration commit edits its own lines). | |
+| D7 | **Catalog texts.** The texts of the command catalog and the registries (`help`, `description`, `rules`, dataset and provider titles) keep their Polish primary text with an English variant beside it until a later change makes English authoritative (AGI-9.1); those files are in `_PENDING`. | |
+
+### Consequences
+
+An agent reads the same English text whatever the user's setting, and a Polish user keeps Polish human output. Each area moves in its own commit (exceptions, notices, CLI, REST, MCP, guide), so the defaults of an interface flip together with the texts it shows. A new text costs two strings in a catalog and one `message("<key>", name=value)` call; the guard test fails on a missing translation, a wrong placeholder, an unused entry and a stray Polish literal. A text assembled by an f-string at a call site is not translatable and is a defect.
+
+### Open questions
+
+- Whether the reasons of the internal validators (a `ValueError` whose text another message embeds) need a Polish variant: they are catalog messages where a person reads them and plain English where only a developer does.

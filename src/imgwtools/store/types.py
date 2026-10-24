@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from imgwtools._jsonable import jsonable
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.messages import DEFAULT_LANG, Lang
 
 if TYPE_CHECKING:
     from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
@@ -1128,7 +1129,11 @@ class CommandResult[T]:
     notices: tuple[Notice, ...]
 
     def to_json(
-        self, *, root: PathArg | None = None, server: bool = False
+        self,
+        *,
+        root: PathArg | None = None,
+        server: bool = False,
+        lang: Lang = DEFAULT_LANG,
     ) -> dict[str, object]:
         """
         Convert the envelope to an ``imgw-result/1`` document.
@@ -1143,6 +1148,9 @@ class CommandResult[T]:
         server : bool, optional
             REST mode: the root is written as ``"."`` and its prefix is
             removed from every text.
+        lang : {"en", "pl"}, optional
+            Language of the catalog messages in the result and the notices
+            (English by default, AGI-9.2).
 
         Returns
         -------
@@ -1158,7 +1166,9 @@ class CommandResult[T]:
             "result": self.result,
             "notices": self.notices,
         }
-        return cast(dict[str, object], jsonable(document, root=root, server=server))
+        return cast(
+            dict[str, object], jsonable(document, root=root, server=server, lang=lang)
+        )
 
 
 @dataclass(frozen=True)

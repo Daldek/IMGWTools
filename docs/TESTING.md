@@ -41,7 +41,8 @@ uv run mypy src tests
 |`tests/unit/test_datasets.py`|59|Registry, aliases, `archive_files`, `YearsArg`|
 |`tests/unit/test_project.py`|55|`imgw-project/1`|
 |`tests/unit/test_parsers.py`|50|Hydro/meteo/station-list parsers|
-|`tests/unit/test_exceptions.py`|50|`ERROR_CODES`, codes and details|
+|`tests/unit/test_exceptions.py`|53|`ERROR_CODES`, codes and details, file-system errors|
+|`tests/unit/test_messages.py`|10|Message catalog: both languages, call sites against entries, Polish literals left|
 |`tests/unit/test_store_*.py` (IMGW), `test_series_export.py`|210|Store writer, sync, series, catalog, pmaxtp, reader, export, types, fixtures|
 |`tests/unit/test_*_chmi.py`, `test_parsing_chmi.py`, `test_store_content.py`|360|ČHMÚ: parsers, registry, listing sync, catalog, series, export, commands, stations, projects, content form|
 |`tests/unit/test_catalog_effects.py`, `test_catalog_i18n.py`, `test_agent_guide.py`, `test_mcp_*.py`|179|Agents: effects = behavior, English texts, guide drift test, MCP tools/calls/stdio/HTTP|

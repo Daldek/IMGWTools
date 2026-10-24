@@ -179,7 +179,7 @@ async def test_a_problem_of_rest_is_the_error_result_in_the_server_language(
     assert error_of(result) == {
         key: body[key] for key in ("code", "title", "detail", "details")
     }
-    assert body["title"] == ERROR_CODES["validation_error"].title_en
+    assert body["title"] == ERROR_CODES["validation_error"].title
 
 
 # --------------------------------------------------------------------------
@@ -316,5 +316,5 @@ def test_an_enabled_mcp_refuses_imgw_lang_outside_pl_and_en(monkeypatch):
     assert caught.value.details == {
         "option": "IMGW_LANG",
         "value": "de",
-        "allowed": ["pl", "en"],
+        "allowed": ["en", "pl"],
     }

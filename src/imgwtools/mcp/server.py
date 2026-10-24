@@ -27,11 +27,11 @@ from starlette.applications import Starlette
 
 from imgwtools._version import __version__
 from imgwtools.agent_guide import _instructions
-from imgwtools.commands import LANGS, Lang
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import call_tool
 from imgwtools.mcp._tools import MODES, Mode, catalog_tools
+from imgwtools.messages import LANGS, Lang
 
 __all__ = ["create_server", "http_app", "run_stdio"]
 

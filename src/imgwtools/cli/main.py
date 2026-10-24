@@ -32,9 +32,9 @@ from imgwtools.cli._dispatch import (
     _error_line,
     register_catalog,
 )
-from imgwtools.commands import Lang
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWError
+from imgwtools.messages import Lang
 
 _NO_MCP = "Serwer MCP wymaga dodatku: pip install imgwtools[mcp]"
 

@@ -324,7 +324,8 @@ IMGWTools/
 │   ├── fetch.py          # PUBLIC: fetch_* (live), download_archives, download_* -> DownloadResult
 │   ├── models.py         # PUBLIC: Data models incl. NormalizedRecord, Measurement
 │   ├── stations.py       # PUBLIC: find_stations (IMGW-PIB and ČHMÚ)
-│   ├── exceptions.py     # PUBLIC: Custom exceptions + ERROR_CODES (title, title_en)
+│   ├── exceptions.py     # PUBLIC: Custom exceptions + ERROR_CODES (title as a catalog message)
+│   ├── messages/         # Message catalog: message(), Message, localize(), Text(en, pl) per area (ADR-006)
 │   ├── urls.py           # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
 │   ├── parsers.py        # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
 │   ├── datasets.py       # PUBLIC: Provider and dataset registry, archive_files, YearsArg/MonthsArg

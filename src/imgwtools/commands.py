@@ -53,6 +53,7 @@ from imgwtools.exceptions import (
     IMGWError,
     IMGWValidationError,
 )
+from imgwtools.messages import LANGS, Lang, localize
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
 from imgwtools.store.types import (
@@ -77,8 +78,6 @@ from imgwtools.store.types import (
 from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 __all__ = [
-    "LANGS",
-    "Lang",
     "check_command",
     "command_schema",
     "data_commands",
@@ -87,10 +86,6 @@ __all__ = [
     "run_command",
     "validate_command",
 ]
-
-Lang = Literal["pl", "en"]
-LANGS: tuple[Lang, ...] = ("pl", "en")
-"""Languages of the catalog texts; Polish is the default (spec 2026-10-19 §4)."""
 
 Options = dict[str, Any]
 Hooks = dict[str, Any]
@@ -2975,7 +2970,7 @@ def command_schema(
         "errors": [
             {
                 "code": spec.code,
-                "title": _localized(spec.title, spec.title_en, language),
+                "title": localize(spec.title, language),
                 "exit_code": spec.exit_code,
                 "http_status": spec.http_status,
             }

@@ -28,6 +28,14 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 - **`imgw config show [--json]` (DEV-18.6):** document `imgw-config/1` with every setting, its value
   and source, each credential as `present` or `missing`, and the store root with its source and
   size (hard-linked files counted once). README and `.env.example` list all 18 `IMGW_*` variables.
+- **Message catalog (AGI-9.1, AGI-9.2, DEV-2.3, ADR-006):** `imgwtools.messages` holds the texts
+  for a person in English with a Polish variant (`Text(en, pl)` under the key `<area>.<name>` in
+  `imgwtools.messages.<area>`). `message(key, lang="en", **values)` renders one as a `Message`: a
+  `str` that remembers its key and values, so the adapter of a caller who asked for Polish
+  renders it again (`localize(text, lang)`, `IMGWError.localized(lang)`,
+  `CommandResult.to_json(lang=)`, `jsonable(..., lang=)`) instead of parsing text.
+  `tests/unit/test_messages.py` checks both languages of every entry, every `message("…")` call
+  against its entry, unused entries and Polish literals outside the catalog.
 
 ### Changed
 
@@ -81,6 +89,15 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   lists the datasets of the store and one line the others, the flows and the flag notes are
   shorter, and the stale developer gate commands (pyright) are gone. A contract test holds both
   budgets and the 8,000 characters of `llms.txt` before its first link list.
+- **Breaking — `ErrorSpec.title_en` is gone (AGI-9.2):** `ErrorSpec.title` is the English title as
+  a catalog message; `title.localized("pl")` is the Polish one. `command_schema`, REST, MCP and
+  the web GUI render it in the language of their caller. The first argument of `IMGWError` is
+  named `detail`. `Lang` and `LANGS` are exported by `imgwtools.messages` instead of
+  `imgwtools.commands`, and `LANGS` is `("en", "pl")` (the order of `details.allowed` of a
+  refused language). Migration: `spec.title_en` → `spec.title`, the former Polish `spec.title`
+  → `spec.title.localized("pl")`.
+- File-system errors (`describe_os_error`, `io_error`) and the default text of
+  `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 
 ## [3.0.0] — 2026-10-19
 

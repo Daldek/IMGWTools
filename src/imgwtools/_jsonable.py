@@ -8,7 +8,9 @@ objects of their fields (a ``StorePlan`` as its ``imgw-plan/1`` document, spec
 root, other absolute paths as they are, relative paths (relative to a base the
 result names, e.g. a project pin to the project's store) as POSIX text. The root
 itself is absolute, or ``"."`` in server mode, where the root prefix is also
-removed from free text.
+removed from free text. A catalog message (`imgwtools.messages.Message`) is
+written as a plain string in the language of the caller, English by default
+(AGI-9.2).
 """
 
 from __future__ import annotations
@@ -22,9 +24,11 @@ from enum import Enum
 from functools import cache
 from os import PathLike
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from pydantic import BaseModel
+
+from imgwtools.messages import DEFAULT_LANG, Lang, localize
 
 if TYPE_CHECKING:
     from imgwtools.store.types import StorePlan
@@ -37,6 +41,7 @@ def jsonable(
     *,
     root: str | PathLike[str] | None = None,
     server: bool = False,
+    lang: Lang = DEFAULT_LANG,
 ) -> object:
     """
     Convert a public value to plain JSON-compatible values.
@@ -57,6 +62,9 @@ def jsonable(
         REST mode: the root itself is written as ``"."`` and the root prefix is
         removed from every text (``<root>/x`` → ``x``, bare ``<root>`` → ``.``);
         the root inside a URL or a longer path is not a path and stays.
+    lang : {"en", "pl"}, optional
+        Language of the catalog messages in ``value``; any other text is written
+        as it is.
 
     Returns
     -------
@@ -72,7 +80,16 @@ def jsonable(
     base = None if root is None else Path(root).absolute()
     roots = () if base is None else tuple(dict.fromkeys((base, base.resolve())))
     pattern = _prefix_pattern(roots) if server else None
-    return _convert(value, roots, server, pattern)
+    return _convert(value, _Context(roots, server, pattern, lang))
+
+
+class _Context(NamedTuple):
+    """What a conversion needs besides the value."""
+
+    roots: tuple[Path, ...]
+    server: bool
+    pattern: re.Pattern[str] | None
+    lang: Lang
 
 
 def _prefix_pattern(roots: tuple[Path, ...]) -> re.Pattern[str] | None:
@@ -94,56 +111,44 @@ def _plan_type() -> type[StorePlan]:
     return StorePlan
 
 
-def _convert(
-    value: object,
-    roots: tuple[Path, ...],
-    server: bool,
-    pattern: re.Pattern[str] | None,
-) -> object:
+def _convert(value: object, ctx: _Context) -> object:
     if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, str):
-        if pattern is None:
-            return value
-        return pattern.sub(lambda m: "" if m.group()[-1] in "/\\" else ".", value)
+        text = localize(value, ctx.lang)
+        if ctx.pattern is None:
+            return text
+        return ctx.pattern.sub(lambda m: "" if m.group()[-1] in "/\\" else ".", text)
     if isinstance(value, Enum):
-        return _convert(value.value, roots, server, pattern)
+        return _convert(value.value, ctx)
     if isinstance(value, PurePath):
-        return _path(Path(value), roots, server)
+        return _path(Path(value), ctx.roots, ctx.server)
     if isinstance(value, datetime):
         moment = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, BaseModel):
-        return _convert(dict(value), roots, server, pattern)
+        return _convert(dict(value), ctx)
     if isinstance(value, _plan_type()):
-        return _convert(value._document(), roots, server, pattern)
+        return _convert(value._document(), ctx)
     if is_dataclass(value) and not isinstance(value, type):
         return {
-            item.name: _convert(getattr(value, item.name), roots, server, pattern)
+            item.name: _convert(getattr(value, item.name), ctx)
             for item in fields(value)
         }
     if isinstance(value, Mapping):
-        return {
-            _key(key, roots, server, pattern): _convert(item, roots, server, pattern)
-            for key, item in value.items()
-        }
+        return {_key(key, ctx): _convert(item, ctx) for key, item in value.items()}
     if isinstance(value, tuple | list):
-        return [_convert(item, roots, server, pattern) for item in value]
+        return [_convert(item, ctx) for item in value]
     if isinstance(value, set | frozenset):
-        items = [_convert(item, roots, server, pattern) for item in value]
+        items = [_convert(item, ctx) for item in value]
         return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
-    raise TypeError(f"Wartości typu {type(value).__name__} nie można zapisać w JSON")
+    raise TypeError(f"Cannot write a value of type {type(value).__name__} as JSON")
 
 
-def _key(
-    key: object,
-    roots: tuple[Path, ...],
-    server: bool,
-    pattern: re.Pattern[str] | None,
-) -> str:
-    converted = _convert(key, roots, server, pattern)
+def _key(key: object, ctx: _Context) -> str:
+    converted = _convert(key, ctx)
     return converted if isinstance(converted, str) else json.dumps(converted)
 
 

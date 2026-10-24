@@ -53,7 +53,7 @@ def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes()
     assert document["errors"] == [
         {
             "code": spec.code,
-            "title": spec.title,
+            "title": spec.title.localized("pl"),
             "exit_code": spec.exit_code,
             "http_status": spec.http_status,
         }
@@ -337,5 +337,5 @@ def test_command_list_rejects_a_language_outside_the_catalog():
         list_commands(lang="de")
     assert (error.value.details["option"], error.value.details["allowed"]) == (
         "lang",
-        ["pl", "en"],
+        ["en", "pl"],
     )

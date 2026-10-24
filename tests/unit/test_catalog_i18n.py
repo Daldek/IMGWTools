@@ -7,7 +7,7 @@ import pytest
 
 from imgwtools.commands import command_schema, data_commands, validate_command
 from imgwtools.datasets import datasets
-from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
+from imgwtools.exceptions import IMGWValidationError
 
 
 def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
@@ -58,8 +58,6 @@ def test_every_text_of_the_catalog_and_registries_has_an_english_variant():
             assert english not in ("", polish), spec.name
         for option in spec.options:
             assert option.help_en not in ("", option.help), (spec.name, option.name)
-    for error in ERROR_CODES.values():
-        assert error.title_en not in ("", error.title), error.code
     for descriptor in datasets():
         assert descriptor.title_en not in ("", descriptor.title), descriptor.key
     polish, english = command_schema()["groups"], command_schema(lang="en")["groups"]
@@ -101,4 +99,4 @@ def test_language_outside_pl_and_en_is_a_validation_error(lang):
         with pytest.raises(IMGWValidationError) as error:
             call()
         assert error.value.details["option"] == "lang"
-        assert error.value.details["allowed"] == ["pl", "en"]
+        assert error.value.details["allowed"] == ["en", "pl"]

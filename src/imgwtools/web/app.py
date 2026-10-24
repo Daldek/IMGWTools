@@ -34,6 +34,7 @@ from imgwtools import (
 )
 from imgwtools._version import __version__
 from imgwtools.api.errors import hide_server_paths
+from imgwtools.messages import Lang, localize
 
 if TYPE_CHECKING:
     from imgwtools import StationListEntry
@@ -54,6 +55,8 @@ _PMAXTP_METHODS = (
     ("AMP", "Annual Max Precipitation"),
 )
 _STATION_PAGE_SIZE = "50"
+# The templates are Polish, so are the titles and details of the errors they show.
+_LANG: Lang = "pl"
 
 
 def _error(request: Request, error: IMGWError) -> HTMLResponse:
@@ -80,8 +83,8 @@ def _error(request: Request, error: IMGWError) -> HTMLResponse:
         "partials/error.html",
         {
             "code": error.code,
-            "title": spec.title,
-            "detail": hide_server_paths(error.detail),
+            "title": localize(spec.title, _LANG),
+            "detail": hide_server_paths(error.localized(_LANG)),
             "option": error.details.get("option"),
         },
         status_code=spec.http_status or 500,

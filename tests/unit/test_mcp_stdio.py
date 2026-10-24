@@ -111,5 +111,5 @@ def test_imgw_mcp_refuses_a_language_outside_pl_and_en():
     error = json.loads(result.stderr.splitlines()[-1])
     assert (error["code"], error["details"]) == (
         "validation_error",
-        {"option": "lang", "value": "de", "allowed": ["pl", "en"]},
+        {"option": "lang", "value": "de", "allowed": ["en", "pl"]},
     )

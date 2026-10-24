@@ -35,6 +35,7 @@ from imgwtools import (
 )
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
+from imgwtools.messages import Lang
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -76,12 +77,14 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
     }
 
 
-def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
+def call(
+    command: str, options: dict[str, object], *, mode: Mode, lang: Lang = "pl"
+) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
     name = command_document(command)["x-imgw"]["operation_id"]
 
     async def answer() -> CallToolResult:
-        async with Client(create_server(mode=mode)) as client:
+        async with Client(create_server(mode=mode, lang=lang)) as client:
             return await client.call_tool(name, arguments(options))
 
     return anyio.run(answer)
@@ -91,11 +94,13 @@ def writing(command: str) -> bool:
     return bool(command_document(command)["x-imgw"]["writes"] != "none")
 
 
-def run(command: str, options: dict[str, object]) -> CallToolResult:
+def run(
+    command: str, options: dict[str, object], *, lang: Lang = "pl"
+) -> CallToolResult:
     """Run the command: a writing one on a server with writes and ``check: false``."""
     if writing(command):
-        return call(command, {**options, "check": False}, mode="write")
-    return call(command, options, mode="read")
+        return call(command, {**options, "check": False}, mode="write", lang=lang)
+    return call(command, options, mode="read", lang=lang)
 
 
 def assert_envelope(answered: CallToolResult, python, printed, root) -> None:
@@ -332,7 +337,7 @@ def test_every_error_of_the_cli_is_the_same_document_in_mcp(
     options = rooted(scenario.options, scenario.root)
 
     printed = cli(*cli_words(scenario.command, options))
-    answered = run(scenario.command, options)
+    answered = run(scenario.command, options, lang="en")  # as the CLI line is
 
     if code == "cancelled":  # an envelope without a report, as on CLI stdout
         assert answered.is_error is False

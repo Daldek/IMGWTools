@@ -36,12 +36,12 @@ from imgwtools import (
     store,
     validate_command,
 )
-from imgwtools.commands import Lang
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import STREAM_LIMIT
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
+from imgwtools.messages import Lang
 from imgwtools.testing import build_fixture_store
 from tests.contract.support import (
     DAILY,
@@ -162,7 +162,7 @@ async def test_a_server_without_writes_forbids_every_write(
     document = error_of(result)
     spec = ERROR_CODES["forbidden"]
     assert document["code"] == "forbidden"
-    assert document["title"] == (spec.title_en if lang == "en" else spec.title)
+    assert document["title"] == spec.title.localized(lang)
     assert document["details"] == {"reason": "writes_disabled", "option": option}
     assert stamps(root) == before
     assert not (tmp_path / "plan.json").exists() and not (tmp_path / "x.csv").exists()
@@ -426,7 +426,7 @@ async def test_an_error_is_the_cli_document_with_a_title_of_the_server_language(
     spec = ERROR_CODES["validation_error"]
     assert error_of(result) == {
         "code": "validation_error",
-        "title": spec.title_en if lang == "en" else spec.title,
+        "title": spec.title.localized(lang),
         "detail": raised.value.detail,
         "details": dict(raised.value.details),
     }

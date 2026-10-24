@@ -377,7 +377,7 @@ def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
     assert line["details"] == {
         "option": "IMGW_LANG",
         "value": "de",
-        "allowed": ["pl", "en"],
+        "allowed": ["en", "pl"],
     }
     # The language is checked before Click parses anything, help included.
     monkeypatch.setattr(settings, "lang", "english")

@@ -8,11 +8,11 @@ validation (400 ``validation_error``), unknown routes (404 ``not_found``),
 wrong methods (405 ``method_not_allowed``), file-system errors (``io_error``)
 and program errors (``internal_error``). Code, title and HTTP status come from
 the error registry `ERROR_CODES`, so REST reports an error exactly as the CLI
-and the web GUI do. The title is in the language of ``Accept-Language``
-(`accept_language`, Polish by default) while ``detail`` stays Polish (spec
-2026-10-19 §4.2). Texts and details never contain absolute server paths
-(rule T21): `hide_server_paths` writes them relative to the server directory
-that contains them.
+and the web GUI do. The title and the detail of a catalog message are in the
+language of ``Accept-Language`` (`accept_language`, Polish by default); any other
+detail stays as the raiser wrote it. Texts and details never contain absolute
+server paths (rule T21): `hide_server_paths` writes them relative to the server
+directory that contains them.
 """
 
 import tempfile
@@ -27,9 +27,9 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from imgwtools._jsonable import jsonable
-from imgwtools.commands import LANGS, Lang
 from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, ErrorCode, IMGWError, describe_os_error
+from imgwtools.messages import LANGS, Lang, localize
 
 __all__ = [
     "EXCEPTION_HANDLERS",
@@ -209,7 +209,8 @@ def problem_response(
         Registered error code. A code without an HTTP status (``cancelled``:
         REST never cancels) is answered as ``internal_error``.
     detail : str
-        Polish description of this occurrence; the registry title when empty.
+        Description of this occurrence (a catalog message is rendered in the
+        language of the request); the registry title when empty.
     details : Mapping[str, object] or None, optional
         JSON-compatible context (``option``, ``reason``, ``errors``, ...).
     headers : Mapping[str, str] or None, optional
@@ -218,10 +219,10 @@ def problem_response(
     Returns
     -------
     JSONResponse
-        Problem document with the registry status, title (English when
-        `accept_language` of the request chooses ``en``) and ``type``
+        Problem document with the registry status, title (in the language
+        `accept_language` of the request chooses) and ``type``
         ``urn:imgwtools:error:<code>``; texts without absolute server paths.
-        ``Content-Language`` names the language of the title and ``Vary``
+        ``Content-Language`` names the language of the title and detail and ``Vary``
         includes ``Accept-Language``.
     """
     spec = ERROR_CODES[code]
@@ -229,11 +230,12 @@ def problem_response(
         spec = ERROR_CODES["internal_error"]
     status = cast(int, spec.http_status)
     language = accept_language(request.headers.get("accept-language"))
+    title = localize(spec.title, language)
     body = {
         "type": f"urn:imgwtools:error:{spec.code}",
-        "title": spec.title_en if language == "en" else spec.title,
+        "title": title,
         "status": status,
-        "detail": cast(str, hide_server_paths(detail)) or spec.title,
+        "detail": cast(str, hide_server_paths(localize(detail, language))) or title,
         "instance": request.url.path,
         "code": spec.code,
         "details": hide_server_paths(dict(details or {})),

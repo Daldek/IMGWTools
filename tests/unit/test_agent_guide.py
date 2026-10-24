@@ -23,7 +23,6 @@ from imgwtools.agent_guide import (
 from imgwtools.api.main import app as rest_app
 from imgwtools.cli.main import app as cli_app
 from imgwtools.commands import (
-    Lang,
     check_command,
     command_schema,
     list_commands,
@@ -31,6 +30,7 @@ from imgwtools.commands import (
 )
 from imgwtools.datasets import datasets, providers
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
+from imgwtools.messages import Lang
 from tests.unit.test_commands import parse
 
 REPOSITORY = Path(__file__).resolve().parents[2]
