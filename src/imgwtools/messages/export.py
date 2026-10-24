@@ -7,17 +7,13 @@ MESSAGES = {
         "Unsupported export format {value!r}; available: {allowed}",
         "Nieobsługiwany format eksportu {value!r}; dostępne: {allowed}",
     ),
-    "export_path_points_directory": Text(
-        "The export path points to a directory: {target}",
-        "Ścieżka eksportu wskazuje katalog: {target}",
+    "output_is_directory": Text(
+        "The output of the export is a directory, not a file: {target}",
+        "Wyjście eksportu jest katalogiem, nie plikiem: {target}",
     ),
-    "target_directory_export_does_not": Text(
-        "The target directory of the export does not exist: {parent}",
-        "Katalog docelowy eksportu nie istnieje: {parent}",
-    ),
-    "export_must_written_outside_imgw": Text(
-        "The export must be written outside the IMGW store ({store}): {target}",
-        "Eksport musi być zapisany poza magazynem IMGW ({store}): {target}",
+    "force_needs_output": Text(
+        "force replaces the output file of an export, so it needs output",
+        "force zastępuje plik wyjścia eksportu, więc wymaga output",
     ),
     "record_station_from_has_columns": Text(
         "The record of the station {station_code} from {date} has columns outside "

@@ -49,12 +49,12 @@ EFFECTS = {
     "store check": ("none", True, {"plan": "replace"}),
     "store sync": ("add", True, {"output_dir": "add", "force": "replace"}),
     "store catalog": ("add", True, {}),
-    "store export": ("none", False, {"path": "replace"}),
+    "store export": ("none", False, {"output": "add", "force": "replace"}),
     "series build": ("add", False, {}),
     "series select": ("none", False, {}),
     "series read": ("none", False, {}),
     "series summary": ("none", False, {}),
-    "series export": ("none", False, {"path": "replace"}),
+    "series export": ("none", False, {"output": "add", "force": "replace"}),
     "project init": ("add", False, {}),
     "project add": ("add", False, {}),
     "project remove": ("replace", False, {}),
@@ -65,7 +65,7 @@ EFFECTS = {
     "project verify": ("none", False, {}),
     "commands list": ("none", False, {}),
     "commands schema": ("none", False, {}),
-    "commands guide": ("none", False, {"path": "replace"}),
+    "commands guide": ("none", False, {"output": "add", "force": "replace"}),
 }
 # Writing options of local commands (without a contract case); the plain ones are
 # held by tests/unit/test_plain_output.py.
@@ -77,6 +77,9 @@ LOCAL_WRITES = {
     ("store sync", "force"),
     ("pmaxtp sync", "output_dir"),
     ("pmaxtp sync", "force"),
+    ("store export", "force"),
+    ("series export", "force"),
+    ("commands guide", "force"),
 }
 
 
@@ -130,7 +133,7 @@ def case_root(case: Case, target: Path, served: Path, fixture: Path) -> Path | N
 def run(command: str, options: dict[str, object], root: Path | None) -> str:
     """Run a case through Python, reading a stream to its end; return the status."""
     outcome = run_command(command, options=rooted(resolved(options, root), root))
-    if SPECS[command].result == "stream" and "path" not in options:
+    if SPECS[command].result == "stream" and "output" not in options:
         "".join(cast(Iterable[str], outcome.result))
     return outcome.status
 
@@ -254,10 +257,13 @@ def test_a_writing_option_writes_its_file(
     root = case_root(case, tmp_path / "store", served_root, fixture_root)
     target = tmp_path / "out" / f"{option}.txt"
     target.parent.mkdir()
+    options = {**case.options, option: target}
+    if existing and any(o.name == "force" for o in SPECS[command].options):
+        options["force"] = True  # an existing output is replaced only with force
     if existing:  # "replace": an existing file is overwritten
         target.write_text("stara treść\n", encoding="utf-8")
 
-    assert run(command, {**case.options, option: target}, root) == "ok"
+    assert run(command, options, root) == "ok"
 
     assert target.is_file()
     assert target.read_text(encoding="utf-8") != "stara treść\n"

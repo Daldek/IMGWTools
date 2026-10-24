@@ -30,8 +30,8 @@ uv run pytest tests/unit/test_models.py -v         # one test file (add -k <expr
 uv run pytest tests/live -m live                   # live tests (network, outside the gate)
 imgw server --reload                               # REST API + Web GUI
 imgw config show --json                            # every setting with its source
-imgw commands guide --format agents --path AGENTS.md   # regenerate AGENTS.md (English)
-imgw commands guide --format llms --path llms.txt      # regenerate llms.txt (English)
+imgw commands guide --format agents --output AGENTS.md --force   # regenerate AGENTS.md (English)
+imgw commands guide --format llms --output llms.txt --force      # regenerate llms.txt (English)
 ```
 
 Extras: `imgwtools[cli|api|store|mcp|pandas|full]` (install lines in the README). Settings (`IMGW_*`, `NOGAT_*`, `nogat.toml`): [docs/CODEBASE.md](docs/CODEBASE.md) section "Versioned Store → Configuration". Test layout and markers: [docs/TESTING.md](docs/TESTING.md).

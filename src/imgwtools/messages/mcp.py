@@ -9,9 +9,9 @@ MESSAGES = {
     ),
     "result_exceeds_256_kib_narrow": Text(
         "The result exceeds 256 KiB; narrow the selection, read series read in pages "
-        "or write a file with the option path",
+        "or write a file with the option output",
         "Wynik przekracza 256 KiB; zawęź wybór, czytaj stronami series read albo "
-        "zapisz plik opcją path",
+        "zapisz plik opcją output",
     ),
     "user_enables_writes_imgw_mcp": Text(
         "the user enables writes: imgw mcp --allow-writes or "

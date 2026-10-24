@@ -1,6 +1,7 @@
-"""CSV export of one station series: header, formulas, flags, year type and atomic replacement."""
+"""CSV export of one station series: header, formulas, flags, year type and the one plain file."""
 
 import csv
+import hashlib
 import io
 import os
 import stat
@@ -15,6 +16,7 @@ from imgwtools.datasets import archive_files
 from imgwtools.exceptions import (
     IMGWCancelledError,
     IMGWDataError,
+    IMGWError,
     IMGWValidationError,
 )
 from imgwtools.fetch import DownloadResult
@@ -60,8 +62,9 @@ def store(root, dataset, years, months=None, *, content=None):
     return build_series(root, dataset=dataset).version
 
 
-def rows(path):
-    with Path(path).open(encoding="utf-8", newline="") as stream:
+def rows(report):
+    """Header and rows of the CSV file an export wrote."""
+    with report.output.open(encoding="utf-8", newline="") as stream:
         reader = csv.DictReader(stream)
         return reader.fieldnames, list(reader)
 
@@ -108,18 +111,22 @@ def meteo(root):
 
 def test_csv_has_units_header_formulas_once_and_every_day(hydro_year, tmp_path):
     progress, notices = [], []
-    target = export_series(
+    report = export_series(
         hydro_year,
         station=STATION,
-        path=tmp_path / "raba.csv",
+        output=tmp_path / "raba.csv",
         variables=["H", "Q", "H"],
         on_progress=progress.append,
         on_notice=notices.append,
     )
-    assert target == tmp_path / "raba.csv"
+    target = tmp_path / "raba.csv"
+    assert report.output == target
     raw = target.read_bytes()
+    assert [(f.path, f.size_bytes, f.sha256, f.status) for f in report.files] == [
+        (target, len(raw), hashlib.sha256(raw).hexdigest(), "written")
+    ]
     assert not raw.startswith(b"\xef\xbb\xbf") and b"#" not in raw
-    header, data = rows(target)
+    header, data = rows(report)
     assert header == [
         "date",
         "year",
@@ -168,7 +175,7 @@ def test_explicit_year_type_switches_at_november_for_hydro(hydro_year, tmp_path)
         export_series(
             hydro_year,
             station=STATION,
-            path=tmp_path / "c.csv",
+            output=tmp_path / "c.csv",
             variables=["H"],
             year_type="calendar",
         )
@@ -184,7 +191,7 @@ def test_explicit_year_type_switches_at_november_for_hydro(hydro_year, tmp_path)
         export_series(
             hydro_year,
             station=STATION,
-            path=tmp_path / "h.csv",
+            output=tmp_path / "h.csv",
             variables=["H"],
             year_type="hydrological",
         )
@@ -198,7 +205,7 @@ def test_meteo_defaults_to_calendar_and_keeps_zero_and_accumulated_flags(
     assert read_series_index(meteo).year_type == "calendar"
     header, data = rows(
         export_series(
-            meteo, station=METEO_STATION, path=tmp_path / "p.csv", variables=["P"]
+            meteo, station=METEO_STATION, output=tmp_path / "p.csv", variables=["P"]
         )
     )
     assert header == [
@@ -227,7 +234,7 @@ def test_meteo_defaults_to_calendar_and_keeps_zero_and_accumulated_flags(
         export_series(
             meteo,
             station=METEO_STATION,
-            path=tmp_path / "h.csv",
+            output=tmp_path / "h.csv",
             variables=["P"],
             year_type="hydrological",
         )
@@ -246,14 +253,14 @@ def test_half_year_has_period_and_extrema_columns_and_rejects_calendar(root, tmp
         export_series(
             version,
             station=STATION,
-            path=tmp_path / "x.csv",
+            output=tmp_path / "x.csv",
             variables=["H_max"],
             year_type="calendar",
         )
     assert not (tmp_path / "x.csv").exists()
     header, data = rows(
         export_series(
-            version, station=STATION, path=tmp_path / "half.csv", variables=["H_max"]
+            version, station=STATION, output=tmp_path / "half.csv", variables=["H_max"]
         )
     )
     assert header == [
@@ -278,7 +285,7 @@ def test_monthly_has_no_period_column(root, tmp_path):
     version = store(root, MONTHLY, [2024])
     header, data = rows(
         export_series(
-            version, station=STATION, path=tmp_path / "m.csv", variables=["H_mean"]
+            version, station=STATION, output=tmp_path / "m.csv", variables=["H_mean"]
         )
     )
     assert header == [
@@ -308,7 +315,7 @@ def test_invalid_options_are_rejected_without_writing(
 ):
     arguments = {
         "station": STATION,
-        "path": tmp_path / "out.csv",
+        "output": tmp_path / "out.csv",
         "variables": ["H"],
         **options,
     }
@@ -317,23 +324,59 @@ def test_invalid_options_are_rejected_without_writing(
     assert list(tmp_path.iterdir()) == [tmp_path / "store"]
 
 
-def test_target_must_be_a_file_in_existing_directory(hydro_year, tmp_path):
-    with pytest.raises(IMGWValidationError, match="points to a directory"):
-        export_series(hydro_year, station=STATION, path=tmp_path, variables=["H"])
-    with pytest.raises(IMGWValidationError, match="does not exist"):
-        export_series(
-            hydro_year,
-            station=STATION,
-            path=tmp_path / "missing" / "out.csv",
-            variables=["H"],
-        )
+def test_the_output_is_a_file_and_a_missing_directory_is_created(hydro_year, tmp_path):
+    with pytest.raises(IMGWValidationError, match="is a directory") as error:
+        export_series(hydro_year, station=STATION, output=tmp_path, variables=["H"])
+    assert error.value.details["option"] == "output"
+
+    report = export_series(
+        hydro_year,
+        station=STATION,
+        output=tmp_path / "missing" / "deeper" / "out.csv",
+        variables=["H"],
+    )
+
+    assert report.output.is_file()
+
+
+def test_an_existing_output_is_a_conflict_that_force_replaces(hydro_year, tmp_path):
+    target, neighbour = tmp_path / "out.csv", tmp_path / "notes.txt"
+    target.write_bytes(b"previous")
+    neighbour.write_bytes(b"mine")
+
+    with pytest.raises(IMGWError) as error:
+        export_series(hydro_year, station=STATION, output=target, variables=["H"])
+
+    assert error.value.code == "conflict"
+    assert error.value.details == {"reason": "output_exists", "paths": [str(target)]}
+    assert target.read_bytes() == b"previous"
+
+    report = export_series(
+        hydro_year, station=STATION, output=target, variables=["H"], force=True
+    )
+
+    assert [file.status for file in report.files] == ["replaced"]
+    assert target.read_bytes().startswith(b"date,year,H [cm]")
+    assert neighbour.read_bytes() == b"mine"
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "notes.txt",
+        "out.csv",
+        "store",
+    ]
+
+
+def test_force_without_output_has_nothing_to_replace(hydro_year):
+    with pytest.raises(IMGWValidationError) as error:
+        export_series(hydro_year, station=STATION, force=True)
+
+    assert error.value.details == {"option": "output"}
 
 
 def test_empty_series_is_rejected(hydro_year, tmp_path, monkeypatch):
     monkeypatch.setattr(export_module, "read_series", lambda *args, **kwargs: iter(()))
     with pytest.raises(IMGWDataError, match="is empty"):
         export_series(
-            hydro_year, station=STATION, path=tmp_path / "out.csv", variables=["H"]
+            hydro_year, station=STATION, output=tmp_path / "out.csv", variables=["H"]
         )
     assert not (tmp_path / "out.csv").exists()
 
@@ -342,8 +385,8 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
     hydro_year, tmp_path, monkeypatch
 ):
     target = export_series(
-        hydro_year, station=STATION, path=tmp_path / "out.csv", variables=["H"]
-    )
+        hydro_year, station=STATION, output=tmp_path / "out.csv", variables=["H"]
+    ).output
     before = target.read_bytes()
 
     calls = []
@@ -357,7 +400,8 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
             export_series(
                 hydro_year,
                 station=STATION,
-                path=target,
+                output=target,
+                force=True,
                 variables=["H", "Q"],
                 cancel=cancel,
             )
@@ -368,9 +412,15 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
     def broken_replace(source, destination):
         raise OSError("dysk pełny")
 
-    monkeypatch.setattr(export_module.os, "replace", broken_replace)
+    monkeypatch.setattr(os, "replace", broken_replace)
     with pytest.raises(OSError, match="dysk"):
-        export_series(hydro_year, station=STATION, path=target, variables=["H", "Q"])
+        export_series(
+            hydro_year,
+            station=STATION,
+            output=target,
+            force=True,
+            variables=["H", "Q"],
+        )
     assert target.read_bytes() == before
     assert sorted(path.name for path in tmp_path.iterdir()) == ["out.csv", "store"]
 
@@ -379,14 +429,14 @@ def test_exported_file_mode_follows_umask(hydro_year, tmp_path):
     previous = os.umask(0o022)
     try:
         target = export_series(
-            hydro_year, station=STATION, path=tmp_path / "out.csv", variables=["H"]
-        )
+            hydro_year, station=STATION, output=tmp_path / "out.csv", variables=["H"]
+        ).output
     finally:
         os.umask(previous)
     assert stat.S_IMODE(target.stat().st_mode) == 0o644
 
 
-def test_lines_without_path_equal_the_written_file_and_terms_come_first(
+def test_lines_without_output_equal_the_written_file_and_terms_come_first(
     hydro_year, tmp_path
 ):
     events = []
@@ -397,8 +447,8 @@ def test_lines_without_path_equal_the_written_file_and_terms_come_first(
     )
     assert events == ["license_terms"]
     text = "".join(lines)
-    target = export_series(hydro_year, station=STATION, path=tmp_path / "out.csv")
-    assert text.encode("utf-8") == target.read_bytes()
+    target = export_series(hydro_year, station=STATION, output=tmp_path / "out.csv")
+    assert text.encode("utf-8") == target.output.read_bytes()
     assert text.startswith("date,year,H [cm],H_flag,Q [m3/s],Q_flag,T [degC]")
     assert text.count("\r\n") == 367 and "\n" not in text.replace("\r\n", "")
 
@@ -470,12 +520,13 @@ def test_empty_range_is_a_data_error(root):
     assert error.value.code == "data_error"
 
 
-def test_target_inside_a_store_is_rejected_without_writing(hydro_year, root):
+def test_an_output_in_a_store_is_a_conflict_without_writing(hydro_year, root):
     target = root / "export.csv"
-    with pytest.raises(IMGWValidationError, match="outside the IMGW store") as error:
-        export_series(hydro_year, station=STATION, path=target)
-    assert error.value.details["option"] == "path"
-    assert not target.exists()
+    with pytest.raises(IMGWError) as error:
+        export_series(hydro_year, station=STATION, output=target)
+    assert error.value.code == "conflict"
+    assert error.value.details == {"reason": "output_in_store", "paths": [str(target)]}
+    assert not target.exists() and not (root / ".imgw-incoming").exists()
 
 
 def test_cancel_while_iterating_raises_cancelled(hydro_year):

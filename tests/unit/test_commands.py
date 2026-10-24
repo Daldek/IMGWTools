@@ -22,7 +22,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.datasets import archive_files, datasets
-from imgwtools.exceptions import IMGWCancelledError, IMGWValidationError
+from imgwtools.exceptions import IMGWCancelledError, IMGWError, IMGWValidationError
 from imgwtools.project import add_project_task, download_project, init_project
 from imgwtools.store.types import (
     CatalogReport,
@@ -170,7 +170,8 @@ VALID: dict[str, list[dict[str, object]]] = {
             "version": "archives/versions/a/codz_2024/v/codz_2024.zip",
             "root": ROOT,
             "format": "jsonl",
-            "path": "/tmp/codz.jsonl",
+            "output": "/tmp/codz.jsonl",
+            "force": True,
         }
     ],
     "series build": [{"root": ROOT, "dataset": DAILY}],
@@ -207,7 +208,8 @@ VALID: dict[str, list[dict[str, object]]] = {
             "station": RABA,
             "year_type": "hydrological",
             "format": "csv",
-            "path": "/tmp/eksport.csv",
+            "output": "/tmp/eksport.csv",
+            "force": True,
         }
     ],
     "project init": [{"project_dir": "/tmp/proj", "store_dir": "../store"}],
@@ -243,7 +245,10 @@ VALID: dict[str, list[dict[str, object]]] = {
     "project verify": [{"project_dir": "/tmp/proj", "tasks": ["a"]}],
     "commands list": [{}, {"lang": "en"}],
     "commands schema": [{}, {"command": "stations find"}],
-    "commands guide": [{}, {"format": "llms", "lang": "en", "path": "/tmp/llms.txt"}],
+    "commands guide": [
+        {},
+        {"format": "llms", "lang": "en", "output": "/tmp/llms.txt", "force": True},
+    ],
 }
 SAMPLES = [(command, options) for command, cases in VALID.items() for options in cases]
 # Invalid options rejected by validate_command and command_schema alike, with the
@@ -304,6 +309,7 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
     "store export": [
         ({"version": "/v", "format": "parquet"}, "format"),
         ({"root": ROOT}, "version"),
+        ({"version": "/v", "force": True}, "output"),
     ],
     "series build": [({"root": ROOT, "dataset": "pl.imgw.hydro_stations"}, "dataset")],
     "series select": [
@@ -320,7 +326,11 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
     ],
     "series summary": [({"root": ROOT}, "version")],
     "series export": [
-        ({"root": ROOT, "dataset": DAILY, "station": RABA, "format": "jsonl"}, "format")
+        (
+            {"root": ROOT, "dataset": DAILY, "station": RABA, "format": "jsonl"},
+            "format",
+        ),
+        ({"root": ROOT, "dataset": DAILY, "station": RABA, "force": True}, "output"),
     ],
     "project init": [({"project_dir": "/tmp/p"}, "store_dir")],
     "project add": [
@@ -482,7 +492,6 @@ def test_each_option_name_has_one_type_and_each_short_alias_one_meaning():
         "-y": {"years"},
         "-m": {"months"},
         "-o": {"output_dir"},
-        "-p": {"path"},
         "-f": {"format"},
         "--lat": {"latitude"},
         "--lon": {"longitude"},
@@ -730,25 +739,51 @@ def test_validate_command_rejects_invalid_options_naming_the_option(
     assert error.value.details["option"] == option
 
 
-def test_export_path_inside_a_store_is_rejected_offline(fixture_root):
+def test_an_output_in_a_store_passes_validation_so_that_the_plan_can_list_the_conflict(
+    fixture_root,
+):
+    version = store.current_version(
+        fixture_root, slot="archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
+    ).version
+    target = fixture_root / "x.csv"
+
+    options = validate_command(
+        "store export", options={"version": version, "output": target}
+    )
+    plan = check_command("store export", options=options)
+
+    assert options["output"] == target
+    assert (plan.status, plan.result.actions[0].action) == ("ok", "conflict")
+    assert plan.result.actions[0].reason == "output_in_store"
+    with pytest.raises(IMGWError) as error:
+        run_command("store export", options=options)
+    assert (error.value.code, error.value.details["reason"]) == (
+        "conflict",
+        "output_in_store",
+    )
+    assert not target.exists()
+
+
+def test_an_output_that_is_a_directory_is_rejected_offline(fixture_root, tmp_path):
     version = store.current_version(
         fixture_root, slot="archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
     ).version
     for command, options in (
-        ("store export", {"version": version, "path": fixture_root / "x.csv"}),
+        ("store export", {"version": version, "output": tmp_path}),
         (
             "series export",
             {
                 "root": fixture_root,
                 "dataset": DAILY,
                 "station": RABA,
-                "path": fixture_root / "series" / "x.csv",
+                "output": tmp_path,
             },
         ),
+        ("commands guide", {"output": tmp_path}),
     ):
         with pytest.raises(IMGWValidationError) as error:
             validate_command(command, options=options)
-        assert error.value.details["option"] == "path"
+        assert error.value.details["option"] == "output"
 
 
 def test_list_commands_page_after_counting_the_function_items(fixture_root):
@@ -1047,7 +1082,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
         },
         "store sync": {"root": root, "datasets": DAILY, "years": 2024},
         "store catalog": {"root": root},
-        "store export": {"version": version, "path": tmp_path / "archive.csv"},
+        "store export": {"version": version, "output": tmp_path / "archive.csv"},
         "series build": {"root": root, "dataset": DAILY},
         "series select": {"root": root, "dataset": DAILY, "stations": RABA},
         "series read": {"root": root, "dataset": DAILY, "station": RABA},
@@ -1056,7 +1091,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
             "root": root,
             "dataset": DAILY,
             "station": RABA,
-            "path": tmp_path / "series.csv",
+            "output": tmp_path / "series.csv",
         },
         "project init": {"project_dir": tmp_path / "other", "store_dir": root},
         "project add": {
@@ -1073,7 +1108,7 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
         "project verify": {"project_dir": project},
         "commands list": {"lang": "en"},
         "commands schema": {"command": "store sync"},
-        "commands guide": {"format": "llms", "path": tmp_path / "llms.txt"},
+        "commands guide": {"format": "llms", "output": tmp_path / "llms.txt"},
     }
     assert list(options) == SPEC_COMMANDS
     untouched = stamps(tmp_path)
@@ -1139,6 +1174,50 @@ def test_check_of_datasets_download_plans_each_target_as_write_replace_or_confli
     assert document[0]["path"] == str(target(files[0]))
     assert document[0]["reason"] == "output_exists"
     assert not (output / ".imgw-incoming").exists()
+
+
+def test_check_of_an_export_plans_its_one_file_as_write_replace_or_conflict(
+    tmp_path, fixture_root
+):
+    version = store.current_version(
+        fixture_root, slot="archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
+    ).version
+    new, existing, inside = (
+        tmp_path / "new.csv",
+        tmp_path / "old.csv",
+        fixture_root / "x.csv",
+    )
+    existing.write_text("old", encoding="utf-8")
+
+    def plan(output, **more):
+        options = {"version": version, "output": output, **more}
+        outcome = check_command("store export", options=options)
+        assert outcome.status == "ok"
+        return [(a.action, a.reason, a.status, a.path) for a in outcome.result.actions]
+
+    assert plan(new) == [("write", None, "missing", new)]
+    assert plan(existing) == [("conflict", "output_exists", "unverifiable", existing)]
+    assert plan(existing, force=True) == [("replace", None, "unverifiable", existing)]
+    assert plan(inside) == [("conflict", "output_in_store", "unverifiable", inside)]
+    detail = (
+        check_command("store export", options={"version": version, "output": new})
+        .result.actions[0]
+        .detail
+    )
+    assert detail == f"Write the export of the records of {version} (csv) to {new}"
+    series = check_command(
+        "series export",
+        options={
+            "root": fixture_root,
+            "dataset": DAILY,
+            "station": RABA,
+            "output": new,
+        },
+    )
+    assert [(a.action, a.path) for a in series.result.actions] == [("write", new)]
+    assert existing.read_text(encoding="utf-8") == "old"
+    assert not new.exists() and not inside.exists()
+    assert not (tmp_path / ".imgw-incoming").exists()
 
 
 def test_check_of_datasets_download_into_the_store_says_what_it_holds(

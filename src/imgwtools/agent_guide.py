@@ -40,6 +40,7 @@ from imgwtools.commands import (
 )
 from imgwtools.datasets import datasets, providers
 from imgwtools.messages import Lang, message
+from imgwtools.output import OutputReport
 from imgwtools.store.export import _deliver, _Lines, _target
 from imgwtools.store.types import PathArg
 
@@ -609,22 +610,31 @@ def _template(format: GuideFormat, lang: Lang) -> str:
 
 @overload
 def agent_guide(
-    *, format: GuideFormat = "agents", lang: Lang = "en", path: None = None
+    *,
+    format: GuideFormat = "agents",
+    lang: Lang = "en",
+    output: None = None,
+    force: bool = False,
 ) -> Iterator[str]: ...
 
 
 @overload
 def agent_guide(
-    *, format: GuideFormat = "agents", lang: Lang = "en", path: PathArg
-) -> Path: ...
+    *,
+    format: GuideFormat = "agents",
+    lang: Lang = "en",
+    output: PathArg,
+    force: bool = False,
+) -> OutputReport: ...
 
 
 def agent_guide(
     *,
     format: GuideFormat = "agents",
     lang: Lang = "en",
-    path: PathArg | None = None,
-) -> Iterator[str] | Path:
+    output: PathArg | None = None,
+    force: bool = False,
+) -> Iterator[str] | OutputReport:
     """
     Generate the guide for AI agents from the command catalog and the registries.
 
@@ -644,35 +654,45 @@ def agent_guide(
     lang : {"en", "pl"}, optional
         Language of the guide and of the catalog texts in it (English by
         default); identifiers, codes and keys are the same in both.
-    path : str, os.PathLike or None, optional
-        Target file in an existing directory outside every IMGW store,
-        replaced atomically through a hidden ``.part`` file. ``None``
-        (default) returns the lines instead, byte-identical to the file.
+    output : str, os.PathLike or None, optional
+        The one plain file to write (DEV-19.1): its directory is created when
+        missing, the guide goes through ``<dir>/.imgw-incoming/`` and the file
+        is moved into place with ``os.replace``. ``None`` (default) returns the
+        lines instead, byte-identical to the file.
+    force : bool, optional
+        Replace an existing ``output`` file; without it an existing file is a
+        ``conflict``. Needs ``output``.
 
     Returns
     -------
-    Iterator of str or pathlib.Path
-        Lines of UTF-8 markdown, each ending with a newline, without ``path``; the
-        absolute path of the written file with ``path``.
+    Iterator of str or OutputReport
+        Lines of UTF-8 markdown, each ending with a newline, without
+        ``output``; with ``output`` the written file as ``output`` and
+        ``files[]``.
 
     Raises
     ------
     IMGWValidationError
-        If ``format`` or ``lang`` is not allowed, or ``path`` is a directory,
-        lies in a missing directory or inside an IMGW store
-        (``details.option`` names the option).
+        If ``format`` or ``lang`` is not allowed, ``output`` is a directory
+        or ``force`` is given without ``output`` (``details.option`` names the
+        option).
+    IMGWError
+        Code ``conflict``: ``output`` exists and ``force`` is not given
+        (``details.reason="output_exists"``) or lies in a store of any tool
+        (``"output_in_store"``).
     """
     options = validate_command(
-        "commands guide", options={"format": format, "lang": lang, "path": path}
+        "commands guide",
+        options={"format": format, "lang": lang, "output": output, "force": force},
     )
     guide = cast(GuideFormat, options["format"])
     language = cast(Lang, options["lang"])
-    target = None if path is None else _target(cast(Path, options["path"]))
+    target = _target(cast("Path | None", options.get("output")), force=force)
     lines = _render(_template(guide, language), _blocks(language))
     if target is None:
         return iter(lines)
     written = _Lines((), lines, total=None, label="", on_progress=None, cancel=None)
-    return cast(Path, _deliver(written, target=target, cancel=None, done=""))
+    return cast(OutputReport, _deliver(written, target=target, cancel=None, done=""))
 
 
 def _instructions(

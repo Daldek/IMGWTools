@@ -1,5 +1,6 @@
 """Guide for AI agents (spec 2026-10-19 §5, §9): AGENTS.md, llms.txt, commands guide."""
 
+import hashlib
 import json
 import re
 import shlex
@@ -28,7 +29,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.datasets import datasets, providers
-from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
+from imgwtools.exceptions import ERROR_CODES, IMGWError, IMGWValidationError
 from imgwtools.messages import Lang, message
 from tests.unit.test_commands import parse
 
@@ -83,7 +84,7 @@ def test_repository_guides_are_the_bytes_of_the_generator(name, format):
 
     assert (REPOSITORY / name).read_bytes() == expected, (
         f"{name} differs from the generator; regenerate it: imgw commands guide "
-        f"--format {format} --path {name}"
+        f"--format {format} --output {name} --force"
     )
 
 
@@ -291,11 +292,13 @@ def test_rest_guide_follows_accept_language_as_agents_md():
 
 
 @pytest.mark.parametrize("existing", [False, True], ids=["new", "existing"])
-def test_path_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
+def test_output_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
     target = tmp_path / "AGENTS.md"
     if existing:
         target.write_text("stara treść\n", encoding="utf-8")
-    args = ["commands", "guide", "--lang", "en", "--path", str(target)]
+    args = ["commands", "guide", "--lang", "en", "--output", str(target)]
+    if existing:
+        args.append("--force")
 
     planned = RUNNER.invoke(cli_app, [*args, "--check"])
     untouched = target.read_bytes() if existing else target.exists()
@@ -303,22 +306,63 @@ def test_path_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
 
     plan = json.loads(planned.stdout)
     assert (plan["check"], plan["status"]) == (True, "ok")
-    replaced = " (an existing file is replaced)" if existing else ""
-    assert plan["result"]["actions"] == [
-        {
-            "command": "commands guide",
-            "status": "current",
-            "detail": f"Guide agents (en) → {target}{replaced}",
-        }
-    ]
+    [action] = plan["result"]["actions"]
+    assert (action["action"], action["path"], action["status"]) == (
+        ("replace", str(target), "unverifiable")
+        if existing
+        else ("write", str(target), "missing")
+    )
+    assert action["detail"] == (
+        f"Write the guide agents (en) to {target}"
+        + (", replacing the existing file" if existing else "")
+    )
     assert untouched == ("stara treść\n".encode() if existing else False)
+    guide = text("agents", "en").encode("utf-8")
     envelope = json.loads(written.stdout)
-    assert (envelope["status"], envelope["result"]) == ("ok", str(target))
-    assert target.read_bytes() == text("agents", "en").encode("utf-8")
-    assert [path.name for path in tmp_path.iterdir()] == ["AGENTS.md"]  # no .part
+    assert (envelope["status"], envelope["result"]) == (
+        "ok",
+        {
+            "output": str(target),
+            "files": [
+                {
+                    "path": str(target),
+                    "size_bytes": len(guide),
+                    "sha256": hashlib.sha256(guide).hexdigest(),
+                    "status": "replaced" if existing else "written",
+                }
+            ],
+        },
+    )
+    assert target.read_bytes() == guide
+    assert [path.name for path in tmp_path.iterdir()] == ["AGENTS.md"]  # no staging
 
 
-def test_guide_without_path_plans_the_standard_output():
+def test_an_existing_guide_file_is_a_conflict_the_plan_reports_and_the_run_refuses(
+    tmp_path,
+):
+    target = tmp_path / "AGENTS.md"
+    target.write_text("stara treść\n", encoding="utf-8")
+    args = ["commands", "guide", "--lang", "en", "--output", str(target)]
+
+    planned = RUNNER.invoke(cli_app, [*args, "--check"])
+    refused = RUNNER.invoke(cli_app, args)
+
+    [action] = json.loads(planned.stdout)["result"]["actions"]
+    assert (planned.exit_code, action["action"], action["reason"]) == (
+        0,
+        "conflict",
+        "output_exists",
+    )
+    assert refused.exit_code == 4
+    error = json.loads(refused.stderr.strip().splitlines()[-1])
+    assert (error["code"], error["details"]) == (
+        "conflict",
+        {"reason": "output_exists", "paths": [str(target)]},
+    )
+    assert target.read_text(encoding="utf-8") == "stara treść\n"
+
+
+def test_guide_without_output_plans_the_standard_output():
     plan = check_command("commands guide", options={"format": "llms"}).result
 
     assert [(action.status, action.detail) for action in plan.actions] == [
@@ -326,15 +370,35 @@ def test_guide_without_path_plans_the_standard_output():
     ]
 
 
-def test_path_in_a_store_a_missing_directory_or_a_directory_is_refused(tmp_path):
+def test_the_guide_goes_outside_every_store_and_into_a_file_that_is_no_directory(
+    tmp_path,
+):
     store = init_store(tmp_path / "magazyn").root
     before = sorted(store.rglob("*"))
 
-    for path in (store / "AGENTS.md", tmp_path / "brak" / "AGENTS.md", tmp_path):
-        with pytest.raises(IMGWValidationError) as error:
-            agent_guide(path=path)
-        assert error.value.details["option"] == "path"
+    with pytest.raises(IMGWError) as error:
+        agent_guide(output=store / "AGENTS.md")
+    assert (error.value.code, error.value.details["reason"]) == (
+        "conflict",
+        "output_in_store",
+    )
+    with pytest.raises(IMGWValidationError) as error:
+        agent_guide(output=tmp_path)
+    assert error.value.details["option"] == "output"
     assert sorted(store.rglob("*")) == before
+
+    report = agent_guide(output=tmp_path / "brak" / "AGENTS.md")  # created
+    assert report.output.is_file()
+
+
+def test_force_without_output_is_refused_by_the_catalog_and_the_function():
+    for call in (
+        lambda: agent_guide(force=True),
+        lambda: validate_command("commands guide", options={"force": True}),
+    ):
+        with pytest.raises(IMGWValidationError) as error:
+            call()
+        assert error.value.details["option"] == "output"
 
 
 @pytest.mark.parametrize(

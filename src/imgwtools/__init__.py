@@ -130,7 +130,7 @@ from imgwtools.models import (
 )
 
 # Plain output
-from imgwtools.output import FileResult
+from imgwtools.output import FileResult, OutputReport
 
 # Parsers
 from imgwtools.parsers import (
@@ -303,6 +303,7 @@ __all__ = [
     "DownloadItem",
     "DownloadReport",
     "FileResult",
+    "OutputReport",
     # Station functions
     "find_stations",
     "find_stations_async",

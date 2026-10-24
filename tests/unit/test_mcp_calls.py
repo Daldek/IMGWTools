@@ -142,11 +142,11 @@ async def test_a_writing_command_returns_its_plan_and_leaves_the_store(
         ("imgw_store_check", {**SYNC, "plan": "plan.json"}, "plan"),
         (
             "imgw_series_export",
-            {"dataset": DAILY, "station": "149190310", "path": "x.csv"},
-            "path",
+            {"dataset": DAILY, "station": "149190310", "output": "x.csv"},
+            "output",
         ),
     ],
-    ids=["check-false", "store-check-plan", "export-path"],
+    ids=["check-false", "store-check-plan", "export-output"],
 )
 async def test_a_server_without_writes_forbids_every_write(
     tool, arguments, option, root, imgw, tmp_path, monkeypatch

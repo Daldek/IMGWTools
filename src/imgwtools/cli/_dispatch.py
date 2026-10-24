@@ -10,7 +10,7 @@ of Python and REST. ``--schema`` prints the command schema envelope of
 ``imgw commands schema --command …`` instead of running the command.
 
 stdout carries one ``imgw-result/1`` envelope (only the data lines of a stream
-without ``--path``); stderr carries progress, every distinct notice once and,
+without ``--output``); stderr carries progress, every distinct notice once and,
 on an error, the JSON error line ``{"code", "detail", "details"}`` as its last
 line. Exit codes follow the error registry and the envelope status (spec
 §13.5). The first Ctrl+C requests cancellation, the second aborts at once.

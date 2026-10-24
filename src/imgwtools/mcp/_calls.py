@@ -20,7 +20,7 @@ parameters, POST with a JSON body and always ``?check=true``, in English
 
 An envelope ``imgw-result/1`` is ``structuredContent`` and, as compact JSON,
 the only text content (the CLI stdout line without its line end); a stream
-(``store export``, ``series export``, ``commands guide`` without ``path``) is its
+(``store export``, ``series export``, ``commands guide`` without ``output``) is its
 text, at most 256 KiB, with an envelope whose result is ``{format, bytes,
 lines}``. An error is ``isError`` with ``{code, title, detail, details}``:
 ``code``, ``detail`` and ``details`` as in the CLI error line, ``title`` from the
@@ -217,12 +217,17 @@ def _confine(
     """
     Keep the paths of a call inside the ``--allow-dir`` directories (DEV-19.3).
 
-    Without a directory a writing command may only plan; with directories every
-    path option, the default root included, must lie inside one of them.
+    Without a directory a writing command, or a command given a writing option
+    (``output`` of an export), may only plan; with directories every path
+    option, the default root included, must lie inside one of them.
     """
     spec = tool.command
     if not allow_dirs:
-        if not check and spec.writes != "none":
+        writes = spec.writes != "none" or any(
+            option.writes != "none" and option.name in normalized
+            for option in spec.options
+        )
+        if not check and writes:
             raise IMGWError(
                 message("mcp.write_needs_allow_dir", name=spec.name),
                 code="forbidden",

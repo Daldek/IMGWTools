@@ -515,8 +515,8 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
 
     # CSV: one header row with units, both formulas once, every day of the series.
     target = export_series(
-        series.version, station=RABA, path=tmp_path / "raba.csv", variables=["H", "Q"]
-    )
+        series.version, station=RABA, output=tmp_path / "raba.csv", variables=["H", "Q"]
+    ).output
     with target.open(encoding="utf-8", newline="") as handle:
         table = list(csv.DictReader(handle))
     assert list(table[0]) == [
@@ -654,7 +654,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
         export_series(
             series.version,
             station=RABA,
-            path=target,
+            output=target,
             variables=["H"],
             cancel=lambda: True,
         )

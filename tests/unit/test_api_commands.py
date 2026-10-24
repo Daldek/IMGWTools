@@ -936,9 +936,16 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
         (
             "GET",
             "store export",
-            {"version": "archives/versions/x", "path": "/tmp/x.csv"},
+            {"version": "archives/versions/x", "output": "/tmp/x.csv"},
             None,
-            "path",
+            "output",
+        ),
+        (
+            "GET",
+            "store export",
+            {"version": "archives/versions/x", "force": "true"},
+            None,
+            "force",
         ),
         (
             "GET",

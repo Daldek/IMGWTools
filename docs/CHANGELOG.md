@@ -197,6 +197,33 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   from the sidecar, statuses `new`, `unchanged`, `relabeled`; `written` and `replaced` for plain
   files); `imgwtools.FileResult` is exported. The plain `--check` plan of both commands is
   `write`, `replace` or `conflict` per target.
+- **Breaking — the exports write one plain file with `--output` (DEV-19.1, DEV-19.5 to DEV-19.11,
+  DEV-19.19, ADR-007 D1, D3, D7):** `export_archive`, `export_series` and `agent_guide` (the
+  commands `store export`, `series export` and `commands guide`) take `output` and `force` instead of
+  `path`; the CLI `--path` and `-p` are gone without an alias (`--output` has no short form).
+  Without `output` they still return the lines (stdout, REST attachment, MCP text). With it the one
+  target is checked before anything is read for it: an existing file without `--force` is
+  `conflict` (`details.reason="output_exists"`), a file in a store of IMGWTools or Kartograf
+  `conflict` (`output_in_store`; it was a `validation_error` rule of the catalog, and the hint says
+  to choose a file outside every store, because an export has no store mode), `details.paths`
+  names the file; a directory is `validation_error` (`details.option="output"`); a missing
+  directory is created. The lines stream through `<dir>/.imgw-incoming/<host>_<pid>_<token>/`
+  (the directory that holds the file), are hashed while they are written and the file moves
+  into place with `os.replace`, so no `.part` file is left and an interrupted export leaves
+  the target as it was. The result is the new `imgwtools.OutputReport` (`output`, `files[]` of
+  `{path, size_bytes, sha256, status}` with `written` or `replaced`); the envelope `result` is
+  that object where it was the path string. `force` needs `output` (`validation_error`,
+  `details.option="output"`, `dependentRequired` in the schema). `--check` plans the file as
+  `write`, `replace` (with `--force`) or `conflict` (a plan with a conflict is `ok`, only the run
+  fails). The schema marks `output` `x-imgw-writes: add` and `force` `replace`
+  (`x-imgw-path-role: output` for the file); both are local options, so REST takes neither. An
+  MCP server writes `output` only inside `--allow-dir` (`forbidden`, `outside_allowed_dirs`) and
+  not at all without a directory (`no_allowed_dir`; it was possible for an export file and
+  for the `plan` file of `store check`). `AGENTS.md` and `llms.txt` are regenerated with
+  `imgw commands guide --format agents --output AGENTS.md --force`; two sentences of the guide
+  that repeated other lines were dropped to keep it within 16 KiB. Migration: `path=` →
+  `output=` (plus `force=True` to replace a file), `--path F` → `--output F`, the returned
+  `Path` → `report.output`, the envelope `result` `"<path>"` → `{"output", "files"}`.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of
