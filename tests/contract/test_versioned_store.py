@@ -15,6 +15,7 @@ import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from imgwtools import (
     IMGWDataError,
     IMGWStoreError,
     StorePlan,
+    __version__,
     add_project_task,
     archive_files,
     build_catalog,
@@ -228,6 +230,89 @@ def test_fixture_store_files_conform_to_section_11_and_checksum_chains(fixture_r
                 f["id"] == f["properties"]["station_code"] for f in document["features"]
             )
             assert any(f["geometry"] is None for f in document["features"])
+
+
+# DEV-19.16: the fields every sidecar of a Nogat tool has, with the same meaning
+# (a reader of several stores reads them through these names). ``dataset_key`` is
+# not stored: the read API (``Meta.dataset_key``) returns it.
+CORE_FIELDS = (
+    "schema",
+    "producer",
+    "producer_version",
+    "dataset",
+    "country",
+    "provider",
+    "size_bytes",
+    "sha256",
+    "downloaded_at",
+    "license",
+    "request",
+    "extra",
+)
+KINDS = {
+    "archives": "archive",
+    "series": "series",
+    "stations": "catalog",
+    "pmaxtp": "pmaxtp",
+}
+
+
+@pytest.fixture(scope="module")
+def pl_cz_root(tmp_path_factory):
+    """``complete_pl_cz`` (IMGW-PIB and ČHMÚ), read-only: tests that write copy it."""
+    store = tmp_path_factory.mktemp("sidecar_core") / "store"
+    return build_fixture_store(store, variant="complete_pl_cz").root
+
+
+def test_every_kind_of_version_has_the_sidecar_core_of_dev_19_16(
+    tmp_path, pl_cz_root, imgw
+):
+    root = tmp_path / "store"
+    shutil.copytree(pl_cz_root, root)
+    imgw.publish_pmaxtp("pmaxtp_pot_first")
+    sync_pmaxtp(root, method="POT", latitude=52.23, longitude=21.01)
+
+    seen = set()
+    for sidecar in sorted(root.rglob("*.meta.json")):
+        main = sidecar.with_name(sidecar.name.removesuffix(".meta.json"))
+        document = load(sidecar)
+        where = sidecar.relative_to(root).as_posix()
+        seen.add((KINDS[sidecar.relative_to(root).parts[0]], document["provider"]))
+
+        assert set(CORE_FIELDS) <= set(document), where
+        assert document["schema"] == "imgw-meta/1", where
+        # producer: the import name of the package that wrote the file
+        assert document["producer"] == "imgwtools", where
+        assert document["producer_version"] == __version__, where
+        # dataset: <scope>.<provider>.<name> as written; country: capitals, the scope
+        scope, key_provider, name = document["dataset"].split(".")
+        assert re.fullmatch(r"[A-Z]{2}", document["country"]), where
+        assert scope == document["country"].lower(), where
+        assert key_provider and name, where
+        assert document["provider"] in ("IMGW-PIB", "CHMI"), where
+        # size_bytes and sha256 of the main file
+        assert document["size_bytes"] == main.stat().st_size, where
+        assert re.fullmatch(r"[0-9a-f]{64}", document["sha256"]), where
+        assert document["sha256"] == sha256(main), where
+        # downloaded_at: UTC, ISO 8601 with an offset
+        stamped = datetime.fromisoformat(document["downloaded_at"])
+        assert stamped.utcoffset() == timedelta(0), where
+        # license: {id, attribution, url}
+        terms = document["license"]
+        assert {"id", "attribution", "url"} <= set(terms), where
+        assert all(terms[key] and isinstance(terms[key], str) for key in terms), where
+        assert terms["url"].startswith("https://"), where
+        # request and extra: objects in the tool's own keys
+        assert isinstance(document["request"], dict), where
+        assert isinstance(document["extra"], dict), where
+        # dataset_key: the read API returns the current key of the dataset
+        assert read_meta(main).dataset_key == document["dataset"], where
+
+    assert seen == {
+        (kind, provider)
+        for kind in ("archive", "series", "catalog")
+        for provider in ("IMGW-PIB", "CHMI")
+    } | {("pmaxtp", "IMGW-PIB")}
 
 
 def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root, imgw):
