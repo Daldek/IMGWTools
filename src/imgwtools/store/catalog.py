@@ -83,6 +83,7 @@ from imgwtools.store.writer import (
     _write_json,
     lenient_store,
     prepare_store,
+    version_file,
     write_archive,
 )
 from imgwtools.urls import IMGW_API_URL
@@ -1924,6 +1925,7 @@ class _Build:
                 from_series,
                 tuple(problems),
                 provider.id,
+                (version_file(current[0], "unchanged"),),
             )
         now = datetime.now(UTC)
         label = now.date().isoformat()
@@ -1971,7 +1973,14 @@ class _Build:
                 )
             )
         return CatalogReport(
-            status, path, count, without, from_series, tuple(problems), provider.id
+            status,
+            path,
+            count,
+            without,
+            from_series,
+            tuple(problems),
+            provider.id,
+            (version_file(path, status),),
         )
 
 

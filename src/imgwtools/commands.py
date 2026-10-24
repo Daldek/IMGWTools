@@ -22,7 +22,7 @@ import math
 import os
 import re
 import shlex
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -56,10 +56,10 @@ from imgwtools.exceptions import (
     IMGWValidationError,
 )
 from imgwtools.messages import LANGS, Lang, localize, message, reason
-from imgwtools.output import plan_plain
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
 from imgwtools.store import writer as _writer
+from imgwtools.store.plain import plain_actions
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -811,11 +811,21 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     _command(
         "pmaxtp sync",
         message("commands.pmaxtp_sync_description"),
-        (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
+        (
+            _ROOT,
+            _OUTPUT_DIR,
+            _FORCE,
+            _LATITUDE,
+            _LONGITUDE,
+            _METHOD,
+            _IND_X,
+            _IND_Y,
+        ),
         function="sync_pmaxtp",
         check="check_pmaxtp",
         method="POST",
         requires=_CELL_PAIR,
+        exclusive=_TARGETS,
         result_type="PMaXTPStoreResult",
         writes="add",
         network=True,
@@ -852,6 +862,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.store_init_description"),
         (_ROOT,),
         function="init_store",
+        store_only=True,
         check="check_command",
         result_type="StoreHandle",
         writes="add",
@@ -919,6 +930,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.store_sync_description"),
         (
             _ROOT,
+            _OUTPUT_DIR,
+            _FORCE,
             _option(
                 "plan",
                 "path",
@@ -935,12 +948,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
                 "bool",
                 message("commands.store_sync_series_help"),
                 default=True,
+                store_only=True,
             ),
         ),
         function="sync_store",
         check="check_store",
         method="POST",
         one_of=(("plan",), ("datasets",)),
+        exclusive=_TARGETS,
         result_type="SyncReport",
         rules=(
             message("commands.store_sync_rule_1"),
@@ -967,6 +982,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
         ),
         function="build_catalog",
+        store_only=True,
         check="check_catalog",
         method="POST",
         result_type="CatalogReport",
@@ -1011,6 +1027,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.series_build_description"),
         (_ROOT, replace(_SERIES_DATASET, required=True)),
         function="build_series",
+        store_only=True,
         check="check_series",
         method="POST",
         result_type="SeriesReport",
@@ -1114,6 +1131,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.project_init_description"),
         (_PROJECT_DIR, _STORE_DIR),
         function="init_project",
+        store_only=True,
         check="check_command",
         result_type="Project",
         writes="add",
@@ -1148,6 +1166,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
         ),
         function="add_project_task",
+        store_only=True,
         check="check_command",
         result_type="Project",
         rules=(
@@ -1168,6 +1187,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
         ),
         function="remove_project_task",
+        store_only=True,
         check="check_command",
         result_type="Project",
         writes="replace",
@@ -1183,6 +1203,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
         ),
         function="set_project_store",
+        store_only=True,
         check="check_command",
         result_type="Project",
         writes="replace",
@@ -1210,6 +1231,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
         ),
         function="download_project",
+        store_only=True,
         check="check_project",
         result_type="ProjectReport",
         # Pins (and re-pins with update=upgrade) in the manifest; the store grows.
@@ -1221,6 +1243,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.project_check_description"),
         (_PROJECT_DIR, _TASKS, _PLAN_FILE),
         function="check_project",
+        store_only=True,
         result_type="StorePlan",
         # Listing and HEAD requests; the plan file is the effect of an option.
         network=True,
@@ -1230,6 +1253,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.project_status_description"),
         (_PROJECT_DIR, _TASKS),
         function="get_project_status",
+        store_only=True,
         result_type="ProjectReport",
     ),
     _command(
@@ -1237,6 +1261,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         message("commands.project_verify_description"),
         (_PROJECT_DIR, _TASKS),
         function="verify_project",
+        store_only=True,
         result_type="ProjectReport",
     ),
 )
@@ -1730,6 +1755,15 @@ def _rules_store_check(options: Options, task: bool) -> None:
 
 def _rules_store_sync(options: Options, task: bool) -> None:
     if "plan" not in options:
+        if "output_dir" in options:
+            # The plain selection needs the years of a station dataset, offline.
+            _sync._plain_archives(
+                options["datasets"],
+                options.get("years"),
+                options.get("months"),
+                options.get("stations"),
+            )
+            return
         _rules_store_check(options, task)
         return
     selectors = ("datasets", "years", "months", "stations")
@@ -2324,41 +2358,6 @@ def _check_datasets_files(options: Options, hooks: Hooks) -> StorePlan:
     )
 
 
-# Texts of the targets of a plain plan, by action or by the reason of a conflict.
-_PLAIN_TEXTS = {
-    "write": "commands.plain_write",
-    "replace": "commands.plain_replace",
-    "output_exists": "commands.plain_output_exists",
-    "duplicate_output_name": "commands.plain_duplicate_output_name",
-    "output_in_store": "commands.plain_output_in_store",
-}
-
-
-def _plain_actions(
-    command: str, directory: Path, targets: Sequence[tuple[str, str]], force: bool
-) -> list[PlanAction]:
-    """
-    Plan of a plain write: one action per target (DEV-19.10).
-
-    ``targets`` pairs the relative name of each target with what is written
-    there; a conflict is an action like any other, so the plan is a result.
-    """
-    entries = plan_plain(directory, [name for name, _ in targets], force=force)
-    return [
-        PlanAction(
-            command,
-            "missing" if entry.action == "write" else "unverifiable",
-            message(
-                _PLAIN_TEXTS[entry.reason or entry.action], what=what, target=entry.path
-            ),
-            action=entry.action,
-            path=entry.path,
-            reason=entry.reason,
-        )
-        for entry, (_, what) in zip(entries, targets, strict=True)
-    ]
-
-
 def _check_download(options: Options, hooks: Hooks) -> StorePlan:
     files = _archives(options)
     if "output_dir" in options:
@@ -2366,8 +2365,11 @@ def _check_download(options: Options, hooks: Hooks) -> StorePlan:
         targets = [(file.server_path, file.url) for file in files]
         return _plan(
             directory,
-            _plain_actions(
-                "datasets download", directory, targets, bool(options.get("force"))
+            plain_actions(
+                "datasets download",
+                directory,
+                targets,
+                force=bool(options.get("force")),
             ),
         )
     root = cast(Path, options["root"])
@@ -2541,6 +2543,23 @@ def _check_reading(command: str, key: str) -> Checker:
 
 
 def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
+    if "output_dir" in options:
+        directory = cast(Path, options["output_dir"])
+        archives = _sync._plain_archives(
+            options["datasets"],
+            options.get("years"),
+            options.get("months"),
+            options.get("stations"),
+        )
+        return _plan(
+            directory,
+            plain_actions(
+                "store sync",
+                directory,
+                [(archive.server_path, archive.url) for archive in archives],
+                force=bool(options.get("force")),
+            ),
+        )
     root = cast(Path, options["root"])
     if "plan" not in options:
         selection = ("root", "datasets", "years", "months", "stations")

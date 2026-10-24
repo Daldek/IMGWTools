@@ -17,7 +17,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
 from imgwtools.datasets import (
@@ -37,7 +37,7 @@ from imgwtools.exceptions import (
 )
 from imgwtools.fetch import DownloadResult
 from imgwtools.messages import message, reason
-from imgwtools.output import STORE_MARKERS, store_below
+from imgwtools.output import STORE_MARKERS, FileResult, store_below
 from imgwtools.store.content import CONTENT_FORMS, content_sha256
 from imgwtools.store.types import (
     Cancel,
@@ -134,6 +134,44 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def version_file(
+    path: Path, status: Literal["new", "unchanged", "relabeled"]
+) -> FileResult:
+    """
+    The ``files[]`` entry of a stored version (DEV-19.19).
+
+    The size and the SHA-256 are those the sidecar recorded when the file was
+    written, so nothing is read or hashed again.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Absolute path of the version's main file.
+    status : {"new", "unchanged", "relabeled"}
+        The version status of the result.
+
+    Returns
+    -------
+    FileResult
+        ``path``, ``size_bytes``, ``sha256`` and ``status``.
+
+    Raises
+    ------
+    IMGWDataError
+        If the sidecar lacks the size or the hash.
+    """
+    sidecar = path.with_name(f"{path.name}.meta.json")
+    try:
+        meta = json.loads(sidecar.read_text(encoding="utf-8"))
+        return FileResult(path, int(meta["size_bytes"]), str(meta["sha256"]), status)
+    except OSError as exc:
+        raise io_error(exc) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise IMGWDataError(
+            message("writer.sidecar_without_size_or_hash", sidecar=sidecar)
+        ) from exc
 
 
 def _link(source: Path, target: Path) -> None:

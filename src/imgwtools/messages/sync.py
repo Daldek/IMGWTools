@@ -108,4 +108,16 @@ MESSAGES = {
         "Connection error to {source}: {reason}",
         "Błąd połączenia z {source}: {reason}",
     ),
+    "plain_needs_years": Text(
+        "The datasets {keys} need the option years in plain mode: the store reads "
+        "the years from the server listing, a plain write does not",
+        "Zbiory {keys} wymagają w trybie plain opcji years: magazyn czyta lata z "
+        "listingu serwera, zwykły zapis go nie używa",
+    ),
+    "store_only_option": Text(
+        "The option {name} acts on versions of a store: it is valid only with "
+        "root, not with output_dir",
+        "Opcja {name} działa na wersjach magazynu: jest ważna tylko z root, nie z "
+        "output_dir",
+    ),
 }

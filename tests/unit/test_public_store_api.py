@@ -104,6 +104,7 @@ SPEC_TYPES = (
     "DownloadResult",
     "DownloadItem",
     "DownloadReport",
+    "FileResult",
     "StoreHandle",
     "StoreInfo",
     "VersionResult",

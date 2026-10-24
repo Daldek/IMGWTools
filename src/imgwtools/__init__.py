@@ -129,6 +129,9 @@ from imgwtools.models import (
     WarningData,
 )
 
+# Plain output
+from imgwtools.output import FileResult
+
 # Parsers
 from imgwtools.parsers import (
     IMGW_ENCODING,
@@ -299,6 +302,7 @@ __all__ = [
     "DownloadResult",
     "DownloadItem",
     "DownloadReport",
+    "FileResult",
     # Station functions
     "find_stations",
     "find_stations_async",

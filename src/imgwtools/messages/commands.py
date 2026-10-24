@@ -219,28 +219,6 @@ MESSAGES = {
         "Command list imgw-command-list/1 (offline)",
         "Spis komend imgw-command-list/1 (offline)",
     ),
-    "plain_write": Text(
-        "Write {what} to {target}",
-        "Zapis {what} do {target}",
-    ),
-    "plain_replace": Text(
-        "Write {what} to {target}, replacing the existing file",
-        "Zapis {what} do {target}, istniejący plik zostanie zastąpiony",
-    ),
-    "plain_output_exists": Text(
-        "{target} exists, so {what} is not written; --force replaces it",
-        "{target} istnieje, więc {what} nie zostanie zapisany; --force go zastąpi",
-    ),
-    "plain_duplicate_output_name": Text(
-        "{target} is the target of more than one file of this request ({what})",
-        "{target} jest celem więcej niż jednego pliku tego żądania ({what})",
-    ),
-    "plain_output_in_store": Text(
-        "{target} is, or lies in, a store, so {what} is not written; --root writes "
-        "the store",
-        "{target} jest magazynem albo leży w magazynie, więc {what} nie zostanie "
-        "zapisany; --root zapisuje magazyn",
-    ),
     "download_to_store": Text(
         "Download {url} into the store {root}",
         "Pobranie {url} do magazynu {root}",
@@ -506,9 +484,9 @@ MESSAGES = {
         "Download the source files of a dataset as plain files (--output-dir) or "
         "into the store (--root). Plain files are named like the provider's server "
         "paths; an existing one needs --force.",
-        "Pobierz pliki źródłowe zbioru jako zwykłe pliki (--output-dir) albo do "
-        "magazynu (--root). Zwykłe pliki mają nazwy jak ścieżki serwera dostawcy; "
-        "istniejący plik wymaga --force.",
+        "Pobierz pliki źródłowe zbioru: zwykłe (--output-dir) albo do magazynu "
+        "(--root). Zwykłe pliki mają nazwy jak ścieżki serwera dostawcy; istniejący "
+        "plik wymaga --force.",
     ),
     "datasets_providers_description": Text(
         "List the data providers: identifiers, countries, licenses, station code "
@@ -565,8 +543,11 @@ MESSAGES = {
         "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.",
     ),
     "pmaxtp_sync_description": Text(
-        "Download the PMAXTP cell of a point and save it as a version in the store.",
-        "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.",
+        "Download the PMAXTP cell of a point as a store version or, with "
+        "--output-dir, as plain files. The plain files are cell.json and "
+        "response.json.",
+        "Pobierz komórkę PMAXTP punktu do magazynu albo, z --output-dir, jako "
+        "zwykłe pliki. Zwykłe pliki to cell.json i response.json.",
     ),
     "pmaxtp_read_description": Text(
         "Read a saved PMAXTP cell from the store (offline).",
@@ -597,9 +578,11 @@ MESSAGES = {
     ),
     "store_sync_description": Text(
         "Download new or missing archives into the store, by plan or by datasets and "
-        "stations.",
+        "stations. With --output-dir it writes the selected archives as plain files "
+        "(no plan, no series).",
         "Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru "
-        "zbiorów i stacji.",
+        "zbiorów i stacji. Z --output-dir zapisuje wybrane archiwa jako zwykłe pliki "
+        "(bez planu i szeregów).",
     ),
     "store_sync_rule_1": Text(
         "plan excludes datasets, years, months and stations",

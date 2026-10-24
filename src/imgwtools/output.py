@@ -55,6 +55,7 @@ __all__ = [
     "Target",
     "plan_plain",
     "refuse",
+    "chunks_of",
     "resolve_target",
     "store_around",
     "store_below",

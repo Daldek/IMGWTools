@@ -67,6 +67,7 @@ from imgwtools.store.writer import (
     _validate_slot,
     _write_json,
     lenient_store,
+    version_file,
 )
 
 SERIES_SCHEMA: Final = "imgw-series/1"
@@ -920,7 +921,14 @@ def _report(
     sources: Iterable[Path] = (),
     problems: Iterable[str] = (),
 ) -> SeriesReport:
-    return SeriesReport(status, version, stations, tuple(sources), tuple(problems))
+    files = (
+        (version_file(version, status),)
+        if version is not None and status in ("new", "unchanged")
+        else ()
+    )
+    return SeriesReport(
+        status, version, stations, tuple(sources), tuple(problems), files
+    )
 
 
 def build_series(
