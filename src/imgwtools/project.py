@@ -53,6 +53,7 @@ from imgwtools.exceptions import (
     IMGWStoreError,
     IMGWValidationError,
 )
+from imgwtools.fetch import UNPUBLISHED
 from imgwtools.store import (
     build_series,
     check_series,
@@ -79,7 +80,7 @@ from imgwtools.store.reader import (
     _archive_slot,
     _series_datasets,
 )
-from imgwtools.store.sync import CANCELLED, UNPUBLISHED, _download, _plan_target
+from imgwtools.store.sync import CANCELLED, _download, _plan_target
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -2114,6 +2115,8 @@ def check_project(
     for index, task in enumerate(selected, start=1):
         cancelled = cancelled or (cancel is not None and cancel())
         checked: StorePlan | None = None
+        status: _PlanStatus
+        detail: str
         if cancelled:
             status, detail = "unverifiable", CANCELLED
         elif not ready:

@@ -104,7 +104,7 @@ PUBLIC_MODULES = (
     "imgwtools.agent_guide",
 )
 # Valid options of every command in their JSON form (keys, numbers, arrays).
-VALID = {
+VALID: dict[str, list[dict[str, object]]] = {
     "datasets list": [{}, {"kind": "hydro", "limit": 5, "offset": 1}],
     "datasets files": [
         {"dataset": DAILY, "years": [2020, "2022-2023"], "months": [1, 2]},
@@ -245,7 +245,7 @@ VALID = {
 SAMPLES = [(command, options) for command, cases in VALID.items() for options in cases]
 # Invalid options rejected by validate_command and command_schema alike, with the
 # option reported in ``details.option``.
-INVALID = {
+INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
     "datasets list": [({"kind": "both"}, "kind"), ({"limit": 0}, "limit")],
     "datasets files": [
         ({"dataset": "pl.imgw.pmaxtp", "years": [2024]}, "dataset"),

@@ -301,7 +301,8 @@ def test_meteo_precipitation_fixture_flags_quality_and_source_flags():
     )
 
     def p(day: date) -> Measurement:
-        return days[day].measurements["P"]
+        measurement: Measurement = days[day].measurements["P"]
+        return measurement
 
     assert len(days) == 31 and list(days) == sorted(days)
     assert days[date(2023, 10, 20)].dataset == "cz.chmi.meteo_daily"
@@ -665,7 +666,7 @@ def test_stations_malformed_metadata_is_a_data_error_with_place(
 
 def test_stations_reject_an_unknown_kind():
     with pytest.raises(IMGWValidationError):
-        list(parse_chmi_stations(b"{}", kind="synop"))  # type: ignore[arg-type]
+        list(parse_chmi_stations(b"{}", kind="synop"))
 
 
 # --------------------------------------------------------------------------

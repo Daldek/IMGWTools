@@ -3,6 +3,7 @@
 import json
 import secrets
 from datetime import datetime
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -15,16 +16,17 @@ app = typer.Typer(help="Administracja kluczy API", cls=ImgwSubgroup)
 console = Console()
 
 
-def load_api_keys() -> dict:
+def load_api_keys() -> dict[str, Any]:
     """Load API keys from file."""
     if not settings.api_keys_file.exists():
         return {"keys": []}
 
     with open(settings.api_keys_file, encoding="utf-8") as f:
-        return json.load(f)
+        data: dict[str, Any] = json.load(f)
+    return data
 
 
-def save_api_keys(data: dict) -> None:
+def save_api_keys(data: dict[str, Any]) -> None:
     """Save API keys to file."""
     settings.api_keys_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -33,7 +35,7 @@ def save_api_keys(data: dict) -> None:
 
 
 @app.command("keys", cls=ImgwCommand)
-def list_keys():
+def list_keys() -> None:
     """Lista kluczy API."""
     data = load_api_keys()
     keys = data.get("keys", [])
@@ -75,7 +77,7 @@ def create_key(
         metavar="LICZBA",
         help="Limit zapytań na godzinę",
     ),
-):
+) -> None:
     """
     Utwórz nowy klucz API.
 
@@ -117,7 +119,7 @@ def revoke_key(
         metavar="IDENTYFIKATOR",
         help="Identyfikator klucza do unieważnienia (wystarczy początek)",
     ),
-):
+) -> None:
     """
     Unieważnij klucz API.
 
@@ -154,7 +156,7 @@ def delete_key(
         "-f",
         help="Usuń bez potwierdzenia",
     ),
-):
+) -> None:
     """
     Usuń klucz API.
 
@@ -191,7 +193,7 @@ def key_stats(
         metavar="IDENTYFIKATOR",
         help="Identyfikator klucza (opcjonalnie)",
     ),
-):
+) -> None:
     """
     Statystyki użycia kluczy API.
 

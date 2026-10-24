@@ -57,10 +57,10 @@ pip install imgwtools[mcp]
 # Pełna instalacja (CLI + API + MCP + magazyn + pandas)
 pip install imgwtools[full]
 
-# Dla deweloperów (z repozytorium)
+# Dla deweloperów (z repozytorium; uv, środowisko z uv.lock)
 git clone https://github.com/Daldek/IMGWTools.git
 cd IMGWTools
-pip install -e ".[dev]"
+uv sync --locked
 ```
 
 Zapis do magazynu wersjonowanego wymaga systemu plików z dowiązaniami twardymi — tak jak magazyn Kartografa (jego ADR-036). Linux, macOS i Windows (ext4, APFS, NTFS) oraz udział SMB obsługujący dowiązania twarde działają; na FAT/exFAT, części NAS i FUSE oraz na udziale SMB zamontowanym w macOS `store init` i każdy zapis kończą się błędem `conflict` (`details.reason="not_atomic"`). Odczyt magazynu dowiązań nie wymaga.
@@ -692,11 +692,14 @@ Projekt zawiera testy jednostkowe i kontraktowe publicznego API, CLI, REST, MCP 
 ### Uruchamianie testów
 
 ```bash
-# Wszystkie testy (przez venv projektu)
-.venv/bin/python -m pytest
+# Bramka: ruff format --check, ruff check, mypy, pytest z pokryciem (offline), kontrola commitów
+scripts/gate.sh
+
+# Wszystkie testy offline (testy `live` są domyślnie pomijane)
+uv run pytest
 
 # Z pokryciem kodu
-.venv/bin/python -m pytest --cov=imgwtools
+uv run pytest --cov=imgwtools
 ```
 
 ### Struktura testów
@@ -720,15 +723,15 @@ tests/
 │   ├── test_reference_data.py                          # python -m imgwtools.reference_data
 │   └── test_public_store_api.py                        # kontrakt eksportów publicznych
 ├── contract/                # kontrakt magazynu, Python = CLI = REST = MCP, ČHMÚ (IMGW-15..19), projekt
-└── live/                    # regresja na żywo (tylko z IMGW_LIVE=1): IMGW-PIB 37 komend × Python/CLI/REST + MCP; ČHMÚ
+└── live/                    # regresja na żywo (znacznik `live`, poza bramką): IMGW-PIB 37 komend × Python/CLI/REST + MCP; ČHMÚ
 ```
 
-**Łącznie: 2213 testów** (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo, pomijane bez `IMGW_LIVE=1`:
+**Łącznie: 2213 testów** (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo (znacznik `live`, uruchamiane jawnie `-m live`):
 
 ```bash
-IMGW_LIVE=1 .venv/bin/python -m pytest tests/live/test_interfaces_live.py   # IMGW-PIB: 53 testy
-IMGW_LIVE=1 .venv/bin/python -m pytest tests/live -k imgw_mcp               # sama noga MCP (imgw mcp)
-IMGW_LIVE=1 .venv/bin/python -m pytest tests/live/test_chmi_live.py         # ČHMÚ: 26 testów, ok. 31 MB
+uv run pytest tests/live/test_interfaces_live.py -m live   # IMGW-PIB: 53 testy
+uv run pytest tests/live -m live -k imgw_mcp               # sama noga MCP (imgw mcp)
+uv run pytest tests/live/test_chmi_live.py -m live         # ČHMÚ: 26 testów, ok. 31 MB
 ```
 
 Raport JSON przebiegu: `IMGW_LIVE_REPORT=<plik>`; test ČHMÚ zapisuje dziennik żądań każdego interfejsu (Python, CLI, REST, MCP) i podaje liczbę żądań i bajtów (`-s`).

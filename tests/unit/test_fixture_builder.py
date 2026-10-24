@@ -5,6 +5,7 @@ import json
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -25,7 +26,7 @@ def offline(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", refuse)
 
 
-def sidecars(root: Path, slot: str, name: str) -> dict[str, dict]:
+def sidecars(root: Path, slot: str, name: str) -> dict[str, dict[str, Any]]:
     return {
         directory.name: json.loads(
             (directory / f"{name}.meta.json").read_text(encoding="utf-8")
@@ -177,7 +178,7 @@ def test_unknown_schema_variant_adds_unparsed_series_version(tmp_path):
 
 def test_rejects_unknown_variant_and_non_empty_root(tmp_path):
     with pytest.raises(IMGWValidationError, match="wariant"):
-        build_fixture_store(tmp_path / "x", variant="partial")  # type: ignore[arg-type]
+        build_fixture_store(tmp_path / "x", variant="partial")
     assert not (tmp_path / "x").exists()
     (tmp_path / "busy").mkdir()
     (tmp_path / "busy" / "file.txt").write_text("x")

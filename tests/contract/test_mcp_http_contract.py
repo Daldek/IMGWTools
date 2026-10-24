@@ -18,8 +18,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from imgwtools import command_schema
-from tests.contract.support import rest_request, stamps
+from tests.contract.support import command_document, rest_request, stamps
 from tests.contract.test_interface_contract import (
     CASES,
     ROUTES,
@@ -62,7 +61,7 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
         assert result.content[0].text == answered.text
         return
     data = answered.content
-    default = command_schema(command)["properties"]["format"]["default"]
+    default = command_document(command)["properties"]["format"]["default"]
     assert result.content[0].text == data.decode("utf-8")
     assert result.structured_content == {
         "schema": "imgw-result/1",

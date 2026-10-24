@@ -799,4 +799,4 @@ def test_station_list_parser_reads_meteo_columns_without_river_fields():
 
 def test_station_list_parser_rejects_unknown_kind():
     with pytest.raises(IMGWValidationError):
-        list(parse_stations_csv("1,A\n", kind="synop"))  # type: ignore[arg-type]
+        list(parse_stations_csv("1,A\n", kind="synop"))

@@ -11,6 +11,7 @@ import json
 import shutil
 import threading
 import time
+from typing import Any
 
 import pytest
 
@@ -35,9 +36,11 @@ from imgwtools import (
     store,
     validate_command,
 )
+from imgwtools.commands import Lang
 from imgwtools.config import settings
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import STREAM_LIMIT
+from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
 from imgwtools.testing import build_fixture_store
 from tests.contract.support import (
@@ -88,7 +91,9 @@ def imgw():
         yield fake
 
 
-async def call(tool: str, arguments: dict, *, mode: str = "read", lang: str = "pl"):
+async def call(
+    tool: str, arguments: dict[str, Any], *, mode: Mode = "read", lang: Lang = "pl"
+):
     async with Client(create_server(mode=mode, lang=lang)) as client:
         return await client.call_tool(tool, arguments)
 
@@ -97,11 +102,12 @@ def compact(document: object) -> str:
     return json.dumps(document, ensure_ascii=False, separators=(",", ":"))
 
 
-def error_of(result) -> dict:
+def error_of(result) -> dict[str, Any]:
     """The error document of a tool result (text = structured content)."""
     assert result.is_error is True
     assert result.content[0].text == compact(result.structured_content)
-    return result.structured_content
+    document: dict[str, Any] = result.structured_content
+    return document
 
 
 SYNC = {"datasets": [DAILY], "years": "2023-2024"}
@@ -336,11 +342,13 @@ async def test_a_cancelled_call_reaches_cancel_and_leaves_no_partial_version(
     imgw.router.get(H2023.url).mock(side_effect=held)
     arguments = {"root": str(root), **SYNC, "check": False}
 
-    async with Client(create_server(mode="write")) as client:
-        async with anyio.create_task_group() as group:
-            group.start_soon(client.call_tool, "store_sync", arguments)
-            assert await anyio.to_thread.run_sync(downloading.wait, 10)
-            group.cancel_scope.cancel()
+    async with (
+        Client(create_server(mode="write")) as client,
+        anyio.create_task_group() as group,
+    ):
+        group.start_soon(client.call_tool, "store_sync", arguments)
+        assert await anyio.to_thread.run_sync(downloading.wait, 10)
+        group.cancel_scope.cancel()
 
     assert seen["cancel"]() is True
     assert H2024.url not in imgw.requests("GET")  # stopped before the next archive

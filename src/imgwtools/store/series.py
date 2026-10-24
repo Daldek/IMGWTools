@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from imgwtools._parsing import normalize_archive
 from imgwtools._version import __version__
@@ -68,7 +68,7 @@ from imgwtools.store.writer import (
     open_store,
 )
 
-SERIES_SCHEMA = "imgw-series/1"
+SERIES_SCHEMA: Final = "imgw-series/1"
 SeriesState = Literal["current", "outdated", "missing"]
 
 _FLAGS = ("value", "missing", "no_phenomenon", "accumulated")
@@ -90,11 +90,11 @@ class _Version:
 
     @property
     def sha256(self) -> str:
-        return self.meta["sha256"]
+        return str(self.meta["sha256"])
 
     @property
     def label(self) -> str:
-        return self.meta["extra"]["version"]["label"]
+        return str(self.meta["extra"]["version"]["label"])
 
     @property
     def http(self) -> Mapping[str, Any]:

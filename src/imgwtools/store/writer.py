@@ -1188,9 +1188,12 @@ def write_archive(
             _publish_dir(staging, target, f"{filename}.meta.json")
         except FileExistsError as exc:
             for old_file, old_meta in _existing(slot, filename, archive=True):
-                if old_file.parent == target and old_meta["sha256"] == sha:
-                    if signal == _archive_signal(old_file.parent, old_meta):
-                        return VersionResult("unchanged", old_file, sha, label)
+                if (
+                    old_file.parent == target
+                    and old_meta["sha256"] == sha
+                    and signal == _archive_signal(old_file.parent, old_meta)
+                ):
+                    return VersionResult("unchanged", old_file, sha, label)
             raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
         if on_progress is not None:
             on_progress(

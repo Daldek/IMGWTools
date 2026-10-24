@@ -5,6 +5,8 @@ the expectations come from ``command_schema`` (names, order, options, required
 groups, effects, texts), never from a written-down list.
 """
 
+from typing import Any
+
 import pytest
 
 pytest.importorskip("mcp")
@@ -12,18 +14,20 @@ pytest.importorskip("mcp")
 import httpx
 from mcp import Client
 
-from imgwtools.commands import command_schema
+from imgwtools.commands import Lang
 from imgwtools.config import Settings, settings
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server, http_app
+from tests.contract.support import command_document
 
 STDIO = ("read", "write")
 LANGS = ("pl", "en")
 # Tools are fixed by mode, language and page maximum: list each server once.
-_LISTINGS: dict[tuple[str, str, int], list[dict]] = {}
+_LISTINGS: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
 
 
-async def listing(mode: str, lang: str = "pl") -> list[dict]:
+async def listing(mode: Mode, lang: Lang = "pl") -> list[dict[str, Any]]:
     """Tools of a server without IMGW_STORE_ROOT as JSON (``tools/list`` on the wire)."""
     key = (mode, lang, settings.api_max_limit)
     if key not in _LISTINGS:
@@ -36,11 +40,12 @@ async def listing(mode: str, lang: str = "pl") -> list[dict]:
     return _LISTINGS[key]
 
 
-def catalog(lang: str = "pl") -> list[dict]:
-    return command_schema(lang=lang)["commands"]
+def catalog(lang: Lang = "pl") -> list[dict[str, Any]]:
+    commands: list[dict[str, Any]] = command_document(lang=lang)["commands"]
+    return commands
 
 
-def by_command(tools: list[dict]) -> dict[str, dict]:
+def by_command(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {tool["_meta"]["imgwtools/command"]: tool for tool in tools}
 
 
@@ -53,7 +58,7 @@ def keywords(value: object) -> set[str]:
     return set()
 
 
-def removed(schema: dict, mode: str) -> set[str]:
+def removed(schema: dict[str, Any], mode: str) -> set[str]:
     """Options a mode does not offer (spec §6.4 p. 2)."""
     if mode == "read":
         return {

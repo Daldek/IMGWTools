@@ -2210,7 +2210,9 @@ class _Notices:
 
 
 def _function(name: str) -> Callable[..., Any]:
-    return getattr(importlib.import_module(_MODULES[name]), name)
+    return cast(
+        Callable[..., Any], getattr(importlib.import_module(_MODULES[name]), name)
+    )
 
 
 def _call(name: str, options: Mapping[str, object], hooks: Mapping[str, object]) -> Any:
@@ -2242,7 +2244,7 @@ def _outcome(cancelled: bool, failures: int, successes: int) -> Status:
 def _status(result: object) -> Status:
     """Envelope status of a function result (spec §13.6)."""
     if isinstance(result, StorePlan):
-        states = [item.status for item in result.items]
+        states: list[str] = [item.status for item in result.items]
         states += [action.status for action in result.actions]
         failures = states.count("check_failed")
         return _outcome(result.cancelled, failures, len(states) - failures)
@@ -2256,11 +2258,11 @@ def _status(result: object) -> Status:
         )
     if isinstance(result, DownloadReport):
         # A ČHMÚ candidate the source does not publish is a successful item.
-        items = [item.status for item in result.items]
+        statuses = [item.status for item in result.items]
         return _outcome(
             result.cancelled,
-            items.count("failed"),
-            items.count("downloaded") + items.count("not_published"),
+            statuses.count("failed"),
+            statuses.count("downloaded") + statuses.count("not_published"),
         )
     if isinstance(result, ProjectReport):
         states = [*result.tasks.values(), *(file.status for file in result.files)]
@@ -2376,7 +2378,7 @@ def _live(command: str, urls: Iterable[str]) -> StorePlan:
 def _twin(name: str, *, without: tuple[str, ...] = ()) -> Checker:
     def check(options: Options, hooks: Hooks) -> StorePlan:
         kept = {key: value for key, value in options.items() if key not in without}
-        return _call(name, kept, hooks)
+        return cast(StorePlan, _call(name, kept, hooks))
 
     return check
 
@@ -2542,8 +2544,13 @@ def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
     root = cast(Path, options["root"])
     if "plan" not in options:
         selection = ("root", "datasets", "years", "months", "stations")
-        return _call(
-            "check_store", {k: v for k, v in options.items() if k in selection}, hooks
+        return cast(
+            StorePlan,
+            _call(
+                "check_store",
+                {k: v for k, v in options.items() if k in selection},
+                hooks,
+            ),
         )
     plan = StorePlan.from_json(options["plan"])
     if Path(plan.root).absolute() != root:
@@ -2583,7 +2590,9 @@ def _check_select(options: Options, hooks: Hooks) -> StorePlan:
     try:
         selection = _call("select_series", options, {})
     except IMGWError as exc:
-        status = "missing" if exc.code == "not_found" else "check_failed"
+        status: Literal["missing", "check_failed"] = (
+            "missing" if exc.code == "not_found" else "check_failed"
+        )
         action = PlanAction("series select", status, str(exc))
     else:
         action = PlanAction(

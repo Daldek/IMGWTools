@@ -2284,7 +2284,10 @@ def summarize_series(
         for number, name in enumerate(descriptor.variables)
         if name in names
     }
-    periods = {None: 0, **{period: number for number, period in enumerate(_PERIODS)}}
+    periods: dict[str | None, int] = {
+        None: 0,
+        **{period: number for number, period in enumerate(_PERIODS)},
+    }
     return tuple(
         coverage
         for code in codes

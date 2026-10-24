@@ -29,11 +29,11 @@ from imgwtools import (
     ERROR_CODES,
     add_project_task,
     check_command,
-    command_schema,
     download_project,
     init_project,
     run_command,
 )
+from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
 from tests.contract.support import (
     DAILY,
@@ -44,7 +44,9 @@ from tests.contract.support import (
     FakeImgw,
     canonical,
     cli_words,
+    command_document,
     envelope_errors,
+    mcp_text,
     snapshot,
     stamps,
 )
@@ -74,9 +76,9 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
     }
 
 
-def call(command: str, options: dict[str, object], *, mode: str) -> CallToolResult:
+def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
-    name = command_schema(command)["x-imgw"]["operation_id"]
+    name = command_document(command)["x-imgw"]["operation_id"]
 
     async def answer() -> CallToolResult:
         async with Client(create_server(mode=mode)) as client:
@@ -86,7 +88,7 @@ def call(command: str, options: dict[str, object], *, mode: str) -> CallToolResu
 
 
 def writing(command: str) -> bool:
-    return command_schema(command)["x-imgw"]["writes"] != "none"
+    return bool(command_document(command)["x-imgw"]["writes"] != "none")
 
 
 def run(command: str, options: dict[str, object]) -> CallToolResult:
@@ -99,10 +101,10 @@ def run(command: str, options: dict[str, object]) -> CallToolResult:
 def assert_envelope(answered: CallToolResult, python, printed, root) -> None:
     """MCP structured content = Python envelope; MCP text = the CLI stdout line."""
     document = answered.structured_content
-    assert answered.is_error is False, answered.content[0].text
+    assert answered.is_error is False, mcp_text(answered)
     assert envelope_errors(document) == []
     assert canonical(document) == canonical(python.to_json(root=root))
-    assert answered.content[0].text + "\n" == printed.stdout
+    assert mcp_text(answered) + "\n" == printed.stdout
 
 
 def assert_stream(
@@ -110,9 +112,9 @@ def assert_stream(
 ) -> None:
     """MCP text = the lines Python yields; the envelope sums them up."""
     data = "".join(python.result)
-    default = command_schema(command)["properties"]["format"]["default"]
-    assert answered.is_error is False, answered.content[0].text
-    assert answered.content[0].text == data
+    default = command_document(command)["properties"]["format"]["default"]
+    assert answered.is_error is False, mcp_text(answered)
+    assert mcp_text(answered) == data
     assert answered.structured_content == {
         "schema": "imgw-result/1",
         "command": command,

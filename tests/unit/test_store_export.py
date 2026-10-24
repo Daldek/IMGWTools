@@ -88,7 +88,7 @@ def test_target_inside_a_store_is_rejected_without_writing(root):
 def test_unknown_format_lists_the_allowed_ones(root):
     version = stored(root, "hydro_daily_2024")
     with pytest.raises(IMGWValidationError) as error:
-        export_archive(version, format="parquet")  # type: ignore[call-overload]
+        export_archive(version, format="parquet")
     assert error.value.details["allowed"] == ["csv", "jsonl"]
 
 

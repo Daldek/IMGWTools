@@ -1,6 +1,7 @@
 """English variant of the catalog texts (spec 2026-10-19 §3.3, §4.1, §9)."""
 
 import json
+from typing import Any
 
 import pytest
 
@@ -9,9 +10,9 @@ from imgwtools.datasets import datasets
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
 
 
-def without_texts(schema: dict) -> dict:
+def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
     """A command schema without the texts of its language."""
-    copy = json.loads(json.dumps(schema))
+    copy: dict[str, Any] = json.loads(json.dumps(schema))
     del copy["description"]
     for prop in copy["properties"].values():
         del prop["description"]
@@ -19,9 +20,9 @@ def without_texts(schema: dict) -> dict:
     return copy
 
 
-def structure(document: dict) -> dict:
+def structure(document: dict[str, Any]) -> dict[str, Any]:
     """The catalog document without the texts of its language and its ``lang``."""
-    copy = json.loads(json.dumps(document))
+    copy: dict[str, Any] = json.loads(json.dumps(document))
     del copy["lang"]
     copy["groups"] = list(copy["groups"])
     copy["commands"] = [without_texts(schema) for schema in copy["commands"]]
@@ -30,7 +31,7 @@ def structure(document: dict) -> dict:
     return copy
 
 
-def texts(document: dict) -> list[str]:
+def texts(document: dict[str, Any]) -> list[str]:
     """Every text of the catalog document in its language."""
     found = list(document["groups"].values())
     for schema in document["commands"]:

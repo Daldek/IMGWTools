@@ -87,7 +87,7 @@ def test_station_list_with_tampered_bytes_is_rejected(root):
 
 def test_station_list_kind_is_validated(root):
     with pytest.raises(IMGWValidationError):
-        read_station_list(root, kind="synop")  # type: ignore[arg-type]
+        read_station_list(root, kind="synop")
 
 
 @pytest.mark.parametrize("archive", [DAILY_2024, PRECIP_2001, CLIMATE_1995])

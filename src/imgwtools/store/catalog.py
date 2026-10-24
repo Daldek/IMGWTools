@@ -865,8 +865,8 @@ def _catalog_bytes(
     problems: list[str],
     rejections: list[str],
 ) -> tuple[bytes, int, int, dict[str, int], list[str]]:
-    for api_kind, api in apis.items():
-        for code in api:
+    for api_kind, api_rows in apis.items():
+        for code in api_rows:
             if not (len(code) == 9 and code.isdecimal()):
                 problems.append(
                     f"API {api_kind}: pominięto niepoprawny kod stacji '{code}'"
@@ -1142,9 +1142,13 @@ def _established(source: _Metadata) -> dict[str, int]:
     for index in range(len(table.rows)):
         code = table.text(index, column)
         begin = table.timestamp(index, "BEGIN_DATE")
-        if code is not None and code in source.rows and begin is not None:
-            if code not in first or begin < first[code]:
-                first[code] = begin
+        if (
+            code is not None
+            and code in source.rows
+            and begin is not None
+            and (code not in first or begin < first[code])
+        ):
+            first[code] = begin
     return {code: moment.year for code, moment in first.items()}
 
 
@@ -1185,8 +1189,8 @@ def _chmi_feature(
     elevation: int | float | None = None
     if not isinstance(located, str):
         index, point, own = located
-        for _, lon, lat in candidates[index + 1 :]:
-            verdict = _evaluate(lon, lat, border=CZECHIA_BORDER_RESOURCE)
+        for _, later_lon, later_lat in candidates[index + 1 :]:
+            verdict = _evaluate(later_lon, later_lat, border=CZECHIA_BORDER_RESOURCE)
             if not isinstance(verdict, str) and _distance_m(point, verdict[0]) > max(
                 own, verdict[1]
             ):
@@ -2023,7 +2027,7 @@ def _build_imgw(build: _Build) -> CatalogReport:
         sources.append(source)
         build.progress(step, "done", f"Lista stacji {archive.server_path}")
     apis = []
-    for step, (url, source, key) in enumerate(
+    for step, (url, api_source, key) in enumerate(
         (
             (HYDRO_API_URL, "api_hydro", "id_stacji"),
             (METEO_API_URL, "api_meteo", "kod_stacji"),
@@ -2032,7 +2036,7 @@ def _build_imgw(build: _Build) -> CatalogReport:
     ):
         if (report := build.stopped()) is not None:
             return report
-        rows, record = _api(url, source, key)
+        rows, record = _api(url, api_source, key)
         apis.append(rows)
         sources.append(record)
         build.progress(step, "done", f"Pobrano {url}")

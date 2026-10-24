@@ -192,7 +192,7 @@ imgw commands guide [-f agents|llms] [--lang pl|en] [-p <file>]
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
 | Unit and contract tests | Implemented | 2134 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-19); Python = CLI = REST = MCP contract |
-| Live integration tests | Implemented | 79 tests run only with `IMGW_LIVE=1`: `tests/live/test_interfaces_live.py` (53: 37 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (26: ČHMÚ on opendata.chmi.cz) |
+| Live integration tests | Implemented | 79 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (53: 37 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (26: ČHMÚ on opendata.chmi.cz) |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
 

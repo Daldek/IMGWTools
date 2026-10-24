@@ -21,6 +21,7 @@ from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Literal, get_args
+from unittest import mock
 
 import httpx
 
@@ -200,13 +201,8 @@ def _recorded_http(
             interaction["status"], headers=headers, content=content, request=request
         )
 
-    with _HTTP_LOCK:
-        original = httpx.HTTPTransport.handle_request
-        httpx.HTTPTransport.handle_request = handle
-        try:
-            yield
-        finally:
-            httpx.HTTPTransport.handle_request = original
+    with _HTTP_LOCK, mock.patch.object(httpx.HTTPTransport, "handle_request", handle):
+        yield
     left = sorted(f"{method} {url}" for (method, url), queue in queues.items() if queue)
     if left:
         raise IMGWDataError(f"Nie wykorzystano nagranych odpowiedzi: {', '.join(left)}")

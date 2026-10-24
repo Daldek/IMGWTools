@@ -425,7 +425,7 @@ class StorePlan:
             signal = row.get("signal", "head")
             if signal not in ("head", "listing"):
                 raise ValueError(f"Nieznany sygnał pozycji planu: {signal!r}")
-            return signal
+            return cast(Literal["head", "listing"], signal)
 
         def restore_requests(value: object) -> dict[str, int] | None:
             if value is None:

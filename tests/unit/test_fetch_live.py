@@ -231,13 +231,13 @@ async def test_fetch_pmaxtp_amp_result_is_unchanged(respx_mock, pmaxtp_api_respo
 
 def test_fetch_pmaxtp_method_is_keyword_only(respx_mock):
     with pytest.raises(TypeError):
-        fetch_pmaxtp(52.23, 21.01, "AMP")  # type: ignore[misc]
+        fetch_pmaxtp(52.23, 21.01, "AMP")
     assert not respx_mock.calls
 
 
 def test_fetch_pmaxtp_unknown_method_is_validation_error(respx_mock):
     with pytest.raises(IMGWValidationError) as error:
-        fetch_pmaxtp(52.23, 21.01, method="MAX")  # type: ignore[arg-type]
+        fetch_pmaxtp(52.23, 21.01, method="MAX")
     assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}
     assert not respx_mock.calls
 
@@ -437,8 +437,8 @@ def test_fetch_warnings_without_warnings_is_empty(respx_mock, body):
 
 async def test_fetch_warnings_unknown_kind_is_validation_error(respx_mock):
     with pytest.raises(IMGWValidationError) as error:
-        fetch_warnings(kind="synop")  # type: ignore[arg-type]
+        fetch_warnings(kind="synop")
     with pytest.raises(IMGWValidationError):
-        await fetch_warnings_async(kind="synop")  # type: ignore[arg-type]
+        await fetch_warnings_async(kind="synop")
     assert error.value.details == {"option": "kind", "allowed": ["hydro", "meteo"]}
     assert not respx_mock.calls
