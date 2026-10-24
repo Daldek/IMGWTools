@@ -60,7 +60,7 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 | Task | Read |
 |---|---|
 | What the project is, install, quick start | [README.md](README.md) |
-| Usage of every interface, long command listings, store schemas | USAGE.md (see the README documentation links) |
+| Usage of every interface, long command listings, store schemas | [docs/USAGE.md](docs/USAGE.md) |
 | Architecture, layers, store layout, CI/CD | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Public API, command catalog, option and error tables, data sources and formats, configuration variables, deployment | [docs/CODEBASE.md](docs/CODEBASE.md) |
 | Running tests, test layout, markers | [docs/TESTING.md](docs/TESTING.md), plan in [docs/TEST_PLAN.md](docs/TEST_PLAN.md) |
