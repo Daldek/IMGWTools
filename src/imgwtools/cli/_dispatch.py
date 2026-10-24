@@ -232,7 +232,7 @@ def _silence_stdout() -> None:
 def _error_line(code: ErrorCode, detail: str, details: Mapping[str, object]) -> int:
     """Write the JSON error line of spec §13.5 to stderr; return the exit code."""
     spec = ERROR_CODES[code]
-    if spec.exit_code is None:  # REST-only code (forbidden, method_not_allowed)
+    if spec.exit_code is None:  # REST-only code (method_not_allowed)
         spec = ERROR_CODES["internal_error"]
     document = {
         "code": spec.code,

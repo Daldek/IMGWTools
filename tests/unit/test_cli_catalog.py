@@ -30,7 +30,7 @@ from imgwtools.commands import (
     validate_command,
 )
 from imgwtools.config import settings
-from imgwtools.exceptions import ERROR_CODES
+from imgwtools.exceptions import ERROR_CODES, IMGWError
 from imgwtools.store.types import CommandResult, Notice, SeriesReport, SyncReport
 from imgwtools.testing import build_fixture_store
 from imgwtools.urls import IMGW_API_URL
@@ -74,6 +74,7 @@ CLI_ERROR = {
                 "store_unavailable",
                 "io_error",
                 "cancelled",
+                "forbidden",
                 "internal_error",
             ]
         },
@@ -621,6 +622,15 @@ def _io_error(tmp_path, root, router, monkeypatch):
     ]
 
 
+def _forbidden(tmp_path, root, router, monkeypatch):
+    # No CLI path refuses a write itself; a refusal raised below reaches exit 12.
+    refusal = IMGWError(
+        "Write refused", code="forbidden", details={"reason": "writes_disabled"}
+    )
+    raising(monkeypatch, store, "store_info", refusal)
+    return ["store", "info", "-r", root]
+
+
 def _internal_error(tmp_path, root, router, monkeypatch):
     raising(monkeypatch, store, "store_info", RuntimeError("awaria testowa"))
     return ["store", "info", "-r", root]
@@ -635,6 +645,7 @@ ERRORS = {
     "data_error": _data_error,
     "store_unavailable": _store_unavailable,
     "io_error": _io_error,
+    "forbidden": _forbidden,
     "internal_error": _internal_error,
 }
 
