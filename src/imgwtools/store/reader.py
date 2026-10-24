@@ -152,6 +152,13 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
         )
     marker = path / _MARKER
     if marker.is_symlink() or not marker.is_file():
+        if any(
+            (path / name).is_dir()
+            for name in ("archives", "series", "stations", "pmaxtp")
+        ):
+            return unusable(
+                "missing_marker", message("reader.layout_without_marker", path=path)
+            )
         return unusable(
             "missing_marker",
             message("reader.no_marker_not_imgw_store", marker=_MARKER, path=path),

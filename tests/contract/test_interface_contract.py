@@ -520,9 +520,9 @@ def _not_found(setting: Setting) -> Scenario:
 def _conflict(setting: Setting) -> Scenario:
     root = setting.store()
     (root / "notatki").mkdir()
-    (root / "notatki" / "kartograf-project.json").write_text(
-        json.dumps({"output_dir": ".."}), encoding="utf-8"
-    )  # a Kartograf project writing into the store
+    (root / "notatki" / "kartograf-store.json").write_text(
+        json.dumps({"schema": "kartograf-store/1"}), encoding="utf-8"
+    )  # a Kartograf store inside the store
     return Scenario("series build", {"dataset": PRECIP}, root)
 
 

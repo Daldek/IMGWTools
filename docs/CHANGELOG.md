@@ -133,6 +133,24 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   version built from the same inputs is `unchanged` (it was `reused`); `relabeled` stays. The
   statuses of plain files, `written` and `replaced`, come with plain mode. Migration:
   `status == "created"` → `"new"`, and `"reused"` → `"unchanged"` for a series.
+- **Breaking — the store marker, the first write and nested stores (DEV-19.12 to DEV-19.14,
+  ADR-007 D5, D6):** `imgw-store.json` always has `schema`, `tool` (`imgw`), `created_at` and
+  `producer_version` besides `created_by` (an older marker gains the missing fields on the next
+  write). The first write into an empty or new root creates it (`write_archive`, `sync_pmaxtp`,
+  `build_catalog` and so `store sync`); only `api_keys.json` of the server may lie in an empty
+  root. A root with `archives/`, `series/`, `stations/` or `pmaxtp/` and no marker is
+  `store_unavailable` (`details.reason="no_marker"`, hint `imgw store init --root <path>`), and
+  `init_store` / `imgw store init` verifies the layout (every sidecar `imgw-meta/1`, nothing
+  foreign beside the trees, else `data_error` with `details.reason="invalid_layout"`) before it
+  writes the marker. A directory with other files and no layout is `conflict`
+  (`details.reason="not_empty"`, it was `path_conflict`). A store never nests: before a write the
+  command looks for `kartograf-store.json` and `imgw-store.json` in the ancestors of the root, at
+  the root and below it, and a nested store is `conflict` with `details.reason="nested_store"`; the
+  old probe of Kartograf by `kartograf-project.json` and `kartograf-meta/1` sidecars is gone. Plans
+  (`check_store`, `check_series`, `check_catalog`, `check_pmaxtp`) treat a new or empty root as an
+  empty store and create nothing. The module `imgwtools.output` (marker names, the check of a plain
+  target list, the staging directory with SIGTERM handling, `FileResult`) is added for the plain
+  mode that follows.
 - File-system errors (`describe_os_error`, `io_error`) and the default text of
   `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
 - **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of

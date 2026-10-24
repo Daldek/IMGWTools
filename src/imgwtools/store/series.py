@@ -58,7 +58,7 @@ from imgwtools.store.types import (
 )
 from imgwtools.store.writer import (
     _canonical,
-    _check_kartograf,
+    _check_nested,
     _cleanup,
     _fsync_dir,
     _is_register,
@@ -66,7 +66,7 @@ from imgwtools.store.writer import (
     _utc,
     _validate_slot,
     _write_json,
-    open_store,
+    lenient_store,
 )
 
 SERIES_SCHEMA: Final = "imgw-series/1"
@@ -109,7 +109,7 @@ class _Input:
 
 
 def _root(root: PathArg | StoreHandle) -> Path:
-    return open_store(root.root if isinstance(root, StoreHandle) else root).root
+    return lenient_store(root).root
 
 
 def _series_descriptor(dataset: str) -> DatasetDescriptor:
@@ -1002,7 +1002,7 @@ def build_series(
     path = _root(root)
     descriptor = _series_descriptor(dataset)
     pa, pq = _pyarrow()
-    _check_kartograf(path)
+    _check_nested(path)
 
     def cancelled() -> bool:
         return cancel is not None and cancel()

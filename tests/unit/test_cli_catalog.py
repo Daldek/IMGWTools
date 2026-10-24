@@ -629,6 +629,7 @@ def _data_error(tmp_path, root, router, monkeypatch):
 
 
 def _store_unavailable(tmp_path, root, router, monkeypatch):
+    (tmp_path / "archives").mkdir()  # the layout of a store without its marker
     return ["series", "build", "-r", tmp_path, "-d", DAILY]
 
 
