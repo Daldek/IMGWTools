@@ -557,7 +557,7 @@ def _store_root(directory: Path, text: str) -> Path:
 
 
 def _check_store(root: Path, directory: Path) -> None:
-    """Projekt poza magazynem; istniejący niepusty ``store_dir`` musi być magazynem IMGW."""
+    """Refuse a store directory the project cannot use; a project never lies in its store."""
     if root == directory or root in directory.parents:
         raise IMGWProjectError(
             message(
@@ -577,6 +577,16 @@ def _check_store(root: Path, directory: Path) -> None:
             code=exc.code,
             details={"option": "store_dir", **exc.details},
         ) from exc
+    if "invalid_marker" in info.problem_codes:
+        # An unreadable marker is data_error like in the writer, `store init` and
+        # `series build` (DEV-19.10, ADR-007 erratum); only another store schema is
+        # store_unavailable.
+        problem = info.problems[info.problem_codes.index("invalid_marker")]
+        raise IMGWProjectError(
+            message("project.invalid_store_directory", root=root, exc=problem),
+            code="data_error",
+            details={"option": "store_dir", "reason": "invalid_marker"},
+        )
     if not info.supported:
         raise IMGWProjectError(
             message(
@@ -898,11 +908,13 @@ def init_project(project_dir: PathArg, /, *, store_dir: PathArg) -> Project:
     IMGWValidationError
         If ``project_dir`` or ``store_dir`` is not a non-empty path.
     IMGWProjectError
-        If the store directory is unsupported (``store_unavailable``), the
-        project directory lies inside the store (``validation_error``), the
-        directory or manifest cannot be written (``io_error``), the manifest
-        lock is held (``conflict``), or an existing manifest points at a
-        different store (``conflict``; change it with `set_project_store`).
+        If the store directory is unsupported (``store_unavailable``,
+        ``details.reason`` ``unsupported``) or its marker is unreadable
+        (``data_error``, ``invalid_marker``), the project directory lies inside
+        the store (``validation_error``), the directory or manifest cannot be
+        written (``io_error``), the manifest lock is held (``conflict``), or an
+        existing manifest points at a different store (``conflict``; change it
+        with `set_project_store`).
     """
     directory = _directory(project_dir)
     text, root = _store_argument(directory, store_dir)
@@ -963,7 +975,9 @@ def open_project(project_dir: PathArg, /) -> Project:
     IMGWValidationError
         If ``project_dir`` is not a non-empty path.
     IMGWProjectError
-        If the manifest is missing, unreadable, a symbolic link or invalid.
+        If the manifest is missing, unreadable, a symbolic link or invalid, or
+        its store directory is unsupported (``store_unavailable``) or has an
+        unreadable marker (``data_error``).
     """
     return _load(_directory(project_dir)).project
 
@@ -1017,7 +1031,8 @@ def set_project_store(
         If ``project_dir`` or ``store_dir`` is not a non-empty path.
     IMGWProjectError
         If the manifest is missing (``not_found``) or invalid, the new store is
-        unsupported (``store_unavailable``), it is not empty and does not
+        unsupported (``store_unavailable``) or its marker is unreadable
+        (``data_error``, ``invalid_marker``), it is not empty and does not
         contain identical pinned files (``conflict``), the manifest changed
         during verification (``conflict``), or the manifest cannot be locked
         or written.

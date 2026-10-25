@@ -402,6 +402,15 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   A caller that relied on `None` for a probability that is not published gets the error now. The
   docstrings of `PMaXTPData` and `fetch_pmaxtp` give the 16 durations and the 27 probabilities
   (they said 7 and 6).
+- **An unreadable marker in the store of a project is `data_error` (DEV-19.10, DEV-19.13, ADR-007
+  erratum):** `imgw project init` (`init_project`), `project set-store` and every call that opens
+  a project whose `store_dir` holds an `imgw-store.json` that is invalid JSON or has no `schema`
+  said `store_unavailable` with `details.reason="unsupported"`, while the writer, `store init`,
+  `series build` and the plans of every store write say `data_error` with
+  `details.reason="invalid_marker"`. The project check follows them now (`details.option` stays
+  `store_dir`); a marker of another store schema, a directory with other files and a layout
+  without a marker stay `store_unavailable` (`unsupported`). Nothing is written: a refused
+  `project init` does not create the project directory.
 
 ### Migration guide: data output (ADR-007, DEV §19)
 
@@ -450,7 +459,7 @@ while the file is written. `items[]` keep the per-unit outcomes (`DownloadItem`:
 | `conflict` (4) | `not_empty` | a store write or `store init` into a directory with other files and no layout (was `path_conflict`), or into a file |
 | `store_unavailable` (8) | `no_marker` | a root that has the layout and no marker; hint `imgw store init --root <path>` |
 | `data_error` (7) | `invalid_layout` | `store init` found a foreign or invalid file |
-| `data_error` (7) | `invalid_marker` | the marker of the root is unreadable (invalid JSON, no `schema`); it was `store_unavailable` in the writer |
+| `data_error` (7) | `invalid_marker` | the marker of the root is unreadable (invalid JSON, no `schema`); it was `store_unavailable` in the writer and in the store check of a project |
 | `validation_error` (2) | `exclusive_options` | `output_dir` with `root` (`details.option` is `root`, `details.options` both) |
 | `validation_error` (2) | `store_only_option` | `plan` or `series` of `store sync`, or any `output_dir` of a project task, with `output_dir` |
 | `validation_error` (2) | `not_in_store` | a store download of a dataset that has no place in the store (hint `--output-dir`) |

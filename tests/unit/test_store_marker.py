@@ -12,11 +12,18 @@ from imgwtools.datasets import archive_files
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWError,
+    IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreError,
 )
 from imgwtools.fetch import DownloadResult
-from imgwtools.project import add_project_task, check_project, init_project
+from imgwtools.project import (
+    add_project_task,
+    check_project,
+    init_project,
+    open_project,
+    set_project_store,
+)
 from imgwtools.store import (
     check_store,
     current_version,
@@ -193,6 +200,49 @@ def test_a_marker_the_reader_refuses_is_refused_by_the_writer_too(tmp_path, text
     )
     with pytest.raises(IMGWStoreError):
         current_version(root, slot="catalog:pl.imgw.stations")
+
+
+@pytest.mark.parametrize(("text", "code"), REFUSED.values(), ids=REFUSED)
+def test_a_project_refuses_the_marker_the_writer_refuses_with_the_same_code(
+    tmp_path, text, code
+):
+    root = root_with_marker(tmp_path, text)
+    # An unreadable marker is `data_error`, another schema `store_unavailable` (DEV-19.10).
+    expected = (
+        ("store_unavailable", "unsupported")
+        if code == "unsupported_store"
+        else ("data_error", "invalid_marker")
+    )
+
+    with pytest.raises(IMGWProjectError) as refused:
+        init_project(tmp_path / "project", store_dir=root)
+
+    assert (refused.value.code, refused.value.details) == (
+        expected[0],
+        {"option": "store_dir", "reason": expected[1]},
+    )
+    assert not (tmp_path / "project").exists()
+
+
+def test_a_project_refuses_an_unreadable_marker_when_it_moves_and_when_it_opens(
+    tmp_path,
+):
+    store = init_store(tmp_path / "store").root
+    project = tmp_path / "project"
+    init_project(project, store_dir=store)
+    damaged = root_with_marker(tmp_path, "{")
+
+    with pytest.raises(IMGWProjectError) as moved:
+        set_project_store(project, store_dir=damaged)
+    (store / MARKER).write_text("{", encoding="utf-8")
+    with pytest.raises(IMGWProjectError) as opened:
+        open_project(project)
+
+    for error in (moved.value, opened.value):
+        assert (error.code, error.details) == (
+            "data_error",
+            {"option": "store_dir", "reason": "invalid_marker"},
+        )
 
 
 def test_a_root_that_is_no_store_has_the_code_of_what_is_missing(tmp_path):
