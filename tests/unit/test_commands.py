@@ -18,6 +18,7 @@ from imgwtools.commands import (
     check_command,
     data_commands,
     format_command,
+    parse_command,
     run_command,
     validate_command,
 )
@@ -26,6 +27,7 @@ from imgwtools.exceptions import IMGWCancelledError, IMGWError, IMGWValidationEr
 from imgwtools.project import add_project_task, download_project, init_project
 from imgwtools.store.types import (
     CatalogReport,
+    CommandCall,
     DownloadItem,
     DownloadReport,
     Notice,
@@ -94,6 +96,7 @@ SPEC_COMMANDS = [
     "commands schema",
     "commands guide",
 ]
+GROUPS = list(dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS))
 PUBLIC_MODULES = (
     "imgwtools.datasets",
     "imgwtools.fetch",
@@ -398,23 +401,6 @@ PINS_BEFORE["sync"] = PINS_BEFORE["build"] = [
 ]
 
 
-def parse(text):
-    """Map a formatted command line back to option names, as the CLI adapter does."""
-    words = shlex.split(text)
-    assert words[0] == "imgw"
-    (command,) = [c for c in data_commands() if words[1:3] == c.name.split()]
-    flags = {}
-    for option in command.options:
-        for flag in (option.flag, *option.aliases):
-            flags[flag] = (option, True)
-        flags[f"--no-{option.flag[2:]}"] = (option, False)
-    options, rest = {}, words[3:]
-    while rest:
-        option, value = flags[rest.pop(0)]
-        options[option.name] = value if option.type == "bool" else rest.pop(0)
-    return command.name, options
-
-
 def returning(monkeypatch, module, name, value):
     """Replace a public function (keeping its signature) by one returning or raising."""
     original = getattr(module, name)
@@ -498,15 +484,63 @@ def test_each_option_name_has_one_type_and_each_short_alias_one_meaning():
     }
 
 
-@pytest.mark.parametrize(("command", "options"), SAMPLES)
-def test_format_command_reparses_to_identical_options(command, options):
-    text = format_command(command, options=options)
-    name, parsed = parse(text)
-    assert name == command
-    assert validate_command(command, options=parsed) == validate_command(
-        command, options=options
+def test_parse_command_takes_a_text_or_its_words_with_or_without_imgw():
+    line = (
+        "imgw store sync --root '/data/imgw store' --datasets pl.imgw.hydro_daily "
+        "--years 2024 --check"
     )
-    assert format_command(command, options=parsed) == text
+    call = CommandCall(
+        "store sync",
+        {
+            "root": "/data/imgw store",
+            "datasets": ["pl.imgw.hydro_daily"],
+            "years": ["2024"],
+        },
+        {"check": True},
+    )
+
+    assert parse_command(line) == call
+    assert parse_command(line.removeprefix("imgw ")) == call
+    assert parse_command(shlex.split(line)) == call
+
+
+@pytest.mark.parametrize(
+    ("line", "details"),
+    [
+        ("", {"allowed": GROUPS}),
+        ("imgw config show", {"allowed": GROUPS}),
+        ("imgw store --help", {}),
+        ("imgw store info --help", {"command": "store info"}),
+        ("imgw store info --schema", {"command": "store info"}),
+        ("imgw store info -- --root /data", {"command": "store info"}),
+        ("imgw store info --root '/data", {}),
+    ],
+)
+def test_parse_command_refuses_a_line_that_is_no_call_of_the_catalog(line, details):
+    with pytest.raises(IMGWValidationError) as error:
+        parse_command(line)
+
+    assert error.value.code == "validation_error"
+    assert error.value.details == {"reason": "usage", **details}
+
+
+def test_format_command_writes_check_last_and_refuses_another_flag_of_a_run():
+    plan = {"root": "/s", "plan": "/p.json"}
+
+    assert format_command("store sync", options=plan, run={"check": True}) == (
+        "imgw store sync --root /s --plan /p.json --check"
+    )
+    assert format_command("store sync", options=plan, run={"check": False}) == (
+        "imgw store sync --root /s --plan /p.json"
+    )
+    for command, options, run, option in (
+        ("store sync", plan, {"force": True}, "force"),
+        ("store sync", plan, {"check": "yes"}, "check"),
+        ("store info", {"root": "/s"}, {"check": True}, "check"),
+    ):
+        with pytest.raises(IMGWValidationError) as error:
+            format_command(command, options=options, run=run)
+        assert error.value.details["option"] == option
 
 
 def test_format_command_quotes_and_writes_bools_as_flags():

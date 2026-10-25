@@ -6,7 +6,10 @@ command calls exactly one public function whose parameters carry the option
 names; the CLI, the REST API, the web GUI and projects use `validate_command`,
 `format_command`, `check_command`, `run_command` and `command_schema` instead
 of their own validation, HTTP requests or option lists. `run_command` and
-`check_command` return the ``imgw-result/1`` envelope `CommandResult`.
+`check_command` return the ``imgw-result/1`` envelope `CommandResult`;
+`parse_command` reads an ``imgw`` line into the call it makes (`CommandCall`),
+with the flags the CLI has, and `format_command` writes the canonical line of a
+call.
 
 Texts for humans (option help, descriptions, rules, group titles) are catalog
 messages (``imgwtools.messages.commands``): English, with a Polish variant that
@@ -22,7 +25,7 @@ import math
 import os
 import re
 import shlex
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -64,6 +67,7 @@ from imgwtools.store.plain import plain_actions
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
+    CommandCall,
     CommandOption,
     CommandResult,
     DataCommand,
@@ -88,6 +92,7 @@ __all__ = [
     "data_commands",
     "format_command",
     "list_commands",
+    "parse_command",
     "run_command",
     "validate_command",
 ]
@@ -2098,13 +2103,63 @@ def _argument(value: object) -> str:
     return str(value)
 
 
-def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
-    """
-    Format a command as a stable, ``shlex``-quoted CLI invocation.
+# The program a command line starts with (``format_command`` writes it).
+_PROGRAM = "imgw"
+# The flag of a run beside the options: the plan of ``check_command`` (ADR-002 D11).
+_CHECK_FLAG = "--check"
+# Flags that print a description of a command instead of calling it.
+_DESCRIBING_FLAGS = ("--help", "--schema")
 
-    Only the given options are emitted, after normalization, with their
-    canonical ``--kebab-case`` flags; ``bool`` options become ``--x`` or
-    ``--no-x``. No hidden options are added.
+
+def _run_check(spec: DataCommand, run: Mapping[str, object] | None) -> bool:
+    """Whether ``run`` asks for ``--check``; any other flag of a run is refused."""
+    given = {} if run is None else run
+    allowed = [] if spec.check is None else ["check"]
+    for name in given:
+        if name != "check":
+            _fail(
+                message("commands.not_a_run_flag", name=name, command=spec.name),
+                option=str(name),
+                allowed=allowed,
+            )
+    value = given.get("check")
+    if value is None or value is False:
+        return False
+    if value is not True:
+        _fail(
+            message(
+                "commands.option_must_boolean_true_false", name="check", value=value
+            ),
+            option="check",
+            value=value,
+        )
+    if spec.check is None:
+        _fail(
+            message("commands.command_has_no_check", command=spec.name),
+            option="check",
+            allowed=allowed,
+        )
+    return True
+
+
+def format_command(
+    command: str,
+    /,
+    *,
+    options: Mapping[str, object],
+    run: Mapping[str, object] | None = None,
+) -> str:
+    """
+    Write the canonical ``imgw`` command line of a call.
+
+    The options are written as `validate_command` normalizes them (dataset
+    keys, sorted years, absolute paths, the default root of a store command
+    that names none, ADR-007 D2), each with its canonical ``--kebab-case`` flag
+    in catalog order; a ``bool`` option is ``--x`` or ``--no-x`` and is left
+    out at its default. ``run`` adds ``--check`` last. Every word is
+    ``shlex``-quoted, so equal calls give equal text: `parse_command` reads
+    the line back into the same command and run and into options that
+    validate to the same call, whose line is this one again.
 
     Parameters
     ----------
@@ -2112,6 +2167,10 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
         Catalog command name.
     options : Mapping[str, object]
         Option values keyed by option name.
+    run : Mapping[str, object] or None, optional
+        The flags of a run beside the options: ``{"check": True}`` writes
+        ``--check`` (the plan of `check_command`) for a command that has it
+        (``DataCommand.check``); ``False`` or ``None`` leaves it out.
 
     Returns
     -------
@@ -2122,11 +2181,15 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
     Raises
     ------
     IMGWValidationError
-        If the command or its options are invalid (see `validate_command`).
+        If the command or its options are invalid (see `validate_command`),
+        or ``run`` names another flag, gives ``check`` a value that is not a
+        boolean or asks for ``--check`` of a command without it
+        (``details.option`` names it).
     """
     normalized = validate_command(command, options=options)
     spec = _BY_NAME[command]
-    words = ["imgw", *spec.name.split()]
+    check = _run_check(spec, run)
+    words = [_PROGRAM, *spec.name.split()]
     for option in spec.options:
         if option.name not in normalized:
             continue
@@ -2135,7 +2198,186 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
             words.append(option.flag if value else f"--no-{option.flag[2:]}")
         else:
             words += [option.flag, _argument(value)]
+    if check:
+        words.append(_CHECK_FLAG)
     return " ".join(shlex.quote(word) for word in words)
+
+
+def _usage(detail: str, **details: object) -> NoReturn:
+    """Refuse a mistake of a command line: ``details.reason`` is ``usage``."""
+    raise IMGWValidationError(detail, details={"reason": "usage", **details})
+
+
+def _line_command(words: Sequence[str]) -> DataCommand:
+    """The catalog command that the first two words of a line name."""
+    groups = list(_GROUPS)
+    if not words:
+        _usage(
+            message("commands.line_needs_command", groups=", ".join(groups)),
+            allowed=groups,
+        )
+    group = words[0]
+    if group in _DESCRIBING_FLAGS:
+        _usage(message("commands.line_describes", flag=group))
+    if group not in _GROUPS:
+        _usage(
+            message(
+                "commands.line_unknown_group", group=group, groups=", ".join(groups)
+            ),
+            allowed=groups,
+        )
+    named = _BY_NAME.get(" ".join(words[:2]))
+    if named is not None:
+        return named
+    if words[1:2] and words[1] in _DESCRIBING_FLAGS:
+        _usage(message("commands.line_describes", flag=words[1]))
+    names = [spec.name for spec in _COMMANDS if spec.name.startswith(f"{group} ")]
+    _usage(
+        message(
+            "commands.line_needs_group_command", group=group, commands=", ".join(names)
+        ),
+        allowed=names,
+    )
+
+
+def _line_flags(spec: DataCommand) -> dict[str, tuple[CommandOption, bool | None]]:
+    """
+    The flags ``imgw <command>`` has for the options of ``spec``.
+
+    They are those of ``x-imgw.cli.flags``: the flag of an option, its short
+    aliases and ``--no-x`` of a ``bool`` option whose default is true. Each
+    maps to its option and to ``None`` for a flag that takes a value, or to
+    the value a switch gives.
+    """
+    flags: dict[str, tuple[CommandOption, bool | None]] = {}
+    for option in spec.options:
+        negative = f"--no-{option.flag[2:]}"
+        for flag in _flags(option):
+            flags[flag] = (option, None if option.type != "bool" else flag != negative)
+    return flags
+
+
+def _split_word(word: str) -> tuple[str, str | None]:
+    """A word as its flag and the value joined to it, as the CLI (Click) reads it."""
+    if word.startswith("--"):
+        flag, joined, value = word.partition("=")
+        return flag, value if joined else None
+    if word.startswith("-") and len(word) > 2:
+        return word[:2], word[2:]
+    return word, None
+
+
+def parse_command(line: str | Sequence[str], /) -> CommandCall:
+    """
+    Read an ``imgw`` command line into the call it makes, as the CLI reads it.
+
+    The first two words name a catalog command (``store sync``); the others
+    are the flags ``imgw`` has for it (spec §13.10, ADR-002 D2 and D11): the
+    flag of each option and its short alias (``--root``, ``-r``), ``--no-x``
+    of a ``bool`` option whose default is true and ``--check`` of a command
+    with a check twin. A flag takes its value from the next word or after
+    ``=`` (``--root=/data``; a short alias also joined, ``-r/data``), a list
+    option takes one value per occurrence of its flag, a later value of
+    another option wins and ``--`` ends the flags. Like the CLI, which
+    validates nothing, the options are the texts the CLI passes to
+    `run_command`; `validate_command` checks and normalizes them, and
+    `format_command` writes the call as its canonical line, so a line that
+    `format_command` wrote is read into a call it writes as the same line.
+
+    Parameters
+    ----------
+    line : str or Sequence[str]
+        The line, with or without the leading ``imgw``: a text is split like
+        a shell line (``shlex.split``), a sequence holds its words.
+
+    Returns
+    -------
+    CommandCall
+        The command, its options (the texts as given, ``True`` or ``False``
+        of a switch) and ``run`` (``{"check": True}`` for ``--check``).
+
+    Raises
+    ------
+    IMGWValidationError
+        A mistake of the line, with ``details.reason`` ``usage``: a text that
+        is no shell line, no command or one outside the catalog
+        (``details.allowed`` lists the groups, or the commands of the group),
+        ``--help`` or ``--schema`` (a description, not a call), an unknown
+        flag, a flag without its value or a switch with one
+        (``details.option`` names the option) or a word that is no flag;
+        ``details.command`` names the command the line named.
+    """
+    try:
+        words = shlex.split(line) if isinstance(line, str) else list(line)
+    except ValueError as exc:
+        _usage(message("commands.line_unreadable", error=reason(exc)))
+    if words[:1] == [_PROGRAM]:
+        del words[0]
+    spec = _line_command(words)
+    flags = _line_flags(spec)
+    name = spec.name
+    given: dict[str, object] = {}
+    lists: dict[str, list[str]] = {}
+    run: dict[str, object] = {}
+    rest = words[2:]
+    while rest:
+        word = rest.pop(0)
+        if word == "--":
+            if rest:
+                _usage(
+                    message("commands.line_extra_word", word=rest[0], command=name),
+                    command=name,
+                )
+            break
+        flag, joined = _split_word(word)
+        if flag == "-" or not flag.startswith("-"):
+            _usage(
+                message("commands.line_extra_word", word=word, command=name),
+                command=name,
+            )
+        if flag in _DESCRIBING_FLAGS:
+            _usage(message("commands.line_describes", flag=flag), command=name)
+        if flag == _CHECK_FLAG and spec.check is not None:
+            if joined is not None:
+                _usage(
+                    message("commands.line_switch_value", flag=flag, command=name),
+                    option="check",
+                    command=name,
+                )
+            run["check"] = True
+            continue
+        entry = flags.get(flag)
+        if entry is None:
+            _usage(
+                message("commands.line_unknown_option", flag=flag, command=name),
+                option=flag.lstrip("-").replace("-", "_"),
+                command=name,
+            )
+        option, switch = entry
+        if switch is not None:
+            if joined is not None:
+                _usage(
+                    message("commands.line_switch_value", flag=flag, command=name),
+                    option=option.name,
+                    command=name,
+                )
+            given[option.name] = switch
+            continue
+        if joined is None:
+            if not rest:
+                _usage(
+                    message("commands.line_needs_value", flag=flag, command=name),
+                    option=option.name,
+                    command=name,
+                )
+            joined = rest.pop(0)
+        if option.type == "list":
+            lists.setdefault(option.name, []).append(joined)
+        else:
+            given[option.name] = joined
+    given.update(lists)
+    options = {o.name: given[o.name] for o in spec.options if o.name in given}
+    return CommandCall(name, options, run)
 
 
 # --- dyspozytor ------------------------------------------------------------------------------

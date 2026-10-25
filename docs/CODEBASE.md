@@ -143,7 +143,8 @@ Every live function has an `*_async` twin with identical arguments.
 |`list_commands(*, lang="en")`|Catalog summary `imgw-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`imgw commands list`, MCP `imgw_commands_list`)|
 |`data_commands(*, provider=None)`|Catalog entries (`DataCommand`; `provider` = view of one provider)|
 |`validate_command(command, /, *, options)`|Normalized options or `IMGWValidationError` with `details.option`|
-|`format_command(command, /, *, options)`|Equivalent CLI command line|
+|`format_command(command, /, *, options, run=None)`|Canonical CLI command line of a call; `run={"check": True}` adds `--check`|
+|`parse_command(line, /)`|An `imgw` line (text or words) → `CommandCall(command, options, run)` with the texts the CLI passes (`run`: `check`); a mistake of the line is `validation_error`, `details.reason="usage"`|
 |`run_command(command, /, *, options)`|Run a command → `CommandResult` (list commands → `Page`)|
 |`check_command(command, /, *, options)`|Plan of a command without side effects → `CommandResult`|
 |`agent_guide(*, format="agents", lang="en", output=None, force=False)`|Agent guide `AGENTS.md`/`llms.txt`: line iterator, or with `output` one plain file and its `OutputReport`|
@@ -162,6 +163,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`NormalizedRecord`, `Measurement`|Normalized archive/series record with value flags (`Measurement.quality`, `source_flag` for ČHMÚ meteo)|
 |`ProviderDescriptor`|Data provider: id, names, country, key prefix, base URL, license, station code pattern, datasets|
 |`CommandResult`, `Page`|Result envelope (`imgw-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
+|`CommandCall`|A command line read by `parse_command`: `command`, `options`, `run`|
 |`FileResult`, `OutputReport`|One written file `{path, size_bytes, sha256, status}` and the result of an export `{output, files[]}`|
 
 **Exceptions** (every `IMGWError` has `code` from `ERROR_CODES` and `details`):

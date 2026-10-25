@@ -955,4 +955,54 @@ MESSAGES = {
         "dokładnie jedno z: version albo root+dataset (bieżąca wersja szeregu zbioru)",
     ),
     "pattern_default": Text("pattern {pattern}", "wzorzec {pattern}"),
+    "line_unreadable": Text(
+        "The command line cannot be read: {error}",
+        "Nie można odczytać wiersza polecenia: {error}",
+    ),
+    "line_needs_command": Text(
+        "Give a command: imgw <group> <command> --option value; the groups: {groups}",
+        "Podaj komendę: imgw <grupa> <komenda> --opcja wartość; grupy: {groups}",
+    ),
+    "line_unknown_group": Text(
+        "Unknown command group {group!r}; the groups of the catalog: {groups}",
+        "Nieznana grupa komend {group!r}; grupy katalogu: {groups}",
+    ),
+    "line_needs_group_command": Text(
+        "Give a command of the group {group}: {commands}",
+        "Podaj komendę grupy {group}: {commands}",
+    ),
+    "line_describes": Text(
+        "{flag} prints a description and is no part of a call; the options of a "
+        'command: imgw commands schema --command "<group> <command>"',
+        "{flag} wypisuje opis i nie jest częścią wywołania; opcje komendy: "
+        'imgw commands schema --command "<grupa> <komenda>"',
+    ),
+    "line_extra_word": Text(
+        "Unexpected word {word!r} in imgw {command}: the command takes only options, "
+        "--name value",
+        "Nieoczekiwane słowo {word!r} w imgw {command}: komenda przyjmuje wyłącznie "
+        "opcje --nazwa wartość",
+    ),
+    "line_unknown_option": Text(
+        "Unknown option {flag} of the command imgw {command}",
+        "Nieznana opcja {flag} komendy imgw {command}",
+    ),
+    "line_switch_value": Text(
+        "The switch {flag} of the command imgw {command} takes no value",
+        "Przełącznik {flag} komendy imgw {command} nie przyjmuje wartości",
+    ),
+    "line_needs_value": Text(
+        "The option {flag} of the command imgw {command} needs a value",
+        "Opcja {flag} komendy imgw {command} wymaga wartości",
+    ),
+    "not_a_run_flag": Text(
+        "{name!r} is no flag of a run of the command {command}: options go into "
+        "options, and check is the only flag of a run",
+        "{name!r} nie jest flagą uruchomienia komendy {command}: opcje podaje się w "
+        "options, a jedyną flagą uruchomienia jest check",
+    ),
+    "command_has_no_check": Text(
+        "The command {command} has no --check: it is a check itself or only reads",
+        "Komenda {command} nie ma --check: sama jest sprawdzeniem albo tylko odczytuje",
+    ),
 }

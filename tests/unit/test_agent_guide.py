@@ -26,12 +26,12 @@ from imgwtools.commands import (
     check_command,
     command_schema,
     list_commands,
+    parse_command,
     validate_command,
 )
 from imgwtools.datasets import datasets, providers
 from imgwtools.exceptions import ERROR_CODES, IMGWError, IMGWValidationError
 from imgwtools.messages import Lang, message
-from tests.unit.test_commands import parse
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 GUIDES = {"AGENTS.md": "agents", "llms.txt": "llms"}
@@ -210,9 +210,8 @@ def test_every_flow_command_of_the_guide_validates_with_fictional_values(
             line = line.replace(symbol, value)
         for symbol in PROJECT_SYMBOLS:
             line = line.replace(symbol, shlex.quote(str(tmp_path / "projekt")))
-        words = shlex.split(line)
-        command, options = parse(shlex.join(w for w in words if w != "--check"))
-        validate_command(command, options=options)
+        call = parse_command(line)
+        validate_command(call.command, options=call.options)
 
 
 def test_flow_steps_name_only_known_symbols():

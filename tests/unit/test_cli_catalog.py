@@ -27,6 +27,7 @@ from imgwtools.commands import (
     command_schema,
     data_commands,
     format_command,
+    parse_command,
     run_command,
     validate_command,
 )
@@ -34,6 +35,7 @@ from imgwtools.config import settings
 from imgwtools.exceptions import ERROR_CODES, IMGWError
 from imgwtools.messages import localize, message
 from imgwtools.store.types import (
+    CommandCall,
     CommandResult,
     Notice,
     Progress,
@@ -272,10 +274,9 @@ def test_cli_catalog_command_help_and_flags_are_the_catalog(spec):
     assert ("Opcje wymagane" in shown) == any(o.required for o in spec.options)
 
 
-@pytest.mark.parametrize(("command", "options"), SAMPLES)
-def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
-    monkeypatch, command, options
-):
+@pytest.fixture
+def dispatched(monkeypatch):
+    """``(command, check, options)`` of each call the CLI dispatches, not run."""
     calls = []
 
     def dispatcher(check):
@@ -287,6 +288,21 @@ def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
 
     monkeypatch.setattr(_dispatch, "run_command", dispatcher(False))
     monkeypatch.setattr(_dispatch, "check_command", dispatcher(True))
+    return calls
+
+
+def dispatched_call(dispatched, args):
+    """The call the CLI dispatches for ``args``, as a ``CommandCall``."""
+    result = invoke(*args)
+    assert result.exit_code == 0, (args, result.output)
+    name, check, options = dispatched.pop()
+    return CommandCall(name, options, {"check": True} if check else {})
+
+
+@pytest.mark.parametrize(("command", "options"), SAMPLES)
+def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
+    dispatched, command, options
+):
     variants = [
         (argv(command, options), False),
         (argv(command, options, aliases=True), False),
@@ -294,19 +310,38 @@ def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
     if SPECS[command].check is not None:
         variants.append(([*argv(command, options), "--check"], True))
     for args, check in variants:
-        result = invoke(*args)
-        assert result.exit_code == 0, (args, result.output)
-        name, checked, passed = calls.pop()
-        assert (name, checked) == (command, check)
+        call = dispatched_call(dispatched, args)
+        assert (call.command, call.run) == (command, {"check": True} if check else {})
         # Click validates nothing: the raw text of each given option reaches the catalog.
         assert all(
             isinstance(value, str | bool)
             or all(isinstance(item, str) for item in value)
-            for value in passed.values()
+            for value in call.options.values()
         )
-        assert validate_command(command, options=passed) == validate_command(
+        assert validate_command(command, options=call.options) == validate_command(
             command, options=options
         )
+        # parse_command reads the same words into the same call.
+        assert parse_command(args) == call
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (
+            *("store", "sync", "-r/data/imgw", f"--datasets={DAILY}"),
+            *("-y", "2023", "-y", "2024,2025", "--no-series", "--force", "--check"),
+            "--",
+        ),
+        ("store", "info", "--root", "/a", "-r", "/b"),
+        ("stations", "find", "--query", "-raba", "--kind=hydro"),
+    ],
+    ids=" ".join,
+)
+def test_parse_command_reads_joined_values_and_repeated_flags_as_the_cli(
+    dispatched, args
+):
+    assert parse_command(args) == dispatched_call(dispatched, args)
 
 
 @pytest.mark.parametrize("spec", data_commands(), ids=lambda spec: spec.name)
@@ -721,6 +756,14 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     document = error_line(invoke(*args), "validation_error")
     assert document["details"].get("option") == option
     assert document["details"]["click"]
+    # parse_command refuses the same words as a mistake of the line.
+    with pytest.raises(IMGWError) as error:
+        parse_command([str(arg) for arg in args])
+    assert (error.value.code, error.value.details["reason"]) == (
+        "validation_error",
+        "usage",
+    )
+    assert error.value.details.get("option") == option
 
 
 def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_imgw_lang():
