@@ -21,6 +21,7 @@ Stan bieżący projektu (norma Nogat 2.1, DOC-6.1). Historia wydań, analiza cro
 | Egzekwowanie kluczy API, limity per klucz | planned | backlog w „Next” |
 | Zgodność ze standardem Nogat 2.1 (`chore/nogat-2.1`) | in progress | zrobione i do zrobienia: poniżej i w „Next” |
 | Zapis danych: tryb plain, magazyn, domyślny korzeń (ADR-007, DEV §19) | done (gałąź `feature/data-output`) | kod, testy i dokumenty skończone; dla konsumentów: [CHANGELOG „Migration guide: data output”](CHANGELOG.md) |
+| Odczyt magazynu: prośby Archiwisty z 2026-10-25 (errata ADR-007) | done (gałąź `feature/data-output`) | `StoreInfo.problem_codes`, `Meta.producer` i `Meta.producer_version`, `iter_store(skip_versions=)` z `StoreEntry.skipped` (skan przyrostowy, tylko Python) i marker bez `created_by` czytelny dla czytnika; wszystko opcjonalne w `/1`, szczegóły w [CHANGELOG „Unreleased”](CHANGELOG.md). Archiwista po zmianie pinu: kody zamiast dopasowywania tekstów, `producer*` z `Meta` zamiast stałej `PACKAGE`, `known_versions` jako `skip_versions`; zostają prośby do Nogat (krawędź rejestru) |
 | CI z macierzą ubuntu/macos/windows | planned | zapis na macOS i Windows nie był uruchomiony na prawdziwym systemie |
 
 ### Zgodność ze standardem Nogat 2.1 (`chore/nogat-2.1`)
