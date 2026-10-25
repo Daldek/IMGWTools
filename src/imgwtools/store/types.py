@@ -1217,6 +1217,31 @@ class DataCommand:
 
 
 @dataclass(frozen=True)
+class CommandCall:
+    """
+    The call an ``imgw`` command line makes, read by ``parse_command``.
+
+    Attributes
+    ----------
+    command : str
+        Command name, e.g. ``"store sync"``.
+    options : dict of str to object
+        The options the line gave, in catalog order, as the CLI passes them
+        to ``run_command``: the text of a value (a list option has one text
+        per occurrence of its flag, commas kept) and ``True`` or ``False`` of a
+        switch. Nothing is validated or normalized; ``validate_command`` does
+        that.
+    run : dict of str to object
+        The flags of a run beside the options: ``{"check": True}`` for
+        ``--check`` (the call is a ``check_command``), otherwise empty.
+    """
+
+    command: str
+    options: dict[str, object]
+    run: dict[str, object]
+
+
+@dataclass(frozen=True)
 class Page[T]:
     """
     One page of a list command result.

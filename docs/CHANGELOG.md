@@ -11,6 +11,25 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 
 ### Added
 
+- **`parse_command(line)` and `format_command(..., run=)` (AGI-2.1, request of Archiwista):**
+  `parse_command` reads an `imgw` command line, a text or its words with or without the leading
+  `imgw`, into `CommandCall(command, options, run)`, so a pasted line becomes a call. The flags are
+  those the CLI has for the catalog command (`x-imgw.cli.flags`, and `--check` of a command with a
+  check twin), read as the CLI reads them: `--root=/data`, `-r/data`, a list flag repeated, the
+  last value of another flag, `--` at the end. The options are the texts the CLI passes to
+  `run_command`, nothing validated (`validate_command` does that), and `run` is `{"check": True}`
+  for `--check`. A mistake of the line (no command or one outside the catalog, `--help` or
+  `--schema`, an unknown flag, a flag without its value, a switch with one, a word that is no flag)
+  is `validation_error` with `details.reason` `usage`, `details.option` for a wrong flag and
+  `details.command` once the line named a command. `format_command(command, /, *, options,
+  run=None)` writes `--check` last for `run={"check": True}`; another flag of a run, a value that
+  is not a boolean or `--check` of a command without it is `validation_error` naming it. The agent
+  guide writes its planned steps with it (the guides do not change). The names, shapes and errors
+  are Kartograf's (`parse_command`, `format_command(..., run=)`, `CommandCall`); IMGWTools keeps its
+  keyword-only options (R1), so `format_command(command, options=..., run=...)` calls both. A
+  contract test (`tests/contract/test_command_lines.py`) writes the line of every example call
+  (each catalog command, the ČHMÚ calls, with `--check` where a command has it), reads it back and
+  writes the same line again, so a tool that exchanges `imgw` lines compares them as text.
 - **`store_root()` (DEV-19.2):** `imgwtools.store_root()` (also `imgwtools.config.store_root`) is the
   public read-only accessor of the default store root: `StoreRoot(root, source, name,
   marker_exists)` with the absolute root of a command without `--root`, the layer that gave it

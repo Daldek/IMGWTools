@@ -54,6 +54,7 @@ from imgwtools.commands import (
     data_commands,
     format_command,
     list_commands,
+    parse_command,
     run_command,
     validate_command,
 )
@@ -225,6 +226,7 @@ from imgwtools.store import (
 
 # Command and project types
 from imgwtools.store.types import (
+    CommandCall,
     CommandOption,
     CommandResult,
     DataCommand,
@@ -397,6 +399,7 @@ __all__ = [
     "CommandOption",
     "DataCommand",
     "CommandResult",
+    "CommandCall",
     "Page",
     "SeriesSelection",
     "data_commands",
@@ -404,6 +407,7 @@ __all__ = [
     "list_commands",
     "validate_command",
     "format_command",
+    "parse_command",
     "check_command",
     "run_command",
     "agent_guide",

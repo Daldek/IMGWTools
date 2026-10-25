@@ -20,7 +20,6 @@ from imgwtools import (
     check_command,
     command_schema,
     data_commands,
-    format_command,
     providers,
     run_command,
     validate_command,
@@ -31,7 +30,6 @@ from imgwtools.cli.main import app as cli_app
 from imgwtools.config import settings
 from imgwtools.store import init_store
 from tests.contract.support import canonical, cli_words, rest_request, violations
-from tests.unit.test_commands import parse
 from tests.unit.test_store_catalog_chmi import SOURCES, build
 from tests.unit.test_store_catalog_chmi import serve as serve_catalog
 from tests.unit.test_store_sync_chmi import BASE, FIRST
@@ -181,7 +179,7 @@ def test_chmi_view_of_the_catalog_drops_imgw_only_commands_and_narrows_choices()
 
 
 # --------------------------------------------------------------------------
-# validate_command and format_command
+# validate_command
 # --------------------------------------------------------------------------
 
 
@@ -312,15 +310,9 @@ VALID = [
 
 
 @pytest.mark.parametrize(("command", "options"), VALID)
-def test_chmi_examples_round_trip_through_format_command(command, options):
+def test_chmi_examples_normalize_to_options_of_the_command_schema(command, options):
     normalized = validate_command(command, options=options)
 
-    text = format_command(command, options=options)
-    name, parsed = parse(text)
-
-    assert name == command
-    assert validate_command(command, options=parsed) == normalized
-    assert format_command(command, options=parsed) == text
     assert violations(jsonable(normalized), command_schema(command)) == []
 
 

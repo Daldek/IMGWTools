@@ -522,11 +522,12 @@ def _command_line(step: _Step, lang: Lang) -> str:
     options = cast(
         Mapping[str, object], _substituted(step.options, lambda s: s.stand_in)
     )
-    line = format_command(cast(str, step.command), options=options)
+    run = {"check": True} if step.check else None
+    line = format_command(cast(str, step.command), options=options, run=run)
     line = _YEAR_RUN.sub(_year_range, line)
     for symbol in _SYMBOLS:
         line = line.replace(symbol.rendered(), symbol.name(lang))
-    return line + (" --check" if step.check else "")
+    return line
 
 
 def _flows(lang: Lang) -> str:
