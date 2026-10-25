@@ -51,6 +51,20 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   start, so a sidecar without one is still `invalid_meta`, refused and not filled in. The fields are
   optional (defaults `"imgwtools"` and `None`), so `imgw-meta/1` and the constructor of `Meta` do
   not change.
+- **`iter_store(skip_versions=)` and `StoreEntry.skipped` (request of Archiwista):** an incremental
+  scan. A consumer that keeps what it has read passes the versions it knows, the path of each
+  version directory relative to the root (with `/`) mapped to the names of its data files
+  (`{"archives/versions/…/<label>_<sha8>": ("codz_2024.zip",)}`; the shape of
+  `ScanScope.known_versions` of Archiwista and of `skip_versions` of Kartograf), and gets each back
+  as an entry with `skipped=True` and `meta=None` (`kind`, `slot`, `version` and `provider` as
+  always), without its directory being listed, its sidecar read or its file measured. The scan
+  still lists the slots, so a new version, a problem and a version that is gone show as in a full
+  scan; the caller vouches for what it names, so a known version that has broken since is not
+  seen. An observation of an archive slot is still checked against the content fields of the
+  version it names, which reads that one sidecar. `skip_versions` is a parameter of the Python
+  function only (`store scan` takes no list of known versions); a value that is not a mapping of
+  paths to collections of plain file names is `validation_error` with `details.option` set to
+  `skip_versions`. `StoreEntry.skipped` is optional (default `False`).
 
 ### Changed
 

@@ -403,6 +403,7 @@ def test_fields_added_to_the_read_api_default_so_older_constructors_keep_working
 
     assert StoreInfo(Path("/s"), True, None, True, {}, ()).problem_codes == ()
     assert (meta.producer, meta.producer_version) == ("imgwtools", None)
+    assert StoreEntry("problem", None, None, None, "x", "Brak").skipped is False
 
 
 def _chmi_plan(tmp_path):

@@ -124,7 +124,8 @@ Every live function has an `*_async` twin with identical arguments.
 **Versioned Store** (also in `imgwtools.store`):
 |Function|Description|
 |---|---|
-|`init_store`, `open_store`, `store_info`, `iter_store`|Create/open/describe/scan a store; `store_info` does not raise for a root that is no store: `StoreInfo.problems` has a code in `problem_codes` for each problem (`missing_store`, `missing_marker`, `invalid_marker`, `unsupported_store`)|
+|`init_store`, `open_store`, `store_info`|Create/open/describe a store; `store_info` does not raise for a root that is no store: `StoreInfo.problems` has a code in `problem_codes` for each problem (`missing_store`, `missing_marker`, `invalid_marker`, `unsupported_store`)|
+|`iter_store(root, /, *, kind=None, provider=None, skip_versions=None)`|Scan every version (`StoreEntry.meta` is a `Meta`, with `producer` and `producer_version`), observation and problem; `skip_versions` (Python only) maps the version directory of each version a consumer knows, relative to the root, to its data file names: it comes back `skipped=True` without `meta`, neither listed nor read (incremental scan)|
 |`check_store`, `sync_store`|Freshness plan (IMGW-PIB: listing + HEAD; ČHMÚ: one directory listing, `stations`) and download of new/missing archives; `sync_store(root=None, *, output_dir=None, force=False, ...)` writes plain files with `output_dir` (no `plan`, no series)|
 |`check_series`, `build_series`|Parquet station series|
 |`check_catalog`, `build_catalog`|`stations.geojson` catalog of one provider (`provider="IMGW-PIB"` default, `"CHMI"`)|

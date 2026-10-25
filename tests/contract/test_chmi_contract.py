@@ -315,10 +315,10 @@ def test_imgw_15_k1_both_providers_scan_clean_with_a_provider_on_every_entry(pl_
     } == {"CHMI"}
 
 
-def _scan(root: Path, **filters: str) -> list[tuple[object, ...]]:
+def _scan(root: Path, *, provider: str | None = None) -> list[tuple[object, ...]]:
     return [
         (entry.kind, entry.slot, entry.provider, relative(root, entry.version))
-        for entry in iter_store(root, **filters)
+        for entry in iter_store(root, provider=provider)
     ]
 
 
