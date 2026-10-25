@@ -234,7 +234,8 @@ class PlanAction:
     Planned non-archive action, e.g. building a series, catalog or project.
 
     A plain write (``output_dir``, DEV-19.10) lists each target as one action
-    with ``action``, ``path`` and, for a conflict, ``reason``.
+    with ``action``, ``path`` and, for a conflict, ``reason``; a store write
+    whose root would nest a store lists one ``conflict`` action (DEV-19.14).
 
     Attributes
     ----------
@@ -254,8 +255,10 @@ class PlanAction:
         a target that cannot be written; None outside plain writes.
     path : Path or None, optional
         Absolute path of the plain target, or None.
-    reason : {"duplicate_output_name", "output_exists", "output_in_store"} or None, optional
-        Why the target is a ``"conflict"``, or None.
+    reason : {"duplicate_output_name", "output_exists", "output_in_store", "nested_store"} or None, optional
+        Why the target is a ``"conflict"``, or None. ``"nested_store"`` is the
+        root of a store write that would nest a store in another store
+        (``path`` is that root).
     """
 
     command: str
@@ -264,7 +267,13 @@ class PlanAction:
     action: Literal["write", "replace", "conflict"] | None = None
     path: Path | None = None
     reason: (
-        Literal["duplicate_output_name", "output_exists", "output_in_store"] | None
+        Literal[
+            "duplicate_output_name",
+            "output_exists",
+            "output_in_store",
+            "nested_store",
+        ]
+        | None
     ) = None
 
     def _document(self) -> dict[str, Any]:

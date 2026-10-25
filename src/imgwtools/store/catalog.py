@@ -81,6 +81,7 @@ from imgwtools.store.writer import (
     _validate_slot,
     _write_json,
     lenient_store,
+    nested_store_plan,
     prepare_store,
     version_file,
     write_archive,
@@ -1556,8 +1557,11 @@ def check_catalog(
         (``details.path``) if the system cannot read a stored version.
     """
     owner = get_provider(provider)
-    handle = _handle(root)
     user = _user_file(user_locations)
+    refused = nested_store_plan("store catalog", root)
+    if refused is not None:
+        return refused
+    handle = _handle(root)
     catalog = _current_catalog(handle.root, owner.id)
     recorded = {
         entry.get("source"): entry.get("sha256")

@@ -80,7 +80,7 @@ from imgwtools.store.types import (
     StorePlan,
     SyncReport,
 )
-from imgwtools.store.writer import version_file, write_archive
+from imgwtools.store.writer import nested_store_plan, version_file, write_archive
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 CANCELLED = message("common.cancelled")
@@ -868,10 +868,15 @@ def check_store(
         the years/months are missing, invalid or rejected for the datasets, or
         ``plan`` lies inside the store or in a missing directory.
     """
-    path = _root(root)
     descriptors, codes, candidates, archives = _selection(
         datasets, years, months, stations
     )
+    refused = nested_store_plan("store sync", root)
+    if refused is not None:
+        if plan is not None:
+            refused.to_json(_plan_target(refused.root, plan))
+        return refused
+    path = _root(root)
     listed = descriptors[0].archive_scope != "country"
     target = _plan_target(path, plan) if plan is not None else None
     made = 0

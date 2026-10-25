@@ -2381,6 +2381,9 @@ def _check_download(options: Options, hooks: Hooks) -> StorePlan:
     root = cast(Path, options["root"])
     actions = []
     try:
+        refused = _writer.nested_store_plan("datasets download", root)
+        if refused is not None:
+            return refused
         stored = (
             _writer.lenient_store(root).root.is_dir()
             and (root / _STORE_MARKER).is_file()
@@ -2500,6 +2503,9 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
 
 def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
     root = cast(Path, options["root"])
+    refused = _writer.nested_store_plan("store init", root)
+    if refused is not None:
+        return refused
     info = _store.store_info(root)
     if info.supported:
         action = PlanAction(

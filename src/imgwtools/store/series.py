@@ -67,6 +67,7 @@ from imgwtools.store.writer import (
     _validate_slot,
     _write_json,
     lenient_store,
+    nested_store_plan,
     version_file,
 )
 
@@ -433,8 +434,11 @@ def check_series(
     IMGWValidationError
         If ``dataset`` is unknown or does not produce measurement series.
     """
-    path = _root(root)
     descriptor = _series_descriptor(dataset)
+    refused = nested_store_plan("series build", root)
+    if refused is not None:
+        return refused
+    path = _root(root)
     inputs, problems = _scan_inputs(path, descriptor)
     items: list[PlanItem] = []
     cancelled = False

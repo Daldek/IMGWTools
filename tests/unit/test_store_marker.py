@@ -7,11 +7,19 @@ from pathlib import Path
 import pytest
 
 from imgwtools._version import __version__
-from imgwtools.commands import check_command
+from imgwtools.commands import check_command, run_command
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWDataError, IMGWStoreConflictError, IMGWStoreError
 from imgwtools.fetch import DownloadResult
-from imgwtools.store import init_store, open_store, store_info, write_archive
+from imgwtools.project import add_project_task, check_project, init_project
+from imgwtools.store import (
+    check_store,
+    init_store,
+    open_store,
+    store_info,
+    write_archive,
+)
+from imgwtools.store.types import StorePlan
 from imgwtools.store.writer import lenient_store, prepare_store
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -248,3 +256,107 @@ def test_the_plan_of_store_init_follows_the_real_run(tmp_path):
         "missing": "missing",
     }
     assert not (tmp_path / "good" / MARKER).exists()
+
+
+# --------------------------------------------------------------------------
+# The plan shows the nested-store refusal of the run (DEV-19.10, DEV-19.14)
+# --------------------------------------------------------------------------
+
+DAILY = "pl.imgw.hydro_daily"
+# Every command that writes a store, with the options of its store mode.
+STORE_WRITES = {
+    "datasets download": {"dataset": DAILY, "years": [2024]},
+    "store init": {},
+    "store sync": {"datasets": [DAILY], "years": [2024]},
+    "pmaxtp sync": {"latitude": 52.0, "longitude": 20.0},
+    "series build": {"dataset": DAILY},
+    "store catalog": {},
+}
+
+
+def nested_root(tmp_path, where):
+    """A root that would nest a store, in each of the three ways the run refuses."""
+    outer = tmp_path / "outer"
+    (outer / "inner").mkdir(parents=True)
+    if where == "inside":
+        (outer / "kartograf-store.json").write_text("{}", encoding="utf-8")
+        return outer / "inner"
+    if where == "another_tool":
+        (outer / "kartograf-store.json").write_text("{}", encoding="utf-8")
+        return outer
+    (outer / "inner" / "kartograf-store.json").write_text("{}", encoding="utf-8")
+    return outer
+
+
+@pytest.mark.parametrize("where", ["inside", "another_tool", "below"])
+@pytest.mark.parametrize("command", sorted(STORE_WRITES))
+def test_the_plan_of_a_store_write_lists_the_nested_store_as_a_conflict(
+    tmp_path, command, where
+):
+    root = nested_root(tmp_path, where)
+
+    outcome = check_command(command, options={"root": root, **STORE_WRITES[command]})
+
+    assert outcome.status == "ok"
+    (action,) = outcome.result.actions
+    assert (action.command, action.action, action.reason) == (
+        command,
+        "conflict",
+        "nested_store",
+    )
+    assert (action.status, action.path, outcome.result.root) == (
+        "unverifiable",
+        root,
+        root,
+    )
+    assert "kartograf-store.json" in action.detail
+    assert outcome.result.items == ()
+    assert not (root / MARKER).exists()
+
+
+@pytest.mark.parametrize(
+    "command", ["datasets download", "store init", "series build", "store catalog"]
+)
+def test_the_run_refuses_the_root_that_its_plan_lists_as_a_conflict(tmp_path, command):
+    root = nested_root(tmp_path, "inside")
+
+    with pytest.raises(IMGWStoreConflictError) as error:
+        run_command(command, options={"root": root, **STORE_WRITES[command]})
+
+    assert error.value.details["reason"] == "nested_store"
+
+
+def test_the_plan_of_a_sync_into_a_nested_store_is_saved_without_a_request(
+    tmp_path, monkeypatch
+):
+    root = nested_root(tmp_path, "inside")
+    saved = tmp_path / "plan.json"
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the nested store is refused before any request")
+
+    monkeypatch.setattr("imgwtools.store.sync.httpx.Client", refuse)
+    plan = check_store(root, datasets=[DAILY], years=[2024], plan=saved)
+
+    (action,) = plan.actions
+    assert (action.action, action.reason) == ("conflict", "nested_store")
+    assert StorePlan.from_json(saved) == plan
+
+
+def test_the_plan_of_a_project_download_keeps_the_nested_store_conflict(tmp_path):
+    store = tmp_path / "outer" / "store"
+    init_store(store)
+    (tmp_path / "outer" / "kartograf-store.json").write_text("{}", encoding="utf-8")
+    project = tmp_path / "project"
+    init_project(project, store_dir=store)
+    add_project_task(
+        project, name="daily", command="series build", options={"dataset": DAILY}
+    )
+
+    plan = check_project(project)
+
+    assert [(a.command, a.action, a.reason) for a in plan.actions] == [
+        ("series build", "conflict", "nested_store"),
+        ("project download", None, None),
+    ]
+    assert plan.actions[0].detail.startswith("daily: ")
