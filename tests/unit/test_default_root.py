@@ -1,6 +1,8 @@
 """The default store root (DEV-19.2) and the directories an MCP server may use (DEV-19.3)."""
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -9,8 +11,9 @@ pytest.importorskip("mcp")
 import respx
 from mcp import Client
 
-from imgwtools import init_store, validate_command
-from imgwtools.config import default_root, environment_report
+import imgwtools
+from imgwtools import config, init_store, validate_command
+from imgwtools.config import environment_report, store_root
 from imgwtools.mcp.server import create_server
 from tests.contract.support import DAILY, H2024, NEW, V3, FakeImgw
 
@@ -38,26 +41,26 @@ def config_file(monkeypatch, tmp_path, text):
 
 
 def test_the_root_is_the_imgw_directory_of_the_data_directory_by_default(tmp_path):
-    assert default_root() == tmp_path / "data" / "imgw"
+    assert store_root().root == tmp_path / "data" / "imgw"
 
 
 def test_the_imgw_section_of_nogat_toml_sets_the_root(monkeypatch, tmp_path):
     config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{tmp_path / "from-file"}"\n')
 
-    assert default_root() == tmp_path / "from-file"
+    assert store_root().root == tmp_path / "from-file"
 
 
 def test_the_variable_wins_over_the_file(monkeypatch, tmp_path):
     config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{tmp_path / "from-file"}"\n')
     monkeypatch.setenv("IMGW_ROOT", str(tmp_path / "from-env"))
 
-    assert default_root() == tmp_path / "from-env"
+    assert store_root().root == tmp_path / "from-env"
 
 
 def test_the_old_variable_is_gone(monkeypatch, tmp_path):
     monkeypatch.setenv("IMGW_STORE_ROOT", str(tmp_path / "old"))
 
-    assert default_root() == tmp_path / "data" / "imgw"
+    assert store_root().root == tmp_path / "data" / "imgw"
 
 
 def test_a_relative_root_is_resolved_against_the_working_directory(
@@ -65,7 +68,56 @@ def test_a_relative_root_is_resolved_against_the_working_directory(
 ):
     monkeypatch.setenv("IMGW_ROOT", "relative/store")
 
-    assert default_root() == tmp_path / "relative" / "store"
+    assert store_root().root == tmp_path / "relative" / "store"
+
+
+def test_the_public_store_root_names_the_root_its_source_and_the_marker(
+    monkeypatch, tmp_path
+):
+    assert imgwtools.store_root() == imgwtools.StoreRoot(
+        tmp_path / "data" / "imgw", "default", None, False
+    )
+
+    config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{tmp_path / "from-file"}"\n')
+    (tmp_path / "from-file").mkdir()
+    (tmp_path / "from-file" / "imgw-store.json").write_text("{}", encoding="utf-8")
+    assert imgwtools.store_root() == imgwtools.StoreRoot(
+        tmp_path / "from-file", "file", "[imgw]", True
+    )
+
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path / "from-env"))
+    assert imgwtools.store_root() == imgwtools.StoreRoot(
+        tmp_path / "from-env", "env", "IMGW_ROOT", False
+    )
+    # the root, source and name that config show reports
+    store = environment_report()["store"]
+    assert (store["root"], store["source"], store["name"]) == (
+        str(tmp_path / "from-env"),
+        "env",
+        "IMGW_ROOT",
+    )
+
+
+def test_the_marker_of_another_tool_is_not_the_marker_of_imgw(monkeypatch, tmp_path):
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
+    (tmp_path / "kartograf-store.json").write_text("{}", encoding="utf-8")
+
+    assert imgwtools.store_root().marker_exists is False
+
+
+def test_the_public_store_root_does_not_walk_the_tree(monkeypatch, tmp_path):
+    (tmp_path / "versions").mkdir()
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
+
+    def walked(*args, **kwargs):
+        raise AssertionError("store_root() must not read the store")
+
+    monkeypatch.setattr(config, "_tree_size", walked)
+    monkeypatch.setattr(os, "walk", walked)
+    monkeypatch.setattr(os, "scandir", walked)
+    monkeypatch.setattr(Path, "iterdir", walked)
+
+    assert imgwtools.store_root().root == tmp_path
 
 
 @pytest.mark.parametrize(

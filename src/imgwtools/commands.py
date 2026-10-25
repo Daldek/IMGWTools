@@ -33,7 +33,7 @@ from imgwtools import fetch as _fetch
 from imgwtools import stations as _stations
 from imgwtools import store as _store
 from imgwtools._version import __version__
-from imgwtools.config import default_root
+from imgwtools.config import store_root
 from imgwtools.datasets import (
     STATION_CODE_PATTERN,
     ArchiveFile,
@@ -1972,7 +1972,7 @@ def _validate(
             str(result.get(name, defaults.get(name))).strip() == value
             for name, value in spec.env_root_when.items()
         ):
-            result["root"] = default_root()
+            result["root"] = store_root().root
     present = set(result) | ({"root"} if task and "root" in known else set())
     for option in spec.options:
         if (

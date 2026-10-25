@@ -11,6 +11,12 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 
 ### Added
 
+- **`store_root()` (DEV-19.2):** `imgwtools.store_root()` (also `imgwtools.config.store_root`) is the
+  public read-only accessor of the default store root: `StoreRoot(root, source, name,
+  marker_exists)` with the absolute root of a command without `--root`, the layer that gave it
+  (`default`, `env`, `dotenv`, `file`) and whether `imgw-store.json` is a file in it. It lists and
+  measures nothing (`imgw config show` measures the size); Kartograf has the same function. It
+  replaces `imgwtools.config.default_root()`, which returned the bare path (use `.root`).
 - **`commands list` (AGI-5.9):** the 38th catalog command and the public `list_commands(*, lang)`
   return the catalog summary `imgw-command-list/1`: per command its name, `operation_id`,
   group, one-sentence summary, effects (`writes`, `network`, `idempotent`), check twin, result
@@ -146,7 +152,7 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 - **Breaking — `IMGW_STORE_ROOT` is `IMGW_ROOT` and the store has a default location (DEV-19.2,
   ADR-007 D2, D9):** the variable is renamed without an alias, `Settings.store_root` is
   `Settings.root` and `root` in `[imgw]` of `nogat.toml` sets it too. A command without `--root`
-  uses the store at `IMGW_ROOT`, `[imgw] root` or `<data_dir>/imgw` (`imgwtools.config.default_root()`):
+  uses the store at `IMGW_ROOT`, `[imgw] root` or `<data_dir>/imgw` (`imgwtools.store_root()`):
   `root` is optional in every store command and `validate_command` fills it in (not for a project
   task, not for a command given a `version`, not for `stations find` unless `source=store`), so the
   `--root` of the CLI no longer reads an environment variable of its own. `imgw config show --json`
