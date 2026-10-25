@@ -352,6 +352,7 @@ IMGWTools/
 │   ├── project.py        # PUBLIC: imgw-project/1
 │   ├── testing.py        # PUBLIC: build_fixture_store, fixture_files
 │   ├── _jsonable.py      # Single JSON converter (envelope, relative paths)
+│   ├── _examples.py      # Example calls of the catalog (x-imgw.examples)
 │   ├── reference_data.py # Fetch IMGW-PIB reference data into reference_dir (IMGW_REFERENCE_DIR)
 │   ├── config.py         # Settings
 │   ├── _data/            # Poland and Czechia borders (Natural Earth), agents/ templates, packaged fixtures, recordings, contract schemas

@@ -30,6 +30,14 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   contract test (`tests/contract/test_command_lines.py`) writes the line of every example call
   (each catalog command, the ČHMÚ calls, with `--check` where a command has it), reads it back and
   writes the same line again, so a tool that exchanges `imgw` lines compares them as text.
+- **Example calls in the catalog (AGI-2.2):** every command of `command_schema` has
+  `x-imgw.examples`, at least one `{call, result}`: a complete `imgw` line and an excerpt of the
+  `result` of its envelope (50 examples for the 38 commands, with `--check`, the ČHMÚ datasets
+  and plain `--output-dir` among them). Each call is the canonical line of `format_command`
+  (AGI-2.1): `format_command` writes the call that `parse_command` reads from it as the same line,
+  and `validate_command` accepts its options. A contract test holds this for every example (also
+  under another default root) and every excerpt to fields of the command's result type. The MCP
+  tool descriptions, `commands list` and the agent guides do not change.
 - **`store_root()` (DEV-19.2):** `imgwtools.store_root()` (also `imgwtools.config.store_root`) is the
   public read-only accessor of the default store root: `StoreRoot(root, source, name,
   marker_exists)` with the absolute root of a command without `--root`, the layer that gave it

@@ -18,6 +18,7 @@ declares its effects (``writes``, ``network``) for adapters that must not
 write or connect without a decision of the user (spec 2026-10-19 §3–§4).
 """
 
+import copy
 import importlib
 import inspect
 import json
@@ -35,6 +36,7 @@ from typing import Any, Literal, NoReturn, cast
 from imgwtools import fetch as _fetch
 from imgwtools import stations as _stations
 from imgwtools import store as _store
+from imgwtools._examples import EXAMPLES
 from imgwtools._version import __version__
 from imgwtools.config import store_root
 from imgwtools.datasets import (
@@ -3209,6 +3211,10 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
             "local_options": [o.name for o in spec.options if o.rest == "local"],
         },
         "rules": [localize(rule, lang) for rule in spec.rules],
+        "examples": [
+            {"call": example.call, "result": copy.deepcopy(example.result)}
+            for example in EXAMPLES[spec.name]
+        ],
     }
     meta = cast(dict[str, object], schema["x-imgw"])
     if spec.exclusive:
@@ -3244,7 +3250,9 @@ def command_schema(
     REST ``operationId`` and the MCP tool name), the group, the function, the
     check twin, the result shape and type, the effects of a run (``writes``:
     ``none``, ``add`` or ``replace``; ``network``; ``idempotent``), the CLI
-    flags and the REST route.
+    flags, the REST route and the ``examples``: each a canonical ``imgw``
+    line (``call``, as `format_command` writes it) and an excerpt of the
+    ``result`` of its envelope (AGI-2.2).
 
     Parameters
     ----------

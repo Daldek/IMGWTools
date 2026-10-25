@@ -22,6 +22,7 @@ src/imgwtools/
 ├── parsers.py            # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
 ├── testing.py            # PUBLIC: build_fixture_store (complete, complete_pl_cz, ...), fixture_files
 ├── _jsonable.py          # Single JSON converter (envelope, relative store paths)
+├── _examples.py          # Example calls of the catalog (x-imgw.examples): canonical line + result excerpt
 ├── output.py             # Plain output (ADR-007): resolve_target, plan_plain, refuse, Staging, FileResult, OutputReport, STORE_MARKERS
 ├── reference_data.py     # python -m imgwtools.reference_data (reference files in IMGW_REFERENCE_DIR)
 ├── config.py             # Settings (pydantic-settings, IMGW_*)
