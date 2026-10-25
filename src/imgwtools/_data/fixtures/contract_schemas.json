@@ -8,8 +8,7 @@
         "schema",
         "tool",
         "created_at",
-        "producer_version",
-        "created_by"
+        "producer_version"
       ],
       "properties": {
         "schema": {

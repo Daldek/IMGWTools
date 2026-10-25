@@ -323,6 +323,9 @@ def test_the_marker_contract_has_the_fields_of_dev_19_12(fixture_root):
     for name in ("tool", "created_at", "producer_version"):
         without = {key: value for key, value in marker.items() if key != name}
         assert schema_errors(without, "imgw-store/1"), name
+    # created_by is no field of the minimum: the writer keeps it, a reader never needs it
+    optional = {key: value for key, value in marker.items() if key != "created_by"}
+    assert schema_errors(optional, "imgw-store/1") == []
     # a marker of another tool is not an imgw store
     assert schema_errors({**marker, "tool": "kartograf"}, "imgw-store/1")
     assert schema_errors({**marker, "created_at": "yesterday"}, "imgw-store/1")

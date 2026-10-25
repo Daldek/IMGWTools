@@ -25,10 +25,6 @@ MESSAGES = {
         "Nieobsługiwana wersja magazynu {schema}; ta wersja imgwtools obsługuje "
         "{store_schema}",
     ),
-    "marker_has_no_valid_created": Text(
-        "The marker {marker} has no valid created_by field",
-        "Znacznik {marker} nie ma poprawnego pola created_by",
-    ),
     "field_must_non_empty_text": Text(
         "the field {key} must be a non-empty text",
         "pole {key} musi być niepustym tekstem",

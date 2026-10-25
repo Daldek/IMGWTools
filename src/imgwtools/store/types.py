@@ -113,7 +113,7 @@ class StoreInfo:
         marker is missing or unreadable.
     supported : bool
         Whether this library can open the store; False also for a missing or
-        unreadable marker or a marker without ``created_by``.
+        unreadable marker.
     contracts : Mapping of str to str
         Contract versions supported by the library, keyed by ``store``,
         ``meta``, ``series``, ``plan``, ``project``, ``pmaxtp`` and

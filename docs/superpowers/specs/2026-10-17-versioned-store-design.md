@@ -7,6 +7,8 @@
 
 > [ADR-007] Nazwy i cele zapisu z tego dokumentu zastępuje `docs/DECISIONS.md` ADR-007 (konwencja zapisu danych Nogat): `IMGW_STORE_ROOT` → `IMGW_ROOT` i `Settings.store_root` → `Settings.root`; bez `--root` i `--output-dir` zapis idzie do magazynu w `<data_dir>/imgw`, nie do `./data`; `output` jako katalog pobierania (domyślnie `./data/downloaded`) → `output_dir` (`-o`, zwykłe pliki) albo `root`; `path` (`-p`) eksportu → `output` (`--output`) z `force`; status `created` → `new`, `reused` → `unchanged`; `.part` → staging `.imgw-incoming/`; znacznik `imgw-store.json` ma zawsze `tool`, `created_at`, `producer_version`. Poniższa treść zachowuje stan z 2026-10-17.
 
+> [ADR-007, erraty 2026-10-25] Czytnik (`store_info`, `iter_store`, `current_version`) wymaga od znacznika tylko `schema`, tak jak `open_store`; `created_by` jest polem opcjonalnym, więc poniższe „brak `created_by`” (rozstrzygnięcia T15) i schemat znacznika z `required: ["schema","created_by"]` nie obowiązują.
+
 ## 1. Granice i organizacja kodu
 
 Producentem danych i jedynym piszącym do katalogu IMGW jest IMGWTools; konsument czyta wyłącznie publiczne API. Korzeń magazynu jest jawnie wskazany i absolutyzowany na wejściu; nie ma domyślnego `./data`, połączenia z katalogiem Kartografa, plików ani indeksu Archiwisty w magazynie. Bieżące hydro, synop, ostrzeżenia i `fetch_pmaxtp` pozostają live-only i nie zmieniają kontraktu. API serwera pozostaje domyślnie generatorem URL; zapis do magazynu na serwerze tylko po jawnej konfiguracji uprawnionego katalogu.

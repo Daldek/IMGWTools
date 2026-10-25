@@ -14,7 +14,9 @@ from imgwtools.fetch import DownloadResult
 from imgwtools.project import add_project_task, check_project, init_project
 from imgwtools.store import (
     check_store,
+    current_version,
     init_store,
+    iter_store,
     open_store,
     store_info,
     write_archive,
@@ -110,6 +112,77 @@ def test_an_older_marker_gains_the_missing_fields_on_the_next_write(tmp_path):
     assert (completed["tool"], completed["producer_version"]) == ("imgw", __version__)
     assert completed["created_at"].endswith("Z")
     assert store_info(root).supported
+
+
+# The reader and the writer judge a marker alike: only `schema` matters to them, and the
+# fields of DEV-19.12 are what a writer writes (an older marker is completed on the next
+# write), so a marker lacking created_by, or any other field, is a supported store.
+ACCEPTED = {
+    "the schema alone": '{"schema": "imgw-store/1"}',
+    "an older marker with created_by": (
+        '{"schema": "imgw-store/1", "created_by": "imgwtools 2.9"}'
+    ),
+    "the minimum of DEV-19.12 without created_by": json.dumps(
+        {
+            "schema": "imgw-store/1",
+            "tool": "imgw",
+            "created_at": "2026-10-24T08:00:00Z",
+            "producer_version": "3.0.0",
+        }
+    ),
+    "a created_by of the wrong type": '{"schema": "imgw-store/1", "created_by": 7}',
+}
+REFUSED = {
+    "another store schema": '{"schema": "imgw-store/2", "created_by": "imgwtools 9"}',
+    "no schema": '{"created_by": "imgwtools 3"}',
+    "a schema of the wrong type": '{"schema": 1, "created_by": "imgwtools 3"}',
+    "no object": "[]",
+    "no JSON": "{",
+}
+
+
+def root_with_marker(tmp_path, text):
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / MARKER).write_text(text, encoding="utf-8")
+    return root
+
+
+@pytest.mark.parametrize("text", ACCEPTED.values(), ids=ACCEPTED)
+def test_a_marker_the_reader_supports_opens_for_the_writer_too(tmp_path, text):
+    root = root_with_marker(tmp_path, text)
+
+    assert store_info(root).supported
+    assert open_store(root).root == root
+    assert list(iter_store(root)) == []
+    assert current_version(root, slot="catalog:pl.imgw.stations") is None
+
+
+@pytest.mark.parametrize("text", REFUSED.values(), ids=REFUSED)
+def test_a_marker_the_reader_refuses_is_refused_by_the_writer_too(tmp_path, text):
+    root = root_with_marker(tmp_path, text)
+
+    assert not store_info(root).supported
+    assert [entry.kind for entry in iter_store(root)] == ["problem"]
+    with pytest.raises(IMGWStoreError) as refused:
+        open_store(root)
+    assert refused.value.code == "store_unavailable"
+    with pytest.raises(IMGWStoreError):
+        current_version(root, slot="catalog:pl.imgw.stations")
+
+
+def test_a_marker_without_created_by_stays_readable_after_the_writer_completes_it(
+    tmp_path,
+):
+    root = root_with_marker(tmp_path, '{"schema": "imgw-store/1"}')
+
+    prepare_store(root)
+
+    completed = marker(root)
+    assert {"schema", "tool", "created_at", "producer_version"} <= set(completed)
+    assert "created_by" not in completed
+    assert store_info(root).supported
+    assert list(iter_store(root)) == []
 
 
 def test_a_plan_opens_a_new_root_without_creating_anything(tmp_path):

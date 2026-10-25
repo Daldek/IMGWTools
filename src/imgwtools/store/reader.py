@@ -186,13 +186,6 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
             ),
             schema=schema,
         )
-    created_by = payload.get("created_by")
-    if not isinstance(created_by, str) or not created_by:
-        return unusable(
-            "invalid_marker",
-            message("reader.marker_has_no_valid_created", marker=marker),
-            schema=schema,
-        )
     return StoreInfo(path, True, schema, True, contracts, (), providers()), None
 
 
@@ -200,9 +193,13 @@ def store_info(root: PathArg, /) -> StoreInfo:
     """
     Describe a store root without raising for an unknown or missing marker.
 
-    An unknown store schema (e.g. ``imgw-store/2``), a missing or unreadable
-    marker and a marker without ``created_by`` all yield ``supported=False``
-    with the reason in ``problems`` instead of an exception.
+    An unknown store schema (e.g. ``imgw-store/2``) and a missing or unreadable
+    marker yield ``supported=False`` with the reason in ``problems`` instead of
+    an exception. Of the marker only ``schema`` is read, exactly as
+    `open_store` reads it: DEV-19.12 requires ``tool``, ``created_at`` and
+    ``producer_version`` of what a writer writes, and ``created_by`` is
+    optional, so a marker lacking any of them is a supported store (the next
+    write completes the three fields).
 
     Parameters
     ----------
