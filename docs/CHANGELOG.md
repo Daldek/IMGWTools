@@ -411,6 +411,14 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `store_dir`); a marker of another store schema, a directory with other files and a layout
   without a marker stay `store_unavailable` (`unsupported`). Nothing is written: a refused
   `project init` does not create the project directory.
+- **`imgw mcp` sends nothing but protocol messages on stdout, also when the client leaves (the
+  stdio transport of MCP):** while the server serves, the SDK points file descriptor 1 at
+  stderr, so a `print` in a command goes there; but a client starts the server without
+  `PYTHONUNBUFFERED`, so stdout is block-buffered, and the text that Python still held was
+  flushed at exit, after the SDK had restored the descriptor: a line that is no JSON-RPC message
+  reached the client. `run_stdio` flushes stdout before the SDK restores it, as Hydrolog and
+  Kartograf do, and the text goes to stderr (found by the final integration run of the data
+  output). A test starts `imgw mcp` without `PYTHONUNBUFFERED` with a command that prints.
 
 ### Migration guide: data output (ADR-007, DEV §19)
 

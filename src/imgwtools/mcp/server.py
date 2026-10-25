@@ -15,6 +15,8 @@ agent guide with the lines of the mode.
 
 from __future__ import annotations
 
+import contextlib
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -122,9 +124,16 @@ def create_server(*, mode: Mode = "read", allow_dirs: Sequence[Path] = ()) -> Se
 
 async def _serve(server: Server) -> None:
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+        try:
+            await server.run(
+                read_stream, write_stream, server.create_initialization_options()
+            )
+        finally:
+            # Block-buffered stdout (a pipe) holds the text of a ``print`` until it
+            # is flushed: flushed after the SDK restored file descriptor 1 it would
+            # reach the client, flushed here it goes to stderr.
+            with contextlib.suppress(OSError, ValueError):
+                sys.stdout.flush()
 
 
 def run_stdio(*, allow_writes: bool = False, allow_dirs: Sequence[Path] = ()) -> None:
@@ -132,7 +141,9 @@ def run_stdio(*, allow_writes: bool = False, allow_dirs: Sequence[Path] = ()) ->
     Serve MCP over stdin and stdout until the client closes the connection.
 
     stdout belongs to the protocol: while serving, the SDK points the process
-    stdout at stderr, so nothing else reaches the client.
+    stdout at stderr, so stray output of a command (a ``print``) never reaches
+    the client; what Python still buffers when the client leaves is flushed to
+    stderr before the SDK restores stdout.
 
     Parameters
     ----------

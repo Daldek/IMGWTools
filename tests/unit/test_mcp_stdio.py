@@ -10,6 +10,8 @@ mode and answers a call with the envelope of Python.
 import json
 import os
 import subprocess
+import sys
+import threading
 from typing import Any
 
 import pytest
@@ -96,6 +98,102 @@ def test_imgw_mcp_ends_cleanly_without_a_byte_on_stdout_when_stdin_closes(tmp_pa
     )
 
     assert (finished.returncode, finished.stdout) == (0, b""), finished.stderr
+
+
+NOISY_SERVER = """\
+import os
+import sys
+
+import imgwtools.mcp._calls as calls
+from imgwtools.cli.main import app
+
+run_command = calls.run_command
+
+
+def noisy(*args, **kwargs):
+    print("STRAY PRINT")
+    os.write(1, b"STRAY WRITE\\n")
+    return run_command(*args, **kwargs)
+
+
+calls.run_command = noisy
+sys.argv = ["imgw", "mcp"]
+app()
+"""
+
+
+def test_imgw_mcp_sends_stray_output_of_a_command_to_stderr_never_to_the_client(
+    tmp_path,
+):
+    """A ``print`` or a write to descriptor 1 in a command adds no line to the
+    protocol stream, neither while the server serves nor when it shuts down."""
+    script = tmp_path / "noisy_server.py"
+    script.write_text(NOISY_SERVER, encoding="utf-8")
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        # clients start servers without PYTHONUNBUFFERED: stdout is block-buffered
+        if not key.startswith("IMGW_") and key != "PYTHONUNBUFFERED"
+    }
+    process = subprocess.Popen(
+        [sys.executable, str(script)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        encoding="utf-8",
+    )
+    watchdog = threading.Timer(120, process.kill)
+    watchdog.start()
+
+    def send(message: dict[str, Any]) -> None:
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    try:
+        assert process.stdout is not None
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            }
+        )
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "imgw_datasets_list",
+                    "arguments": {"kind": "hydro", "limit": 1},
+                },
+            }
+        )
+        frames = []
+        for line in process.stdout:  # until the answer to the call: stdin stays open
+            frames.append(json.loads(line))
+            if frames[-1].get("id") == 2:
+                break
+        rest, errors = process.communicate(timeout=120)  # closes stdin: shutdown
+    finally:
+        watchdog.cancel()
+        process.kill()
+
+    assert [frame["id"] for frame in frames if "id" in frame] == [1, 2], errors
+    assert frames[-1]["result"]["isError"] is False
+    assert rest == ""
+    assert "STRAY PRINT" in errors and "STRAY WRITE" in errors
+    assert process.returncode == 0
 
 
 def test_imgw_mcp_has_no_language_option():
