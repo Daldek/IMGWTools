@@ -308,6 +308,11 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   is a core dependency now (removed from the extras). The fallback that read the reference
   directory without it (`_environment.reference_dir()` in `store/catalog.py`) is gone; a test
   installs the built wheel without extras into a fresh venv and calls a public function.
+- **`py.typed` (DEV-7.4):** the package declared `Typing :: Typed` but shipped no PEP 561 marker, so
+  mypy treated `import imgwtools` in a consumer as untyped (`module is installed, but missing
+  library stubs or py.typed marker`). `src/imgwtools/py.typed` is part of the wheel now; a test
+  checks the built wheel for it and type-checks a consumer snippet with strict mypy against the
+  installed package, without `ignore_missing_imports`.
 
 ### Migration guide: data output (ADR-007, DEV §19)
 
