@@ -9,7 +9,7 @@ System consists of six main components:
    - Sync and async functions for live data and archive downloads (`DownloadResult`, `download_archives`)
    - Provider registry (`IMGW-PIB`, `CHMI` — ČHMÚ, ADR-003) and dataset registry (17 descriptors: 13 `pl.imgw.*`, 4 `cz.chmi.*`, with slugs and legacy aliases), IMGW-PIB and ČHMÚ parsers with value flags
    - Command catalog (`imgwtools.commands`): 38 commands, one envelope `imgw-result/1`, one error registry `ERROR_CODES` (ADR-002); Polish texts with an English variant, declared effects (`writes`, `network`, `idempotent`) and the agent guide `agent_guide` (ADR-004)
-   - Minimal dependencies (httpx, pydantic)
+   - Minimal dependencies (httpx, platformdirs, pydantic, pydantic-settings)
 
 2. **Versioned Store** [Parquet: `imgwtools[store]`]
    - Append-only, immutable versions of IMGW-PIB and ČHMÚ archives with provenance sidecars

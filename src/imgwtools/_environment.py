@@ -10,10 +10,9 @@ built-in default (DEV-18.1, ECO-028). The file is ``nogat.toml`` in
 is read with ``tomllib`` and its absence is no error. Credentials come from the
 environment only, never from the file (DEV-18.4).
 
-The library core needs neither ``pydantic-settings`` nor the ``nogat`` package:
-it reads the reference-data directory through this module, while
-`imgwtools.config.Settings` (extras ``api`` and ``cli``) adds ``.env`` files and
-the typed settings of the servers on top of the same sources.
+`imgwtools.config.Settings` (``pydantic-settings``, a core dependency) adds ``.env``
+files and the typed settings on top of the same sources; this module needs
+neither ``pydantic-settings`` nor the ``nogat`` package.
 """
 
 from __future__ import annotations
@@ -68,26 +67,6 @@ class ConfigFile:
     error: str | None
 
 
-@dataclass(frozen=True)
-class Found:
-    """
-    A setting found outside the built-in default.
-
-    Attributes
-    ----------
-    value : object
-        The raw value (text of a variable, TOML value of a file).
-    source : {"env", "file"}
-        Where it was found.
-    name : str
-        The variable (``IMGW_DATA_DIR``) or the section (``[imgw]``).
-    """
-
-    value: Any
-    source: str
-    name: str
-
-
 def default_data_dir() -> Path:
     """Default ``data_dir``: the user data directory of ``nogat`` (DEV-18.2)."""
     return platformdirs.user_data_path(APP)
@@ -130,58 +109,3 @@ def config_file() -> ConfigFile:
             return unusable(f"[{name}] is not a table", exists=True)
         sections[name] = table
     return ConfigFile(path, source, True, sections, None)
-
-
-def lookup(key: str) -> Found | None:
-    """
-    Find ``key`` in the environment and in ``nogat.toml``, in the order of DEV-18.1.
-
-    ``.env`` files and command-line options are not consulted here; they belong
-    to the layers above (`imgwtools.config.Settings`, the CLI).
-
-    Parameters
-    ----------
-    key : str
-        Setting name (``reference_dir``); the variables are ``IMGW_<KEY>`` and,
-        for a shared key, ``NOGAT_<KEY>``.
-
-    Returns
-    -------
-    Found or None
-        The first layer that holds a non-empty value, or None for the default.
-    """
-    variables = [f"{PREFIX}{key.upper()}"]
-    if key in SHARED_KEYS:
-        variables.append(f"{SHARED_PREFIX}{key.upper()}")
-    for variable in variables:
-        if value := os.environ.get(variable):
-            return Found(value, "env", variable)
-    if key in CREDENTIAL_KEYS:
-        return None
-    sections = config_file().sections
-    if key in sections.get(TOOL, {}):
-        return Found(sections[TOOL][key], "file", f"[{TOOL}]")
-    if key in SHARED_KEYS and key in sections.get(APP, {}):
-        return Found(sections[APP][key], "file", f"[{APP}]")
-    return None
-
-
-def _directory(key: str, default: Path) -> Path:
-    found = lookup(key)
-    return Path(str(found.value)) if found is not None else default
-
-
-def cache_dir() -> Path:
-    """Directory of ``cache_dir`` as resolved now (``IMGW_CACHE_DIR`` first)."""
-    return _directory("cache_dir", default_cache_dir())
-
-
-def reference_dir() -> Path:
-    """
-    Directory of the IMGW-PIB reference data as resolved now.
-
-    ``IMGW_REFERENCE_DIR``, ``[imgw] reference_dir``, else
-    ``<cache_dir>/imgw/reference`` (the data is fetched again by
-    ``python -m imgwtools.reference_data``).
-    """
-    return _directory("reference_dir", cache_dir() / TOOL / "reference")
