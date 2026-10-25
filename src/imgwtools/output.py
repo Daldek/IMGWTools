@@ -55,6 +55,7 @@ from imgwtools.messages import message
 
 __all__ = [
     "STAGING",
+    "STORE_MARKER",
     "STORE_MARKERS",
     "FileResult",
     "OutputReport",
@@ -70,7 +71,9 @@ __all__ = [
     "store_below",
 ]
 
-STORE_MARKERS = ("kartograf-store.json", "imgw-store.json")
+STORE_MARKER = "imgw-store.json"
+"""File name of the marker of an IMGW store (DEV-19.12)."""
+STORE_MARKERS = ("kartograf-store.json", STORE_MARKER)
 """File names that mark the root of a store of any Nogat tool (DEV-19.12)."""
 STAGING = ".imgw-incoming"
 """Name of the staging directory inside the output directory (DEV-19.7)."""
@@ -207,9 +210,9 @@ def resolve_target(
         return Target("plain", Path(output_dir).expanduser().absolute())
     if root is not None:
         return Target("store", Path(root).expanduser().absolute())
-    from imgwtools.config import default_root  # config reads the environment
+    from imgwtools.config import store_root  # config reads the environment
 
-    return Target("store", default_root())
+    return Target("store", store_root().root)
 
 
 def store_around(path: Path) -> Path | None:

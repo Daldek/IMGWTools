@@ -13,6 +13,7 @@ a credential: only the environment (and ``.env``) may give it, never the file
 
 import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -30,14 +31,16 @@ from imgwtools import _environment as environment
 from imgwtools._version import __version__
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.messages import LANGS, Lang, message
+from imgwtools.output import STORE_MARKER
 
 __all__ = [
     "Settings",
+    "StoreRoot",
     "check_config",
-    "default_root",
     "environment_report",
     "human_language",
     "settings",
+    "store_root",
 ]
 
 
@@ -138,7 +141,7 @@ class Settings(BaseSettings):
     # The store root of the REST server (IMGW_ROOT, [imgw] root; DEV-19.2): a
     # server writes only there, never to the default <data_dir>/imgw, and the
     # catalog routes of commands with a store root answer 503 store_unavailable
-    # without it. The CLI, the library and the MCP server use `default_root`.
+    # without it. The CLI, the library and the MCP server use `store_root`.
     # Writes (POST without ?check=true) need both flags below and the X-API-Key
     # header; the token is compared in constant time and is a credential:
     # environment only.
@@ -231,20 +234,59 @@ def _root_of(current: Settings) -> Path:
     return chosen.expanduser().absolute()
 
 
-def default_root() -> Path:
+@dataclass(frozen=True)
+class StoreRoot:
     """
-    Store root of a command without ``--root`` (DEV-19.2, DEV-18.2).
+    The default store root, resolved without reading the store (DEV-19.2).
 
-    The first of ``IMGW_ROOT``, the same key in ``.env``, ``[imgw] root`` of
-    ``nogat.toml`` and ``<data_dir>/imgw``, read now so that a later change of
-    the environment counts. A server uses ``Settings.root`` only.
+    Attributes
+    ----------
+    root : pathlib.Path
+        Absolute root: ``IMGW_ROOT``, the same key in ``.env``, ``[imgw] root`` of
+        ``nogat.toml``, else ``<data_dir>/imgw``; ``~`` expanded. The store need
+        not exist yet.
+    source : {"default", "env", "dotenv", "file"}
+        The layer that gave ``root``.
+    name : str or None
+        The variable or the table that gave it; ``None`` for the default.
+    marker_exists : bool
+        Whether ``imgw-store.json`` is a file in the root. The directory may be
+        missing; then the marker does not exist either.
+    """
+
+    root: Path
+    source: str
+    name: str | None
+    marker_exists: bool
+
+
+def store_root() -> StoreRoot:
+    """
+    Return the default store root, its source and whether its marker exists.
+
+    The read-only accessor of the default root that every Nogat producer
+    exposes alike (DEV-19.2). The root is the one of a command without
+    ``--root`` and of ``imgw config show``, read now so that a later change of
+    the environment counts; it looks for one file, the marker, and never
+    creates, lists or measures anything, so the cost does not grow with the
+    store (``environment_report`` measures the size). A server writes to
+    ``Settings.root`` only.
 
     Returns
     -------
-    pathlib.Path
-        Absolute root; the store need not exist yet.
+    StoreRoot
+        ``root``, ``source`` (``default``, ``env``, ``dotenv`` or ``file``),
+        ``name`` (the variable or the table) and ``marker_exists``.
     """
-    return _root_of(Settings())
+    root = _root_of(Settings())
+    origin = _origin("root", _layers())
+    name = origin["name"]
+    return StoreRoot(
+        root,
+        str(origin["source"]),
+        None if name is None else str(name),
+        (root / STORE_MARKER).is_file(),
+    )
 
 
 def check_config() -> None:

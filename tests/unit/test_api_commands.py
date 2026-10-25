@@ -17,7 +17,7 @@ from pydantic import SecretStr, ValidationError
 
 from imgwtools.api.main import app
 from imgwtools.commands import check_command, command_schema, data_commands, run_command
-from imgwtools.config import Settings, default_root, settings
+from imgwtools.config import Settings, settings, store_root
 from imgwtools.exceptions import ERROR_CODES
 from imgwtools.messages import localize
 from imgwtools.stations import HYDRO_MAP_API_URL
@@ -1023,7 +1023,7 @@ def test_api_a_write_without_a_configured_root_never_goes_to_the_default_root(
     monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
     monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
-    assert default_root() == tmp_path / "data" / "imgw"  # where the CLI would write
+    assert store_root().root == tmp_path / "data" / "imgw"  # where the CLI would write
 
     response = client.post(path_of(command), json=body, headers=writable)
 

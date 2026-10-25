@@ -59,6 +59,7 @@ from imgwtools.commands import (
 )
 
 # Coverage
+from imgwtools.config import StoreRoot, store_root
 from imgwtools.coverage import summarize_coverage
 
 # Dataset registry
@@ -249,6 +250,9 @@ from imgwtools.urls import (
 __all__ = [
     # Version
     "__version__",
+    # The default store root without reading the store (DEV-19.2)
+    "store_root",
+    "StoreRoot",
     # Exceptions
     "IMGWError",
     "IMGWConnectionError",

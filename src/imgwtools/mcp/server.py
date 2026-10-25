@@ -28,7 +28,7 @@ from starlette.applications import Starlette
 
 from imgwtools._version import __version__
 from imgwtools.agent_guide import _instructions
-from imgwtools.config import default_root, settings
+from imgwtools.config import settings, store_root
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import call_tool
 from imgwtools.mcp._tools import MODES, Mode, catalog_tools
@@ -85,7 +85,7 @@ def create_server(*, mode: Mode = "read", allow_dirs: Sequence[Path] = ()) -> Se
     if mode == "http":
         workdir, store = None, settings.root
     else:
-        workdir, store = Path.cwd(), default_root()
+        workdir, store = Path.cwd(), store_root().root
     confined = tuple(Path(item).expanduser().resolve() for item in allow_dirs)
     tools = catalog_tools(mode=mode)
     listing = types.ListToolsResult(tools=[tool.definition for tool in tools.values()])
