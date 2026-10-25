@@ -388,6 +388,10 @@ def test_chmi_fields_default_so_3_0_constructors_keep_working():
     assert CatalogReport("new", None, 0, 0, 0, ()).provider == "IMGW-PIB"
 
 
+def test_fields_added_to_the_read_api_default_so_older_constructors_keep_working():
+    assert StoreInfo(Path("/s"), True, None, True, {}, ()).problem_codes == ()
+
+
 def _chmi_plan(tmp_path):
     (archive,) = archive_files(
         "cz.chmi.hydro_daily", stations=["0-203-1-900001"], years=[2025]

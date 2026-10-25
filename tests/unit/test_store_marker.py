@@ -132,12 +132,20 @@ ACCEPTED = {
     ),
     "a created_by of the wrong type": '{"schema": "imgw-store/1", "created_by": 7}',
 }
+# The text of a marker the reader refuses, with the code it gives (StoreInfo.problem_codes,
+# StoreEntry.problem_code).
 REFUSED = {
-    "another store schema": '{"schema": "imgw-store/2", "created_by": "imgwtools 9"}',
-    "no schema": '{"created_by": "imgwtools 3"}',
-    "a schema of the wrong type": '{"schema": 1, "created_by": "imgwtools 3"}',
-    "no object": "[]",
-    "no JSON": "{",
+    "another store schema": (
+        '{"schema": "imgw-store/2", "created_by": "imgwtools 9"}',
+        "unsupported_store",
+    ),
+    "no schema": ('{"created_by": "imgwtools 3"}', "invalid_marker"),
+    "a schema of the wrong type": (
+        '{"schema": 1, "created_by": "imgwtools 3"}',
+        "invalid_marker",
+    ),
+    "no object": ("[]", "invalid_marker"),
+    "no JSON": ("{", "invalid_marker"),
 }
 
 
@@ -152,23 +160,63 @@ def root_with_marker(tmp_path, text):
 def test_a_marker_the_reader_supports_opens_for_the_writer_too(tmp_path, text):
     root = root_with_marker(tmp_path, text)
 
-    assert store_info(root).supported
+    info = store_info(root)
+    assert (info.supported, info.problems, info.problem_codes) == (True, (), ())
     assert open_store(root).root == root
     assert list(iter_store(root)) == []
     assert current_version(root, slot="catalog:pl.imgw.stations") is None
 
 
-@pytest.mark.parametrize("text", REFUSED.values(), ids=REFUSED)
-def test_a_marker_the_reader_refuses_is_refused_by_the_writer_too(tmp_path, text):
+@pytest.mark.parametrize(("text", "code"), REFUSED.values(), ids=REFUSED)
+def test_a_marker_the_reader_refuses_is_refused_by_the_writer_too(tmp_path, text, code):
     root = root_with_marker(tmp_path, text)
 
-    assert not store_info(root).supported
-    assert [entry.kind for entry in iter_store(root)] == ["problem"]
+    info = store_info(root)
+    assert not info.supported
+    assert info.problem_codes == (code,)
+    (entry,) = iter_store(root)
+    assert (entry.kind, entry.problem_code, entry.problem) == (
+        "problem",
+        code,
+        info.problems[0],
+    )
     with pytest.raises(IMGWStoreError) as refused:
         open_store(root)
     assert refused.value.code == "store_unavailable"
     with pytest.raises(IMGWStoreError):
         current_version(root, slot="catalog:pl.imgw.stations")
+
+
+def test_a_root_that_is_no_store_has_the_code_of_what_is_missing(tmp_path):
+    layout(tmp_path / "layout")
+    (tmp_path / "empty").mkdir()
+    (tmp_path / "foreign").mkdir()
+    (tmp_path / "foreign" / "notes.txt").write_text("mine", encoding="utf-8")
+
+    for name, code in {
+        "absent": "missing_store",
+        "empty": "missing_marker",
+        "foreign": "missing_marker",
+        "layout": "missing_marker",
+    }.items():
+        info = store_info(tmp_path / name)
+        assert not info.supported, name
+        assert info.problem_codes == (code,), name
+        assert len(info.problems) == 1, name
+        assert [entry.problem_code for entry in iter_store(tmp_path / name)] == [code]
+
+
+def test_store_info_gives_the_codes_in_the_document_of_every_interface(tmp_path):
+    root = root_with_marker(tmp_path, '{"schema": "imgw-store/2"}')
+
+    outcome = run_command("store info", options={"root": root})
+
+    document = outcome.to_json(root=root)["result"]
+    assert (document["supported"], document["problem_codes"]) == (
+        False,
+        ["unsupported_store"],
+    )
+    assert len(document["problems"]) == 1
 
 
 def test_a_marker_without_created_by_stays_readable_after_the_writer_completes_it(
