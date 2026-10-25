@@ -27,7 +27,14 @@ from imgwtools.exceptions import (
 from imgwtools.fetch import _check_pmaxtp_payload, _validate_poland_coords
 from imgwtools.messages import message, reason
 from imgwtools.models import PMaXTPData, PMaXTPResult
-from imgwtools.output import Staging, chunks_of, plan_plain, refuse, resolve_target
+from imgwtools.output import (
+    Staging,
+    chunks_of,
+    plan_plain,
+    refuse,
+    refuse_directory,
+    resolve_target,
+)
 from imgwtools.store.catalog import (
     LICENSE_NOTICE,
     RootArg,
@@ -55,8 +62,8 @@ from imgwtools.store.writer import (
     _existing,
     _utc,
     _validate_slot,
-    nested_store_plan,
     prepare_store,
+    root_conflict_plan,
     version_file,
 )
 from imgwtools.urls import build_pmaxtp_url
@@ -329,10 +336,13 @@ def _sync_plain(
     """
     Write the cell of a point as ``<METHOD>/<indX>_<indY>/cell.json`` and ``response.json``.
 
-    The names are known when the caller gave the indices, so a conflict then
-    refuses before the request; otherwise they come from the answer, which is
-    small and is checked before anything is written (DEV-19.6).
+    The output directory is refused before any request when it is, or lies in,
+    a store. The names are known when the caller gave the indices, so a
+    conflict of a name then refuses before the request; otherwise they come
+    from the answer, which is small and is checked before anything is written
+    (DEV-19.6).
     """
+    refuse_directory(directory)
     if expected is not None:
         refuse(
             plan_plain(directory, list(_plain_names(method, *expected)), force=force)
@@ -470,7 +480,7 @@ def check_pmaxtp(
     method = _validate_method(method)
     _validate_poland_coords(latitude, longitude)
     cell = _validate_cell(ind_x, ind_y)
-    refused = nested_store_plan("pmaxtp sync", target.path)
+    refused = root_conflict_plan("pmaxtp sync", target.path)
     if refused is not None:
         return refused
     handle = _handle(target.path)

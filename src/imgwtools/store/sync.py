@@ -80,7 +80,12 @@ from imgwtools.store.types import (
     StorePlan,
     SyncReport,
 )
-from imgwtools.store.writer import nested_store_plan, version_file, write_archive
+from imgwtools.store.writer import (
+    refuse_root,
+    root_conflict_plan,
+    version_file,
+    write_archive,
+)
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 CANCELLED = message("common.cancelled")
@@ -871,7 +876,7 @@ def check_store(
     descriptors, codes, candidates, archives = _selection(
         datasets, years, months, stations
     )
-    refused = nested_store_plan("store sync", root)
+    refused = root_conflict_plan("store sync", root)
     if refused is not None:
         if plan is not None:
             refused.to_json(_plan_target(refused.root, plan))
@@ -1190,9 +1195,12 @@ def sync_store(
         (``details["reason"]="store_only_option"``).
     IMGWError
         ``conflict`` in plain mode before any request (``output_exists``,
-        ``duplicate_output_name``, ``output_in_store``; ``details["paths"]``).
+        ``duplicate_output_name``, ``output_in_store``; ``details["paths"]`` is
+        the output directory when it is or lies in a store, else every
+        offending path); in store mode when ``root`` nests a store
+        (``nested_store``) or holds other files and is no store (``not_empty``).
     IMGWDataError
-        If the plan file cannot be read.
+        If the plan file cannot be read or the marker of ``root`` is unreadable.
     IMGWStoreError
         If ``root`` is not a supported IMGW store.
     """
@@ -1214,6 +1222,7 @@ def sync_store(
             on_notice=on_notice,
             cancel=cancel,
         )
+    refuse_root(target.path)
     path = _root(target.path)
     build = True if series is None else series
     if plan is not None and any(

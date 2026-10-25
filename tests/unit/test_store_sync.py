@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWStoreError, IMGWValidationError
+from imgwtools.exceptions import IMGWStoreConflictError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import init_store, write_archive
 from imgwtools.store import sync as sync_module
@@ -387,5 +387,10 @@ def test_selector_validation(root, tmp_path):
         check_store(root, datasets=["pl.imgw.hydro_stations"], years=[2024])
     (tmp_path / "foreign").mkdir()
     (tmp_path / "foreign" / "notes.txt").write_text("mine")
-    with pytest.raises(IMGWStoreError):  # not a store: foreign files, no layout
-        check_store(tmp_path / "foreign", datasets=[HYDRO], years=[2024])
+    # Not a store (foreign files, no layout): the plan lists a conflict, the run refuses it.
+    (action,) = check_store(
+        tmp_path / "foreign", datasets=[HYDRO], years=[2024]
+    ).actions
+    assert (action.action, action.reason) == ("conflict", "not_empty")
+    with pytest.raises(IMGWStoreConflictError):
+        sync_store(tmp_path / "foreign", datasets=[HYDRO], years=[2024])

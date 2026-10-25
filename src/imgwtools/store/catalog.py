@@ -81,8 +81,8 @@ from imgwtools.store.writer import (
     _validate_slot,
     _write_json,
     lenient_store,
-    nested_store_plan,
     prepare_store,
+    root_conflict_plan,
     version_file,
     write_archive,
 )
@@ -1558,7 +1558,7 @@ def check_catalog(
     """
     owner = get_provider(provider)
     user = _user_file(user_locations)
-    refused = nested_store_plan("store catalog", root)
+    refused = root_conflict_plan("store catalog", root)
     if refused is not None:
         return refused
     handle = _handle(root)

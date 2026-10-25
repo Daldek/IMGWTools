@@ -16,6 +16,7 @@ from imgwtools.output import (
     Staging,
     plan_plain,
     refuse,
+    refuse_directory,
     store_around,
     store_below,
 )
@@ -134,6 +135,41 @@ def test_a_directory_with_a_store_elsewhere_below_it_is_a_fine_output(tmp_path):
     ]
     assert store_below(tmp_path) == tmp_path / "imgw"
     assert store_around(tmp_path) is None
+
+
+@pytest.mark.parametrize("marker", STORE_MARKERS)
+def test_a_store_as_the_output_directory_is_refused_by_the_directory_alone(
+    tmp_path, marker
+):
+    (tmp_path / "store" / "deep").mkdir(parents=True)
+    (tmp_path / "store" / marker).write_text("{}")
+
+    for directory in (tmp_path / "store", tmp_path / "store" / "deep" / "er"):
+        with pytest.raises(IMGWError) as error:
+            refuse_directory(directory)
+        assert error.value.code == "conflict"
+        assert error.value.details == {
+            "reason": "output_in_store",
+            "paths": [str(directory)],
+        }
+        assert "--root" in error.value.detail
+
+
+def test_a_store_only_below_the_output_directory_is_reported_for_its_targets(
+    tmp_path,
+):
+    for folder in ("a", "b"):
+        (tmp_path / "out" / folder).mkdir(parents=True)
+    (tmp_path / "out" / "a" / "imgw-store.json").write_text("{}")
+
+    refuse_directory(tmp_path / "out")  # no store is, or holds, the directory
+    with pytest.raises(IMGWError) as error:
+        refuse(plan_plain(tmp_path / "out", ["a/x.zip", "b/y.zip"], force=False))
+
+    assert error.value.details == {
+        "reason": "output_in_store",
+        "paths": [str(tmp_path / "out" / "a" / "x.zip")],
+    }
 
 
 # --------------------------------------------------------------------------

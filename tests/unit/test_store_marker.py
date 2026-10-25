@@ -9,7 +9,12 @@ import pytest
 from imgwtools._version import __version__
 from imgwtools.commands import check_command, run_command
 from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWDataError, IMGWStoreConflictError, IMGWStoreError
+from imgwtools.exceptions import (
+    IMGWDataError,
+    IMGWError,
+    IMGWStoreConflictError,
+    IMGWStoreError,
+)
 from imgwtools.fetch import DownloadResult
 from imgwtools.project import add_project_task, check_project, init_project
 from imgwtools.store import (
@@ -180,9 +185,12 @@ def test_a_marker_the_reader_refuses_is_refused_by_the_writer_too(tmp_path, text
         code,
         info.problems[0],
     )
-    with pytest.raises(IMGWStoreError) as refused:
+    # An unreadable marker is `data_error`, another schema `store_unavailable` (DEV-19.10).
+    with pytest.raises(IMGWError) as refused:
         open_store(root)
-    assert refused.value.code == "store_unavailable"
+    assert refused.value.code == (
+        "store_unavailable" if code == "unsupported_store" else "data_error"
+    )
     with pytest.raises(IMGWStoreError):
         current_version(root, slot="catalog:pl.imgw.stations")
 
@@ -362,20 +370,22 @@ def test_the_plan_of_store_init_follows_the_real_run(tmp_path):
     (tmp_path / "busy").mkdir()
     (tmp_path / "busy" / "notes.txt").write_text("mine", encoding="utf-8")
 
-    states = {
-        name: check_command("store init", options={"root": tmp_path / name})
-        .result.actions[0]
-        .status
+    actions = {
+        name: check_command(
+            "store init", options={"root": tmp_path / name}
+        ).result.actions[0]
         for name in ("good", "foreign", "empty", "busy", "missing")
     }
 
-    assert states == {
+    assert {name: action.status for name, action in actions.items()} == {
         "good": "missing",
         "foreign": "check_failed",
         "empty": "missing",
-        "busy": "check_failed",
+        "busy": "unverifiable",
         "missing": "missing",
     }
+    # A root with other files and no layout is a conflict like the run says (DEV-19.10).
+    assert (actions["busy"].action, actions["busy"].reason) == ("conflict", "not_empty")
     assert not (tmp_path / "good" / MARKER).exists()
 
 
@@ -481,3 +491,89 @@ def test_the_plan_of_a_project_download_keeps_the_nested_store_conflict(tmp_path
         ("project download", None, None),
     ]
     assert plan.actions[0].detail.startswith("daily: ")
+
+
+# --------------------------------------------------------------------------
+# The plan of a root the run refuses (DEV-19.10)
+# --------------------------------------------------------------------------
+
+
+def busy_root(tmp_path, kind):
+    """A root that holds other files and is no store, or that is a file."""
+    root = tmp_path / "busy"
+    if kind == "file":
+        root.write_text("mine", encoding="utf-8")
+    else:
+        root.mkdir()
+        (root / "notes.txt").write_text("mine", encoding="utf-8")
+    return root
+
+
+@pytest.mark.parametrize("kind", ["directory", "file"])
+@pytest.mark.parametrize("command", sorted(STORE_WRITES))
+def test_the_plan_of_a_store_write_lists_a_root_with_other_files_as_a_conflict(
+    tmp_path, command, kind
+):
+    root = busy_root(tmp_path, kind)
+
+    outcome = check_command(command, options={"root": root, **STORE_WRITES[command]})
+
+    assert outcome.status == "ok"
+    (action,) = outcome.result.actions
+    assert (action.command, action.action, action.reason) == (
+        command,
+        "conflict",
+        "not_empty",
+    )
+    assert (action.status, action.path, outcome.result.root) == (
+        "unverifiable",
+        root,
+        root,
+    )
+    assert outcome.result.items == ()
+    assert not (root / MARKER).exists()
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["datasets download", "store init", "store sync", "series build", "store catalog"],
+)
+def test_the_run_refuses_the_busy_root_that_its_plan_lists_as_a_conflict(
+    respx_mock, tmp_path, command
+):
+    root = busy_root(tmp_path, "directory")
+
+    # respx_mock answers no request: the refusal comes before any.
+    with pytest.raises(IMGWStoreConflictError) as error:
+        run_command(command, options={"root": root, **STORE_WRITES[command]})
+
+    assert error.value.details["reason"] == "not_empty"
+
+
+def test_the_plan_of_a_store_write_with_a_layout_and_no_marker_raises_store_unavailable(
+    tmp_path,
+):
+    layout(tmp_path / "s")
+
+    for command in sorted(set(STORE_WRITES) - {"store init"}):
+        with pytest.raises(IMGWStoreError) as error:
+            check_command(
+                command, options={"root": tmp_path / "s", **STORE_WRITES[command]}
+            )
+        assert (error.value.code, error.value.details["reason"]) == (
+            "store_unavailable",
+            "no_marker",
+        ), command
+
+
+@pytest.mark.parametrize("command", sorted(STORE_WRITES))
+def test_the_plan_of_a_store_write_with_an_unreadable_marker_raises_data_error(
+    tmp_path, command
+):
+    root = root_with_marker(tmp_path, "{")
+
+    with pytest.raises(IMGWDataError) as error:
+        check_command(command, options={"root": root, **STORE_WRITES[command]})
+
+    assert error.value.code == "data_error"
+    assert error.value.details["reason"] == "invalid_marker"

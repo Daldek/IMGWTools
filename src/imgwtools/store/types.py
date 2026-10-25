@@ -266,9 +266,10 @@ class PlanAction:
         a target that cannot be written; None outside plain writes.
     path : Path or None, optional
         Absolute path of the plain target, or None.
-    reason : {"duplicate_output_name", "output_exists", "output_in_store", "nested_store"} or None, optional
+    reason : {"duplicate_output_name", "output_exists", "output_in_store", "nested_store", "not_empty"} or None, optional
         Why the target is a ``"conflict"``, or None. ``"nested_store"`` is the
-        root of a store write that would nest a store in another store
+        root of a store write that would nest a store in another store and
+        ``"not_empty"`` a root that holds other files and is no store
         (``path`` is that root).
     """
 
@@ -283,6 +284,7 @@ class PlanAction:
             "output_exists",
             "output_in_store",
             "nested_store",
+            "not_empty",
         ]
         | None
     ) = None

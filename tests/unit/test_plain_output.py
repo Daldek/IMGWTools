@@ -123,20 +123,42 @@ def test_force_replaces_the_existing_targets_and_deletes_nothing_else(
     assert other.read_text(encoding="utf-8") == "mine"
 
 
-def test_a_directory_that_is_or_lies_in_a_store_is_refused_with_the_root_hint(
+def test_a_directory_that_is_or_lies_in_a_store_is_refused_before_any_request(
     respx_mock, tmp_path
 ):
     record(respx_mock)
     store = tmp_path / "store"
     download_archives(SEMIANNUAL, years=2024, root=store)
+    requests = respx_mock.calls.call_count
 
     for output in (store, store / "archives"):
         with pytest.raises(IMGWError) as error:
             download_archives(SEMIANNUAL, years=2024, output_dir=output)
         assert error.value.code == "conflict"
-        assert error.value.details["reason"] == "output_in_store"
+        assert error.value.details == {
+            "reason": "output_in_store",
+            "paths": [str(output)],  # the directory, not each of its targets
+        }
         assert "--root" in error.value.detail
+    assert respx_mock.calls.call_count == requests
     assert not (store / ".imgw-incoming").exists()
+
+
+def test_a_pmaxtp_sync_into_a_store_is_refused_before_the_request_that_names_the_cell(
+    respx_mock, tmp_path
+):
+    store = tmp_path / "store"
+    init_store(store)
+
+    # No indices are given, so the names come from the answer: the directory is refused first.
+    with pytest.raises(IMGWError) as error:
+        sync_pmaxtp(output_dir=store / "plain", latitude=52.0, longitude=20.0)
+
+    assert error.value.details == {
+        "reason": "output_in_store",
+        "paths": [str(store / "plain")],
+    }
+    assert respx_mock.calls.call_count == 0
 
 
 def test_a_marker_of_kartograf_counts_as_a_store_too(respx_mock, tmp_path):

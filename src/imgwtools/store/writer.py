@@ -320,7 +320,10 @@ def _marker(path: Path) -> str | None:
             raise ValueError("invalid schema")
         return schema
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise IMGWStoreError(message("writer.unreadable_marker", path=path)) from exc
+        raise IMGWDataError(
+            message("writer.unreadable_marker", path=path),
+            details={"reason": "invalid_marker"},
+        ) from exc
 
 
 def _nested_problem(path: Path) -> str | None:
@@ -360,15 +363,80 @@ def _check_nested(path: Path) -> None:
         raise IMGWStoreConflictError(problem, details=_NESTED)
 
 
-def nested_store_plan(command: str, root: PathArg | StoreHandle) -> StorePlan | None:
+def _refusal(path: Path) -> tuple[Literal["nested_store", "not_empty"], str] | None:
     """
-    Plan the refusal of a root that would nest a store, or None if it does not.
+    Say why a write turns a root away with ``conflict``, or None (DEV-19.10).
 
-    The run of every command that writes a store refuses such a root with
-    ``conflict`` (``details.reason`` ``nested_store``); the plan shows the same
-    refusal as a ``conflict`` action instead of failing, like a plain plan does
-    for an output directory in a store (DEV-19.10, DEV-19.14). It is a
-    successful result and nothing else is checked, so no request is made.
+    Two roots are refused: one that would nest a store in another store
+    (``nested_store``) and one that holds other files and is no store
+    (``not_empty``: no marker, no layout of a store, something else inside, or
+    no directory at all). The layout of a store without its marker is no
+    ``conflict`` (``store_unavailable``, ``no_marker``).
+
+    Raises
+    ------
+    IMGWDataError
+        If the marker of the root is unreadable.
+    """
+    problem = _nested_problem(path)
+    if problem is not None:
+        return "nested_store", problem
+    if (
+        _marker(path / _MARKER) is None
+        and not _has_layout(path)
+        and path.exists()
+        and (not path.is_dir() or _foreign_content(path))
+    ):
+        return "not_empty", message("writer.directory_not_empty_imgw_store", path=path)
+    return None
+
+
+def refuse_root(root: PathArg | StoreHandle) -> Path:
+    """
+    Refuse a root that a write turns away with ``conflict`` (DEV-19.10, DEV-19.14).
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+
+    Returns
+    -------
+    pathlib.Path
+        The absolute root.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..``.
+    IMGWStoreError
+        If the root path contains a symbolic link.
+    IMGWDataError
+        If the marker of the root is unreadable (``details.reason``
+        ``invalid_marker``).
+    IMGWStoreConflictError
+        If the root nests a store (``details.reason`` ``nested_store``) or
+        holds other files and is no store (``not_empty``).
+    """
+    path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
+    refusal = _refusal(path)
+    if refusal is not None:
+        raise IMGWStoreConflictError(refusal[1], details={"reason": refusal[0]})
+    return path
+
+
+def root_conflict_plan(command: str, root: PathArg | StoreHandle) -> StorePlan | None:
+    """
+    Plan the refusal of a root that a write turns away with ``conflict``, or None.
+
+    The run of every command that writes a store refuses such a root
+    (`refuse_root`); the plan shows the same refusal as one ``conflict`` action
+    for the root instead of failing, like a plain plan does for an output
+    directory in a store (DEV-19.10, DEV-19.14). It is a successful result and
+    nothing else is checked, so no request is made. A root that is no
+    ``conflict`` is not handled here: the layout of a store without its marker
+    (``store_unavailable``, ``no_marker``) is raised by the caller's own check
+    and an unreadable marker is raised here.
 
     Parameters
     ----------
@@ -381,7 +449,7 @@ def nested_store_plan(command: str, root: PathArg | StoreHandle) -> StorePlan | 
     -------
     StorePlan or None
         Plan with the one ``conflict`` action (``path`` the root, ``reason``
-        ``nested_store``), or None when the root nests no store.
+        ``nested_store`` or ``not_empty``), or None when the root is neither.
 
     Raises
     ------
@@ -389,18 +457,21 @@ def nested_store_plan(command: str, root: PathArg | StoreHandle) -> StorePlan | 
         If the root path contains ``..``.
     IMGWStoreError
         If the root path contains a symbolic link.
+    IMGWDataError
+        If the marker of the root is unreadable (``details.reason``
+        ``invalid_marker``).
     """
     path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
-    problem = _nested_problem(path)
-    if problem is None:
+    refusal = _refusal(path)
+    if refusal is None:
         return None
     action = PlanAction(
         command,
         "unverifiable",
-        problem,
+        refusal[1],
         action="conflict",
         path=path,
-        reason="nested_store",
+        reason=refusal[0],
     )
     return StorePlan("imgw-plan/1", path, datetime.now(UTC), (), {}, (action,))
 
