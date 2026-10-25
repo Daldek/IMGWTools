@@ -389,7 +389,20 @@ def test_chmi_fields_default_so_3_0_constructors_keep_working():
 
 
 def test_fields_added_to_the_read_api_default_so_older_constructors_keep_working():
+    meta = Meta(
+        "imgw-meta/1",
+        "pl.imgw.hydro_daily",
+        "pl.imgw.hydro_daily",
+        "a" * 64,
+        1,
+        datetime.now(UTC),
+        None,
+        {},
+        {},
+    )
+
     assert StoreInfo(Path("/s"), True, None, True, {}, ()).problem_codes == ()
+    assert (meta.producer, meta.producer_version) == ("imgwtools", None)
 
 
 def _chmi_plan(tmp_path):

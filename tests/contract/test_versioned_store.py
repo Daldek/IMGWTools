@@ -307,6 +307,12 @@ def test_every_kind_of_version_has_the_sidecar_core_of_dev_19_16(
         assert isinstance(document["extra"], dict), where
         # dataset_key: the read API returns the current key of the dataset
         assert read_meta(main).dataset_key == document["dataset"], where
+        # producer and producer_version: the read API returns what the sidecar says
+        meta = read_meta(main)
+        assert (meta.producer, meta.producer_version) == (
+            document["producer"],
+            document["producer_version"],
+        ), where
 
     assert seen == {
         (kind, provider)
