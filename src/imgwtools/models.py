@@ -9,10 +9,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Literal
+from numbers import Real
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
+from imgwtools.exceptions import IMGWValidationError
 from imgwtools.messages import message
 
 Flag = Literal["value", "missing", "no_phenomenon", "accumulated"]
@@ -95,15 +97,103 @@ class NormalizedRecord:
     extrema_occurrences: Mapping[str, int] = field(default_factory=dict)
 
 
+# The 27 probabilities [%] of every PMAXTP table, the same for each duration (measured
+# on the real API, PROGRESS). IMGW writes the keys of the tables as plain numbers, so a
+# whole percentage has no decimal point ("1", not "1.0"): it is an ``int`` here and the
+# key is ``str(value)``.
+_PMAXTP_PROBABILITIES: tuple[float, ...] = (
+    0.01,
+    0.02,
+    0.03,
+    0.05,
+    0.1,
+    0.2,
+    0.3,
+    0.5,
+    1,
+    2,
+    3,
+    5,
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    95,
+    98,
+    98.5,
+    99,
+    99.5,
+    99.9,
+)
+_PROBABILITY_KEYS: Mapping[float, str] = {
+    value: str(value) for value in _PMAXTP_PROBABILITIES
+}
+
+
+def _probability_key(probability_percent: float) -> str:
+    """
+    Key of a probability in the PMAXTP tables.
+
+    ``50`` and ``50.0`` are the same percentage and give ``"50"``; a number that is
+    not one of the published probabilities (also ``nan``, a ``bool`` or a value that
+    is no number) is refused instead of reading as an absent value.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``probability_percent`` is not a published probability
+        (``details`` ``option``, ``value`` and ``allowed``).
+    """
+    key = (
+        _PROBABILITY_KEYS.get(cast(float, probability_percent))
+        if isinstance(probability_percent, Real)
+        and not isinstance(probability_percent, bool)
+        else None
+    )
+    if key is None:
+        raise IMGWValidationError(
+            message(
+                "models.unknown_pmaxtp_probability_allowed",
+                probability=probability_percent,
+                allowed=", ".join(_PROBABILITY_KEYS.values()),
+            ),
+            details={
+                "option": "probability_percent",
+                "value": str(probability_percent),
+                "allowed": list(_PMAXTP_PROBABILITIES),
+            },
+        )
+    return key
+
+
+def _quantile(
+    table: Mapping[str, Mapping[str, float]],
+    duration_minutes: int,
+    probability_percent: float,
+) -> float | None:
+    """Read one cell of a PMAXTP table; None when the duration or value is absent."""
+    probability_key = _probability_key(probability_percent)
+    return table.get(str(duration_minutes), {}).get(probability_key)
+
+
 class PMaXTPData(BaseModel):
     """
     PMAXTP precipitation quantiles for all durations and probabilities.
 
     Each attribute is a nested dict of the form
     ``{duration: {probability: value}}``, where both keys are plain numbers
-    written as strings: durations in minutes (e.g. "5", "10", "15", "30",
-    "45", "60", "90", "120", "180") and probabilities in percent
-    (e.g. "1", "2", "5", "10", "20", "50").
+    written as strings: durations in minutes (5, 10, 15, 30, 45, 60, 90, 120,
+    180, 360, 720, 1080, 1440, 2160, 2880 and 4320) and probabilities in
+    percent, 27 values from ``"0.01"`` to ``"99.9"`` (``"1"``, ``"50"``,
+    ``"98.5"``; a whole percentage has no decimal point). The accessors
+    ``get_precipitation``, ``get_confidence_bound`` and
+    ``get_estimation_error`` take the probability as a number, ``50`` or
+    ``0.01``, and refuse a number that is not one of the 27.
 
     Attributes
     ----------
@@ -148,7 +238,7 @@ class PMaXTPData(BaseModel):
     def get_precipitation(
         self,
         duration_minutes: int,
-        probability_percent: int,
+        probability_percent: float,
     ) -> float | None:
         """
         Get precipitation value for given duration and probability.
@@ -156,43 +246,56 @@ class PMaXTPData(BaseModel):
         Parameters
         ----------
         duration_minutes : int
-            Duration in minutes (5, 10, 15, 30, 45, 60, 90, 120, 180, etc.).
-        probability_percent : int
-            Probability in percent (1, 2, 5, 10, 20, 50, etc.).
+            Duration in minutes (5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720,
+            1080, 1440, 2160, 2880 or 4320).
+        probability_percent : float
+            Probability in percent, one of the 27 published values: 0.01, 0.02,
+            0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60,
+            70, 80, 90, 95, 98, 98.5, 99, 99.5 or 99.9. ``50`` and ``50.0`` are
+            the same percentage.
 
         Returns
         -------
         float or None
-            Precipitation in mm, or None if not available.
+            Precipitation in mm, or None if the data holds no value for the
+            duration and probability.
+
+        Raises
+        ------
+        IMGWValidationError
+            If ``probability_percent`` is not one of the published values
+            (``details`` ``option``, ``value`` and ``allowed``).
 
         Examples
         --------
         >>> data.get_precipitation(15, 50)
         5.1
         """
-        duration_key = str(duration_minutes)
-        prob_key = str(probability_percent)
-        return self.ks.get(duration_key, {}).get(prob_key)
+        return _quantile(self.ks, duration_minutes, probability_percent)
 
     def get_confidence_bound(
         self,
         duration_minutes: int,
-        probability_percent: int,
+        probability_percent: float,
     ) -> float | None:
-        """Get upper confidence bound for given duration and probability."""
-        duration_key = str(duration_minutes)
-        prob_key = str(probability_percent)
-        return self.sg.get(duration_key, {}).get(prob_key)
+        """
+        Get upper confidence bound for given duration and probability.
+
+        Takes and refuses the same values as `get_precipitation`.
+        """
+        return _quantile(self.sg, duration_minutes, probability_percent)
 
     def get_estimation_error(
         self,
         duration_minutes: int,
-        probability_percent: int,
+        probability_percent: float,
     ) -> float | None:
-        """Get estimation error for given duration and probability."""
-        duration_key = str(duration_minutes)
-        prob_key = str(probability_percent)
-        return self.rb.get(duration_key, {}).get(prob_key)
+        """
+        Get estimation error for given duration and probability.
+
+        Takes and refuses the same values as `get_precipitation`.
+        """
+        return _quantile(self.rb, duration_minutes, probability_percent)
 
     def to_dataframe(self) -> Any:
         """

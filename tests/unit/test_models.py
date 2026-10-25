@@ -7,6 +7,7 @@ from datetime import date
 
 import pytest
 
+from imgwtools.exceptions import IMGWValidationError
 from imgwtools.models import (
     HydroCurrentData,
     Measurement,
@@ -17,6 +18,48 @@ from imgwtools.models import (
     SynopData,
     WarningData,
 )
+
+# The keys of one PMAXTP table as the API writes them (27 probabilities, measured on the
+# real API, docs/PROGRESS.md): a whole percentage has no decimal point.
+PUBLISHED_KEYS = [
+    "0.01",
+    "0.02",
+    "0.03",
+    "0.05",
+    "0.1",
+    "0.2",
+    "0.3",
+    "0.5",
+    "1",
+    "2",
+    "3",
+    "5",
+    "10",
+    "20",
+    "30",
+    "40",
+    "50",
+    "60",
+    "70",
+    "80",
+    "90",
+    "95",
+    "98",
+    "98.5",
+    "99",
+    "99.5",
+    "99.9",
+]
+ACCESSORS = ["get_precipitation", "get_confidence_bound", "get_estimation_error"]
+
+
+def published_data():
+    """A 15-minute row with every published probability; the value is its position."""
+
+    def row(offset):
+        return {key: offset + index for index, key in enumerate(PUBLISHED_KEYS)}
+
+    return PMaXTPData(ks={"15": row(0)}, sg={"15": row(100)}, rb={"15": row(200)})
 
 
 class TestPMaXTPData:
@@ -62,12 +105,53 @@ class TestPMaXTPData:
         result = data.get_precipitation(999, 50)
         assert result is None
 
-    def test_get_precipitation_missing_probability(self, pmaxtp_api_response):
-        """Test get_precipitation returns None for missing probability."""
+    def test_get_precipitation_probability_missing_from_the_data(
+        self, pmaxtp_api_response
+    ):
+        """A published probability the data lacks is None, not an error."""
         data = PMaXTPData.from_api_response(pmaxtp_api_response)
 
-        result = data.get_precipitation(15, 999)
-        assert result is None
+        assert data.get_precipitation(15, 0.01) is None
+        assert data.get_precipitation(15, 99.9) is None
+
+    @pytest.mark.parametrize("key", PUBLISHED_KEYS)
+    def test_every_published_probability_reads_as_a_number(self, key):
+        """0.01 and 98.5 are keys of the tables, and 1.0 is the key "1" like 1."""
+        data = published_data()
+        index = PUBLISHED_KEYS.index(key)
+        number = float(key)
+        numbers = [number, int(number)] if number.is_integer() else [number]
+
+        for probability in numbers:
+            assert data.get_precipitation(15, probability) == index
+            assert data.get_confidence_bound(15, probability) == 100 + index
+            assert data.get_estimation_error(15, probability) == 200 + index
+
+    @pytest.mark.parametrize("accessor", ACCESSORS)
+    @pytest.mark.parametrize(
+        "probability",
+        [0.7, 999, 0, -1, 100, 0.011, 50.5, float("nan"), float("inf"), True, "50"],
+        ids=repr,
+    )
+    def test_a_probability_that_is_not_published_is_refused(
+        self, accessor, probability
+    ):
+        """It is no absent value: the error names the 27 allowed percentages."""
+        data = published_data()
+
+        with pytest.raises(IMGWValidationError) as error:
+            getattr(data, accessor)(15, probability)
+
+        assert error.value.code == "validation_error"
+        assert error.value.details["option"] == "probability_percent"
+        assert error.value.details["value"] == str(probability)
+        assert error.value.details["allowed"] == [float(key) for key in PUBLISHED_KEYS]
+        assert "0.01, 0.02, 0.03" in error.value.detail
+        assert "98, 98.5, 99, 99.5, 99.9" in error.value.detail
+
+    def test_a_probability_is_checked_whatever_the_data_holds(self):
+        with pytest.raises(IMGWValidationError):
+            PMaXTPData().get_precipitation(15, 0.7)
 
     def test_get_confidence_bound(self, pmaxtp_api_response):
         """Test get_confidence_bound method."""

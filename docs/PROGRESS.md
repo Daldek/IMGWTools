@@ -53,7 +53,7 @@ Dalsze otwarte pozycje backlogu (priorytet w tekście):
 - [ ] Redis caching layer — cache dla często pobieranych danych. Priorytet: niski.
 
 - [ ] Lepsze nazewnictwo KS/SG/RB w `PMaXTPData` — aliasy właściwości i metoda `get_design_precipitation()`; szczegóły w sekcji "TODO: Poprawa czytelności PMaXTPData" poniżej. Priorytet: średni.
-- [ ] Natywna siatka PMAXTP w `fetch_pmaxtp` — od 3.0.0 magazyn PMAXTP (`sync_pmaxtp`/`read_pmaxtp`) kluczuje komórki indeksami `indX/indY` z odpowiedzi i zapisuje środek komórki w `cell.json`, ale `PMaXTPResult` z `fetch_pmaxtp` nadal nie ma pól `point`, brak funkcji konwersji/iteracji komórek, a docstringi podają zakres 7×6 zamiast 16×27; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
+- [ ] Natywna siatka PMAXTP w `fetch_pmaxtp` — od 3.0.0 magazyn PMAXTP (`sync_pmaxtp`/`read_pmaxtp`) kluczuje komórki indeksami `indX/indY` z odpowiedzi i zapisuje środek komórki w `cell.json`, ale `PMaXTPResult` z `fetch_pmaxtp` nadal nie ma pól `point`, a brak też funkcji konwersji/iteracji komórek; szczegóły w sekcji "TODO: Natywna siatka PMAXTP" poniżej. Zgłoszone z Hydrografa (2026-09-28). Priorytet: wysoki.
 - [ ] Dane ČHMÚ w Web GUI — formularze i wyszukiwarka obsługują wyłącznie IMGW-PIB (`datasets(provider="IMGW-PIB")`); pliki ČHMÚ są per stacja, więc formularz potrzebuje wyboru stacji (spec ČHMÚ §9.3). Priorytet: niski.
 
 ### Wsparcie agentów AI (po 3.0.0, ADR-004)
@@ -167,15 +167,11 @@ Odpowiedź zawiera **16 czasów trwania × 27 prawdopodobieństw** dla każdej z
 - czasy [min]: 5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440, 2160, 2880, 4320,
 - prawdopodobieństwa [%]: 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 98.5, 99, 99.5, 99.9.
 
-Docstring `fetch_pmaxtp()` (`fetch.py`) i `PMaXTPData` podają nieaktualnie 7 czasów × 6 prawdopodobieństw.
-
 #### Propozycje zmian
 
 1. `PMaXTPResult` — dodać pola z bloku `point`: `cell_lat`, `cell_lon`, `ind_x`, `ind_y` (oraz `has_data: bool` na podstawie `error`/pustego `data`); zachować surową odpowiedź (np. `raw: dict`) do archiwizacji po stronie klienta.
 2. Stałe siatki i funkcje konwersji: `pmaxtp_cell_for(lat, lon) -> (ind_x, ind_y)`, `pmaxtp_cell_center(ind_x, ind_y) -> (lat, lon)`, `pmaxtp_cells_in_bbox(bbox) -> Iterator[(ind_x, ind_y)]` — pobieranie „jedna komórka = jedno zapytanie o jej środek”.
-3. Poprawić dokumentację zakresu (16×27) w docstringach i README.
-4. `get_precipitation(duration_minutes, probability_percent: int)` — typ `int` nie pasuje do prawdopodobieństw ułamkowych (0.01, 98.5); klucz budowany przez `str()` wymaga, by float nie był przekazywany jako np. `1.0` (→ `"1.0"`, brak dopasowania). Rozważyć normalizację klucza.
-5. Test kontraktowy na zapisanej odpowiedzi (fixture) — weryfikacja kroków i początku siatki.
+3. Test kontraktowy na zapisanej odpowiedzi (fixture) — weryfikacja kroków i początku siatki oraz kluczy 16 × 27 (dziś `PMaXTPData` zna 27 prawdopodobieństw z pomiaru z 2026-09-28, bez odpowiedzi zapisanej w fixture).
 
 ## Open questions
 
