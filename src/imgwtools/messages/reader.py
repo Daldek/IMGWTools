@@ -276,6 +276,12 @@ MESSAGES = {
         "Unknown kind of store item: {kind!r}; allowed {kinds}",
         "Nieznany rodzaj wpisu magazynu: {kind!r}; dozwolone {kinds}",
     ),
+    "skip_versions_mapping": Text(
+        "skip_versions: give a mapping of the paths of version directories (relative "
+        "to the root, with /) to the names of their data files",
+        "skip_versions: podaj mapowanie ścieżek katalogów wersji (względem korzenia, "
+        "z /) na nazwy ich plików danych",
+    ),
     "invalid_slot_expected": Text(
         "Invalid slot {slot!r}: {reason}; expected {slot_grammar}",
         "Nieprawidłowy slot {slot!r}: {reason}; oczekiwano {slot_grammar}",

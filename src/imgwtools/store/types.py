@@ -896,8 +896,8 @@ class StoreEntry:
         Path of the version's main file or of the observation file; for a
         problem, the path of the faulty element.
     meta : Meta or None
-        Parsed sidecar of a valid version, None for observations and
-        problems.
+        Parsed sidecar of a valid version, None for observations, problems
+        and skipped versions.
     problem_code : str or None
         Machine-readable problem code, e.g. ``"missing_sidecar"``, or None.
     problem : str or None
@@ -907,6 +907,11 @@ class StoreEntry:
     provider : str or None, optional
         ``ProviderDescriptor.id`` of the slot's dataset; None for a problem
         without a slot.
+    skipped : bool, optional
+        True for a version the caller named in ``iter_store(skip_versions=...)``:
+        ``kind``, ``slot``, ``version`` and ``provider`` come from its place
+        in the store, ``meta`` is None because its sidecar was not read, and
+        nothing was checked about it. False for every other entry.
     """
 
     kind: Literal["archive", "series", "catalog", "pmaxtp", "observation", "problem"]
@@ -917,6 +922,7 @@ class StoreEntry:
     problem: str | None
     observation: Observation | None = None
     provider: str | None = None
+    skipped: bool = False
 
 
 @dataclass(frozen=True)

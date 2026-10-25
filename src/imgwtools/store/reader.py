@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
@@ -119,6 +119,9 @@ _SAME_CONTENT = re.compile(r"^[^/]+_[0-9a-f]{8}$")
 _LABEL_SOURCES = ("last_modified", "downloaded", "inputs")
 _PERIODS = ("winter", "summer", "annual")
 _SCALARS = (str, int, float, bool, type(None))
+# Versions a caller knows (``iter_store(skip_versions=...)``): the path of a version
+# directory relative to the root, with ``/``, and the names of its data files.
+_Known = Mapping[str, Collection[str]]
 
 
 class _Invalid(Exception):
@@ -662,6 +665,20 @@ def _entry(
     return StoreEntry(kind, slot, main, meta, None, None, provider=_slot_provider(slot))
 
 
+def _known_files(root: Path, directory: Path, known: _Known) -> Collection[str] | None:
+    """Names of the data files the caller knows in a version directory, else None."""
+    if not known or not _VERSION_DIR.match(directory.name):
+        return None
+    return known.get(_relative(root, directory))
+
+
+def _skipped(kind: EntryKind, slot: str, main: Path) -> StoreEntry:
+    """Entry of a version the caller knows: its place only, nothing of it read."""
+    return StoreEntry(
+        kind, slot, main, None, None, None, provider=_slot_provider(slot), skipped=True
+    )
+
+
 # --------------------------------------------------------------------------
 # Observation register (ADR-003 D18)
 # --------------------------------------------------------------------------
@@ -761,14 +778,18 @@ def _load_observation(path: Path) -> Observation:
 
 
 def _check_observation(
-    path: Path, observation: Observation, dataset: str, versions: Mapping[str, Meta]
+    path: Path,
+    observation: Observation,
+    dataset: str,
+    version_meta: Callable[[str], Meta | None],
 ) -> None:
     """
     Check an observation against its file name and its archive slot.
 
     The name must follow ``seen_at`` and the signal, ``dataset`` must be the
     slot's, and ``same_content_as`` must name a valid version of the slot
-    (``versions``: directory name → sidecar) with equal content fields.
+    (``version_meta``: directory name → sidecar, None for no valid version)
+    with equal content fields.
     """
     expected = _observation_name(observation)
     if not path.name.startswith(f"{observation.seen_at[:10]}_"):
@@ -796,7 +817,7 @@ def _check_observation(
                 dataset_2=dataset,
             ),
         )
-    meta = versions.get(observation.same_content_as)
+    meta = version_meta(observation.same_content_as)
     if meta is None:
         raise _Invalid(
             "invalid_meta",
@@ -819,13 +840,16 @@ def _check_observation(
 
 
 def _scan_register(
-    root: Path, register: Path, slot: str, versions: Mapping[str, Meta]
+    root: Path,
+    register: Path,
+    slot: str,
+    version_meta: Callable[[str], Meta | None],
 ) -> Iterator[StoreEntry]:
     """
     Observations and problems of the register ``observations/`` of an archive slot.
 
-    ``versions`` maps the directory names of the slot's valid versions to their
-    sidecars. Files are not hashed.
+    ``version_meta`` gives the sidecar of a valid version of the slot by the
+    name of its directory, or None. Files are not hashed.
     """
     dataset = slot.split(":")[1]
     for child in sorted(register.iterdir()):
@@ -842,7 +866,7 @@ def _scan_register(
         else:
             try:
                 observation = _load_observation(child)
-                _check_observation(child, observation, dataset, versions)
+                _check_observation(child, observation, dataset, version_meta)
             except _Invalid as exc:
                 yield _problem(
                     slot,
@@ -917,12 +941,22 @@ def _archive_slot(server_path: str) -> str | None:
     return f"archive:{descriptor.key}:{selector}"
 
 
-def _scanned_archive_slot(base: Path, directory: Path) -> tuple[str, str] | None:
-    """Slot and server path of a version directory, named after its (possibly orphaned) main file."""
+def _scanned_archive_slot(
+    base: Path, directory: Path, files: Collection[str] | None = None
+) -> tuple[str, str] | None:
+    """
+    Slot and server path of a version directory, named after its (possibly orphaned) main file.
+
+    The directory is listed, unless the caller knows its data files (``files``).
+    """
     names = sorted(
-        item.name.removesuffix(_SIDECAR)
-        for item in directory.iterdir()
-        if not item.is_dir()
+        files
+        if files is not None
+        else (
+            item.name.removesuffix(_SIDECAR)
+            for item in directory.iterdir()
+            if not item.is_dir()
+        )
     )
     slot_dir = directory.parent
     name = next(
@@ -961,17 +995,22 @@ def _versions_dir(root: Path, top: Path) -> Iterator[Path | StoreEntry]:
             yield child
 
 
-def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEntry]:
+def _scan_archives(
+    root: Path, base: Path, directory: Path, known: _Known
+) -> Iterator[StoreEntry]:
     """
     Archive versions, observations and problems below ``directory``.
 
     A directory ``observations`` is recognized before the version-directory
     rule: beside versions of exactly one slot it is that slot's observation
-    register (ADR-003 D18), anywhere else an unknown element.
+    register (ADR-003 D18), anywhere else an unknown element. A version the
+    caller knows (``known``) is neither listed nor read nor measured; only an
+    observation that names it reads its sidecar, for the content fields.
     """
     register: Path | None = None
     slots: set[str] = set()
     versions: dict[str, Meta] = {}
+    unread: dict[str, Path] = {}
     for child in _directories(root, directory):
         if isinstance(child, StoreEntry):
             yield child
@@ -979,36 +1018,49 @@ def _scan_archives(root: Path, base: Path, directory: Path) -> Iterator[StoreEnt
         if child.name == _OBSERVATIONS:
             register = child
             continue
-        has_files = any(
+        files = _known_files(root, child, known)
+        has_files = files is not None or any(
             not item.is_dir() or item.is_symlink() for item in child.iterdir()
         )
         if has_files or _VERSION_DIR.match(child.name):
-            found = (
-                _scanned_archive_slot(base, child)
-                if len(child.relative_to(base).parts) >= 3
-                else None
-            )
+            deep = len(child.relative_to(base).parts) >= 3
+            found = _scanned_archive_slot(base, child, files) if deep else None
+            if files is not None and (
+                found is None or PurePosixPath(found[1]).name not in files
+            ):
+                # The names the caller knows lead to no main file: read it as unknown.
+                files = None
+                found = _scanned_archive_slot(base, child) if deep else None
             if found is None:
                 yield _unknown(root, child)
             else:
                 slot, server_path = found
-                entry = _entry(
-                    root,
-                    "archive",
-                    slot,
-                    child,
-                    PurePosixPath(server_path).name,
-                    server_path=server_path,
-                )
+                name = PurePosixPath(server_path).name
+                if files is not None:
+                    unread[child.name] = main = child / name
+                    entry = _skipped("archive", slot, main)
+                else:
+                    entry = _entry(
+                        root, "archive", slot, child, name, server_path=server_path
+                    )
                 slots.add(slot)
                 if entry.meta is not None:
                     versions[child.name] = entry.meta
                 yield entry
         else:
-            yield from _scan_archives(root, base, child)
+            yield from _scan_archives(root, base, child, known)
     if register is not None:
         if len(slots) == 1:
-            yield from _scan_register(root, register, slots.pop(), versions)
+
+            def version_meta(name: str) -> Meta | None:
+                if name in unread and name not in versions:
+                    try:
+                        versions[name] = _load_meta(Path(f"{unread[name]}{_SIDECAR}"))
+                    except (_Invalid, OSError):
+                        return None
+                return versions.get(name)
+
+            yield from _scan_register(root, register, slots.pop(), version_meta)
         else:
             yield _unknown(root, register)
 
@@ -1028,6 +1080,7 @@ def _derived_entry(
     kind: EntryKind,
     slot: str,
     name: str,
+    known: _Known,
     **options: Any,
 ) -> StoreEntry:
     """Entry of a series, catalog or PMAXTP slot child; only archives have a register."""
@@ -1035,10 +1088,13 @@ def _derived_entry(
         return version
     if version.name == _OBSERVATIONS:
         return _unknown(root, version)
+    files = _known_files(root, version, known)
+    if files is not None and name in files:
+        return _skipped(kind, slot, version / name)
     return _entry(root, kind, slot, version, name, **options)
 
 
-def _scan_catalogs(root: Path, versions: Path) -> Iterator[StoreEntry]:
+def _scan_catalogs(root: Path, versions: Path, known: _Known) -> Iterator[StoreEntry]:
     """
     Station catalog versions and problems below ``stations/versions/``.
 
@@ -1053,7 +1109,9 @@ def _scan_catalogs(root: Path, versions: Path) -> Iterator[StoreEntry]:
         elif child.name in _NESTED_CATALOGS:
             slot = f"catalog:{_CATALOG_DATASETS[_NESTED_CATALOGS[child.name]]}"
             for version in _directories(root, child):
-                yield _derived_entry(root, version, "catalog", slot, CATALOG_FILE)
+                yield _derived_entry(
+                    root, version, "catalog", slot, CATALOG_FILE, known
+                )
         elif _VERSION_DIR.match(child.name) or any(
             not item.is_dir() or item.is_symlink() for item in child.iterdir()
         ):
@@ -1063,19 +1121,20 @@ def _scan_catalogs(root: Path, versions: Path) -> Iterator[StoreEntry]:
                 "catalog",
                 f"catalog:{_CATALOG_DATASETS['IMGW-PIB']}",
                 CATALOG_FILE,
+                known,
             )
         else:
             yield _unknown(root, child)
 
 
-def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
+def _scan_kind(root: Path, top: Path, known: _Known) -> Iterator[StoreEntry]:
     for versions in _versions_dir(root, top):
         if isinstance(versions, StoreEntry):
             yield versions
         elif top.name == "archives":
-            yield from _scan_archives(root, versions, versions)
+            yield from _scan_archives(root, versions, versions, known)
         elif top.name == "stations":
-            yield from _scan_catalogs(root, versions)
+            yield from _scan_catalogs(root, versions, known)
         elif top.name == "series":
             series = _series_datasets()
             for slug in _directories(root, versions):
@@ -1089,6 +1148,7 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                         "series",
                         f"series:{series[slug.name].key}",
                         SERIES_FILE,
+                        known,
                         subdirs=("stations",),
                     )
         else:
@@ -1115,11 +1175,12 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
                             "pmaxtp",
                             f"pmaxtp:{_PMAXTP_KEY}:{method.name}/{cell.name}",
                             CELL_FILE,
+                            known,
                             attachments=(RESPONSE_FILE,),
                         )
 
 
-def _scan(root: Path) -> Iterator[StoreEntry]:
+def _scan(root: Path, known: _Known) -> Iterator[StoreEntry]:
     info = _inspect(root)
     if not info.supported:
         for code, text in zip(info.problem_codes, info.problems, strict=True):
@@ -1153,13 +1214,46 @@ def _scan(root: Path) -> Iterator[StoreEntry]:
             child.name in ("archives", "stations", "series", "pmaxtp")
             and child.is_dir()
         ):
-            yield from _scan_kind(root, child)
+            yield from _scan_kind(root, child, known)
         else:
             yield _unknown(root, child)
 
 
+def _is_file_name(name: object) -> bool:
+    """Whether ``name`` is the plain name of a data file (no path, no sidecar)."""
+    return (
+        isinstance(name, str)
+        and name not in ("", ".", "..")
+        and not any(separator in name for separator in ("/", "\\", "\x00"))
+        and not name.endswith(_SIDECAR)
+    )
+
+
+def _known_versions(skip_versions: object) -> _Known:
+    """The versions the caller knows, checked: directory path to data file names."""
+    if skip_versions is None:
+        return {}
+    if not isinstance(skip_versions, Mapping) or not all(
+        isinstance(directory, str)
+        and isinstance(names, Collection)
+        and not isinstance(names, str)
+        and all(_is_file_name(name) for name in names)
+        for directory, names in skip_versions.items()
+    ):
+        raise IMGWValidationError(
+            message("reader.skip_versions_mapping"),
+            details={"option": "skip_versions"},
+        )
+    return cast(_Known, skip_versions)
+
+
 def iter_store(
-    root: RootArg, /, *, kind: str | None = None, provider: str | None = None
+    root: RootArg,
+    /,
+    *,
+    kind: str | None = None,
+    provider: str | None = None,
+    skip_versions: Mapping[str, Collection[str]] | None = None,
 ) -> Iterator[StoreEntry]:
     """
     Scan every published version, observation and problem offline, without writing.
@@ -1176,6 +1270,10 @@ def iter_store(
     slot's dataset in ``StoreEntry.provider`` (None for a problem without a
     slot).
 
+    Every scan reads the sidecar of every version. A consumer that keeps what
+    it has read passes the versions it knows in ``skip_versions`` (an
+    incremental scan) and gets them back without that cost.
+
     Parameters
     ----------
     root : str, os.PathLike or StoreHandle
@@ -1186,6 +1284,26 @@ def iter_store(
         Return only the entries of this provider (``ProviderDescriptor.id`` or
         key prefix) and the problems without a slot; ``None`` returns the
         entries of all providers.
+    skip_versions : mapping of str to collection of str or None, optional
+        The versions the caller already knows: the path of a version
+        directory relative to the root, with ``/`` (``archives/versions/<server
+        dir>/<stem>/<label>_<sha8>``, ``series/versions/<slug>/<label>_<sha8>``,
+        ``stations/versions/[<provider catalog>/]<label>_<sha8>`` or
+        ``pmaxtp/versions/<method>/<cell>/<label>_<sha8>``), mapped to the
+        names of its data files: the main file of the version, e.g.
+        ``("codz_2024.zip",)``. Such a version comes back as an entry with
+        ``skipped=True`` and ``meta=None`` (``kind``, ``slot``, ``version`` and
+        ``provider`` as for any entry) without its directory being listed, its
+        sidecar read or its file measured. The caller vouches for what it
+        names: a known version that has broken since, or a file added to or
+        removed from it, is not seen; a scan without the argument sees it.
+        Whatever is not named is read as always, so a new version and every
+        problem are reported, and a version that is gone is missing. The
+        sidecar of a known version is read only when an observation of its
+        slot names it, to compare the content fields. A path that is no
+        version directory of the store is ignored, and a version whose names
+        lack its main file is read as if the caller did not know it. ``None``
+        (the default) skips nothing.
 
     Returns
     -------
@@ -1195,8 +1313,10 @@ def iter_store(
     Raises
     ------
     IMGWValidationError
-        If ``kind`` is not a known entry kind, ``provider`` names no provider
-        or the root path contains ``..``.
+        If ``kind`` is not a known entry kind, ``provider`` names no provider,
+        ``skip_versions`` is not a mapping of paths to collections of plain
+        file names (``details.option`` ``skip_versions``) or the root path
+        contains ``..``.
     IMGWStoreError
         If a component of the root path is a symbolic link.
     """
@@ -1209,10 +1329,11 @@ def iter_store(
             )
         )
     owner = None if provider is None else get_provider(provider).id
+    known = _known_versions(skip_versions)
     path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
     return (
         entry
-        for entry in _scan(path)
+        for entry in _scan(path, known)
         if (kind is None or entry.kind == kind)
         and (owner is None or entry.provider in (owner, None))
     )
@@ -1463,7 +1584,7 @@ def _reference_signal(root: RootArg, /, *, slot: str) -> _Reference | None:
             if observation.same_content_as != current.name:
                 continue
             _check_observation(
-                child, observation, slot.split(":")[1], {current.name: entry.meta}
+                child, observation, slot.split(":")[1], {current.name: entry.meta}.get
             )
         except _Invalid as exc:
             if exc.code == "unreadable" and isinstance(exc.__cause__, OSError):
