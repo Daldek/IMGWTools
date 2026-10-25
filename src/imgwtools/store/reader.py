@@ -294,8 +294,8 @@ def _parse_meta(payload: object) -> Meta:
             "unknown_schema",
             message("reader.unsupported_sidecar_schema", schema=schema),
         )
-    _text(payload, "producer", const="imgwtools")
-    _text(payload, "producer_version")
+    producer = _text(payload, "producer", const="imgwtools")
+    producer_version = _text(payload, "producer_version")
     dataset = _text(payload, "dataset")
     if not _DATASET.fullmatch(dataset):
         raise _Invalid(
@@ -372,6 +372,8 @@ def _parse_meta(payload: object) -> Meta:
         content_form,
         provider=provider,
         country=country,
+        producer=producer,
+        producer_version=producer_version,
     )
 
 

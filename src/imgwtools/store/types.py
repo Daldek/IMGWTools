@@ -801,6 +801,16 @@ class Meta:
         ``provider`` field of the sidecar, e.g. ``"IMGW-PIB"`` or ``"CHMI"``.
     country : str, optional
         ``country`` field of the sidecar, e.g. ``"PL"`` or ``"CZ"``.
+    producer : str, optional
+        ``producer`` field of the sidecar (DEV-19.16): the package that wrote
+        the version. Readers accept only ``"imgwtools"``.
+    producer_version : str or None, optional
+        ``producer_version`` field of the sidecar (DEV-19.16): the version of
+        that package when it wrote the version, so a sidecar written by an
+        older release keeps the older number and the running package never
+        stands in for it. ``imgw-meta/1`` requires the field, so every
+        sidecar a reader accepts has it; None only in a ``Meta`` built
+        without it.
     """
 
     schema: str
@@ -816,6 +826,8 @@ class Meta:
     content_form: str | None = None
     provider: str = "IMGW-PIB"
     country: str = "PL"
+    producer: str = "imgwtools"
+    producer_version: str | None = None
 
 
 @dataclass(frozen=True)

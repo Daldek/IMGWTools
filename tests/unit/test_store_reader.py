@@ -15,6 +15,7 @@ import pytest
 import respx
 
 from imgwtools._parsing import normalize_archive
+from imgwtools._version import __version__
 from imgwtools.datasets import archive_files, get_dataset, station_source_files
 from imgwtools.exceptions import (
     IMGWDataError,
@@ -681,6 +682,59 @@ def test_read_meta_rejects_wrong_required_field_types(root):
         with pytest.raises(IMGWDataError):
             read_meta(written.path)
     assert hashlib.sha256(written.path.read_bytes()).hexdigest() == written.sha256
+
+
+def test_meta_has_the_producer_and_version_the_sidecar_names_not_the_running_ones(
+    root,
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar = Path(f"{written.path}.meta.json")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert read_meta(written.path).producer == document["producer"] == "imgwtools"
+    assert read_meta(written.path).producer_version == __version__
+
+    # A version written by an earlier release keeps that release's number.
+    older = "3.0.0rc1"
+    assert older != __version__
+    sidecar.write_text(
+        json.dumps({**document, "producer_version": older}), encoding="utf-8"
+    )
+
+    (entry,) = iter_store(root, kind="archive")
+    for meta in (
+        read_meta(written.path),
+        entry.meta,
+        current_version(root, slot=DAILY_2024).meta,
+    ):
+        assert (meta.producer, meta.producer_version) == ("imgwtools", older)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"producer": None},
+        {"producer": "kartograf"},
+        {"producer_version": None},
+        {"producer_version": ""},
+    ],
+    ids=["no producer", "other producer", "no version", "empty version"],
+)
+def test_a_sidecar_without_its_producer_or_version_is_refused_not_filled_in(
+    root, change
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar = Path(f"{written.path}.meta.json")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    for key, value in change.items():
+        document.pop(key)
+        if value is not None:
+            document[key] = value
+    sidecar.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(IMGWDataError):
+        read_meta(written.path)
+    (problem,) = iter_store(root, kind="problem")
+    assert (problem.slot, problem.problem_code) == (DAILY_2024, "invalid_meta")
 
 
 def test_read_series_resolves_version_or_current_series(complete, offline):

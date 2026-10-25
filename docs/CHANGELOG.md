@@ -42,6 +42,15 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   (`StoreEntry.problem_code`). A consumer decides by the code and shows the text. The field is
   optional (default `()`), so `imgw-store/1` and the constructor of `StoreInfo` do not change; it is
   part of the document of `store info` in every interface.
+- **`Meta.producer` and `Meta.producer_version` (DEV-19.16, request of Archiwista):** the typed
+  sidecar that `read_meta`, `iter_store` (`StoreEntry.meta`) and `current_version` return keeps the
+  two fields of the sidecar core that the reader validated and dropped. They are what the sidecar
+  says: `producer` is `imgwtools` (the only name a reader accepts) and `producer_version` the version
+  of the package that wrote the version, so a version written by an earlier release keeps its older
+  number and the running package never stands in for it. `imgw-meta/1` has required both from the
+  start, so a sidecar without one is still `invalid_meta`, refused and not filled in. The fields are
+  optional (defaults `"imgwtools"` and `None`), so `imgw-meta/1` and the constructor of `Meta` do
+  not change.
 
 ### Changed
 
