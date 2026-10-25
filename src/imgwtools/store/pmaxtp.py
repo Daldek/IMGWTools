@@ -55,6 +55,7 @@ from imgwtools.store.writer import (
     _existing,
     _utc,
     _validate_slot,
+    nested_store_plan,
     prepare_store,
     version_file,
 )
@@ -466,10 +467,13 @@ def check_pmaxtp(
             on_notice=on_notice,
             cancel=cancel,
         )
-    handle = _handle(target.path)
     method = _validate_method(method)
     _validate_poland_coords(latitude, longitude)
     cell = _validate_cell(ind_x, ind_y)
+    refused = nested_store_plan("pmaxtp sync", target.path)
+    if refused is not None:
+        return refused
+    handle = _handle(target.path)
     now = datetime.now(UTC)
     if _cancelled(cancel):
         action = PlanAction("pmaxtp sync", "unverifiable", message("common.cancelled"))

@@ -308,6 +308,16 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   is a core dependency now (removed from the extras). The fallback that read the reference
   directory without it (`_environment.reference_dir()` in `store/catalog.py`) is gone; a test
   installs the built wheel without extras into a fresh venv and calls a public function.
+- **`--check` and a nested store (DEV-19.10, DEV-19.14):** `imgw datasets download --root <dir in
+  another tool's store> --check` planned the download as `missing` while the run refused it with
+  `conflict` (`nested_store`); the plans of `store init`, `store sync`, `pmaxtp sync`, `series
+  build`, `store catalog` and `project download` had the same gap, and the plans of `store sync`
+  and `store catalog` even sent requests, and the plans of `store sync`, `pmaxtp sync`, `series
+  build` and `store catalog` raised `store_unavailable` for a root that holds another tool's store
+  or a store below it. Each plan
+  now lists one action `conflict` with `reason="nested_store"`, the root as `path` and status
+  `unverifiable`; the plan is `ok` (exit 0), like the plain plan for `output_in_store`, and nothing
+  is requested. `PlanAction.reason` gains `nested_store`; a saved plan keeps the action.
 - **`py.typed` (DEV-7.4):** the package declared `Typing :: Typed` but shipped no PEP 561 marker, so
   mypy treated `import imgwtools` in a consumer as untyped (`module is installed, but missing
   library stubs or py.typed marker`). `src/imgwtools/py.typed` is part of the wheel now; a test

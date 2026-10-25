@@ -45,9 +45,11 @@ from imgwtools.store.types import (
     NoticeHook,
     Observation,
     PathArg,
+    PlanAction,
     Progress,
     ProgressHook,
     StoreHandle,
+    StorePlan,
     VersionResult,
 )
 
@@ -321,9 +323,9 @@ def _marker(path: Path) -> str | None:
         raise IMGWStoreError(message("writer.unreadable_marker", path=path)) from exc
 
 
-def _check_nested(path: Path) -> None:
+def _nested_problem(path: Path) -> str | None:
     """
-    Refuse a root that would nest a store in another store (DEV-19.14).
+    Say why a root would nest a store in another store (DEV-19.14), or None.
 
     The check looks at the marker file names of every tool (``STORE_MARKERS``),
     so it needs nothing from Kartograf: in the ancestors of the root, at the
@@ -333,32 +335,74 @@ def _check_nested(path: Path) -> None:
     for ancestor in path.parents:
         for name in STORE_MARKERS:
             if (ancestor / name).is_file():
-                raise IMGWStoreConflictError(
-                    message(
-                        "writer.store_inside_another_store",
-                        ancestor=ancestor,
-                        marker=name,
-                    ),
-                    details=_NESTED,
+                return message(
+                    "writer.store_inside_another_store", ancestor=ancestor, marker=name
                 )
     foreign = next(
         (name for name in STORE_MARKERS if name != _MARKER and (path / name).is_file()),
         None,
     )
     if foreign is not None:
-        raise IMGWStoreConflictError(
-            message("writer.root_holds_another_store", path=path, marker=foreign),
-            details=_NESTED,
-        )
+        return message("writer.root_holds_another_store", path=path, marker=foreign)
     below = store_below(
         path, skip=_MANAGED_TREES if (path / _MARKER).is_file() else frozenset()
     )
     if below is not None:
         found = next(name for name in STORE_MARKERS if (below / name).is_file())
-        raise IMGWStoreConflictError(
-            message("writer.store_below_the_root", folder=below, marker=found),
-            details=_NESTED,
-        )
+        return message("writer.store_below_the_root", folder=below, marker=found)
+    return None
+
+
+def _check_nested(path: Path) -> None:
+    """Refuse a root that would nest a store in another store (DEV-19.14)."""
+    problem = _nested_problem(path)
+    if problem is not None:
+        raise IMGWStoreConflictError(problem, details=_NESTED)
+
+
+def nested_store_plan(command: str, root: PathArg | StoreHandle) -> StorePlan | None:
+    """
+    Plan the refusal of a root that would nest a store, or None if it does not.
+
+    The run of every command that writes a store refuses such a root with
+    ``conflict`` (``details.reason`` ``nested_store``); the plan shows the same
+    refusal as a ``conflict`` action instead of failing, like a plain plan does
+    for an output directory in a store (DEV-19.10, DEV-19.14). It is a
+    successful result and nothing else is checked, so no request is made.
+
+    Parameters
+    ----------
+    command : str
+        Name of the command the action refers to, e.g. ``"series build"``.
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+
+    Returns
+    -------
+    StorePlan or None
+        Plan with the one ``conflict`` action (``path`` the root, ``reason``
+        ``nested_store``), or None when the root nests no store.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..``.
+    IMGWStoreError
+        If the root path contains a symbolic link.
+    """
+    path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
+    problem = _nested_problem(path)
+    if problem is None:
+        return None
+    action = PlanAction(
+        command,
+        "unverifiable",
+        problem,
+        action="conflict",
+        path=path,
+        reason="nested_store",
+    )
+    return StorePlan("imgw-plan/1", path, datetime.now(UTC), (), {}, (action,))
 
 
 def _has_layout(path: Path) -> bool:

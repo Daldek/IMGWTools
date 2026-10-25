@@ -2224,9 +2224,7 @@ def check_project(
                     state, series_state.get(slug, state), key=_SEVERITY.__getitem__
                 )
             actions.extend(
-                PlanAction(
-                    action.command, action.status, f"{task.name}: {action.detail}"
-                )
+                replace(action, detail=f"{task.name}: {action.detail}")
                 for action in checked.actions
             )
             cancelled = cancelled or checked.cancelled
