@@ -134,17 +134,14 @@ class _Invalid(Exception):
 # --------------------------------------------------------------------------
 
 
-def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
-    """Store state and the problem code of an unusable store (``None`` when supported)."""
+def _inspect(path: Path) -> StoreInfo:
+    """State of a store root; an unusable one has its one problem and the code of it."""
     contracts = dict(CONTRACTS)
 
-    def unusable(
-        code: str, text: str, *, schema: str | None = None
-    ) -> tuple[StoreInfo, str]:
-        info = StoreInfo(
-            path, path.exists(), schema, False, contracts, (text,), providers()
+    def unusable(code: str, text: str, *, schema: str | None = None) -> StoreInfo:
+        return StoreInfo(
+            path, path.exists(), schema, False, contracts, (text,), providers(), (code,)
         )
-        return info, code
 
     if not path.exists():
         return unusable(
@@ -186,7 +183,7 @@ def _inspect(path: Path) -> tuple[StoreInfo, str | None]:
             ),
             schema=schema,
         )
-    return StoreInfo(path, True, schema, True, contracts, (), providers()), None
+    return StoreInfo(path, True, schema, True, contracts, (), providers())
 
 
 def store_info(root: PathArg, /) -> StoreInfo:
@@ -210,7 +207,8 @@ def store_info(root: PathArg, /) -> StoreInfo:
     -------
     StoreInfo
         Existence of the root, marker schema, support flag, the contract
-        versions supported by this library, the detected problems and the
+        versions supported by this library, the detected problems with their
+        machine-readable codes (``problem_codes``, one per problem) and the
         data providers the library knows (``providers()``, registry order).
 
     Raises
@@ -220,11 +218,11 @@ def store_info(root: PathArg, /) -> StoreInfo:
     IMGWStoreError
         If a component of the root path is a symbolic link.
     """
-    return _inspect(_safe_root(root))[0]
+    return _inspect(_safe_root(root))
 
 
 def _open(root: RootArg) -> Path:
-    info, _ = _inspect(_safe_root(root.root if isinstance(root, StoreHandle) else root))
+    info = _inspect(_safe_root(root.root if isinstance(root, StoreHandle) else root))
     if not info.supported:
         raise IMGWStoreError(
             "; ".join(info.problems), details={"reason": "unsupported"}
@@ -1120,9 +1118,9 @@ def _scan_kind(root: Path, top: Path) -> Iterator[StoreEntry]:
 
 
 def _scan(root: Path) -> Iterator[StoreEntry]:
-    info, code = _inspect(root)
-    if code is not None:
-        for text in info.problems:
+    info = _inspect(root)
+    if not info.supported:
+        for code, text in zip(info.problem_codes, info.problems, strict=True):
             yield _problem(None, root / _MARKER, code, text)
         return
     cutoff = time.time() - _STALE_SECONDS

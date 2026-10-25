@@ -36,6 +36,12 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `CommandResult.to_json(lang=)`, `jsonable(..., lang=)`) instead of parsing text.
   `tests/unit/test_messages.py` checks both languages of every entry, every `message("…")` call
   against its entry, unused entries and Polish literals outside the catalog.
+- **`StoreInfo.problem_codes` (request of Archiwista):** every text of `StoreInfo.problems` has its
+  machine-readable code at the same index: `missing_store`, `missing_marker`, `invalid_marker` or
+  `unsupported_store`, the codes `iter_store` already gives the entry of the same problem
+  (`StoreEntry.problem_code`). A consumer decides by the code and shows the text. The field is
+  optional (default `()`), so `imgw-store/1` and the constructor of `StoreInfo` do not change; it is
+  part of the document of `store info` in every interface.
 
 ### Changed
 

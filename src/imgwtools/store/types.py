@@ -123,6 +123,16 @@ class StoreInfo:
     providers : tuple of ProviderDescriptor, optional
         Data providers the library knows (identifier, display name,
         datasets, license and attribution).
+    problem_codes : tuple of str, optional
+        Machine-readable code of each problem: one per entry of ``problems``,
+        in the same order, and empty for a supported store. ``"missing_store"``
+        (the root does not exist), ``"missing_marker"`` (no marker file: the
+        root is no store, or holds the layout of one and ``imgw store init``
+        writes the marker), ``"invalid_marker"`` (the marker is not JSON or has
+        no ``schema`` text) and ``"unsupported_store"`` (the marker names
+        another store schema: see ``schema``). A consumer decides by the code
+        and shows the text; `iter_store` gives the entry of the same problem
+        the same code in ``StoreEntry.problem_code``.
     """
 
     root: Path
@@ -132,6 +142,7 @@ class StoreInfo:
     contracts: Mapping[str, str]
     problems: tuple[str, ...]
     providers: tuple[ProviderDescriptor, ...] = ()
+    problem_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
