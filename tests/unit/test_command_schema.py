@@ -100,7 +100,11 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "offset": {"type": "integer", "minimum": 0, "default": 0},
         "provider": {"enum": ["IMGW-PIB", "CHMI"]},
     }
-    meta = {key: value for key, value in find["x-imgw"].items() if key != "rules"}
+    meta = {
+        key: value
+        for key, value in find["x-imgw"].items()
+        if key not in ("rules", "examples")
+    }
     assert meta == {
         "command": "stations find",
         "operation_id": "imgw_stations_find",
