@@ -30,9 +30,13 @@ result = fetch_pmaxtp(52.23, 21.01, method="POT")
 # Opad 15-minutowy z prawdopodobieństwem 50%
 precip = result.data.get_precipitation(15, 50)
 print(f"Opad 15-min, p=50%: {precip} mm")  # opad [mm] dla t=15 min, p=50%
+rare = result.data.get_precipitation(15, 0.01)  # prawdopodobieństwo ułamkowe: liczba, nie tekst
 
-# Dostępne czasy trwania: 5, 10, 15, 30, 45, 60, 90, 120, 180... minut
-# Dostępne prawdopodobieństwa: 1, 2, 5, 10, 20, 50... %
+# Czasy trwania [min]: 5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440, 2160, 2880, 4320
+# Prawdopodobieństwa [%]: 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40,
+# 50, 60, 70, 80, 90, 95, 98, 98.5, 99, 99.5, 99.9 (50 i 50.0 to ten sam klucz). Liczba spoza listy
+# (np. 0.7) to IMGWValidationError z listą dozwolonych w details["allowed"]; tak samo
+# w get_confidence_bound i get_estimation_error.
 ```
 
 ### Dane bieżące

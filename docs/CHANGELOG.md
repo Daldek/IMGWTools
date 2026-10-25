@@ -388,6 +388,20 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   but is an optional field in the packaged `imgw-store/1` schema, and the message
   `reader.marker_has_no_valid_created` is gone. A reader only accepts more: the contract stays
   `imgw-store/1`.
+- **`PMaXTPData` takes fractional probabilities and refuses unpublished ones (request of
+  Hydrograf):** `get_precipitation`, `get_confidence_bound` and `get_estimation_error` were
+  annotated `probability_percent: int`, but the tables hold 27 probabilities from `"0.01"` to
+  `"99.9"` (`"98.5"`, `"99.5"`) and the key was `str(value)`: a caller that asked for 0.01 to 98.5
+  had to silence the type checker, `1.0` looked for the key `"1.0"`, and a number the tables never
+  had (`999`, a typo, `0.5` meant as `50`) read as an absent value, `None`. The parameter is a
+  `float` (an `int` is one): `50` and `50.0` are the key `"50"`, `0.01` and `98.5` are found, and a
+  probability that is not one of the 27 published ones (also `nan`, a `bool` or a text) is
+  `validation_error` (`IMGWValidationError`) with `details.option="probability_percent"`,
+  `details.value` and `details.allowed`, the 27 percentages as numbers, which the message lists
+  too. A published probability that the data lacks, or a duration that it lacks, is still `None`.
+  A caller that relied on `None` for a probability that is not published gets the error now. The
+  docstrings of `PMaXTPData` and `fetch_pmaxtp` give the 16 durations and the 27 probabilities
+  (they said 7 and 6).
 
 ### Migration guide: data output (ADR-007, DEV §19)
 

@@ -371,7 +371,7 @@ def fetch_pmaxtp(
     """
     Fetch PMAXTP (probabilistic maximum precipitation) data.
 
-    PMAXTP provides precipitation quantiles for 7 durations and 6 probabilities,
+    PMAXTP provides precipitation quantiles for 16 durations and 27 probabilities,
     useful for hydrological modeling and flood risk assessment.
 
     Parameters
@@ -416,8 +416,11 @@ def fetch_pmaxtp(
 
     Notes
     -----
-    Data durations: 15, 30, 45, 60, 90, 120, 180 minutes.
-    Probabilities: 1%, 2%, 5%, 10%, 20%, 50%.
+    Durations [min]: 5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440,
+    2160, 2880, 4320. Probabilities [%]: 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3,
+    0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 98.5, 99, 99.5,
+    99.9. `PMaXTPData.get_precipitation` takes a probability as a number (``0.01``,
+    ``50``) and refuses a number that is not in this list.
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)

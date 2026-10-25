@@ -153,7 +153,7 @@ Every live function has an `*_async` twin with identical arguments.
 **Data Models:**
 |Model|Description|
 |---|---|
-|`PMaXTPData`|Precipitation quantiles (ks, sg, rb) with `get_precipitation(duration, prob)`|
+|`PMaXTPData`|Precipitation quantiles (ks, sg, rb) with `get_precipitation(duration_minutes, probability_percent)`, `get_confidence_bound` and `get_estimation_error`; the probability is a number, one of the 27 published percentages 0.01 to 99.9 (`50` and `50.0` are one key), any other number is `validation_error` with `details.allowed`|
 |`PMaXTPResult`|Complete PMAXTP result with metadata|
 |`HydroCurrentData`, `MeteoCurrentData`, `SynopData`|Current measurements (`station_code`)|
 |`WarningData`|Weather/hydro warning (`kind`, `event`, `level`, ...)|

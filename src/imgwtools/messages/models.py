@@ -9,4 +9,8 @@ MESSAGES = {
         "Metoda to_dataframe() wymaga pakietu pandas. "
         "Zainstaluj dodatek: pip install imgwtools[pandas]",
     ),
+    "unknown_pmaxtp_probability_allowed": Text(
+        "Unknown PMAXTP probability [%]: {probability!r}; allowed: {allowed}",
+        "Nieznane prawdopodobieństwo PMAXTP [%]: {probability!r}; dozwolone: {allowed}",
+    ),
 }
