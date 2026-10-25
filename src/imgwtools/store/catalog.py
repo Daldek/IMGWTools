@@ -25,7 +25,6 @@ from typing import Any, Literal
 
 import httpx
 
-from imgwtools import _environment as environment
 from imgwtools._parsing.chmi import (
     MetadataTable,
     parse_listing,
@@ -1393,16 +1392,11 @@ def _static_file() -> tuple[Path, bytes | None]:
 
     IMGW data is not shipped with the package: ``python -m imgwtools.reference_data`` writes
     the file into the reference directory (``IMGW_REFERENCE_DIR``, ``[imgw] reference_dir``
-    of ``nogat.toml``, else ``<cache_dir>/imgw/reference``). Without ``pydantic-settings``
-    the directory comes from `imgwtools._environment` (no ``.env`` file).
+    of ``nogat.toml``, else ``<cache_dir>/imgw/reference``).
     """
-    try:
-        from imgwtools.config import settings
-    except ImportError:
-        reference_dir = environment.reference_dir()
-    else:
-        reference_dir = settings.reference_dir
-    path = reference_dir / STATIC_LOCATIONS
+    from imgwtools.config import settings
+
+    path = settings.reference_dir / STATIC_LOCATIONS
     try:
         return path, path.read_bytes()
     except FileNotFoundError:

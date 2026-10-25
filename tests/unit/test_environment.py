@@ -131,14 +131,11 @@ def test_directories_stay_out_of_the_working_directory(user_environment, monkeyp
     assert settings.cache_dir == home / "cache"
     assert settings.reference_dir == home / "cache" / "imgw" / "reference"
     assert settings.api_keys_file == home / "data" / "imgw" / "api_keys.json"
-    assert environment.reference_dir() == settings.reference_dir
 
     monkeypatch.setenv("NOGAT_CACHE_DIR", "/elsewhere")  # the shared key moves it
     assert Settings().reference_dir == Path("/elsewhere/imgw/reference")
-    assert environment.reference_dir() == Path("/elsewhere/imgw/reference")
     monkeypatch.setenv("IMGW_REFERENCE_DIR", "/reference")
     assert Settings().reference_dir == Path("/reference")
-    assert environment.reference_dir() == Path("/reference")
 
 
 def test_a_file_that_cannot_be_used_is_reported_and_not_applied(tmp_path, monkeypatch):

@@ -50,7 +50,8 @@ uv run mypy src tests
 |`tests/unit/test_cli_interrupt.py` (with `interrupt_driver.py`)|6|SIGINT and SIGTERM of real plain writes (`datasets download -o`, `store export --output`): exit codes, no staging directory, old target whole|
 |`tests/unit/test_output.py`, `test_plain_output.py`|33|Plain output (ADR-007): target list, conflicts, staging and its cleanup, `files[]`, `--check` plan|
 |`tests/unit/test_default_root.py`, `test_environment.py`|40|Default root and its source (`IMGW_ROOT`, `nogat.toml`, `<data_dir>/imgw`), REST and MCP write refusals, `nogat.toml` settings|
-|`tests/unit/` other files|153|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
+|`tests/unit/test_library_install.py`|1|Wheel built from the checkout, installed without extras into a fresh `uv` venv: `import imgwtools` and `list_commands` run (marker `slow`, ~2 s, in the gate)|
+|`tests/unit/` other files|152|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
 |`tests/contract/test_interface_contract.py`|81|Python = CLI = REST for all 28 REST commands, error matrix, paging|
 |`tests/contract/test_chmi_contract.py`|68|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
 |`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|87|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|

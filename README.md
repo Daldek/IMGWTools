@@ -36,7 +36,7 @@ Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw co
 ## Instalacja
 
 ```bash
-# Tylko biblioteka (minimalne zależności: httpx, pydantic)
+# Tylko biblioteka (minimalne zależności: httpx, pydantic, pydantic-settings, platformdirs)
 pip install imgwtools
 
 # Z CLI

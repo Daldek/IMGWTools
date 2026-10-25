@@ -299,6 +299,16 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   message guard. Migration: REST clients that relied on the Polish default send
   `Accept-Language: pl`.
 
+### Fixed
+
+- **`import imgwtools` without an extra:** `imgwtools.config` imports `pydantic-settings` and
+  `import imgwtools` reaches it (`agent_guide` → `commands` → `config`), but the package listed
+  the dependency only in the `api` and `cli` extras, so `pip install imgwtools` and
+  `imgwtools[store]` failed with `ModuleNotFoundError: pydantic_settings`. `pydantic-settings>=2.7`
+  is a core dependency now (removed from the extras). The fallback that read the reference
+  directory without it (`_environment.reference_dir()` in `store/catalog.py`) is gone; a test
+  installs the built wheel without extras into a fresh venv and calls a public function.
+
 ### Migration guide: data output (ADR-007, DEV §19)
 
 What a caller of IMGWTools (Python, `imgw`, REST, MCP) or a reader of its files has to change. The
