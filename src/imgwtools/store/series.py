@@ -58,7 +58,6 @@ from imgwtools.store.types import (
 )
 from imgwtools.store.writer import (
     _canonical,
-    _check_nested,
     _cleanup,
     _fsync_dir,
     _is_register,
@@ -67,7 +66,8 @@ from imgwtools.store.writer import (
     _validate_slot,
     _write_json,
     lenient_store,
-    nested_store_plan,
+    refuse_root,
+    root_conflict_plan,
     version_file,
 )
 
@@ -435,7 +435,7 @@ def check_series(
         If ``dataset`` is unknown or does not produce measurement series.
     """
     descriptor = _series_descriptor(dataset)
-    refused = nested_store_plan("series build", root)
+    refused = root_conflict_plan("series build", root)
     if refused is not None:
         return refused
     path = _root(root)
@@ -1001,20 +1001,21 @@ def build_series(
     Raises
     ------
     IMGWStoreError
-        If ``root`` is not a supported IMGW store or collides with a Kartograf
-        store or project.
+        If ``root`` is not a supported IMGW store (``store_unavailable``).
     IMGWValidationError
         If ``dataset`` is unknown or does not produce measurement series.
     IMGWStoreDependencyError
         If ``pyarrow>=15`` is not installed.
     IMGWStoreConflictError
-        If the version cannot be published atomically or its directory collides
-        with a different version.
+        If ``root`` nests a store (``details.reason`` ``nested_store``) or holds
+        other files and is no store (``not_empty``), the version cannot be
+        published atomically or its directory collides with a different
+        version.
     """
+    refuse_root(root)
     path = _root(root)
     descriptor = _series_descriptor(dataset)
     pa, pq = _pyarrow()
-    _check_nested(path)
 
     def cancelled() -> bool:
         return cancel is not None and cancel()

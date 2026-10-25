@@ -347,6 +347,27 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   now lists one action `conflict` with `reason="nested_store"`, the root as `path` and status
   `unverifiable`; the plan is `ok` (exit 0), like the plain plan for `output_in_store`, and nothing
   is requested. `PlanAction.reason` gains `nested_store`; a saved plan keeps the action.
+- **A root with other files, `--check` and the run (DEV-19.10, ADR-007 erratum):** the plan of
+  every store write listed a root that holds other files and is no store (or is a file) as
+  `check_failed`, or raised `store_unavailable`, while the run of `datasets download`, `store init`,
+  `store sync`, `series build`, `store catalog` and `pmaxtp sync` refused it with `conflict`
+  (`not_empty`; `store sync` and `series build` said `store_unavailable`). `not_empty` is a
+  `conflict` of the root like `nested_store` now: the plan lists one action `conflict` with
+  `reason="not_empty"` (`PlanAction.reason` gains it), the plan is `ok` and asks nothing, and
+  every run refuses the root with `conflict` before any request. These are not conflicts and the
+  plan raises them as errors, `datasets download --check` included (it turned them into a
+  `check_failed` action): a root with the layout and no marker is `store_unavailable`
+  (`no_marker`), and an unreadable marker (invalid JSON, no `schema`) is `data_error`
+  (`details.reason="invalid_marker"`; the writer said `store_unavailable`), in the plan and the
+  run; the reader keeps its `invalid_marker` problem code.
+- **A plain output directory in a store is refused by the directory (DEV-19.6, DEV-19.11, ADR-007
+  erratum):** the run of `datasets download`, `store sync` and `pmaxtp sync` listed every target of
+  an `output_dir` that is or lies in a store in `details.paths`, and `pmaxtp sync` without cell
+  indices asked for the cell first. The directory is checked before any request now:
+  `details.paths` is the output directory (`details.reason="output_in_store"`). A store found only
+  below the directory, in a subdirectory a target would enter, is still reported by the path of
+  each such target, and so is the file of an export (`output`); the `--check` plan keeps one
+  `conflict` action per target.
 - **`py.typed` (DEV-7.4):** the package declared `Typing :: Typed` but shipped no PEP 561 marker, so
   mypy treated `import imgwtools` in a consumer as untyped (`module is installed, but missing
   library stubs or py.typed marker`). `src/imgwtools/py.typed` is part of the wheel now; a test
@@ -404,11 +425,12 @@ while the file is written. `items[]` keep the per-unit outcomes (`DownloadItem`:
 |---|---|---|
 | `conflict` (4) | `output_exists` | a plain target exists and there is no `--force`; `details.paths` lists every such file |
 | `conflict` (4) | `duplicate_output_name` | two targets of one request have one name; `details.paths` |
-| `conflict` (4) | `output_in_store` | the directory or file is, lies in or would enter a store of IMGWTools or Kartograf; `details.paths` |
+| `conflict` (4) | `output_in_store` | the output directory is or lies in a store of IMGWTools or Kartograf (`details.paths` is the directory, before any request); a target that would enter a store below the directory, or the file of an export, is reported by its own path |
 | `conflict` (4) | `nested_store` | the root lies in, holds or nests a store of any tool |
-| `conflict` (4) | `not_empty` | `store init` in a directory with other files and no layout (was `path_conflict`) |
+| `conflict` (4) | `not_empty` | a store write or `store init` into a directory with other files and no layout (was `path_conflict`), or into a file |
 | `store_unavailable` (8) | `no_marker` | a root that has the layout and no marker; hint `imgw store init --root <path>` |
 | `data_error` (7) | `invalid_layout` | `store init` found a foreign or invalid file |
+| `data_error` (7) | `invalid_marker` | the marker of the root is unreadable (invalid JSON, no `schema`); it was `store_unavailable` in the writer |
 | `validation_error` (2) | `exclusive_options` | `output_dir` with `root` (`details.option` is `root`, `details.options` both) |
 | `validation_error` (2) | `store_only_option` | `plan` or `series` of `store sync`, or any `output_dir` of a project task, with `output_dir` |
 | `validation_error` (2) | `not_in_store` | a store download of a dataset that has no place in the store (hint `--output-dir`) |

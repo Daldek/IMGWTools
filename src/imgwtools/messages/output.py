@@ -16,13 +16,20 @@ MESSAGES = {
         "pierwsza: {first}); nadaj każdemu plikowi własną nazwę (details.paths je "
         "wymienia)",
     ),
+    "directory_in_store": Text(
+        "The output directory is, or lies in, a store ({directory}, store: {store}); "
+        "use --root to write the store, or choose a directory outside every store",
+        "Katalog wyjścia jest magazynem albo leży w magazynie ({directory}, magazyn: "
+        "{store}); użyj --root, aby zapisać magazyn, albo wybierz katalog poza "
+        "każdym magazynem",
+    ),
     "output_in_store": Text(
-        "The output is, or lies in, a store ({first}); use --root to write the store, "
-        "or choose a directory outside every store (details.paths lists the "
-        "targets)",
-        "Wyjście jest magazynem albo leży w magazynie ({first}); użyj --root, aby "
-        "zapisać magazyn, albo wybierz katalog poza każdym magazynem (details.paths "
-        "wymienia cele)",
+        "Targets would enter a store ({count} in conflict, the first: {first}); use "
+        "--root to write the store, or choose a directory with no store below it "
+        "(details.paths lists the targets)",
+        "Cele weszłyby do magazynu ({count} w konflikcie, pierwszy: {first}); użyj "
+        "--root, aby zapisać magazyn, albo wybierz katalog bez magazynu pod spodem "
+        "(details.paths wymienia cele)",
     ),
     "output_exists": Text(
         "Output files already exist ({count}, the first: {first}); use --force to "

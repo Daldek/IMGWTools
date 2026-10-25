@@ -2379,15 +2379,15 @@ def _check_download(options: Options, hooks: Hooks) -> StorePlan:
             ),
         )
     root = cast(Path, options["root"])
+    refused = _writer.root_conflict_plan("datasets download", root)
+    if refused is not None:
+        return refused
+    # A root with the layout and no marker (store_unavailable) is no conflict: it raises.
+    stored = (
+        _writer.lenient_store(root).root.is_dir() and (root / _STORE_MARKER).is_file()
+    )
     actions = []
     try:
-        refused = _writer.nested_store_plan("datasets download", root)
-        if refused is not None:
-            return refused
-        stored = (
-            _writer.lenient_store(root).root.is_dir()
-            and (root / _STORE_MARKER).is_file()
-        )
         for file in files:
             current = (
                 _store.current_version(root, slot=_fetch._archive_slot(file))
@@ -2503,7 +2503,7 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
 
 def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
     root = cast(Path, options["root"])
-    refused = _writer.nested_store_plan("store init", root)
+    refused = _writer.root_conflict_plan("store init", root)
     if refused is not None:
         return refused
     info = _store.store_info(root)
@@ -2539,7 +2539,7 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
         action = PlanAction(
             "store init",
             "check_failed",
-            "; ".join(info.problems) or message("commands.not_empty_store", root=root),
+            "; ".join(info.problems),
         )
     return _plan(root, [action])
 

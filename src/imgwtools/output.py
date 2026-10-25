@@ -8,12 +8,15 @@ steps of this module, written once:
 0. the write target is the directory ``output_dir`` (plain mode) or the store
    at ``root`` (store mode), never both, and the store at the default root
    when neither is given (`resolve_target`);
-1. the target list is built before the first byte and checked as a whole
+1. the directory itself is checked first, before any request: one that is
+   or lies in a store is a ``conflict`` with the reason ``output_in_store``
+   and the directory as the only path (`refuse_directory`); then the target
+   list is built before the first byte and checked as a whole
    (`plan_plain`): duplicate names are a ``conflict`` with the reason
-   ``duplicate_output_name``, an existing target without ``force`` one with
-   ``output_exists``, a directory that is or lies in a store one with
-   ``output_in_store``; the error lists every offending path
-   (`refuse`);
+   ``duplicate_output_name``, a target that would enter a subdirectory with
+   a store marker one with ``output_in_store`` (its path), an existing target
+   without ``force`` one with ``output_exists``; the error lists every
+   offending path (`refuse`);
 2. the files are written to a staging directory
    ``<dir>/.imgw-incoming/<host>_<pid>_<token>/`` on the same file system,
    hashed while they are written (`Staging.write`) and moved into place with
@@ -60,6 +63,7 @@ __all__ = [
     "Target",
     "plan_plain",
     "refuse",
+    "refuse_directory",
     "chunks_of",
     "resolve_target",
     "store_around",
@@ -366,6 +370,36 @@ def refuse(entries: Sequence[PlanEntry], *, single: bool = False) -> None:
         message(texts[first], count=len(paths), first=paths[0]),
         code="conflict",
         details={"reason": first, "paths": paths},
+    )
+
+
+def refuse_directory(directory: Path) -> None:
+    """
+    Refuse an output directory that is, or lies in, a store (DEV-19.6, DEV-19.11).
+
+    The directory alone says it, so the refusal needs no list of targets and
+    comes before any request; it applies to every target. A store found only
+    below the directory is not looked for here: `plan_plain` reports it for
+    the targets that would enter it.
+
+    Parameters
+    ----------
+    directory : pathlib.Path
+        Absolute output directory of a plain write (it need not exist).
+
+    Raises
+    ------
+    IMGWError
+        Code ``conflict``, ``details.reason`` ``output_in_store`` and
+        ``details.paths`` the output directory.
+    """
+    store = store_around(directory)
+    if store is None:
+        return
+    raise IMGWError(
+        message("output.directory_in_store", directory=directory, store=store),
+        code="conflict",
+        details={"reason": "output_in_store", "paths": [str(directory)]},
     )
 
 

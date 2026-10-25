@@ -166,10 +166,6 @@ MESSAGES = {
         "The IMGW store already exists: {root}",
         "Magazyn IMGW już istnieje: {root}",
     ),
-    "not_empty_store": Text(
-        "The directory {root} is not an empty IMGW store",
-        "Katalog {root} nie jest pustym magazynem IMGW",
-    ),
     "read_only_operation": Text(
         "Read-only operation: {root}",
         "Operacja tylko do odczytu: {root}",

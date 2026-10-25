@@ -43,7 +43,14 @@ from imgwtools.models import (
     SynopData,
     WarningData,
 )
-from imgwtools.output import FileResult, Staging, plan_plain, refuse, resolve_target
+from imgwtools.output import (
+    FileResult,
+    Staging,
+    plan_plain,
+    refuse,
+    refuse_directory,
+    resolve_target,
+)
 from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 if TYPE_CHECKING:
@@ -1167,18 +1174,22 @@ def _download_plain(
     """
     Write the archives as ordinary files below ``directory`` (DEV-19.5 to DEV-19.9).
 
-    The names are the server paths. The full target list is checked before the
-    first request (`plan_plain`, `refuse`); each file is streamed to the staging
+    The names are the server paths. The output directory is checked first
+    (`refuse_directory`), then the full target list, both before the first
+    request (`plan_plain`, `refuse`); each file is streamed to the staging
     directory, verified and moved into place with ``os.replace``.
 
     Raises
     ------
     IMGWError
-        ``conflict`` (``duplicate_output_name``, ``output_exists`` or
-        ``output_in_store``) before anything is requested or written.
+        ``conflict`` (``output_in_store`` with the directory as the path for a
+        directory that is or lies in a store; ``duplicate_output_name``,
+        ``output_in_store`` for a target that would enter a store below the
+        directory, ``output_exists``) before anything is requested or written.
     OSError
         If the output directory cannot be created.
     """
+    refuse_directory(directory)
     refuse(
         plan_plain(directory, [archive.server_path for archive in files], force=force)
     )
@@ -1358,12 +1369,15 @@ def download_archives(
         download names a dataset outside the store
         (``details["reason"]="not_in_store"``).
     IMGWError
-        ``conflict`` in plain mode before any request: an existing target
-        without ``force`` (``output_exists``), duplicate names
-        (``duplicate_output_name``) or an output in a store
-        (``output_in_store``); ``details["paths"]`` lists every path. In store
-        mode ``store_unavailable`` (a layout without a marker) or ``conflict``
-        (a nested store).
+        ``conflict`` in plain mode before any request: an output directory that
+        is or lies in a store (``output_in_store``, ``details["paths"]`` is the
+        directory), then an existing target without ``force``
+        (``output_exists``), duplicate names (``duplicate_output_name``) or a
+        target that would enter a store below the directory
+        (``output_in_store``); ``details["paths"]`` lists every such path. In
+        store mode ``store_unavailable`` (a layout without a marker) or
+        ``conflict`` (a nested store, ``nested_store``, or a root with other
+        files, ``not_empty``).
     OSError
         If the output directory cannot be created.
 
