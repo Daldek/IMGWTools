@@ -323,6 +323,15 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   library stubs or py.typed marker`). `src/imgwtools/py.typed` is part of the wheel now; a test
   checks the built wheel for it and type-checks a consumer snippet with strict mypy against the
   installed package, without `ignore_missing_imports`.
+- **A marker without `created_by` (DEV-19.12, ADR-007 erratum):** `store_info`, `iter_store` and
+  `current_version` refused a marker that lacks a `created_by` text (`invalid_marker`), although
+  `open_store` opened it and DEV-19.12 asks of a marker only `schema`, `tool`, `created_at` and
+  `producer_version`; a store the writer had completed (it adds those three fields, never
+  `created_by`) could not be read. The reader needs only `schema` now, exactly like `open_store`
+  (a test holds the two to the same markers); `created_by` stays in the marker `init_store` writes
+  but is an optional field in the packaged `imgw-store/1` schema, and the message
+  `reader.marker_has_no_valid_created` is gone. A reader only accepts more: the contract stays
+  `imgw-store/1`.
 
 ### Migration guide: data output (ADR-007, DEV §19)
 

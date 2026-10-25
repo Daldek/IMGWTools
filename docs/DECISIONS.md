@@ -423,3 +423,7 @@ An agent or a script writes without a flag (the default store), writes plain fil
 
 - Whether `store sync` in plain mode should offer a freshness check against the server (HEAD) before it replaces a file; it replaces on `--force` only, as DEV-19.9 says.
 - Whether `series build` of a plain-mode tree should exist (DEV-19.18 makes derived data from stored versions store-only).
+
+### Errata
+
+**2026-10-25 — D6 (what a reader needs of the marker).** D6 says the marker "keeps `created_by`"; it is a field the writer writes, not one a reader needs. DEV-19.12 asks of a marker at least `schema`, `tool`, `created_at` and `producer_version`, and `open_store` has always taken any marker whose `schema` is `imgw-store/1`, while `store_info`, `iter_store` and every reader behind `current_version` refused a marker without a `created_by` text (`invalid_marker`). A root the writer had opened and completed (`prepare_store` adds `tool`, `created_at` and `producer_version`, never `created_by`) therefore could not be read, which Archiwista found. The reader now needs only `schema`, as `open_store` does (one rule on both sides, held by a test over the markers each side takes or refuses); `created_by` stays in the marker `init_store` writes, the packaged `imgw-store/1` schema lists it as an optional field instead of a required one, and the marker never gains it afterwards. The message `reader.marker_has_no_valid_created` is removed. This only widens what a reader accepts, so the contract stays `imgw-store/1`.

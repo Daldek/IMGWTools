@@ -196,7 +196,7 @@ Results: `structuredContent` = envelope `imgw-result/1` (the CLI stdout bytes al
 
 ### Layout
 ```text
-<root>/imgw-store.json                                  # imgw-store/1 marker: schema, tool, created_at, producer_version (+ created_by); written by the first write
+<root>/imgw-store.json                                  # imgw-store/1 marker: schema, tool, created_at, producer_version (+ optional created_by); written by the first write
   archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
   archives/versions/<server dir>/<stem>/observations/  # imgw-observation/1 signal register (read-only for consumers)
   stations/versions/<label>_<sha8>/stations.geojson + .meta.json                 # IMGW-PIB catalog
@@ -246,7 +246,7 @@ Contracts with their own `/N` counters, independent of the package version:
 
 | Contract | File / use |
 |---|---|
-| `imgw-store/1` | `<root>/imgw-store.json` store marker (`schema`, `tool`, `created_at`, `producer_version`, `created_by`) |
+| `imgw-store/1` | `<root>/imgw-store.json` store marker (`schema`, `tool`, `created_at`, `producer_version`, optional `created_by`; a reader needs only `schema`) |
 | `imgw-meta/1` | `<file>.meta.json` sidecar of every version (optional `content_sha256` + `content_form`, always together) |
 | `imgw-series/1` | `series.json` index of a Parquet series (+ Parquet metadata) |
 | `imgw-plan/1` | `plan.json` freshness plan outside the store |

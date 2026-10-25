@@ -415,7 +415,7 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 ### Layout
 
 ```text
-<root>/imgw-store.json                                  # imgw-store/1 marker: schema, tool, created_at, producer_version, created_by
+<root>/imgw-store.json                                  # imgw-store/1 marker: schema, tool, created_at, producer_version (+ optional created_by)
   archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
   archives/versions/<server dir>/<stem>/observations/   # imgw-observation/1 signal register (ČHMÚ datasets with a content form)
   stations/versions/<label>_<sha8>/stations.geojson + .meta.json                # IMGW-PIB catalog
