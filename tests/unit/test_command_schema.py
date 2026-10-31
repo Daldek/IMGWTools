@@ -175,18 +175,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
 def test_rest_routes_cover_exactly_the_non_local_commands():
     commands = command_schema()["commands"]
     local = [schema["title"] for schema in commands if schema["x-imgw"]["rest"] is None]
-    assert local == [
-        "datasets download",
-        "store init",
-        "project init",
-        "project add",
-        "project remove",
-        "project set-store",
-        "project download",
-        "project check",
-        "project status",
-        "project verify",
-    ]
+    assert local == ["datasets download", "store init"]
     posts = [
         schema["title"]
         for schema in commands

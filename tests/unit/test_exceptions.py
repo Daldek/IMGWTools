@@ -17,7 +17,6 @@ from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
     IMGWError,
-    IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWStoreError,
@@ -65,7 +64,6 @@ DEFAULT_CODES = [
     (IMGWStoreError, "store_unavailable"),
     (IMGWStoreConflictError, "conflict"),
     (IMGWStoreDependencyError, "missing_dependency"),
-    (IMGWProjectError, "validation_error"),
     (IMGWCancelledError, "cancelled"),
 ]
 

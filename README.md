@@ -14,7 +14,7 @@ Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAX
 - **Serwer MCP** - `imgw mcp` (dodatek `imgwtools[mcp]`) i punkt `/mcp` serwera REST: komendy katalogu jako narzędzia dla agentów AI, domyślnie bez zapisu
 - **Web GUI** - formularze pobierania, wyszukiwarka stacji i mapa interaktywna (dane IMGW-PIB)
 
-Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 38 komend (`imgw commands list`, `imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Wynik maszynowy (koperta, błędy, powiadomienia, opisy katalogu, przewodnik dla agentów AI, serwer MCP) jest po angielsku; polskie teksty dostaje się na prośbę (`--lang pl`, `Accept-Language: pl`), a pomoc i linie CLI dla człowieka są po polsku (`IMGW_LANG=en` przełącza je na angielski). Przewodnik dla agentów AI: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) i [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt).
+Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 30 komend (`imgw commands list`, `imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Wynik maszynowy (koperta, błędy, powiadomienia, opisy katalogu, przewodnik dla agentów AI, serwer MCP) jest po angielsku; polskie teksty dostaje się na prośbę (`--lang pl`, `Accept-Language: pl`), a pomoc i linie CLI dla człowieka są po polsku (`IMGW_LANG=en` przełącza je na angielski). Przewodnik dla agentów AI: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) i [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt).
 
 **Obsługiwane dane:**
 - Aktualne dane hydrologiczne, meteorologiczne i synoptyczne przez API IMGW
@@ -128,7 +128,7 @@ Domyślnie bez zapisu (komendy zapisujące zwracają plan); zapis włącza `--al
 
 Agent (asystent w edytorze, aplikacja czatu, skrypt z modelem językowym) poznaje IMGWTools z jednego źródła zgodnego z kodem:
 
-- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) — przewodnik: zasada „sprawdź → uruchom → przeczytaj”, odwzorowanie Python/CLI/REST/MCP, koperta i statusy, kody błędów, zbiory obu dostawców z regułami opcji, tabele komend ze skutkami, typowe przepływy (m.in. „opady dobowe ze stacji Poznań”, stacja ČHMÚ, projekt) i lista „czego nie robić”;
+- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) — przewodnik: zasada „sprawdź → uruchom → przeczytaj”, odwzorowanie Python/CLI/REST/MCP, koperta i statusy, kody błędów, zbiory obu dostawców z regułami opcji, tabele komend ze skutkami, typowe przepływy (m.in. „opady dobowe ze stacji Poznań”, stacja ČHMÚ) i lista „czego nie robić”;
 - [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt) — skrót według llms.txt v2 z odnośnikami do dokumentacji; ten sam plik serwuje `GET /llms.txt`;
 - `imgw commands guide [--format agents|llms] [--lang en|pl] [--output PLIK] [--force]` albo `agent_guide()` w Pythonie — oba pliki wygenerowane na bieżąco (domyślnie po angielsku, `--lang pl` daje polski); `GET /api/v1/commands/guide`.
 
@@ -195,7 +195,7 @@ Pozostałe dokumenty:
 - [`docs/CODEBASE.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/CODEBASE.md) - Referencja kodu i modułów (publiczne API, katalog komend, formaty danych; [struktura projektu](https://github.com/Daldek/IMGWTools/blob/master/docs/CODEBASE.md#struktura-projektu-z-readme))
 - [`docs/TESTING.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/TESTING.md) - Testy: układ, znaczniki, uruchamianie ([instrukcje testów z README](https://github.com/Daldek/IMGWTools/blob/master/docs/TESTING.md#testy-z-readme))
 - [`docs/CHANGELOG.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/CHANGELOG.md) - Historia zmian (w tym BREAKING 3.0.0)
-- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/DECISIONS.md) - Rejestr decyzji (ADR-001: magazyn wersjonowany, ADR-002: jeden katalog komend, ADR-003: dostawca ČHMÚ, ADR-004: wsparcie agentów AI, ADR-005: środowisko użytkownika, ADR-006: katalog komunikatów, ADR-007: zapis danych)
+- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/DECISIONS.md) - Rejestr decyzji (ADR-001: magazyn wersjonowany, ADR-002: jeden katalog komend, ADR-003: dostawca ČHMÚ, ADR-004: wsparcie agentów AI, ADR-005: środowisko użytkownika, ADR-006: katalog komunikatów, ADR-007: zapis danych, ADR-008: projekty przeniesione do Archiwisty)
 - [`docs/ARCHITECTURE.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/ARCHITECTURE.md) - Architektura systemu
 - [`docs/PRD.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/PRD.md) - Wymagania produktu
 - [`docs/PROGRESS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/PROGRESS.md) - Stan bieżący, kolejne kroki, pytania otwarte

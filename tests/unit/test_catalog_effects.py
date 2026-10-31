@@ -17,7 +17,7 @@ from typing import Any, cast
 import pytest
 import respx
 
-from imgwtools import init_project, init_store, run_command, sync_pmaxtp
+from imgwtools import init_store, run_command, sync_pmaxtp
 from imgwtools.commands import command_schema, data_commands
 from imgwtools.testing import build_fixture_store
 from tests.contract.support import H2024, NEW, V3, FakeImgw, snapshot, stamps
@@ -55,14 +55,6 @@ EFFECTS = {
     "series read": ("none", False, {}),
     "series summary": ("none", False, {}),
     "series export": ("none", False, {"output": "add", "force": "replace"}),
-    "project init": ("add", False, {}),
-    "project add": ("add", False, {}),
-    "project remove": ("replace", False, {}),
-    "project set-store": ("replace", False, {}),
-    "project download": ("replace", True, {}),
-    "project check": ("none", True, {"plan": "replace"}),
-    "project status": ("none", False, {}),
-    "project verify": ("none", False, {}),
     "commands list": ("none", False, {}),
     "commands schema": ("none", False, {}),
     "commands guide": ("none", False, {"output": "add", "force": "replace"}),
@@ -70,7 +62,6 @@ EFFECTS = {
 # Writing options of local commands (without a contract case); the plain ones are
 # held by tests/unit/test_plain_output.py.
 LOCAL_WRITES = {
-    ("project check", "plan"),
     ("datasets download", "output_dir"),
     ("datasets download", "force"),
     ("store sync", "output_dir"),
@@ -190,7 +181,7 @@ def test_every_write_can_be_planned_by_a_check_twin():
             assert spec.check is not None, spec.name
         for option in spec.options:
             if option.writes != "none":
-                # A check itself (store check, project check) plans by running.
+                # A check itself (store check) plans by running.
                 is_check = spec.function.startswith("check_")
                 assert spec.check is not None or is_check, (spec.name, option.name)
 
@@ -267,20 +258,3 @@ def test_a_writing_option_writes_its_file(
 
     assert target.is_file()
     assert target.read_text(encoding="utf-8") != "stara treść\n"
-
-
-@pytest.mark.parametrize("existing", [False, True], ids=["new", "existing"])
-def test_project_check_writes_its_plan_file(existing, tmp_path, workdir):
-    project = init_project(tmp_path / "projekt", store_dir="../magazyn").path
-    target = tmp_path / "plan.json"
-    if existing:
-        target.write_text("{}\n", encoding="utf-8")
-    with respx.mock(assert_all_called=False) as router:
-        anything = router.route().respond(503)
-        outcome = run_command(
-            "project check", options={"project_dir": project, "plan": target}
-        )
-
-    assert outcome.status == "ok"
-    assert target.read_text(encoding="utf-8") != "{}\n"
-    assert anything.call_count == 0  # a project without tasks asks no source

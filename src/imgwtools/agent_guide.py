@@ -23,7 +23,6 @@ lines of the server mode.
 
 import os
 import re
-import shlex
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
@@ -115,22 +114,14 @@ class _Symbol:
     Value found by an earlier step of a flow.
 
     The guide prints the name of the symbol in its language; `format_command`
-    validates the command with ``stand_in`` (an absolute path for ``path``
-    symbols) in its place.
+    validates the command with ``stand_in`` in its place.
     """
 
     key: str  # message of its name in imgwtools.messages.agent_guide
     stand_in: str
-    path: bool = False
 
     def name(self, lang: Lang) -> str:
         return message(self.key, lang=lang)
-
-    def rendered(self) -> str:
-        """Text of the stand-in in a line of `format_command`."""
-        if not self.path:
-            return self.stand_in
-        return shlex.quote(os.fspath(Path(self.stand_in).absolute()))
 
 
 @dataclass(frozen=True)
@@ -153,8 +144,7 @@ class _Flow:
 
 _STATION = _Symbol("agent_guide.symbol_station_code", "123456789")
 _WIGOS = _Symbol("agent_guide.symbol_wigos_id", "0-203-1-900001")
-_PROJECT = _Symbol("agent_guide.symbol_project", "/PROJECT", path=True)
-_SYMBOLS = (_STATION, _WIGOS, _PROJECT)
+_SYMBOLS = (_STATION, _WIGOS)
 _STORE = "/data/imgw"
 _PRECIP = "pl.imgw.meteo_precip_daily"
 _CHMI_HYDRO = "cz.chmi.hydro_daily"
@@ -217,46 +207,6 @@ _FLOWS: tuple[_Flow, ...] = (
                     "limit": 500,
                 },
                 "agent_guide.flow_next_pages",
-            ),
-        ),
-    ),
-    _Flow(
-        "agent_guide.flow_project_title",
-        (
-            _Step(
-                "project init",
-                {"project_dir": _PROJECT, "store_dir": "../store"},
-                "agent_guide.flow_project_init",
-            ),
-            _Step(
-                "project add",
-                {
-                    "project_dir": _PROJECT,
-                    "name": "precipitation",
-                    "command": "series select",
-                    "options": {
-                        "dataset": _PRECIP,
-                        "stations": [_STATION],
-                        "years": "2010-2020",
-                    },
-                },
-                "agent_guide.flow_project_add_task",
-            ),
-            _Step(
-                "project download",
-                {"project_dir": _PROJECT},
-                "agent_guide.flow_project_plan",
-                check=True,
-            ),
-            _Step(
-                "project download",
-                {"project_dir": _PROJECT},
-                "agent_guide.flow_project_download",
-            ),
-            _Step(
-                "project verify",
-                {"project_dir": _PROJECT},
-                "agent_guide.flow_project_verify",
             ),
         ),
     ),
@@ -526,7 +476,7 @@ def _command_line(step: _Step, lang: Lang) -> str:
     line = format_command(cast(str, step.command), options=options, run=run)
     line = _YEAR_RUN.sub(_year_range, line)
     for symbol in _SYMBOLS:
-        line = line.replace(symbol.rendered(), symbol.name(lang))
+        line = line.replace(symbol.stand_in, symbol.name(lang))
     return line
 
 

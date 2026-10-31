@@ -14,7 +14,7 @@ Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep
 ## Rules: check → run → read
 
 1. **Learn the commands:** `imgw commands list` (a one-sentence summary of each), then `imgw commands schema --command …` or `imgw <group> <command> --schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `imgw_commands_list` and `imgw_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-imgw.rules`, effects in `x-imgw.writes`, `x-imgw.network` and `x-imgw.idempotent`.
-2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `imgw-plan/1` plan without writing and without downloading content. `store check` and `project check` are checks themselves. Ask the user about a large plan.
+2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `imgw-plan/1` plan without writing and without downloading content. `store check` is a check itself. Ask the user about a large plan.
 3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
 4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — without downloading again.
 5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `detail` text is for humans.
@@ -86,12 +86,10 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 - `store info` — Show the state of an IMGW store and the supported contracts (offline, without writing).
 - `store scan` — List the versions and problems of an IMGW store (offline, without writing).
 - `store export` — Export the records of one archive version as CSV or JSONL (offline, SHA-256 verified). [`output`: write; `force`: overwrite]
-- `series select` — Select stations, variables and years of the current series (without writing; an input of a project).
+- `series select` — Select stations, variables and years of the current series (without writing).
 - `series read` — Read the values and flags of one station's series from the store.
 - `series summary` — Show the coverage of stations and variables of a series from series.json (without pyarrow).
 - `series export` — Export the series of one station as CSV with the attribution of the data provider. [`output`: write; `force`: overwrite]
-- `project status` — Show the state of the pinned files of the project tasks (offline). [local]
-- `project verify` — Verify the SHA-256 sums of the pinned files of a project (offline). [local]
 - `commands list` — List the catalog commands: tool names, effects and routes.
 - `commands schema` — Show the JSON Schema of the options of a command or the whole imgw-commands/1 command catalog.
 - `commands guide` — Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. [`output`: write; `force`: overwrite]
@@ -106,7 +104,6 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 - `current hydro-states` — Fetch the water states of hydrological stations with coordinates (hydro.imgw.pl map).
 - `pmaxtp fetch` — Fetch the PMAXTP maximum precipitation of a point (live, without saving).
 - `store check` — Check the freshness of the dataset archives without downloading data. [`plan`: overwrite; is a check]
-- `project check` — Check the freshness of the data of the project tasks without writing to the store. [`plan`: overwrite; is a check; local]
 
 **Write — new files, versions or tasks; `--check` first**
 
@@ -116,24 +113,20 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 - `store sync` — Download new or missing archives into the store, by plan or by datasets and stations. [`output_dir`: write; `force`: overwrite]
 - `store catalog` — Build the versioned station catalog stations.geojson of one provider.
 - `series build` — Build the Parquet series of a dataset from the current archive versions of the store.
-- `project init` — Create the imgw-project.json manifest of a project pointing to a store. [local]
-- `project add` — Add a task to the project manifest. [local]
 
 **Overwrite — may replace an existing file or manifest; `--check` first**
 
-- `project remove` — Remove a task from the project manifest. [local]
-- `project set-store` — Point the project to a new store directory after verifying the pinned files. [local]
-- `project download` — Download and pin the data of the project tasks. [local]
+
 
 ## Flags and values
 
-- Lists (`--datasets`, `--months`, `--params`, `--stations`, `--tasks`, `--variables`, `--years`): comma-separated values (`--months 1,2`) or a repeated flag (`-s A -s B`). Years (`--years`): `2024`, `2020-2023`, `2020,2022` or `2018,2020-2023`. Dates (`--end`, `--start`): ISO `YYYY-MM-DD`.
+- Lists (`--datasets`, `--months`, `--params`, `--stations`, `--variables`, `--years`): comma-separated values (`--months 1,2`) or a repeated flag (`-s A -s B`). Years (`--years`): `2024`, `2020-2023`, `2020,2022` or `2018,2020-2023`. Dates (`--end`, `--start`): ISO `YYYY-MM-DD`.
 - Switches on by default: `--series/--no-series` (`--no-…` turns it off); the other boolean flags (`--force`, `--main-only`) take no value and turn their option on.
 - Environment: `IMGW_ROOT` — the default `--root`, else `<data_dir>/imgw` (CLI, MCP stdio; `stations find` — only with `source=store`); `IMGW_LANG` — the language of the CLI help and of the progress lines (`pl`, `en`).
 
 ## Typical flows
 
-Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`, `PROJECT`) with the values of earlier steps.
+Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`) with the values of earlier steps.
 
 ### 1. Daily precipitation at the Poznań station, 2010–2020
 
@@ -151,19 +144,11 @@ Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`, `PROJECT`) with the 
 3. `imgw store sync --root /data/imgw --datasets cz.chmi.hydro_daily --years 2020-2025 --stations WIGOS_ID` — after the user agrees.
 4. `imgw series read --root /data/imgw --dataset cz.chmi.hydro_daily --station WIGOS_ID --variables Q --limit 500` — next pages: `--offset`.
 
-### 3. Reproducible project
-
-1. `imgw project init --project-dir PROJECT --store-dir ../store` — the `imgw-project.json` manifest; `store_dir` relative to the project directory.
-2. `imgw project add --project-dir PROJECT --name precipitation --command 'series select' --options '{"dataset":"pl.imgw.meteo_precip_daily","stations":["STATION_CODE"],"years":"2010-2020"}'` — the task keeps the command and its options (without `root`).
-3. `imgw project download --project-dir PROJECT --check` — the plan…
-4. `imgw project download --project-dir PROJECT` — …then the files are downloaded and pinned (SHA-256) after the user agrees.
-5. `imgw project verify --project-dir PROJECT` — the SHA-256 sums of the pinned files (offline).
-
 ## What not to do
 
 1. Do not build or crawl IMGW-PIB and ČHMÚ server URLs by hand — use `datasets files`, `datasets download`, `store sync`.
 2. Exit codes 10 and 11 are not program failures — read the envelope (`items[].status`, `error_code`).
-3. Do not run writes (`store sync`, `series build`, `datasets download`, `project download`) without a plan and the user's consent.
+3. Do not run writes (`store sync`, `series build`, `datasets download`) without a plan and the user's consent.
 4. Do not guess a station or a dataset: with several `stations find` hits, ask; check with `series summary` that a dataset has the station.
 5. Do not edit, move or delete store files (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — the store only grows.
 6. Do not download "just in case": narrow `years`, `months` and `stations`; do not mix providers in one call with `stations`.

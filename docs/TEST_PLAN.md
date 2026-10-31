@@ -126,7 +126,7 @@ Cel: **>= 80% TOTAL** z `--cov=imgwtools`. Poniżej realistyczne cele per moduł
 oraz wariant pesymistyczny.
 
 > Arytmetyka poniżej dotyczy stanu 2.2.0 (2586 instrukcji). Wiersze `db/*` i `cli/db.py` nie istnieją od 3.0.0; moduły
-> magazynu (`store/*`, `commands.py`, `project.py`, `datasets.py`, `_parsing/*`) mają własne testy z sekcji 4.9, a próg
+> magazynu (`store/*`, `commands.py`, `datasets.py`, `_parsing/*`) mają własne testy z sekcji 4.9, a próg
 > 80% mierzy się na bieżącym kodzie (`pytest --cov=imgwtools`).
 
 | Moduł | Stmts | Pokryte dziś | Cel (stmts) | Cel % | Uwagi / koszt |
@@ -367,11 +367,11 @@ Testy publiczne nie mogą wymagać importu Kartografa ani sieci.
 | `test_series_export.py` | CSV: nagłówek z jednostkami, formuły atrybucji raz, każdy dzień, `year_type`, kolumny półrocza, atomowy zapis `.part` |
 | `test_datasets.py`, `test_coverage.py` | rejestr `pl.imgw.*` i `archive_files` (granice 2000/2001, 2022/2023, 29 II), pokrycie per stacja × zmienna |
 | `test_store_fixtures.py`, `test_fixture_builder.py` | stałe nagrania i archiwa, `build_fixture_store` (warianty, determinizm przy zamrożonym zegarze, brak przecieku danych referencyjnych) |
-| `test_commands.py`, `test_project.py` | katalog komend (walidacja offline, `format_command` round-trip, `check_command` bez zapisu, jedno publiczne API na działanie), `imgw-project/1` (ścisła walidacja, przypięcia, lock, `set-store`) |
+| `test_commands.py` | katalog komend (walidacja offline, `format_command` round-trip, `check_command` bez zapisu, jedno publiczne API na działanie); `test_project.py` (manifest projektu) usunięto z projektami (ADR-008) |
 | `test_public_store_api.py` | jedna lista `__all__`, te same obiekty w `imgwtools.store`, frozen dataclasses, keyword-only, import bez pyarrow i bez `imgwtools.db` |
 
-Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_store.py`, `test_cli_api_parity.py`, `test_project_contract.py`
-– pełna ścieżka HEAD→plan→sync→series→catalog→CSV→projekt→verify/restore, JSON Schemas §11 i parytet ścieżek/SHA CLI = API.
+Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_store.py`, `test_cli_api_parity.py`
+– pełna ścieżka HEAD→plan→sync→series→catalog→CSV, JSON Schemas §11 i parytet ścieżek/SHA CLI = API; `test_project_contract.py` (projekt→verify/restore) usunięto z projektami (ADR-008).
 
 ### 4.14 `tests/unit/test_api_system.py` (nowy; `api_client`)
 
@@ -438,7 +438,7 @@ Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_sto
 
 - `test_all_help_screens_exit_0` – parametrize: `--help`, `version --help`, `server --help`, `fetch --help`, `fetch hydro --help`, `fetch meteo --help`,
   `fetch current --help`, `fetch pmaxtp --help`, `fetch warnings --help`, `list --help`, `list stations --help`, `list datasets --help`, `list intervals --help`,
-  `admin --help`, `admin keys/create/revoke/delete/stats --help`. Grupy `store`, `series`, `pmaxtp`, `project` (help = opisy katalogu komend)
+  `admin --help`, `admin keys/create/revoke/delete/stats --help`. Grupy `store`, `series`, `pmaxtp` (help = opisy katalogu komend)
   pokrywa już `test_cli_store_project.py::test_help_texts_and_flags_are_the_catalog`. [pułapka 7; Typer wiring]
 - `test_version_prints_package_version` – `__version__` w output, nie `1.0.0`. [regresja]
 - `test_server_command_delegates_to_uvicorn` – `monkeypatch.setattr("uvicorn.run", fake)`; asercja argumentów (host/port/reload). Pokrywa linie bez startu serwera.
@@ -477,8 +477,8 @@ i nie blokuje ponowienia), ponowne pobranie nadpisuje zamiast „pomijam”, bł
 
 ### 4.24 CLI magazynu (`tests/unit/test_cli_store_project.py`; zastępuje dawny `test_cli_db.py`; testy istnieją)
 
-- rejestracja każdej komendy `store`/`series`/`pmaxtp`/`project`, help i flagi z katalogu, te same opcje do dispatchera;
-- `store init`, `series build`, `store check --plan` + `store sync`, `pmaxtp sync`, `series export`, komendy `project` dają te same ścieżki
+- rejestracja każdej komendy `store`/`series`/`pmaxtp`, help i flagi z katalogu, te same opcje do dispatchera;
+- `store init`, `series build`, `store check --plan` + `store sync`, `pmaxtp sync`, `series export` dają te same ścieżki
   i SHA co Python API (stały zegar);
 - `--check` używa `check_command` i nic nie zapisuje; plan wewnątrz magazynu odrzucony po polsku; błędne opcje po polsku;
 - Ctrl+C zgłasza anulowanie i raport częściowy, drugi Ctrl+C przerywa natychmiast.

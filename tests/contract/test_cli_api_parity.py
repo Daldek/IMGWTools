@@ -1,14 +1,14 @@
 """Contract: ``imgw`` prints the envelope ``run_command`` returns for every step.
 
-A scenario of a store and a project (spec §13.3: store, series, PMAXTP, flat
-download and project commands) runs twice on identical fresh inputs in the same
-directory, at a frozen clock and against the same recorded IMGW: through
-``run_command`` and through the ``imgw`` CLI. Every printed line is the
-``imgw-result/1`` envelope ``CommandResult.to_json(root)`` of the same step, the
-exit code follows its status (§13.6), trees and HTTP traffic are identical, and
-every slot of a result names a version ``current_version`` finds (§13.7). The
-installed ``imgw`` executable reads offline in its own process like the Python
-API, and two processes building one series publish it once.
+A scenario of a store (spec §13.3: store, series, PMAXTP and flat download
+commands) runs twice on identical fresh inputs in the same directory, at a
+frozen clock and against the same recorded IMGW: through ``run_command`` and
+through the ``imgw`` CLI. Every printed line is the ``imgw-result/1`` envelope
+``CommandResult.to_json(root)`` of the same step, the exit code follows its
+status (§13.6), trees and HTTP traffic are identical, and every slot of a result
+names a version ``current_version`` finds (§13.7). The installed ``imgw``
+executable reads offline in its own process like the Python API, and two
+processes building one series publish it once.
 """
 
 import json
@@ -19,11 +19,8 @@ from typing import Any
 
 from imgwtools import (
     ERROR_CODES,
-    add_project_task,
     command_schema,
     current_version,
-    download_project,
-    init_project,
     run_command,
 )
 from imgwtools.testing import build_fixture_store
@@ -47,16 +44,14 @@ from tests.contract.support import (
     slots,
     snapshot,
     stamps,
-    version_slot,
 )
 
 EXIT_CODES = command_schema()["exit_codes"]
-TASK = {"dataset": DAILY, "stations": [RABA], "years": [2024]}
 
 
 def scenario(work: Path, imgw, run) -> list[dict[str, Any]]:
-    """Store, series, PMAXTP, download and project steps; ``run`` gives envelopes."""
-    store, project = work / "store", work / "project"
+    """Store, series, PMAXTP and download steps; ``run`` gives envelopes."""
+    store = work / "store"
     selection = {"root": store, "datasets": [DAILY], "years": [2024]}
     steps = [run("store init", {"root": store})]
     imgw.publish(H2024, V1, OLD)
@@ -91,14 +86,6 @@ def scenario(work: Path, imgw, run) -> list[dict[str, Any]]:
             "datasets download", {"dataset": DAILY, "years": [2024], "output_dir": work}
         )
     )
-    folder = {"project_dir": project}
-    steps.append(run("project init", {**folder, "store_dir": store}))
-    task = {"name": "raba", "command": "series select", "options": TASK}
-    steps.append(run("project add", {**folder, **task}))
-    steps.append(run("project check", folder))
-    steps.append(run("project download", folder))
-    steps.append(run("project status", folder))
-    steps.append(run("project verify", folder))
     return steps
 
 
@@ -133,8 +120,7 @@ def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
     for step in returned:
         assert envelope_errors(step) == [], step["command"]
         for slot in slots(step["result"]):
-            wanted = version_slot(slot)
-            assert current_version(work / "store", slot=wanted).slot == wanted
+            assert current_version(work / "store", slot=slot).slot == slot
 
     def statuses(step):
         return [item["status"] for item in step["result"]["items"]]
@@ -167,10 +153,6 @@ def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
         returned[11]["result"]["items"][0]["slot"]
         == f"archive:{DAILY}:2024/codz_2024.zip"
     )
-    assert [a["status"] for a in returned[14]["result"]["actions"]] == ["missing"]
-    assert [step["result"]["tasks"] for step in returned[15:]] == [
-        {"raba": "current"}
-    ] * 3
     # 4 archive versions (2 × codz_2024, 2 station lists), 2 series, catalog, cell
     assert sum(path.endswith(".meta.json") for path in tree) == 8
 
@@ -181,11 +163,6 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
     corrupt = build_fixture_store(tmp_path / "corrupt", variant="corrupt").root
     root = tmp_path / "store"
     shutil.copytree(fixture_root, root)
-    project = tmp_path / "project"
-    imgw.publish(H2024, V3, NEW)
-    init_project(project, store_dir=root)
-    add_project_task(project, name="raba", command="series select", options=TASK)
-    assert download_project(project).tasks == {"raba": "current"}
     target = tmp_path / "raba.csv"
     before = stamps(root)
 
@@ -197,7 +174,6 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
             "series export",
             {"root": root, "dataset": DAILY, "station": RABA, "output": target},
         ),
-        ("project verify", {"project_dir": project}),
     ):
         printed = run_imgw(*cli_words(command, options))
         exported = target.read_bytes() if target.exists() else None

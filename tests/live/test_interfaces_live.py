@@ -73,11 +73,8 @@ from imgwtools import (
     ErrorCode,
     IMGWError,
     __version__,
-    add_project_task,
     build_catalog,
     current_version,
-    download_project,
-    init_project,
     init_store,
     run_command,
     sync_pmaxtp,
@@ -96,7 +93,6 @@ from tests.contract.support import (
     slots,
     snapshot,
     unversioned,
-    version_slot,
 )
 
 pytestmark = pytest.mark.live
@@ -136,11 +132,6 @@ WRITES = {
     "store sync",
     "store catalog",
     "series build",
-    "project init",
-    "project add",
-    "project remove",
-    "project set-store",
-    "project download",
 }
 
 DAILY = "pl.imgw.hydro_daily"
@@ -154,13 +145,11 @@ SYNOP = "12375"  # WARSZAWA-OKĘCIE
 LATITUDE, LONGITUDE = 50.06, 19.94  # Kraków
 ARCHIVE_SLOT = f"archive:{DAILY}:{YEAR}/codz_{YEAR}_{MONTH:02d}.zip"
 SERIES_SLOT = f"series:{DAILY}"
-PROJECT_DIR = "projekt"
 # Store snapshots built from IMGW by the session (Case.store).
-SEEDS = ("empty", "synced", "full", "pinned")
+SEEDS = ("empty", "synced", "full")
 # Placeholders resolved after seeding: a working-directory path, the store root,
 # versions relative to the root and the indices of the stored PMAXTP cell.
 WORK = "<work>/"
-PROJECT = WORK + PROJECT_DIR
 ROOT, ARCHIVE, SERIES, CELL_X, CELL_Y = (
     "<root>",
     "<archive>",
@@ -181,16 +170,14 @@ class Case:
     ``store``: snapshot restored as the store root before every interface —
     ``"empty"``, ``"synced"`` (one hydro archive and its series), ``"full"``
     (plus the station catalog, a PMAXTP cell and a meteo archive without
-    series), ``"pinned"`` (after the project download), ``"absent"`` (no
-    directory) or ``"plain"`` (a directory that is no store); ``None`` = no
-    root. ``project``: snapshot of the project directory. ``clean``: entries of
-    the working directory removed before every interface. ``live``: current
-    data, compared by structure.
+    series), ``"absent"`` (no directory) or ``"plain"`` (a directory that is
+    no store); ``None`` = no root. ``clean``: entries of the working directory
+    removed before every interface. ``live``: current data, compared by
+    structure.
     """
 
     options: dict[str, object]
     store: str | None = None
-    project: str | None = None
     clean: tuple[str, ...] = ()
     live: bool = False
 
@@ -325,36 +312,6 @@ CASES: dict[str, list[Case]] = {
             "full",
         )
     ],
-    "project init": [
-        Case({"project_dir": PROJECT, "store_dir": ROOT}, "full", clean=(PROJECT_DIR,))
-    ],
-    "project add": [
-        Case(
-            {
-                "project_dir": PROJECT,
-                "name": "komorka",
-                "command": "pmaxtp read",
-                "options": {"ind_x": CELL_X, "ind_y": CELL_Y},
-            },
-            "full",
-            "p_init",
-        )
-    ],
-    "project remove": [
-        Case({"project_dir": PROJECT, "name": "komorka"}, "full", "p_tasks")
-    ],
-    "project set-store": [
-        Case(
-            {"project_dir": PROJECT, "store_dir": WORK + "nowy-magazyn"},
-            "pinned",
-            "p_done",
-            clean=("nowy-magazyn",),
-        )
-    ],
-    "project download": [Case({"project_dir": PROJECT}, "full", "p_tasks")],
-    "project check": [Case({"project_dir": PROJECT}, "full", "p_tasks")],
-    "project status": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
-    "project verify": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
     "commands list": [Case({}), Case({"lang": "en"})],
     "commands schema": [Case({"command": "store sync"})],
     "commands guide": [Case({}), Case({"format": "llms", "lang": "en"})],
@@ -634,8 +591,8 @@ class Live:
         shutil.copytree(source, self.seeds / name, symlinks=True)
 
     def seed(self) -> None:
-        """Snapshots of the store and of the project, built once from IMGW."""
-        root, project = self.root, self.work / PROJECT_DIR
+        """Snapshots of the store, built once from IMGW."""
+        root = self.root
         with self.local():
             init_store(root)
             self.save("empty", root)
@@ -665,25 +622,6 @@ class Live:
                 CELL_X: cell.ind_x,
                 CELL_Y: cell.ind_y,
             }
-            init_project(project, store_dir=root)
-            self.save("p_init", project)
-            add_project_task(
-                project,
-                name="dobowe",
-                command="store sync",
-                options={"datasets": [DAILY], "years": str(YEAR), "months": [MONTH]},
-            )
-            add_project_task(
-                project,
-                name="komorka",
-                command="pmaxtp read",
-                options={"ind_x": cell.ind_x, "ind_y": cell.ind_y},
-            )
-            self.save("p_tasks", project)
-            pinned = _patiently(lambda: download_project(project))
-            assert set(pinned.tasks.values()) == {"current"}, pinned
-            self.save("p_done", project)
-            self.save("pinned", root)
 
     def resolve(self, value: object) -> object:
         if isinstance(value, str):
@@ -699,15 +637,10 @@ class Live:
         return value
 
     def restore(self, case: Case | Failure) -> None:
-        """Bring the store, project and cleaned directories to the case's start."""
-        project = case.project if isinstance(case, Case) else None
+        """Bring the store and cleaned directories to the case's start."""
         clean = case.clean if isinstance(case, Case) else ()
-        for name in (*clean, PROJECT_DIR):
+        for name in clean:
             _remove(self.work / name)
-        if project is not None:
-            shutil.copytree(
-                self.seeds / project, self.work / PROJECT_DIR, symlinks=True
-            )
         if case.store is None:
             return
         _remove(self.root)
@@ -721,8 +654,6 @@ class Live:
         places = {name: self.work / name for name in case.clean}
         if case.store is not None:
             places["magazyn"] = self.root
-        if case.project is not None:
-            places[PROJECT_DIR] = self.work / PROJECT_DIR
         return {name: snapshot(path) for name, path in places.items() if path.exists()}
 
     # --- interfaces -------------------------------------------------------------
@@ -926,13 +857,12 @@ class Live:
         missing = []
         document = answer.envelope.to_json(root=root)
         for slot in sorted(set(slots(document)) - set(unversioned(document))):
-            wanted = version_slot(slot)
             try:
-                entry = current_version(self.root, slot=wanted)
+                entry = current_version(self.root, slot=slot)
             except IMGWError as exc:
                 missing.append(f"slot {slot}: {exc.code}")
             else:
-                if entry is None or entry.slot != wanted:
+                if entry is None or entry.slot != slot:
                     missing.append(f"slot {slot}: brak bieżącej wersji")
         return missing
 

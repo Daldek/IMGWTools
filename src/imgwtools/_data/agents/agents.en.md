@@ -58,7 +58,7 @@ One line per command, by effect; options, rules and per-option effects: `imgw co
 
 ## Typical flows
 
-Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`, `PROJECT`) with the values of earlier steps.
+Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`) with the values of earlier steps.
 
 <!-- imgw:flows -->
 
@@ -66,7 +66,7 @@ Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`, `PROJECT`) with the 
 
 1. Do not build or crawl IMGW-PIB and ČHMÚ server URLs by hand — use `datasets files`, `datasets download`, `store sync`.
 2. Exit codes 10 and 11 are not program failures — read the envelope (`items[].status`, `error_code`).
-3. Do not run writes (`store sync`, `series build`, `datasets download`, `project download`) without a plan and the user's consent.
+3. Do not run writes (`store sync`, `series build`, `datasets download`) without a plan and the user's consent.
 4. Do not guess a station or a dataset: with several `stations find` hits, ask; check with `series summary` that a dataset has the station.
 5. Do not edit, move or delete store files (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — the store only grows.
 6. Do not download "just in case": narrow `years`, `months` and `stations`; do not mix providers in one call with `stations`.

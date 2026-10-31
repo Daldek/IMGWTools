@@ -6,7 +6,7 @@ Rules (spec §13.1 p. 4): dates as ``YYYY-MM-DD``, instants as ISO 8601 UTC with
 objects of their fields (a ``StorePlan`` as its ``imgw-plan/1`` document, spec
 §11.5 and §13.6), absolute paths inside the store as POSIX paths relative to the
 root, other absolute paths as they are, relative paths (relative to a base the
-result names, e.g. a project pin to the project's store) as POSIX text. The root
+result names, e.g. a Parquet file to its series version) as POSIX text. The root
 itself is absolute, or ``"."`` in server mode, where the root prefix is also
 removed from free text. A catalog message (`imgwtools.messages.Message`) is
 written as a plain string in the language of the caller, English by default
@@ -55,9 +55,8 @@ def jsonable(
     root : str or os.PathLike or None, optional
         Store root; absolute paths below it become POSIX paths relative to it,
         other absolute paths stay absolute. A relative path is relative to a
-        base named by the result (a project pin to the project's store, a
-        Parquet file to its series version) and stays a relative POSIX path in
-        every working directory.
+        base named by the result (a Parquet file to its series version) and
+        stays a relative POSIX path in every working directory.
     server : bool, optional
         REST mode: the root itself is written as ``"."`` and the root prefix is
         removed from every text (``<root>/x`` → ``x``, bare ``<root>`` → ``.``);

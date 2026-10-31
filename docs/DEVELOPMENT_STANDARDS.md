@@ -427,7 +427,6 @@ mapuje kod na tytuł, kod wyjścia CLI i status HTTP — adaptery nie mają wła
 | `IMGWStoreError` | `store_unavailable` | `not_found` (brak wersji, sidecara, szeregu), `validation_error` (dowiązanie w ścieżce) |
 | `IMGWStoreConflictError` | `conflict` | `details.reason`: `path_conflict`, `not_atomic`, `locked`, … |
 | `IMGWStoreDependencyError` | `missing_dependency` | — |
-| `IMGWProjectError` | `validation_error` | `not_found`, `conflict`, `io_error` |
 | `IMGWCancelledError` | `cancelled` | — |
 
 Zasady:
@@ -439,7 +438,7 @@ Zasady:
 - Błędy sieci przechodzą przez wspólne `_source_error` (`details`: `url`, `reason`
   `timeout|network|http_status`, `status`); nie zgłaszaj surowych wyjątków `httpx`.
 - Anulowanie (`cancel()`) zgłasza `IMGWCancelledError`, nigdy `IMGWStoreError`.
-- Porażka jednej pozycji długiej operacji (`sync_store`, `download_archives`, projekt) to wpis
+- Porażka jednej pozycji długiej operacji (`sync_store`, `download_archives`) to wpis
   raportu ze `status="failed"` i `error_code`, nie wyjątek; koperta dostaje `partial`/`failed`.
 - `OSError` przy zapisie/odczycie plików kończy się kodem `io_error` (polski powód,
   `details.path`).

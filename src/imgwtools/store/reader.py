@@ -88,7 +88,6 @@ CONTRACTS: Mapping[str, str] = {
     "meta": META_SCHEMA,
     "series": SERIES_SCHEMA,
     "plan": "imgw-plan/1",
-    "project": "imgw-project/1",
     "pmaxtp": CELL_SCHEMA,
     "observation": OBSERVATION_SCHEMA,
 }
@@ -1430,7 +1429,7 @@ def current_version(root: RootArg, /, *, slot: str) -> StoreEntry | None:
         ``series:<key>``, ``catalog:<catalog key>`` (``catalog:pl.imgw.stations``,
         ``catalog:cz.chmi.stations``) or
         ``pmaxtp:pl.imgw.pmaxtp:<POT|AMP>/<indX>_<indY>``. Station selectors
-        of series slots exist only in project pins and are rejected here.
+        of series slots (``series:<key>:<station_code>``) are rejected.
 
     Returns
     -------
@@ -2658,8 +2657,7 @@ def select_series(
     """
     Validate a selection of stations, variables and years from the current series.
 
-    Nothing is written; the selection is the input of a project task
-    (``series select``). The current series version of ``dataset`` in
+    Nothing is written. The current series version of ``dataset`` in
     ``root`` must contain every selected station and every selected year.
 
     Parameters

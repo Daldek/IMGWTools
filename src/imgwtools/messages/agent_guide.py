@@ -107,13 +107,11 @@ MESSAGES = {
         "**Check without writing:** `--check` (CLI), `?check=true` (REST, POST), "
         "`check: true` (MCP; the default of writing commands), `check_command()` "
         "(Python) → an `imgw-plan/1` plan without writing and without downloading "
-        "content. `store check` and `project check` are checks themselves. Ask the "
-        "user about a large plan.",
+        "content. `store check` is a check itself. Ask the user about a large plan.",
         "**Sprawdź bez zapisu:** `--check` (CLI), `?check=true` (REST, POST), "
         "`check: true` (MCP; domyślne dla komend zapisujących), `check_command()` "
         "(Python) → plan `imgw-plan/1` bez zapisu i bez pobierania treści. `store "
-        "check` i `project check` same są sprawdzeniem. Przy dużym planie zapytaj "
-        "użytkownika.",
+        "check` sam jest sprawdzeniem. Przy dużym planie zapytaj użytkownika.",
     ),
     "rule_run": Text(
         "**Run:** without `check`; read the `status` of the envelope, not only the "
@@ -139,10 +137,6 @@ MESSAGES = {
     "symbol_wigos_id": Text(
         "WIGOS_ID",
         "KOD_WIGOS",
-    ),
-    "symbol_project": Text(
-        "PROJECT",
-        "PROJEKT",
     ),
     "flow_precipitation_title": Text(
         "Daily precipitation at the Poznań station, 2010–2020",
@@ -193,31 +187,6 @@ MESSAGES = {
     "flow_czech_discharge_sync": Text(
         "after the user agrees.",
         "po zgodzie użytkownika.",
-    ),
-    "flow_project_title": Text(
-        "Reproducible project",
-        "Odtwarzalny projekt",
-    ),
-    "flow_project_init": Text(
-        "the `imgw-project.json` manifest; `store_dir` relative to the project "
-        "directory.",
-        "manifest `imgw-project.json`; `store_dir` względem katalogu projektu.",
-    ),
-    "flow_project_add_task": Text(
-        "the task keeps the command and its options (without `root`).",
-        "zadanie zapamiętuje komendę i jej opcje (bez `root`).",
-    ),
-    "flow_project_plan": Text(
-        "the plan…",
-        "plan…",
-    ),
-    "flow_project_download": Text(
-        "…then the files are downloaded and pinned (SHA-256) after the user agrees.",
-        "…potem pobranie i przypięcie plików (SHA-256) po zgodzie użytkownika.",
-    ),
-    "flow_project_verify": Text(
-        "the SHA-256 sums of the pinned files (offline).",
-        "sumy SHA-256 przypiętych plików (offline).",
     ),
     "flow_next_pages": Text(
         "next pages: `--offset`.",

@@ -3,7 +3,7 @@
 Offline end to end: the public ``imgwtools.testing`` store, the §11 JSON Schemas and
 SHA-256 chains of every contract file, a read-only scan of unknown schemas and
 problems, the HEAD → plan → stale/sync → series → coverage → catalog → CSV →
-project → verify/restore state machine, cancellation and concurrent writers.
+relabel state machine, cancellation and concurrent writers.
 """
 
 import copy
@@ -29,20 +29,15 @@ from imgwtools import (
     IMGWStoreError,
     StorePlan,
     __version__,
-    add_project_task,
     archive_files,
     build_catalog,
     build_series,
     check_catalog,
     check_pmaxtp,
-    check_project,
     check_series,
     check_store,
     current_version,
-    download_project,
     export_series,
-    get_project_status,
-    init_project,
     init_store,
     iter_store,
     normalize_archive,
@@ -55,7 +50,6 @@ from imgwtools import (
     summarize_coverage,
     sync_pmaxtp,
     sync_store,
-    verify_project,
     write_archive,
 )
 from imgwtools.testing import build_fixture_store
@@ -499,9 +493,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
     assert sorted(path.name for path in future.iterdir()) == ["imgw-store.json"]
 
 
-def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
-    tmp_path, imgw
-):
+def test_lifecycle_head_plan_stale_sync_series_catalog_csv_relabel(tmp_path, imgw):
     root = init_store(tmp_path / "store").root
     old8, new8 = sha256(OLD)[:8], sha256(NEW)[:8]
 
@@ -649,44 +641,6 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     ]
     assert all(row["year"] == "2024" for row in table)  # hydrological year XI–X
 
-    # Project: check writes nothing, download pins the series and its exact inputs.
-    project = tmp_path / "project"
-    manifest = project / "imgw-project.json"
-    init_project(project, store_dir=root)
-    add_project_task(
-        project,
-        name="raba",
-        command="series select",
-        options={"dataset": DAILY, "stations": [RABA], "years": [2024]},
-    )
-    untouched, written = stamps(root), manifest.read_bytes()
-    checked = check_project(project)
-    assert [(action.command, action.status) for action in checked.actions] == [
-        ("project download", "missing")
-    ]
-    assert stamps(root) == untouched and manifest.read_bytes() == written
-    assert download_project(project).tasks == {"raba": "current"}
-    document = load(manifest)
-    assert schema_errors(document, "imgw-project/1") == []
-    pins = {pin["role"]: pin for pin in document["tasks"][0]["files"]}
-    assert pins["series"]["path"] == series.version.relative_to(root).as_posix()
-    assert pins["input"]["path"] == newer.version.relative_to(root).as_posix()
-    assert pins["station_series"]["station_code"] == RABA
-    assert all(sha256(root / pin["path"]) == pin["sha256"] for pin in pins.values())
-    assert verify_project(project).tasks == {"raba": "current"}
-
-    # Restore: a lost pinned archive comes back only with identical bytes and path.
-    pinned = manifest.read_bytes()
-    shutil.rmtree(newer.version.parent)
-    assert get_project_status(project).tasks == {"raba": "missing"}
-    assert verify_project(project).tasks == {"raba": "missing"}
-    restored = download_project(project)
-    assert restored.tasks == {"raba": "current"}
-    assert {result.status for result in restored.files} == {"new", "unchanged"}
-    assert sha256(newer.version) == pins["input"]["sha256"]
-    assert manifest.read_bytes() == pinned
-    assert verify_project(project).tasks == {"raba": "current"}
-
     # Relabel: same bytes under a new signal → new version, series reused untouched.
     imgw.publish(H2024, V4, NEW)
     series_files = stamps(series.version.parent)
@@ -697,8 +651,6 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_project_restore(
     (reused,) = report.series
     assert (reused.status, reused.version) == ("unchanged", series.version)
     assert stamps(series.version.parent) == series_files
-    assert [action.status for action in check_project(project).actions] == ["current"]
-    assert manifest.read_bytes() == pinned
 
 
 def assert_no_partial_version(root: Path) -> None:

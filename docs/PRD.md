@@ -36,16 +36,17 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | ČHMÚ data (JSON/CSV per station) | Implemented (3.0.0) | 4 `cz.chmi.*` descriptors (daily hydro H/Q/T, daily meteo P/Tmean/Tmax/Tmin with quality and flags, station lists); freshness from directory listings; station catalog with SPA thresholds |
 | PMAXTP data | Implemented | Probabilistic max precipitation (IMGW-PIB grid only) |
 | Warnings | Implemented | Hydro/meteo warnings from API |
-| Versioned store | Implemented (3.0.0) | Immutable archive versions with provenance (both providers), freshness plan, Parquet series, `stations.geojson` per provider, PMAXTP cells, projects (restore by content for ČHMÚ) |
+| Versioned store | Implemented (3.0.0) | Immutable archive versions with provenance (both providers), freshness plan, Parquet series, `stations.geojson` per provider, PMAXTP cells, canonical content (`content_sha256`) and the observation register for ČHMÚ |
+| Projects (pins of store versions) | Moved to Archiwista (ADR-008, 2026-10-31) | IMGWTools' project manifest and the `imgw project` command group are removed; Archiwista keeps projects in `archiwista-project/1` and pins versions by the store's `sha256` and `content_sha256` |
 
 ### 3.2. Interfaces
 
 | Interface | Status | Description |
 |-----------|--------|-------------|
-| CLI | Implemented | `imgw` command: catalog groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `project`, `commands` plus `version`, `server`, `mcp`, `admin`; help in Polish or English (`IMGW_LANG`) |
+| CLI | Implemented | `imgw` command: catalog groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `commands` plus `version`, `server`, `mcp`, `admin`; help in Polish or English (`IMGW_LANG`) |
 | Web GUI | Implemented | HTMX + Jinja2 web interface on the public library API (IMGW-PIB datasets) |
 | REST API | Implemented | FastAPI with OpenAPI documentation; routes generated from the same command catalog; `Accept-Language`; `GET /llms.txt` |
-| Python command catalog | Implemented (3.0.0) | 38 commands, `command_schema` and `list_commands` (Polish or English texts, declared effects), `run_command`/`check_command`, envelope `imgw-result/1`, error registry `ERROR_CODES` |
+| Python command catalog | Implemented (3.0.0) | 30 commands, `command_schema` and `list_commands` (Polish or English texts, declared effects), `run_command`/`check_command`, envelope `imgw-result/1`, error registry `ERROR_CODES` |
 | MCP server | Implemented (3.0.0) | `imgwtools[mcp]`: `imgw mcp` (stdio, read and plan by default, writes with `--allow-writes`) and `/mcp` in the REST server (read and plan only); tools = catalog commands |
 
 ### 3.3. Visualization
@@ -128,7 +129,8 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | `imgw admin` command | Implemented |
 | `imgw server` command | Implemented |
 | `imgw mcp` command (MCP server on stdio) | Implemented (3.0.0, `imgwtools[mcp]`) |
-| `imgw store`, `imgw series`, `imgw pmaxtp`, `imgw project`, `imgw commands` | Implemented (3.0.0, generated from the command catalog) |
+| `imgw store`, `imgw series`, `imgw pmaxtp`, `imgw commands` | Implemented (3.0.0, generated from the command catalog) |
+| `imgw project` | Moved to Archiwista (ADR-008, 2026-10-31) |
 | `--check` (plan only, no writes), `--schema` (command schema) | Implemented |
 | JSON envelope on stdout, JSON error on stderr, exit codes from the error registry | Implemented |
 | `--output` flag | Implemented |
@@ -175,7 +177,6 @@ imgw series read|summary [--version <v> | --root <dir> -d <key>] -s <code(s)> [-
 imgw series export [--version <v> | --root <dir> -d <key>] -s <code> [--variables] [--output <csv> [--force]]
 imgw pmaxtp check|sync --root <dir> --lat <lat> --lon <lon> [--method POT|AMP]
 imgw pmaxtp read --root <dir> --ind-x <x> --ind-y <y> [--method POT|AMP]
-imgw project init|add|remove|set-store|download|check|status|verify --project-dir <dir> ...
 
 # Command catalog
 imgw commands list [--lang pl|en]
@@ -192,8 +193,8 @@ imgw commands guide [-f agents|llms] [--lang pl|en] [--output <file> [--force]]
 | No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
-| Unit and contract tests | Implemented | 2329 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-25); Python = CLI = REST = MCP contract |
-| Live integration tests | Implemented | 80 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (54: 38 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (26: ČHMÚ on opendata.chmi.cz) |
+| Unit and contract tests | Implemented | 2446 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-31); Python = CLI = REST = MCP contract |
+| Live integration tests | Implemented | 67 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (45: 30 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (22: ČHMÚ on opendata.chmi.cz) |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
 
@@ -228,7 +229,7 @@ The following are explicitly out of scope for this project:
 
 - SemVer for API and CLI/GUI package
 - Current version: 3.0.0 (release notes: `docs/CHANGELOG.md`)
-- Contracts (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, `imgw-result/1`, `imgw-commands/1`) carry their own `/N` versions, independent of the package version (IMGW-13); ČHMÚ and agent support add only optional fields within `/1`
+- Contracts (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, `imgw-result/1`, `imgw-commands/1`) carry their own `/N` versions, independent of the package version (IMGW-13); ČHMÚ and agent support add only optional fields within `/1`; the project manifest contract left with the projects (ADR-008)
 
 ---
 

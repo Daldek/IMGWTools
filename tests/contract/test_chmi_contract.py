@@ -30,44 +30,35 @@ import pytest
 
 from imgwtools import (
     IMGWValidationError,
-    add_project_task,
     build_catalog,
     build_series,
     check_catalog,
     check_store,
     current_version,
-    download_project,
     export_archive,
     export_series,
     get_provider,
-    init_project,
     init_store,
     iter_store,
-    open_project,
     parse_chmi_stations,
     read_catalog,
     read_series_index,
     run_command,
     store_info,
     sync_store,
-    verify_project,
 )
 from imgwtools.datasets import get_dataset
 from imgwtools.testing import build_fixture_store, fixture_files
 from tests.contract.conftest import _CLOCKED, FROZEN_AT
 from tests.contract.support import (
     DAILY,
-    H2024,
-    NEW,
     RABA,
-    V3,
     canonical,
     cli_words,
     command_document,
     load,
     rest_request,
     schema_errors,
-    sha256,
     slots,
     snapshot,
     stamps,
@@ -1366,125 +1357,8 @@ def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
 
 
 # --------------------------------------------------------------------------
-# IMGW-19 k1 (local commands) and k2: projects with IMGW-PIB and ČHMÚ tasks
+# IMGW-19 k1: local ČHMÚ commands
 # --------------------------------------------------------------------------
-
-TASKS = (
-    ("raba", "series select", {"dataset": DAILY, "stations": [RABA], "years": [2024]}),
-    (
-        "zapadla",
-        "series select",
-        {
-            "dataset": HYDRO,
-            "stations": [S2],
-            "years": "2004,2006",  # 2005 is unknown: outside the series
-            "year_type": "calendar",
-        },
-    ),
-    ("snezka", "store sync", {"datasets": [HYDRO], "stations": [S1], "years": [2023]}),
-    (
-        "srazky",
-        "series select",
-        {
-            "dataset": METEO,
-            "stations": [RAIN],
-            "years": [2023],
-            "year_type": "calendar",
-        },
-    ),
-)
-# The GETs that give back the pinned bytes under their pinned labels.
-RESTORE = (
-    "h900001_2023_get",
-    "h900001_2024_corrected_get",
-    "h900002_2004_republished_get",
-    "h900002_2006_republished_get",
-    "m90001_SRA_get",
-    "m90001_T_get",
-    "m90001_TMA_get",
-    "m90001_TMI_get",
-    "m90000000002_SRA_get",
-)
-
-
-def pinned_project(tmp_path: Path, pl_cz: Path, imgw, chmi: FakeChmi) -> Path:
-    """A project of IMGW-PIB and ČHMÚ tasks pinned to a copy of complete_pl_cz."""
-    copy_of(pl_cz, tmp_path / "store")
-    project = tmp_path / "project"
-    init_project(project, store_dir="../store")
-    for name, command, options in TASKS:
-        add_project_task(project, name=name, command=command, options=options)
-    imgw.publish(H2024, V3, NEW)
-    # Each listing matches the stored versions of its task: the republication of
-    # 900002, the base meteo listings, then the observation of 900001 2023.
-    chmi.serve(
-        "hydro_listing_republished", "precipitation_listing", "temperature_listing"
-    )
-    first = download_project(project, tasks=["raba", "zapadla", "srazky"])
-    chmi.serve("hydro_listing_reserialized")
-    second = download_project(project, tasks=["snezka"])
-    assert {**first.tasks, **second.tasks} == dict.fromkeys(
-        ("raba", "zapadla", "srazky", "snezka"), "current"
-    )
-    return project
-
-
-def test_imgw_19_k2_an_empty_store_restores_both_providers_with_identical_sha256(
-    pl_cz, tmp_path, imgw, chmi, frozen
-):
-    project = pinned_project(tmp_path, pl_cz, imgw, chmi)
-    manifest = (project / "imgw-project.json").read_bytes()
-    assert schema_errors(json.loads(manifest), "imgw-project/1") == []
-    pins = [pin for task in open_project(project).tasks for pin in task.files]
-    chmi_pins = [pin for pin in pins if pin.content_form is not None]
-    assert chmi_pins and {pin.content_form for pin in chmi_pins} == {"chmi-json/1"}
-    store = tmp_path / "store"
-    shutil.rmtree(store)
-    chmi.serve(*RESTORE)
-    start = len(chmi.router.calls)
-
-    report = download_project(project)
-
-    assert report.tasks == dict.fromkeys(
-        ("raba", "zapadla", "snezka", "srazky"), "current"
-    )
-    # Every pinned file is created once; later tasks pinning it find it there.
-    created = [result.slot for result in report.files if result.status == "new"]
-    assert len(created) == len(set(created))
-    assert {result.status for result in report.files} == {"new", "unchanged"}
-    assert all(sha256(store / pin.path) == pin.sha256 for pin in pins)
-    assert (project / "imgw-project.json").read_bytes() == manifest
-    assert sorted(url for _, url in chmi.traffic(start) if "chmi" in url) == sorted(
-        CHMI[case]["url"] for case in RESTORE
-    )
-
-    # Scenario (9): ČHMÚ serves other bytes of the same content for 900001 2023.
-    shutil.rmtree(store)
-    chmi.serve("h900001_2023_reserialized_get")
-    notices = []
-    again = download_project(project, on_notice=notices.append)
-
-    assert again.tasks == {
-        "raba": "current",
-        "zapadla": "content_match",
-        "snezka": "content_match",
-        "srazky": "current",
-    }
-    by_content = {
-        result.slot for result in again.files if result.status == "restored_by_content"
-    }
-    assert SLOT_2023 in by_content and f"series:{HYDRO}" in by_content
-    assert [
-        notice.level for notice in notices if notice.code == "pin_restored_by_content"
-    ] == [
-        "warning",
-        "warning",
-    ]
-    assert (project / "imgw-project.json").read_bytes() == manifest
-    status = run_command("project status", options={"project_dir": project})
-    assert status.status == "ok"
-    assert set(status.result.tasks.values()) == {"current", "content_match"}
-    assert verify_project(project).tasks == again.tasks
 
 
 @dataclass(frozen=True)
@@ -1507,34 +1381,8 @@ def _datasets_download(tmp_path: Path, pl_cz: Path, imgw, chmi: FakeChmi) -> Loc
     return Local(options, output)
 
 
-def _project_add(tmp_path: Path, pl_cz: Path, imgw, chmi: FakeChmi) -> Local:
-    project = tmp_path / "projekt"
-    init_project(project, store_dir="../magazyn")
-    options = {
-        "project_dir": project,
-        "name": "srazky",
-        "command": "series select",
-        "options": {"dataset": METEO, "stations": [FULL], "years": [2023]},
-    }
-    return Local(options, project)
-
-
-def _pinned(tmp_path: Path, pl_cz: Path, imgw, chmi: FakeChmi) -> Local:
-    work = tmp_path / "praca"
-    project = pinned_project(work, pl_cz, imgw, chmi)
-    # project check reads the listings of the ČHMÚ tasks again.
-    chmi.serve(
-        "hydro_listing_reserialized", "precipitation_listing", "temperature_listing"
-    )
-    return Local({"project_dir": project}, work)
-
-
 LOCAL = {
     "datasets download": _datasets_download,
-    "project add": _project_add,
-    "project status": _pinned,
-    "project verify": _pinned,
-    "project check": _pinned,
 }
 
 

@@ -15,13 +15,12 @@ compared after the same tolerance rules, and ``imgw mcp`` for the reads that
 ask the source (not for the hydro check, whose listing weighs 5.3 MB).
 
 The seed reads each server listing once: the hydro check (1 listing) and the
-meteo check (2 listings) are saved as plans, the project downloads its two
-``series select`` tasks with these plans (HEAD and GET of each file, no
-listing), and the ČHMÚ catalog is built from the live metadata. The cases then
-check (the hydro listing once per interface), synchronize an empty store from
-the hydro plan and from the meteo listings, rebuild the catalog, read series,
-export, search stations live and in the store, download flat files (2026 →
-``not_published``) and restore the pinned project into an empty store.
+meteo check (2 listings) are saved as plans, the store is synchronized from
+these plans (HEAD and GET of each file, no listing), and the ČHMÚ catalog is
+built from the live metadata. The cases then check (the hydro listing once per
+interface), synchronize an empty store from the hydro plan and from the meteo
+listings, rebuild the catalog, read series, export, search stations live and in
+the store and download flat files (2026 → ``not_published``).
 
 Every httpx request of the run — Python in this process, the CLI, the REST
 server and ``imgw mcp`` in theirs (a ``sitecustomize`` on ``PYTHONPATH``) — is
@@ -46,15 +45,13 @@ import httpx
 import pytest
 
 from imgwtools import (
-    add_project_task,
     build_catalog,
     check_store,
     current_version,
-    download_project,
-    init_project,
     init_store,
     iter_store,
     read_meta,
+    sync_store,
 )
 from imgwtools.fetch import _IDENTIFY, _archive_slot
 from imgwtools.store.types import StorePlan
@@ -62,8 +59,6 @@ from tests.contract.support import imgw_executable
 from tests.live.test_interfaces_live import (
     CALL_TIMEOUT,
     DATA_DIR,
-    PROJECT,
-    PROJECT_DIR,
     ROOT,
     ROOTED,
     TOKEN,
@@ -88,17 +83,11 @@ PUBLISHED, UNPUBLISHED = (2024, 2025), 2026  # 2026 is not published before 2027
 YEARS = f"{PUBLISHED[0]}-{UNPUBLISHED}"
 METEO_YEARS = "2006"
 HYDRO_PLAN, METEO_PLAN = "plan-hydro.json", "plan-meteo.json"
-HYDRO_TASK = {
+HYDRO_SELECTION = {
     "dataset": HYDRO,
     "stations": [STATION],
     "years": f"{PUBLISHED[0]}-{PUBLISHED[-1]}",
     "year_type": "calendar",  # the plan's files; hydrological years add a year
-}
-METEO_TASK = {
-    "dataset": METEO,
-    "stations": [METEO_STATION],
-    "years": METEO_YEARS,
-    "year_type": "calendar",
 }
 ARCHIVE_SLOT = f"archive:{HYDRO}:H_{STATION}_DQ_{PUBLISHED[-1]}.json"
 METEO_SLOT = f"archive:{METEO}:precipitation/dly-{METEO_STATION}-SRA.csv"
@@ -152,7 +141,7 @@ CASES: dict[str, list[Case]] = {
         Case({"version": METEO_ARCHIVE, "format": "jsonl"}, "full"),
     ],
     "series build": [Case({"dataset": HYDRO}, "full")],
-    "series select": [Case({**HYDRO_TASK}, "full")],
+    "series select": [Case({**HYDRO_SELECTION}, "full")],
     "series read": [
         Case(
             {"dataset": METEO, "station": METEO_STATION, "limit": 5, "offset": 1},
@@ -179,21 +168,6 @@ CASES: dict[str, list[Case]] = {
             "full",
         ),
     ],
-    "project add": [
-        Case(
-            {
-                "project_dir": PROJECT,
-                "name": "temperatury",
-                "command": "series select",
-                "options": {**METEO_TASK, "variables": ["Tmax", "Tmin"]},
-            },
-            "full",
-            "p_init",
-        )
-    ],
-    "project download": [Case({"project_dir": PROJECT}, "empty", "p_done")],
-    "project status": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
-    "project verify": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
 }
 # Reads asking ČHMÚ through imgw mcp: the station search and the meteo check.
 MCP_CASES = [("stations find", 0), ("stations find", 1), ("store check", 1)]
@@ -201,10 +175,6 @@ MCP_CASES = [("stations find", 0), ("stations find", 1), ("store check", 1)]
 
 def _statuses(document: Mapping[str, Any], key: str = "items") -> list[str]:
     return [item["status"] for item in document["result"][key]]
-
-
-def _pinned(document: Mapping[str, Any]) -> bool:
-    return set(document["result"]["tasks"].values()) <= {"current", "content_match"}
 
 
 # What the Python answer of a case must say (the other interfaces equal it).
@@ -258,13 +228,6 @@ EXPECTED: dict[tuple[str, int], Callable[[Mapping[str, Any]], bool]] = {
         and d["result"]["status"] in ("unchanged", "new")
     ),
     ("series build", 0): lambda d: d["result"]["status"] == "unchanged",
-    ("project download", 0): lambda d: (
-        _pinned(d)
-        and {item["status"] for item in d["result"]["files"]}
-        <= {"new", "restored_by_content"}
-    ),
-    ("project status", 0): _pinned,
-    ("project verify", 0): _pinned,
 }
 
 
@@ -439,8 +402,8 @@ class ChmiLive(Live):
         self.answers: dict[str, Any] = {}
 
     def seed(self) -> None:
-        """Snapshots of the store and of the project, each listing read once."""
-        root, project = self.root, self.work / PROJECT_DIR
+        """Snapshots of the store, each listing read once."""
+        root = self.root
         mark = self.journal.mark()
         with self.local():
             init_store(root)
@@ -468,23 +431,11 @@ class ChmiLive(Live):
             )
             assert [item.status for item in meteo.items] == ["missing"] * 4, meteo
             self.plans = (hydro, meteo)
-            init_project(project, store_dir=root)
-            self.save("p_init", project)
-            add_project_task(
-                project, name="przeplywy", command="series select", options=HYDRO_TASK
-            )
-            add_project_task(
-                project, name="opady", command="series select", options=METEO_TASK
-            )
-            for name, plan in (("przeplywy", hydro), ("opady", meteo)):
-                pinned = _patiently(
-                    functools.partial(
-                        download_project, project, tasks=[name], plan=plan
-                    )
-                )
-                assert pinned.tasks == {name: "current"}, pinned
-            self.save("p_done", project)
-            self.save("pinned", root)
+            for plan in (hydro, meteo):
+                synced = _patiently(functools.partial(sync_store, root, plan=plan))
+                # The unpublished 2026 file of the hydro plan stays "unchanged".
+                statuses = {item.status for item in synced.items}
+                assert statuses <= {"new", "unchanged"}, synced
             catalog = _patiently(lambda: build_catalog(root, provider="CHMI"))
             assert (catalog.status, catalog.provider) == ("new", "CHMI"), catalog
             self.save("full", root)

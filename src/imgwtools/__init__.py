@@ -26,7 +26,7 @@ Features:
     - Station search and hydrological station states with coordinates
     - Versioned local store of IMGW archives, Parquet series and station catalog
     - ČHMÚ daily hydrological and meteorological data, stations and catalog
-    - Data command catalog and ``imgw-project/1`` project manifests
+    - Data command catalog shared by Python, CLI, REST and MCP
     - Guide for AI agents (``AGENTS.md``, ``llms.txt``) generated from the catalog
 
 Installation:
@@ -89,7 +89,6 @@ from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
     IMGWError,
-    IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWStoreError,
@@ -148,19 +147,6 @@ from imgwtools.parsers import (
     parse_semi_annual_csv,
     parse_stations_csv,
     parse_zip_file,
-)
-
-# Projects
-from imgwtools.project import (
-    add_project_task,
-    check_project,
-    download_project,
-    get_project_status,
-    init_project,
-    open_project,
-    remove_project_task,
-    set_project_store,
-    verify_project,
 )
 
 # Station functions
@@ -224,7 +210,7 @@ from imgwtools.store import (
     write_archive,
 )
 
-# Command and project types
+# Command types
 from imgwtools.store.types import (
     CommandCall,
     CommandOption,
@@ -233,10 +219,6 @@ from imgwtools.store.types import (
     DownloadItem,
     DownloadReport,
     Page,
-    Project,
-    ProjectFile,
-    ProjectReport,
-    ProjectTask,
     SeriesSelection,
 )
 
@@ -267,7 +249,6 @@ __all__ = [
     "ErrorCode",
     "ErrorSpec",
     "ERROR_CODES",
-    "IMGWProjectError",
     # Models
     "PMaXTPData",
     "PMaXTPResult",
@@ -411,18 +392,4 @@ __all__ = [
     "check_command",
     "run_command",
     "agent_guide",
-    # Projects
-    "ProjectFile",
-    "ProjectTask",
-    "ProjectReport",
-    "Project",
-    "init_project",
-    "open_project",
-    "set_project_store",
-    "add_project_task",
-    "remove_project_task",
-    "check_project",
-    "download_project",
-    "get_project_status",
-    "verify_project",
 ]

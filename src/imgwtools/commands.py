@@ -1,9 +1,9 @@
 """
-Catalog of the 38 data commands and the single dispatcher of public functions.
+Catalog of the 30 data commands and the single dispatcher of public functions.
 
 ``data_commands`` describes every operation of IMGWTools (spec §13.3). Each
 command calls exactly one public function whose parameters carry the option
-names; the CLI, the REST API, the web GUI and projects use `validate_command`,
+names; the CLI, the REST API and the web GUI use `validate_command`,
 `format_command`, `check_command`, `run_command` and `command_schema` instead
 of their own validation, HTTP requests or option lists. `run_command` and
 `check_command` return the ``imgw-result/1`` envelope `CommandResult`;
@@ -21,7 +21,6 @@ write or connect without a decision of the user (spec 2026-10-19 §3–§4).
 import copy
 import importlib
 import inspect
-import json
 import math
 import os
 import re
@@ -80,7 +79,6 @@ from imgwtools.store.types import (
     PlanAction,
     PMaXTPStoreResult,
     ProgressHook,
-    ProjectReport,
     SeriesReport,
     StorePlan,
     SyncReport,
@@ -102,14 +100,11 @@ __all__ = [
 Options = dict[str, Any]
 Hooks = dict[str, Any]
 Status = Literal["ok", "partial", "failed", "cancelled"]
-OptionType = Literal[
-    "str", "int", "float", "bool", "date", "path", "list", "choice", "object"
-]
+OptionType = Literal["str", "int", "float", "bool", "date", "path", "list", "choice"]
 ItemType = Literal["str", "int", "year", "choice"]
 Checker = Callable[[Options, Hooks], StorePlan]
-Rule = Callable[[Options, bool], None]
+Rule = Callable[[Options], None]
 
-PROJECT_FILE = "imgw-project.json"
 # Prefix of the operation ids: REST ``operationId`` and MCP tool names (ECO-018).
 _TOOL = "imgw"
 _STORE_MARKER = "imgw-store.json"
@@ -119,13 +114,10 @@ _STATION = STATION_CODE_PATTERN
 # Live IMGW-PIB readings accept only IMGW-PIB codes.
 _IMGW_STATION = "^[0-9]{9}$"
 _SYNOP_STATION = "^[0-9]{5}$"
-_TASK_PATTERN = "^[a-z0-9][a-z0-9_-]{0,63}$"
-_TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _PATTERN_TEXT = {
     _STATION: message("commands.pattern_station"),
     _IMGW_STATION: message("commands.pattern_imgw_station"),
     _SYNOP_STATION: message("commands.pattern_synop_station"),
-    _TASK_PATTERN: message("commands.pattern_task_pattern"),
 }
 _INTEGER = re.compile(r"-?[0-9]+")
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -147,23 +139,6 @@ _SERIES_DATASETS = tuple(
 _PROVIDERS = tuple(provider.id for provider in providers())
 # Groups reading the sources of one provider only (spec 2026-10-18 §9.3).
 _GROUP_PROVIDERS = {"current": "IMGW-PIB", "pmaxtp": "IMGW-PIB"}
-# Commands a project task may store in the manifest (spec §13.3).
-_TASK_COMMANDS = (
-    "store info",
-    "store scan",
-    "store check",
-    "store sync",
-    "store catalog",
-    "series build",
-    "series select",
-    "series export",
-    "pmaxtp check",
-    "pmaxtp sync",
-    "pmaxtp read",
-    "datasets download",
-)
-# Options of paths relative to the project directory, kept as given.
-_PROJECT_PATHS = ("store_dir", "geometry")
 _DONE = ("new", "relabeled", "unchanged")
 _EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
 _GROUPS = {
@@ -173,7 +148,6 @@ _GROUPS = {
     "pmaxtp": message("commands.group_pmaxtp"),
     "store": message("commands.group_store"),
     "series": message("commands.group_series"),
-    "project": message("commands.group_project"),
     "commands": message("commands.group_commands"),
 }
 _STORE_FUNCTIONS = (
@@ -195,16 +169,6 @@ _STORE_FUNCTIONS = (
     "summarize_series",
     "export_series",
 )
-_PROJECT_FUNCTIONS = (
-    "init_project",
-    "add_project_task",
-    "remove_project_task",
-    "set_project_store",
-    "download_project",
-    "check_project",
-    "get_project_status",
-    "verify_project",
-)
 # Public module of every function the catalog dispatches to (resolved per call).
 _MODULES = {
     "datasets": "imgwtools.datasets",
@@ -220,7 +184,6 @@ _MODULES = {
     "fetch_hydro_states": "imgwtools.stations",
     "build_pmaxtp_url": "imgwtools.urls",
     **dict.fromkeys(_STORE_FUNCTIONS, "imgwtools.store"),
-    **dict.fromkeys(_PROJECT_FUNCTIONS, "imgwtools.project"),
     "command_schema": "imgwtools.commands",
     "list_commands": "imgwtools.commands",
     "agent_guide": "imgwtools.agent_guide",
@@ -325,22 +288,6 @@ _ROOT = _option(
     message("commands.root_help"),
     aliases=("-r",),
     rest="server",
-    path_role="root",
-)
-_PROJECT_DIR = _option(
-    "project_dir",
-    "path",
-    message("commands.project_dir_help"),
-    required=True,
-    rest="local",
-    path_role="root",
-)
-_STORE_DIR = _option(
-    "store_dir",
-    "path",
-    message("commands.store_dir_help"),
-    required=True,
-    rest="local",
     path_role="root",
 )
 _ARCHIVE_DATASET = _option(
@@ -536,22 +483,6 @@ _PLAN_FILE = _option(
     rest="local",
     writes="replace",
     path_role="output",
-)
-_TASKS = _option(
-    "tasks",
-    "list",
-    message("commands.tasks_help"),
-    items="str",
-    pattern=_TASK_PATTERN,
-    rest="local",
-)
-_TASK_NAME_OPTION = _option(
-    "name",
-    "str",
-    message("commands.task_name_option_help"),
-    required=True,
-    pattern=_TASK_PATTERN,
-    rest="local",
 )
 # Language of the texts of the description commands (commands schema, commands guide).
 _LANGUAGE = _option(
@@ -1141,144 +1072,6 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         result_type="str",
         rules=(*_SERIES_RULES, _START_RULE, _HALF_YEAR_RULE, _OUTPUT_RULE),
     ),
-    _command(
-        "project init",
-        message("commands.project_init_description"),
-        (_PROJECT_DIR, _STORE_DIR),
-        function="init_project",
-        store_only=True,
-        check="check_command",
-        result_type="Project",
-        writes="add",
-    ),
-    _command(
-        "project add",
-        message("commands.project_add_description"),
-        (
-            _PROJECT_DIR,
-            _TASK_NAME_OPTION,
-            _option(
-                "command",
-                "choice",
-                message("commands.project_add_command_help"),
-                required=True,
-                choices=_TASK_COMMANDS,
-                rest="local",
-            ),
-            _option(
-                "options",
-                "object",
-                message("commands.project_add_options_help"),
-                required=True,
-                rest="local",
-            ),
-            _option(
-                "geometry",
-                "path",
-                message("commands.project_add_geometry_help"),
-                rest="local",
-                path_role="input",
-            ),
-        ),
-        function="add_project_task",
-        store_only=True,
-        check="check_command",
-        result_type="Project",
-        rules=(
-            message("commands.project_add_rule_1"),
-            message("commands.project_add_rule_2"),
-        ),
-        # Appends a task to the manifest (atomic write of the manifest).
-        writes="add",
-    ),
-    _command(
-        "project remove",
-        message("commands.project_remove_description"),
-        (
-            _PROJECT_DIR,
-            replace(
-                _TASK_NAME_OPTION,
-                help=message("commands.project_remove_task_name_option_help"),
-            ),
-        ),
-        function="remove_project_task",
-        store_only=True,
-        check="check_command",
-        result_type="Project",
-        writes="replace",
-    ),
-    _command(
-        "project set-store",
-        message("commands.project_set_store_description"),
-        (
-            _PROJECT_DIR,
-            replace(
-                _STORE_DIR,
-                help=message("commands.project_set_store_store_dir_help"),
-            ),
-        ),
-        function="set_project_store",
-        store_only=True,
-        check="check_command",
-        result_type="Project",
-        writes="replace",
-    ),
-    _command(
-        "project download",
-        message("commands.project_download_description"),
-        (
-            _PROJECT_DIR,
-            _TASKS,
-            _option(
-                "plan",
-                "path",
-                message("commands.project_download_plan_help"),
-                rest="local",
-                path_role="input",
-            ),
-            _option(
-                "update",
-                "choice",
-                message("commands.project_download_update_help"),
-                choices=("pinned", "upgrade"),
-                default="pinned",
-                rest="local",
-            ),
-        ),
-        function="download_project",
-        store_only=True,
-        check="check_project",
-        result_type="ProjectReport",
-        # Pins (and re-pins with update=upgrade) in the manifest; the store grows.
-        writes="replace",
-        network=True,
-    ),
-    _command(
-        "project check",
-        message("commands.project_check_description"),
-        (_PROJECT_DIR, _TASKS, _PLAN_FILE),
-        function="check_project",
-        store_only=True,
-        result_type="StorePlan",
-        # Listing and HEAD requests; the plan file is the effect of an option.
-        network=True,
-    ),
-    _command(
-        "project status",
-        message("commands.project_status_description"),
-        (_PROJECT_DIR, _TASKS),
-        function="get_project_status",
-        store_only=True,
-        result_type="ProjectReport",
-    ),
-    _command(
-        "project verify",
-        message("commands.project_verify_description"),
-        (_PROJECT_DIR, _TASKS),
-        function="verify_project",
-        store_only=True,
-        result_type="ProjectReport",
-    ),
 )
 # The description commands close the catalog: commands schema names every command.
 _GUIDE = _command(
@@ -1386,7 +1179,7 @@ def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
     -------
     tuple of DataCommand
         Commands in catalog order (groups ``datasets``, ``stations``,
-        ``current``, ``pmaxtp``, ``store``, ``series``, ``project``,
+        ``current``, ``pmaxtp``, ``store``, ``series``,
         ``commands``) with their options, the public function they call,
         the check twin, the result shape, the REST method, the validation
         rules and the effects of a run (``writes``, ``network``,
@@ -1657,30 +1450,6 @@ def _list(option: CommandOption, value: object) -> tuple[object, ...]:
     return tuple(dict.fromkeys(texts))
 
 
-def _object(option: CommandOption, value: object) -> dict[str, object]:
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError as exc:
-            _fail(
-                message(
-                    "commands.option_must_json_object",
-                    name=option.name,
-                    exc=reason(exc),
-                ),
-                option=option.name,
-            )
-    if not isinstance(value, Mapping):
-        _fail(
-            message(
-                "commands.option_must_json_object_2", name=option.name, value=value
-            ),
-            option=option.name,
-            value=value,
-        )
-    return dict(value)
-
-
 _PARSERS: dict[str, Callable[[CommandOption, object], object]] = {
     "bool": _boolean,
     "int": _integer,
@@ -1690,14 +1459,13 @@ _PARSERS: dict[str, Callable[[CommandOption, object], object]] = {
     "path": _path,
     "choice": _choice,
     "list": _list,
-    "object": _object,
 }
 
 
 def _absolutize(options: Options) -> None:
     """Paths → absolute: ``version`` against ``root``, others against the CWD."""
     for name, value in list(options.items()):
-        if isinstance(value, Path) and name not in ("version", *_PROJECT_PATHS):
+        if isinstance(value, Path) and name != "version":
             options[name] = value.absolute()
     version = options.get("version")
     if isinstance(version, Path) and not version.is_absolute():
@@ -1733,12 +1501,12 @@ def _half_year(descriptor: DatasetDescriptor, year_type: object) -> None:
         )
 
 
-def _rules_archives(options: Options, task: bool) -> None:
+def _rules_archives(options: Options) -> None:
     # Years, months, params and stations follow the dataset's provider (§2.3).
     _archives(options)
 
 
-def _rules_download(options: Options, task: bool) -> None:
+def _rules_download(options: Options) -> None:
     # The selection of the files first; the store takes only the datasets it holds.
     _archives(options)
     descriptor = get_dataset(options["dataset"])
@@ -1751,7 +1519,7 @@ def _rules_download(options: Options, task: bool) -> None:
         )
 
 
-def _rules_store_check(options: Options, task: bool) -> None:
+def _rules_store_check(options: Options) -> None:
     # One kind of datasets per call; selectors as in check_store (§4.2).
     _sync._selection(
         options["datasets"],
@@ -1761,7 +1529,7 @@ def _rules_store_check(options: Options, task: bool) -> None:
     )
 
 
-def _rules_store_sync(options: Options, task: bool) -> None:
+def _rules_store_sync(options: Options) -> None:
     if "plan" not in options:
         if "output_dir" in options:
             # The plain selection needs the years of a station dataset, offline.
@@ -1772,7 +1540,7 @@ def _rules_store_sync(options: Options, task: bool) -> None:
                 options.get("stations"),
             )
             return
-        _rules_store_check(options, task)
+        _rules_store_check(options)
         return
     selectors = ("datasets", "years", "months", "stations")
     given = [name for name in selectors if name in options]
@@ -1783,7 +1551,7 @@ def _rules_store_sync(options: Options, task: bool) -> None:
         )
 
 
-def _rules_stations(options: Options, task: bool) -> None:
+def _rules_stations(options: Options) -> None:
     _stations._search_kinds(
         options.get("kind"),
         options.get("query"),
@@ -1792,11 +1560,11 @@ def _rules_stations(options: Options, task: bool) -> None:
     )
 
 
-def _rules_coordinates(options: Options, task: bool) -> None:
+def _rules_coordinates(options: Options) -> None:
     _fetch._validate_poland_coords(options["latitude"], options["longitude"])
 
 
-def _rules_series_select(options: Options, task: bool) -> None:
+def _rules_series_select(options: Options) -> None:
     descriptor = get_dataset(options["dataset"])
     if "variables" in options:
         _reader._variables(options["variables"], descriptor)
@@ -1823,7 +1591,7 @@ def _rules_series_select(options: Options, task: bool) -> None:
         )
 
 
-def _rules_series(options: Options, task: bool) -> None:
+def _rules_series(options: Options) -> None:
     if "dataset" in options:
         descriptor = get_dataset(options["dataset"])
         if "variables" in options:
@@ -1836,40 +1604,15 @@ def _rules_series(options: Options, task: bool) -> None:
             option="end",
             value=end.isoformat(),
         )
-    if not task:
-        _rules_result_file(options, task)
+    _rules_result_file(options)
 
 
-def _rules_result_file(options: Options, task: bool) -> None:
+def _rules_result_file(options: Options) -> None:
     output = options.get("output")
     if isinstance(output, Path):
         # A directory is no file; an existing file or a store is a conflict, which
         # a plan reports and only the run refuses (DEV-19.10).
         _export._file(output)
-
-
-def _rules_project_add(options: Options, task: bool) -> None:
-    command = options["command"]
-    area = "geometry" in options
-    if area and command != "series select":
-        _fail(
-            message("commands.selection_area_geometry_applies_only"),
-            option="geometry",
-        )
-    try:
-        # Przy wyborze obszarem stacje materializuje add_project_task z katalogu stacji.
-        nested = _validate(command, options["options"], task=True, area=area)
-    except IMGWValidationError as exc:
-        raise IMGWValidationError(
-            message("commands.options_task", command=command, detail=exc.detail),
-            details={**exc.details, "option": "options"},
-        ) from exc
-    if command == "series select" and "years" not in nested:
-        _fail(
-            message("commands.series_select_task_project_needs"),
-            option="options",
-        )
-    options["options"] = nested
 
 
 _RULES: dict[str, Rule] = {
@@ -1887,21 +1630,12 @@ _RULES: dict[str, Rule] = {
     "series read": _rules_series,
     "series summary": _rules_series,
     "series export": _rules_series,
-    "project add": _rules_project_add,
     "commands guide": _rules_result_file,
 }
 
 
-def _validate(
-    command: object, options: object, *, task: bool, area: bool = False
-) -> Options:
-    """
-    Validate ``options`` of ``command``; ``task`` mode validates a project task.
-
-    A task does not give ``root`` (it follows from the project store, so it
-    counts as given in ``requires``/``one_of``) and keeps paths relative to
-    the project; ``area`` makes ``stations`` optional (area selection).
-    """
+def _validate(command: object, options: object) -> Options:
+    """Validate ``options`` of ``command`` (see `validate_command`)."""
     spec = _spec(command)
     if not isinstance(options, Mapping):
         _fail(
@@ -1921,17 +1655,6 @@ def _validate(
                 option=str(key),
                 allowed=list(known),
             )
-    if task and "root" in options:
-        _fail(
-            message("commands.project_task_does_not_give"),
-            option="root",
-        )
-    if task and options.get("output_dir") is not None:
-        _fail(
-            message("commands.project_task_writes_project_store"),
-            option="output_dir",
-            reason="store_only_option",
-        )
     result: Options = {}
     for option in spec.options:
         value = options.get(option.name)
@@ -1966,8 +1689,7 @@ def _validate(
                     reason="store_only_option",
                 )
     if (
-        not task
-        and not plain
+        not plain
         and "root" in known
         and "root" not in result
         and "version" not in result
@@ -1980,13 +1702,9 @@ def _validate(
             for name, value in spec.env_root_when.items()
         ):
             result["root"] = store_root().root
-    present = set(result) | ({"root"} if task and "root" in known else set())
+    present = set(result)
     for option in spec.options:
-        if (
-            option.required
-            and option.name not in present
-            and not (area and option.name == "stations")
-        ):
+        if option.required and option.name not in present:
             _fail(
                 message(
                     "commands.missing_required_option_command",
@@ -2021,11 +1739,10 @@ def _validate(
                 ),
                 option=(matched[1] if matched else spec.one_of[0])[0],
             )
-    if not task:
-        _absolutize(result)
+    _absolutize(result)
     rule = _RULES.get(spec.name)
     if rule is not None:
-        rule(result, task)
+        rule(result)
     return result
 
 
@@ -2040,8 +1757,8 @@ def validate_command(
     ``float``, ISO text becomes ``date``, every form of ``years`` (``2024``,
     ``"2020-2023"``, ``"2020,2022"``, ``[2020, "2022-2023"]``) and ``months``
     becomes a sorted tuple of numbers, other lists become tuples without
-    duplicates, and paths become absolute (``version`` against ``root``;
-    ``store_dir`` and ``geometry`` stay relative to the project directory).
+    duplicates, and paths become absolute (``version`` against ``root``,
+    others against the working directory).
     ``None`` values and ``bool`` values equal to their default are omitted,
     so formatting the result with `format_command` and validating it again
     yields identical options. Coordinates are checked by the library
@@ -2069,35 +1786,15 @@ def validate_command(
         options is unknown or invalid, or a required option is missing;
         ``details.option`` names the offending option.
     """
-    return _validate(command, options, task=False)
+    return _validate(command, options)
 
 
 # --- formatowanie ----------------------------------------------------------------------------
 
 
-def _option_json(value: object) -> object:
-    """JSON value of a nested option; paths keep their given (relative) form."""
-    if isinstance(value, Mapping):
-        return {str(key): _option_json(item) for key, item in value.items()}
-    if isinstance(value, tuple | list):
-        return [_option_json(item) for item in value]
-    if isinstance(value, Path):
-        return value.as_posix()
-    if isinstance(value, date):
-        return value.isoformat()
-    return value
-
-
 def _argument(value: object) -> str:
     if isinstance(value, tuple):
         return ",".join(str(item) for item in value)
-    if isinstance(value, Mapping):
-        return json.dumps(
-            _option_json(value),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
     if isinstance(value, float):
         return repr(value)
     if isinstance(value, date):
@@ -2455,14 +2152,6 @@ def _status(result: object) -> Status:
             result.cancelled,
             statuses.count("failed"),
             statuses.count("downloaded") + statuses.count("not_published"),
-        )
-    if isinstance(result, ProjectReport):
-        states = [*result.tasks.values(), *(file.status for file in result.files)]
-        failures = sum(s in ("failed", "stale_plan") for s in states)
-        return _outcome(
-            result.cancelled,
-            failures,
-            len(states) - failures - states.count("cancelled"),
         )
     if isinstance(result, SeriesReport | CatalogReport | PMaXTPStoreResult):
         return _outcome(result.status == "cancelled", int(result.status == "failed"), 0)
@@ -2939,41 +2628,6 @@ def _check_series(command: str) -> Checker:
     return check
 
 
-def _check_manifest(command: str) -> Checker:
-    def check(options: Options, hooks: Hooks) -> StorePlan:
-        directory = cast(Path, options["project_dir"])
-        manifest = directory / PROJECT_FILE
-        if command == "project init":
-            action = (
-                PlanAction(
-                    command,
-                    "current",
-                    message("commands.manifest_exists", manifest=manifest),
-                )
-                if manifest.exists()
-                else PlanAction(
-                    command,
-                    "missing",
-                    message("commands.manifest_will_be_created", manifest=manifest),
-                )
-            )
-        elif manifest.is_file():
-            action = PlanAction(
-                command,
-                "newer",
-                message("commands.manifest_will_be_updated", manifest=manifest),
-            )
-        else:
-            action = PlanAction(
-                command,
-                "check_failed",
-                message("commands.no_manifest", manifest=manifest),
-            )
-        return _plan(directory, [action])
-
-    return check
-
-
 def _check_commands_guide(options: Options, hooks: Hooks) -> StorePlan:
     # The guide is rendered offline from the package; the plan names its target.
     format_, language = options.get("format", "agents"), options.get("lang", "en")
@@ -3025,14 +2679,6 @@ _CHECKS: dict[str, Checker] = {
     "series read": _check_series("series read"),
     "series summary": _check_series("series summary"),
     "series export": _check_series("series export"),
-    "project init": _check_manifest("project init"),
-    "project add": _check_manifest("project add"),
-    "project remove": _check_manifest("project remove"),
-    "project set-store": _check_manifest("project set-store"),
-    "project download": _twin("check_project", without=("plan", "update")),
-    "project check": _twin("check_project", without=("plan",)),
-    "project status": _check_reading("project status", "project_dir"),
-    "project verify": _check_reading("project verify", "project_dir"),
     "commands list": lambda options, hooks: _reading(
         "commands list", message("commands.command_list_description")
     ),
@@ -3057,9 +2703,8 @@ def check_command(
 
     Commands with a check twin use it (``store sync`` → `check_store`,
     ``store catalog`` → `check_catalog`, ``series build`` → `check_series`,
-    ``pmaxtp sync`` → `check_pmaxtp`, ``project download`` →
-    `check_project`); commands that are checks themselves run without
-    writing their plan file. Every other command gets a general plan of
+    ``pmaxtp sync`` → `check_pmaxtp`); commands that are checks themselves run
+    without writing their plan file. Every other command gets a general plan of
     `PlanAction` items: validation, URLs and expected paths, without any
     request (read-only commands are reported ``current``, live reads
     ``unverifiable``).
@@ -3138,7 +2783,6 @@ def _value_schema(
         "bool": {"type": "boolean"},
         "date": {"type": "string", "format": "date"},
         "path": {"type": "string", "x-imgw-type": "path"},
-        "object": {"type": "object"},
     }
     return simple[type_]
 

@@ -256,17 +256,6 @@ class IMGWStoreDependencyError(IMGWStoreError):
         super().__init__(detail, code=code, details=details)
 
 
-class IMGWProjectError(IMGWError):
-    """
-    Invalid project manifest, lock or pinned version.
-
-    Default code: ``validation_error``; a missing manifest is raised with
-    ``code="not_found"``.
-    """
-
-    default_code: ClassVar[ErrorCode] = "validation_error"
-
-
 class IMGWCancelledError(IMGWError):
     """
     Operation interrupted by ``cancel`` or Ctrl+C without a partial report.

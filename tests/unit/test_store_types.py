@@ -14,7 +14,6 @@ from imgwtools.datasets import archive_files
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWError,
-    IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWStoreError,
@@ -34,11 +33,8 @@ from imgwtools.store.types import (
     PlanItem,
     PMaXTPStoreResult,
     Progress,
-    Project,
-    ProjectFile,
-    ProjectReport,
-    ProjectTask,
     SeriesReport,
+    StationSeriesIndex,
     StoreEntry,
     StoreInfo,
     StorePlan,
@@ -53,7 +49,6 @@ from imgwtools.store.types import (
         IMGWStoreError,
         IMGWStoreConflictError,
         IMGWStoreDependencyError,
-        IMGWProjectError,
     ],
 )
 def test_store_errors_extend_imgw_error(error):
@@ -86,7 +81,6 @@ def test_frozen_contracts():
         DownloadReport("plain", Path("/tmp/out"), None, (), (), False),
         CommandResult("store info", False, "ok", None, ()),
         PMaXTPStoreResult("unchanged", None, None, None, None),
-        ProjectReport({}, (), False),
         Meta(
             "imgw-meta/1",
             "pl.imgw.hydro_daily",
@@ -255,34 +249,21 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     json.dumps(served)
 
 
-def test_to_json_writes_project_pins_relative_to_the_store_in_any_working_directory(
+def test_to_json_keeps_relative_paths_relative_in_any_working_directory(
     tmp_path, monkeypatch
 ):
     store = tmp_path / "magazyn"
-    pin = Path(
-        "series/versions/hydro_daily/2024-04-24_6aaf54cd/stations/150160180.parquet"
-    )
-    task = ProjectTask(
-        "dobowe",
-        "store sync",
-        {"datasets": ["pl.imgw.hydro_daily"], "years": [2022]},
-        None,
-        datetime(2026, 10, 18, 20, 0, tzinfo=UTC),
-        "3.0.0",
-        (ProjectFile("station_series", pin, "0" * 64, "150160180"),),
-    )
-    project = Project(tmp_path / "projekt", store, (task,))
-    envelope = CommandResult("project set-store", False, "ok", project, ())
+    parquet = Path("stations/150160180.parquet")
+    entry = StationSeriesIndex(parquet, "0" * 64, 1, {})
+    envelope = CommandResult("series summary", False, "ok", entry, ())
     documents = []
     for directory in (tmp_path, store):
         directory.mkdir(exist_ok=True)
         monkeypatch.chdir(directory)
-        documents.append(envelope.to_json())
+        documents.append(envelope.to_json(root=store))
 
     assert documents[0] == documents[1]
-    result = documents[0]["result"]
-    assert result["store_dir"] == str(store)
-    assert result["tasks"][0]["files"][0]["path"] == pin.as_posix()
+    assert documents[0]["result"]["file"] == parquet.as_posix()
 
 
 def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):
@@ -357,7 +338,7 @@ def test_new_fields_have_defaults_and_catalog_constructs():
         "store info", "Opis", (option,), "store_info", None, "object", "GET"
     )
 
-    assert (operation.task, operation.error_code) == (None, None)
+    assert operation.error_code is None
     assert OperationResult(None, "failed", None, "Błąd").slot is None
     assert StoreEntry("problem", None, None, None, "missing", "Brak").slot is None
     assert (option.default, option.aliases, option.items, option.rest) == (

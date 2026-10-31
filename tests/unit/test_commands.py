@@ -1,4 +1,4 @@
-"""Command catalog (spec §13.3, §13.6): 37 commands, validation, envelope, paging, checks."""
+"""Command catalog (spec §13.3, §13.6): 30 commands, validation, envelope, paging, checks."""
 
 import functools
 import importlib
@@ -13,7 +13,6 @@ import pytest
 import respx
 
 from imgwtools import fetch, store
-from imgwtools import project as project_api
 from imgwtools.commands import (
     check_command,
     data_commands,
@@ -24,18 +23,15 @@ from imgwtools.commands import (
 )
 from imgwtools.datasets import archive_files, datasets
 from imgwtools.exceptions import IMGWCancelledError, IMGWError, IMGWValidationError
-from imgwtools.project import add_project_task, download_project, init_project
 from imgwtools.store.types import (
     CatalogReport,
     CommandCall,
     DownloadItem,
     DownloadReport,
     Notice,
-    OperationResult,
     Page,
     PlanAction,
     PMaXTPStoreResult,
-    ProjectReport,
     SeriesReport,
     StorePlan,
 )
@@ -48,7 +44,6 @@ from tests.contract.support import (
     V3,
     FakeImgw,
     archive_bytes,
-    sha256,
     stamps,
 )
 
@@ -84,14 +79,6 @@ SPEC_COMMANDS = [
     "series read",
     "series summary",
     "series export",
-    "project init",
-    "project add",
-    "project remove",
-    "project set-store",
-    "project download",
-    "project check",
-    "project status",
-    "project verify",
     "commands list",
     "commands schema",
     "commands guide",
@@ -103,7 +90,6 @@ PUBLIC_MODULES = (
     "imgwtools.stations",
     "imgwtools.urls",
     "imgwtools.store",
-    "imgwtools.project",
     "imgwtools.commands",
     "imgwtools.agent_guide",
 )
@@ -215,37 +201,6 @@ VALID: dict[str, list[dict[str, object]]] = {
             "force": True,
         }
     ],
-    "project init": [{"project_dir": "/tmp/proj", "store_dir": "../store"}],
-    "project add": [
-        {
-            "project_dir": "/tmp/proj",
-            "name": "wisla-1",
-            "command": "series select",
-            "options": {"dataset": DAILY, "stations": [RABA], "years": [2024]},
-            "geometry": "obszar.geojson",
-        },
-        {
-            "project_dir": "/tmp/proj",
-            "name": "cell",
-            "command": "pmaxtp sync",
-            "options": {"latitude": 52.23, "longitude": 21.01},
-        },
-    ],
-    "project remove": [{"project_dir": "/tmp/proj", "name": "wisla-1"}],
-    "project set-store": [{"project_dir": "/tmp/proj", "store_dir": "/mnt/imgw"}],
-    "project download": [
-        {
-            "project_dir": "/tmp/proj",
-            "tasks": ["a", "b"],
-            "plan": "/tmp/plan.json",
-            "update": "upgrade",
-        }
-    ],
-    "project check": [
-        {"project_dir": "/tmp/proj", "tasks": ["a"], "plan": "/tmp/plan.json"}
-    ],
-    "project status": [{"project_dir": "/tmp/proj"}],
-    "project verify": [{"project_dir": "/tmp/proj", "tasks": ["a"]}],
     "commands list": [{}, {"lang": "en"}],
     "commands schema": [{}, {"command": "stations find"}],
     "commands guide": [
@@ -335,33 +290,6 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
         ),
         ({"root": ROOT, "dataset": DAILY, "station": RABA, "force": True}, "output"),
     ],
-    "project init": [({"project_dir": "/tmp/p"}, "store_dir")],
-    "project add": [
-        (
-            {
-                "project_dir": "/p",
-                "name": "Zły",
-                "command": "series select",
-                "options": {},
-            },
-            "name",
-        ),
-        (
-            {
-                "project_dir": "/p",
-                "name": "t",
-                "command": "project init",
-                "options": {},
-            },
-            "command",
-        ),
-    ],
-    "project remove": [({"project_dir": "/p"}, "name")],
-    "project set-store": [({"store_dir": "/s"}, "project_dir")],
-    "project download": [({"project_dir": "/p", "update": "latest"}, "update")],
-    "project check": [({"project_dir": "/p", "tasks": ["Zła nazwa"]}, "tasks")],
-    "project status": [({"project_dir": "/p", "plan": "/tmp/x"}, "plan")],
-    "project verify": [({}, "project_dir")],
     "commands list": [({"lang": "de"}, "lang")],
     "commands schema": [({"command": "store delete"}, "command")],
     "commands guide": [({"format": "html"}, "format"), ({"lang": "de"}, "lang")],
@@ -372,33 +300,6 @@ REJECTED = [
     for options, option in cases
 ]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
-# Pins of download_project for the scenario below, recorded before ADR-002 U08; the
-# catalog bytes carry meteo_kind of the fixture's meteo stations (ADR-001 errata
-# 2026-10-19).
-PINS_BEFORE = {
-    "raba": [
-        ("series", "series/versions/hydro_daily/2026-10-19_9a64f921/series.json"),
-        (
-            "station_series",
-            "series/versions/hydro_daily/2026-10-19_9a64f921/stations/149190310.parquet",
-        ),
-        (
-            "input",
-            "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024/"
-            "2026-10-19_b6a19f65/codz_2024.zip",
-        ),
-    ],
-    "cell": [("input", "pmaxtp/versions/POT/751_317/2026-10-20_2c009f3c/cell.json")],
-    "catalog": [("catalog", "stations/versions/2026-10-20_daea7dd5/stations.geojson")],
-}
-PINS_BEFORE["sync"] = PINS_BEFORE["build"] = [
-    *PINS_BEFORE["raba"][:2],
-    (
-        "station_series",
-        "series/versions/hydro_daily/2026-10-19_9a64f921/stations/149190311.parquet",
-    ),
-    PINS_BEFORE["raba"][2],
-]
 
 
 def returning(monkeypatch, module, name, value):
@@ -423,25 +324,6 @@ def fixture_root(tmp_path_factory):
 def imgw():
     with respx.mock(assert_all_called=False) as router:
         yield FakeImgw(router)
-
-
-@pytest.fixture
-def frozen(monkeypatch):
-    class Frozen(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return FROZEN_AT.astimezone(tz)
-
-    for name in (
-        "imgwtools.store.writer",
-        "imgwtools.store.series",
-        "imgwtools.store.catalog",
-        "imgwtools.store.sync",
-        "imgwtools.store.pmaxtp",
-        "imgwtools.commands",
-        "imgwtools.project",
-    ):
-        monkeypatch.setattr(importlib.import_module(name), "datetime", Frozen)
 
 
 def test_every_command_calls_a_public_function_named_by_its_options():
@@ -606,9 +488,6 @@ def test_validate_command_normalizes_aliases_numbers_dates_years_and_paths(
     )
     assert exported["version"] == tmp_path / "store" / "archives" / "versions" / "x"
     assert validate_command(
-        "project init", options={"project_dir": "p", "store_dir": "../store"}
-    ) == {"project_dir": tmp_path / "p", "store_dir": Path("../store")}
-    assert validate_command(
         "store sync", options={"root": "s", "plan": "p.json", "series": True}
     ) == {"root": tmp_path / "s", "plan": tmp_path / "p.json"}
     assert (
@@ -617,21 +496,6 @@ def test_validate_command_normalizes_aliases_numbers_dates_years_and_paths(
         )["series"]
         is False
     )
-    added = validate_command(
-        "project add",
-        options={
-            "project_dir": "p",
-            "name": "t",
-            "command": "series select",
-            "options": '{"dataset": "hydro/dobowe", "stations": "149190310", '
-            '"years": "2020-2021"}',
-        },
-    )
-    assert added["options"] == {
-        "dataset": DAILY,
-        "stations": (RABA,),
-        "years": (2020, 2021),
-    }
 
 
 @pytest.mark.parametrize(
@@ -695,72 +559,6 @@ def test_validate_command_normalizes_aliases_numbers_dates_years_and_paths(
                 "start": "2024-01-01T00:00",
             },
             "start",
-        ),
-        (
-            "project add",
-            {
-                "project_dir": "p",
-                "name": "t",
-                "command": "store info",
-                "options": {},
-                "geometry": "obszar.geojson",
-            },
-            "geometry",
-        ),
-        (
-            "project add",
-            {
-                "project_dir": "p",
-                "name": "t",
-                "command": "series select",
-                "options": {"dataset": DAILY, "stations": RABA},
-            },
-            "options",
-        ),
-        (
-            "project add",
-            {
-                "project_dir": "p",
-                "name": "t",
-                "command": "series select",
-                "options": {
-                    "root": "/s",
-                    "dataset": DAILY,
-                    "stations": RABA,
-                    "years": 1,
-                },
-            },
-            "options",
-        ),
-        (
-            "project add",
-            {
-                "project_dir": "p",
-                "name": "t",
-                "command": "store info",
-                "options": "[1]",
-            },
-            "options",
-        ),
-        (
-            "project add",
-            {
-                "project_dir": "p",
-                "name": "t",
-                "command": "store sync",
-                "options": {"dataset": [DAILY], "years": 2024},
-            },
-            "options",
-        ),
-        (
-            "project add",
-            {
-                "project_dir": "p",
-                "name": "t",
-                "command": "pmaxtp sync",
-                "options": {"lat": 52.2, "lon": 21.0},
-            },
-            "options",
         ),
     ],
 )
@@ -910,11 +708,6 @@ def _plan(*statuses):
     return StorePlan("imgw-plan/1", Path("/s"), FROZEN_AT, (), {}, actions)
 
 
-def _project(tasks, *files, cancelled=False):
-    results = tuple(OperationResult(None, s, None, None) for s in files)
-    return ProjectReport(tasks, results, cancelled)
-
-
 ARCHIVES = {"dataset": DAILY, "years": 2024}
 STATUS_CASES = [
     (
@@ -956,38 +749,6 @@ STATUS_CASES = [
         "check_store",
         _plan("missing", "newer"),
         "ok",
-    ),
-    (
-        "project download",
-        {"project_dir": "/p"},
-        project_api,
-        "download_project",
-        _project({"a": "failed", "b": "current"}),
-        "partial",
-    ),
-    (
-        "project download",
-        {"project_dir": "/p"},
-        project_api,
-        "download_project",
-        _project({"a": "failed"}, "failed"),
-        "failed",
-    ),
-    (
-        "project download",
-        {"project_dir": "/p"},
-        project_api,
-        "download_project",
-        _project({"a": "upgraded"}, "new", "stale_plan"),
-        "partial",
-    ),
-    (
-        "project download",
-        {"project_dir": "/p"},
-        project_api,
-        "download_project",
-        _project({"a": "cancelled"}, cancelled=True),
-        "cancelled",
     ),
     (
         "series build",
@@ -1073,14 +834,6 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
 ):
     root = tmp_path / "store"
     shutil.copytree(fixture_root, root)
-    project = tmp_path / "project"
-    init_project(project, store_dir=root)
-    add_project_task(
-        project,
-        name="raba",
-        command="series select",
-        options={"dataset": DAILY, "stations": [RABA], "years": [2024]},
-    )
     version = store.current_version(
         root, slot="archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
     ).version
@@ -1127,19 +880,6 @@ def test_check_command_of_every_command_fetches_no_content_and_writes_nothing(
             "station": RABA,
             "output": tmp_path / "series.csv",
         },
-        "project init": {"project_dir": tmp_path / "other", "store_dir": root},
-        "project add": {
-            "project_dir": project,
-            "name": "info",
-            "command": "store info",
-            "options": {},
-        },
-        "project remove": {"project_dir": project, "name": "raba"},
-        "project set-store": {"project_dir": project, "store_dir": root},
-        "project download": {"project_dir": project},
-        "project check": {"project_dir": project, "plan": tmp_path / "plan.json"},
-        "project status": {"project_dir": project},
-        "project verify": {"project_dir": project},
         "commands list": {"lang": "en"},
         "commands schema": {"command": "store sync"},
         "commands guide": {"format": "llms", "output": tmp_path / "llms.txt"},
@@ -1286,76 +1026,3 @@ def test_check_of_store_sync_with_a_plan_returns_it_for_the_same_store(
     with pytest.raises(IMGWValidationError) as error:
         check_command("store sync", options={"root": tmp_path, "plan": saved})
     assert error.value.details["option"] == "plan"
-
-
-def test_project_check_writes_its_plan_only_outside_the_store(tmp_path, fixture_root):
-    root = tmp_path / "store"
-    shutil.copytree(fixture_root, root)
-    project = tmp_path / "project"
-    init_project(project, store_dir=root)
-    target = tmp_path / "plan.json"
-    result = run_command(
-        "project check", options={"project_dir": project, "plan": target}
-    )
-    assert result.status == "ok"
-    assert StorePlan.from_json(target) == result.result
-    inside = root / "plan.json"
-    with pytest.raises(IMGWValidationError) as error:
-        run_command("project check", options={"project_dir": project, "plan": inside})
-    assert error.value.details["option"] == "plan" and not inside.exists()
-
-
-def test_download_project_pins_the_same_files_as_before_the_catalog(
-    tmp_path, imgw, frozen
-):
-    root = build_fixture_store(tmp_path / "store").root
-    project = tmp_path / "project"
-    imgw.publish(H2024, V3, NEW)
-    imgw.publish_catalog_sources()
-    imgw.publish_pmaxtp("pmaxtp_pot_first")
-    init_project(project, store_dir="../store")
-    tasks = {
-        "raba": (
-            "series select",
-            {"dataset": DAILY, "stations": [RABA], "years": [2024]},
-        ),
-        "sync": ("store sync", {"datasets": [DAILY], "years": [2024]}),
-        "build": ("series build", {"dataset": DAILY}),
-        "cell": ("pmaxtp sync", {"latitude": 52.23, "longitude": 21.01}),
-        "catalog": ("store catalog", {}),
-    }
-    for name, (command, options) in tasks.items():
-        add_project_task(project, name=name, command=command, options=options)
-    report = download_project(project)
-    assert report.tasks == dict.fromkeys(tasks, "current")
-    pinned = {
-        task.name: [(pin.role, pin.path.as_posix()) for pin in task.files]
-        for task in project_api.open_project(project).tasks
-    }
-    assert pinned == PINS_BEFORE
-    assert all(
-        sha256(root / pin.path) == pin.sha256
-        for task in project_api.open_project(project).tasks
-        for pin in task.files
-    )
-
-
-def test_failed_download_of_a_datasets_download_task_fails_the_task(tmp_path, imgw):
-    root = tmp_path / "store"
-    store.init_store(root)
-    project = tmp_path / "project"
-    init_project(project, store_dir=root)
-    add_project_task(
-        project,
-        name="pobranie",
-        command="datasets download",
-        options={"dataset": SEMIANNUAL, "years": 2024, "params": "H,Q"},
-    )
-    stored, missing = archive_files(SEMIANNUAL, years=2024, params="H,Q")
-    imgw.publish(stored, V1, archive_bytes(H2023))
-    imgw.router.get(missing.url).mock(return_value=httpx.Response(404))
-    report = download_project(project)
-    assert report.tasks == {"pobranie": "failed"}
-    assert [result.status for result in report.files] == ["failed"]
-    # The task runs in the project store: the first file is a version there.
-    assert store.current_version(root, slot=fetch._archive_slot(stored)) is not None

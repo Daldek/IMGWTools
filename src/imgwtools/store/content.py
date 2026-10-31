@@ -2,8 +2,8 @@
 
 The bytes of an archive are stored 1:1 and their SHA-256 stays the identity of a
 version. ``content_sha256`` is the SHA-256 of a canonical form of the same bytes;
-it only decides whether other bytes carry new content (`write_archive`) and
-whether a project pin can be restored by content. The registry of forms is
+it decides whether other bytes carry new content (`write_archive`) and lets a
+consumer recognise equal content behind other bytes. The registry of forms is
 closed and append-only: a released form never changes, and another set of
 volatile fields or another method needs a new identifier.
 """
