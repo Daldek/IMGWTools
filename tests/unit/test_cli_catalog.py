@@ -85,6 +85,7 @@ CLI_ERROR = {
                 "io_error",
                 "cancelled",
                 "forbidden",
+                "unsupported",
                 "internal_error",
             ]
         },
@@ -709,6 +710,15 @@ def _forbidden(tmp_path, root, router, monkeypatch):
     return ["store", "info", "-r", root]
 
 
+def _unsupported(tmp_path, root, router, monkeypatch):
+    # No catalog command refuses a combination itself; a refusal below reaches exit 15.
+    refusal = IMGWError(
+        "Not rebuildable", code="unsupported", details={"reason": "test"}
+    )
+    raising(monkeypatch, store, "store_info", refusal)
+    return ["store", "info", "-r", root]
+
+
 def _internal_error(tmp_path, root, router, monkeypatch):
     raising(monkeypatch, store, "store_info", RuntimeError("awaria testowa"))
     return ["store", "info", "-r", root]
@@ -724,6 +734,7 @@ ERRORS = {
     "store_unavailable": _store_unavailable,
     "io_error": _io_error,
     "forbidden": _forbidden,
+    "unsupported": _unsupported,
     "internal_error": _internal_error,
 }
 

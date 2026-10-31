@@ -145,6 +145,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`validate_command(command, /, *, options)`|Normalized options or `IMGWValidationError` with `details.option`|
 |`format_command(command, /, *, options, run=None)`|Canonical CLI command line of a call; `run={"check": True}` adds `--check`|
 |`parse_command(line, /)`|An `imgw` line (text or words) → `CommandCall(command, options, run)` with the texts the CLI passes (`run`: `check`); a mistake of the line is `validation_error`, `details.reason="usage"`|
+|`command_for_version(version, *, root=None)`|Offline, read-only: the `CommandCall` that fetches a stored version again, from its sidecar and the layout (`version` relative to `root`, default `store_root()`: directory, main file, sidecar, PMAXTP `response.json` or a series station file); the shape `parse_command` gives, with the absolute `root`. Archives → `store sync` (IMGW-PIB `--datasets --years [--months]`, ČHMÚ `--datasets --stations [--years]`), station lists and catalogs → `store catalog --provider`, series → `series build --dataset`, PMAXTP → `pmaxtp sync` of its point and cell. Refusals: `unsupported` with `details.reason="command_not_rebuildable"` (catalog built with `user_locations`, sidecar without a needed field, a file `store sync` does not select), `not_found`, `data_error`; ADR-008|
 |`run_command(command, /, *, options)`|Run a command → `CommandResult` (list commands → `Page`)|
 |`check_command(command, /, *, options)`|Plan of a command without side effects → `CommandResult`|
 |`agent_guide(*, format="agents", lang="en", output=None, force=False)`|Agent guide `AGENTS.md`/`llms.txt`: line iterator, or with `output` one plain file and its `OutputReport`|
@@ -161,7 +162,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`NormalizedRecord`, `Measurement`|Normalized archive/series record with value flags (`Measurement.quality`, `source_flag` for ČHMÚ meteo)|
 |`ProviderDescriptor`|Data provider: id, names, country, key prefix, base URL, license, station code pattern, datasets|
 |`CommandResult`, `Page`|Result envelope (`imgw-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
-|`CommandCall`|A command line read by `parse_command`: `command`, `options`, `run`|
+|`CommandCall`|A command line read by `parse_command` (or rebuilt by `command_for_version`): `command`, `options`, `run`|
 |`FileResult`, `OutputReport`|One written file `{path, size_bytes, sha256, status}` and the result of an export `{output, files[]}`|
 
 **Exceptions** (every `IMGWError` has `code` from `ERROR_CODES` and `details`):
@@ -301,6 +302,7 @@ Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-00
 |`io_error`|File system error / Błąd systemu plików|9|500|
 |`cancelled`|Operation cancelled / Operację anulowano|130|—|
 |`forbidden`|Write not permitted / Brak uprawnień do zapisu|12|403|
+|`unsupported`|Not supported / Nieobsługiwane|15|422|
 |`method_not_allowed`|HTTP method not allowed / Niedozwolona metoda HTTP|—|405|
 |`internal_error`|Internal error / Błąd wewnętrzny|1|500|
 

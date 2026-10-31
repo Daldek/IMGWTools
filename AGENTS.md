@@ -45,7 +45,7 @@ A command returns the `imgw-result/1` envelope `{"schema", "command", "check", "
 | `failed` | 11 | no item succeeded (in a plan: `check_failed`); the envelope is complete |
 | `cancelled` | 130 | cancelled (Ctrl+C, a cancelled request); a partial `result` or `null` |
 
-An error has a code from a closed registry, the same in Python, the CLI, REST (problem+json) and MCP (`isError`); `details.option` names the wrong option. Codes with the CLI exit code and the HTTP status (`—`: never reported): `validation_error` (2/400), `not_found` (3/404), `conflict` (4/409), `source_unavailable` (5/502), `missing_dependency` (6/503), `data_error` (7/500), `store_unavailable` (8/503), `io_error` (9/500), `cancelled` (130/—), `forbidden` (12/403), `method_not_allowed` (—/405), `internal_error` (1/500).
+An error has a code from a closed registry, the same in Python, the CLI, REST (problem+json) and MCP (`isError`); `details.option` names the wrong option. Codes with the CLI exit code and the HTTP status (`—`: never reported): `validation_error` (2/400), `not_found` (3/404), `conflict` (4/409), `source_unavailable` (5/502), `missing_dependency` (6/503), `data_error` (7/500), `store_unavailable` (8/503), `io_error` (9/500), `cancelled` (130/—), `forbidden` (12/403), `unsupported` (15/422), `method_not_allowed` (—/405), `internal_error` (1/500).
 
 ## Datasets
 

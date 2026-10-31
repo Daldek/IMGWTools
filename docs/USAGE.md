@@ -244,6 +244,28 @@ print(schema["x-imgw"]["writes"], schema["x-imgw"]["network"], schema["x-imgw"][
 print(command_schema("store sync", lang="en")["description"])  # opisy po angielsku, struktura bez zmian
 ```
 
+Komendę, która pobiera zapisaną wersję jeszcze raz, odtwarza z jej sidecara `command_for_version` (offline, bez zapisu; ADR-008). Wynik ma kształt `parse_command`, więc przyjmują go `format_command`, `check_command` i `run_command`; `root` to bezwzględny korzeń magazynu (domyślnie `store_root()`).
+
+```python
+from imgwtools import check_command, command_for_version, format_command
+
+call = command_for_version("archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024/2026-10-19_b6a19f65/codz_2024.zip",
+                           root="/dane/imgw")
+print(format_command(call.command, options=call.options))
+# imgw store sync --root /dane/imgw --datasets pl.imgw.hydro_daily --years 2024
+plan = check_command(call.command, options=call.options)  # plan tego pliku (listing + HEAD)
+```
+
+| Wersja | Komenda |
+|---|---|
+| archiwum IMGW-PIB | `store sync --datasets <klucz> --years <rok>` (`--months <miesiąc>` pliku miesięcznego) |
+| archiwum ČHMÚ hydro / meteo | `store sync --datasets <klucz> --stations <kod>` (hydro także `--years <rok>`) |
+| lista stacji, katalog stacji | `store catalog --provider <dostawca>` |
+| wersja szeregu (albo jej plik stacji) | `series build --dataset <klucz>` |
+| komórka PMAXTP | `pmaxtp sync --latitude --longitude --method --ind-x --ind-y` |
+
+Komenda jest najwęższą, która wybiera plik wersji; może objąć pliki obok (`H`, `Q` i `T` półrocza, wszystkie elementy stacji meteo ČHMÚ). Wersja, której metadane nie odtwarzają wywołania, to błąd `unsupported` z `details.reason="command_not_rebuildable"` (katalog zbudowany z pliku współrzędnych użytkownika, sidecar bez potrzebnego pola, plik, którego `store sync` nie wybiera); brak wersji to `not_found`, zły sidecar to `data_error`.
+
 ### Wersja asynchroniczna
 
 ```python
@@ -292,6 +314,7 @@ except IMGWError as e:
 | `io_error` | Błąd systemu plików | 9 | 500 |
 | `cancelled` | Operację anulowano | 130 | — |
 | `forbidden` | Brak uprawnień do zapisu | 12 | 403 |
+| `unsupported` | Nieobsługiwane (np. `command_not_rebuildable` z `command_for_version`) | 15 | 422 |
 | `method_not_allowed` | Niedozwolona metoda HTTP | — | 405 |
 | `internal_error` | Błąd wewnętrzny | 1 | 500 |
 
@@ -625,7 +648,7 @@ Zbiory „tylko pobieranie” obsługują `datasets files|download`, ale nie mag
 
 ### Integracje
 
-- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_station_list`, `read_archive`, `read_series_index`, `read_series`, `summarize_series`, `read_pmaxtp`), dane obu dostawców tym samym adapterem (`provider` we wpisach, katalogach i stacjach; wpisy `kind="observation"` tylko do odczytu); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty. Od znacznika czytnik wymaga tylko `schema` (tak jak `open_store`); każdy problem z `StoreInfo.problems` ma kod w `problem_codes`; `Meta.producer` i `Meta.producer_version` mówią, które wydanie zapisało wersję; `iter_store(skip_versions=…)` zwraca znane konsumentowi wersje jako wpisy `skipped`, bez listowania i czytania ich (skan przyrostowy, parametr tylko biblioteki Pythona). Projekty przypinające wersje magazynu (po `sha256` i `content_sha256` z sidecara) prowadzi Archiwista (`archiwista-project/1`, ADR-008); IMGWTools nie ma własnych projektów.
+- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_station_list`, `read_archive`, `read_series_index`, `read_series`, `summarize_series`, `read_pmaxtp`, `command_for_version`), dane obu dostawców tym samym adapterem (`provider` we wpisach, katalogach i stacjach; wpisy `kind="observation"` tylko do odczytu); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty. Od znacznika czytnik wymaga tylko `schema` (tak jak `open_store`); każdy problem z `StoreInfo.problems` ma kod w `problem_codes`; `Meta.producer` i `Meta.producer_version` mówią, które wydanie zapisało wersję; `iter_store(skip_versions=…)` zwraca znane konsumentowi wersje jako wpisy `skipped`, bez listowania i czytania ich (skan przyrostowy, parametr tylko biblioteki Pythona). Projekty przypinające wersje magazynu (po `sha256` i `content_sha256` z sidecara) prowadzi Archiwista (`archiwista-project/1`, ADR-008); IMGWTools nie ma własnych projektów. Sprawdzenie aktualności i odtworzenie przypiętej wersji daje `command_for_version` (komenda wersji z jej sidecara, `unsupported`/`command_not_rebuildable`, gdy metadane jej nie odtwarzają; sekcja „Katalog komend”).
 - **Retman** uruchamia działania jako handler przez publiczny katalog komend (`command_schema`, `data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`) — te same opcje, walidacja, koperta i kody błędów co w CLI i REST; opisy angielskie z `command_schema(lang="en")`, skutki z `x-imgw.writes` i `x-imgw.network`.
 
 Poprzedni opcjonalny cache SQLite został usunięty w 3.0.0 bez migracji — zob. `docs/CHANGELOG.md`.

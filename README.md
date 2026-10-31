@@ -29,6 +29,7 @@ Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 30 komend (`imgw co
 - niezmienne wersje archiwów IMGW-PIB i ČHMÚ 1:1 z sumami SHA-256, nagłówkami HTTP i licencją w sidecarze `*.meta.json`,
 - sprawdzanie aktualności bez pobierania (IMGW-PIB: listing + `HEAD`, ČHMÚ: jeden listing katalogu serwera) i plan `imgw-plan/1`,
 - szeregi stacji w Parquet, katalogi stacji `stations.geojson` obu dostawców, komórki PMAXTP, eksport CSV/JSONL,
+- komenda, która pobiera zapisaną wersję jeszcze raz, odtwarzana z jej sidecara (`command_for_version`, dla pinów projektów Archiwisty),
 - czytelny offline z dysku lokalnego lub udziału sieciowego, bez bazy danych.
 
 ---

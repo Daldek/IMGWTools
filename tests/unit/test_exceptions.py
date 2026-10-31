@@ -38,6 +38,7 @@ SPEC_TABLE = {
     "io_error": (9, 500, "File system error"),
     "cancelled": (130, None, "Operation cancelled"),
     "forbidden": (12, 403, "Write not permitted"),
+    "unsupported": (15, 422, "Not supported"),
     "method_not_allowed": (None, 405, "HTTP method not allowed"),
     "internal_error": (1, 500, "Internal error"),
 }
@@ -52,6 +53,7 @@ TITLES_PL = {
     "io_error": "Błąd systemu plików",
     "cancelled": "Operację anulowano",
     "forbidden": "Brak uprawnień do zapisu",
+    "unsupported": "Nieobsługiwane",
     "method_not_allowed": "Niedozwolona metoda HTTP",
     "internal_error": "Błąd wewnętrzny",
 }
@@ -149,7 +151,7 @@ def test_error_crosses_a_process_boundary():
 
 def test_registry_matches_the_spec_table():
     assert set(ERROR_CODES) == set(SPEC_TABLE) == set(get_args(ErrorCode))
-    assert len(ERROR_CODES) == 12
+    assert len(ERROR_CODES) == 13
     for code, spec in ERROR_CODES.items():
         assert spec.code == code
         assert (spec.exit_code, spec.http_status, spec.title) == SPEC_TABLE[code]

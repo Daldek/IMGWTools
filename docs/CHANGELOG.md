@@ -11,6 +11,29 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 
 ### Added
 
+- **`command_for_version(version, *, root=None)` (ADR-008, Nogat ECO-054, plan 2026-10-31 step 3):**
+  the data command that fetches a stored version again, rebuilt offline and read-only from its
+  sidecar (`imgw-meta/1`) and the store layout, as the `CommandCall` that `parse_command` reads
+  from the canonical line of `format_command` (options as texts, `root` the absolute store root,
+  empty `run`), so `format_command`, `check_command` and `run_command` take it. `version` is the
+  version directory, its main file (`StoreEntry.version`), its sidecar, the PMAXTP `response.json`
+  or a station file of a series version, relative to `root` (default `store_root()`); the main
+  file need not exist, so Archiwista can restore a pin whose data are gone. IMGW-PIB archives give
+  `store sync --datasets <key> --years <year>` (`--months` of a monthly file), ČHMÚ archives
+  `store sync --datasets <key> --stations <code>` (`--years` of a hydrological file), station
+  lists and catalogs `store catalog --provider <provider>`, series versions `series build
+  --dataset <key>` and PMAXTP cells `pmaxtp sync` of their point, method and cell. The call is
+  the narrowest that selects the version's file; it may cover files beside it (the `H`, `Q`, `T`
+  files of a half-year, every element of a ČHMÚ meteorological station). Refused, never guessed:
+  a catalog built with a user's coordinates file (only its name is recorded), a sidecar without a
+  field the call needs, a file `store sync` does not select (`unsupported`,
+  `details.reason="command_not_rebuildable"`, the text says how to pin it instead); a missing
+  version or sidecar is `not_found`, an invalid or contradicting sidecar `data_error`, a path that
+  is no version `validation_error` (`details.option="version"`). Python only: no catalog command.
+- **Error code `unsupported` (exit 15, HTTP 422; Nogat ERR registry):** "Not supported" /
+  "Nieobsługiwane", a valid request outside what the tool can do; `command_for_version` is its
+  first user. `ERROR_CODES`, the CLI, REST (problem+json, OpenAPI `4XX`), MCP, `contract_schemas.json`
+  (`problem+json`, `cli-error`) and the error tables of `AGENTS.md` carry it.
 - **`parse_command(line)` and `format_command(..., run=)` (AGI-2.1, request of Archiwista):**
   `parse_command` reads an `imgw` command line, a text or its words with or without the leading
   `imgw`, into `CommandCall(command, options, run)`, so a pasted line becomes a call. The flags are
@@ -119,8 +142,8 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   (`imgw-meta/1`), the observation register (`imgw-observation/1`), `run_command`,
   `check_command`, the read-only `series select` and `imgwtools.testing`. Projects were never
   released, so existing `imgw-project.json` manifests are not migrated (Nogat plan decision D4).
-  Migration: keep a project in Archiwista; the command of a stored version comes with
-  `command_for_version` in a follow-up change.
+  Migration: keep a project in Archiwista; the command of a stored version comes from
+  `command_for_version` (Added).
 - **Breaking — `IMGW_DATA_DIR` no longer names the reference data (DEV-18.2):** `IMGW_DATA_DIR`
   (`data_dir`) is now the user data directory (`platformdirs.user_data_path("nogat")` by default),
   the parent of the stores (`<data_dir>/imgw`) and of the server state. The directory of the

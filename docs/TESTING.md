@@ -32,11 +32,12 @@ uv run mypy src tests
 |File|Tests|Description|
 |---|---|---|
 |`tests/conftest.py`|-|Shared fixtures; autouse `isolated_reference_dir` (`settings.reference_dir` in a temporary directory)|
-|`tests/unit/test_public_store_api.py`|180|`__all__` == spec §13.12 + ČHMÚ + `agent_guide`, removed names absent, light imports|
-|`tests/unit/test_cli_catalog.py`|141|CLI generated from the catalog: envelope, errors, exit codes, streams, help languages|
+|`tests/unit/test_public_store_api.py`|182|`__all__` == spec §13.12 + ČHMÚ + `agent_guide`, removed names absent, light imports|
+|`tests/unit/test_cli_catalog.py`|142|CLI generated from the catalog: envelope, errors, exit codes, streams, help languages|
 |`tests/unit/test_api_commands.py`|150|REST routes from the catalog, problem+json, write guard, refused request options, `Accept-Language`|
 |`tests/unit/test_command_schema.py`|93|`command_schema`, `imgw-commands/1`|
 |`tests/unit/test_commands.py`|51|Catalog, validation, `run_command`/`check_command`, paging|
+|`tests/unit/test_command_for_version.py`|19|`command_for_version` on `complete_pl_cz` and a PMAXTP cell: the call of each family, its line read back, its offline plan of the same file; refusals `unsupported`, `not_found`, `data_error`, `validation_error`|
 |`tests/unit/test_fetch_live.py`|66|Live functions with `respx`|
 |`tests/unit/test_datasets.py`|59|Registry, aliases, `archive_files`, `YearsArg`|
 |`tests/unit/test_parsers.py`|50|Hydro/meteo/station-list parsers|
@@ -51,15 +52,15 @@ uv run mypy src tests
 |`tests/unit/test_default_root.py`, `test_environment.py`|43|Default root and its source (`IMGW_ROOT`, `nogat.toml`, `<data_dir>/imgw`), REST and MCP write refusals, `nogat.toml` settings|
 |`tests/unit/test_library_install.py`|3|Wheel built from the checkout, installed without extras into a fresh `uv` venv: `import imgwtools` and `list_commands` run (marker `slow`, ~2 s, in the gate)|
 |`tests/unit/` other files|214|fetch, models, stations, urls, coverage, download_archives, fixture builder, reference data, CLI admin/main, API main|
-|`tests/contract/test_interface_contract.py`|81|Python = CLI = REST for all 28 REST commands, error matrix, paging|
+|`tests/contract/test_interface_contract.py`|82|Python = CLI = REST for all 28 REST commands, error matrix, paging|
 |`tests/contract/test_command_lines.py`|161|Every example call of the catalog: `parse_command` reads its line, `validate_command` accepts it, `format_command` writes the same line|
 |`tests/contract/test_chmi_contract.py`|63|IMGW-15..19 on `complete_pl_cz`; Python = CLI = REST = MCP for ČHMÚ runs|
-|`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|83|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
+|`tests/contract/test_mcp_contract.py`, `test_mcp_http_contract.py`|85|MCP (stdio, `/mcp`) = Python = CLI = REST for every contract case and error code|
 |`tests/contract/` other files|12|Store contract (sidecar core of every kind of version), CLI = API parity|
 |`tests/live/test_interfaces_live.py`|45|Live IMGW-PIB: 30 commands × Python/`imgw`/REST, 6 live errors, MCP leg (`-k imgw_mcp`, 8 commands); marker `live`|
 |`tests/live/test_chmi_live.py`|22|Live ČHMÚ (opendata.chmi.cz) through Python/CLI/REST/MCP with a request log; marker `live`|
 
-**Total: 2513 tests** (`pytest --collect-only`, 2026-10-31): 2446 offline, 67 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`). The counts of the rows above were recounted the same day with `pytest --collect-only -q`.
+**Total: 2538 tests** (`pytest --collect-only`, 2026-10-31): 2471 offline, 67 live (`uv run pytest tests/live -m live`; JSON report via `IMGW_LIVE_REPORT=<file>`). The counts of the rows above were recounted the same day with `pytest --collect-only -q`.
 
 ## Testy (z README)
 
