@@ -137,7 +137,7 @@ for record in read_series(root=store, dataset="hydro/miesieczne", station="15221
     q = record.measurements["Q_mean"]
     print(record.date, q.value, q.flag)  # flag: value|missing|no_phenomenon|accumulated
 
-# 4. Wybór wersji szeregu dla zestawu stacji (wejście zadań projektu)
+# 4. Wybór wersji szeregu dla zestawu stacji (tylko odczyt)
 selection = select_series(store, dataset="pl.imgw.hydro_monthly", stations=["152210170"], years=2023)
 
 # 5. Eksport CSV z jednostkami i atrybucją IMGW-PIB (bez output: iterator linii; z output: jeden plik i OutputReport, istniejący plik wymaga force=True)
@@ -225,7 +225,6 @@ Reguły i zachowanie ČHMÚ:
 - **Wersje:** ČHMÚ regeneruje pliki masowo. Te same bajty pod nowym `Last-Modified` dają `relabeled` (kopia, jak w IMGW-PIB); inne bajty tej samej treści (JSON hydro i listy stacji bez koperty `zaznamID`/`datumVytvoreni`, forma `chmi-json/1`, pole `content_sha256` sidecara) — `unchanged` bez nowej wersji, z komunikatem `content_unchanged` i obserwacją nowego sygnału w `observations/`, więc następne sprawdzenie daje `current` bez pobierania.
 - **Szeregi:** `series.json` ma okresy znane per stacja (`stations[<kod>].periods`); szereg meteo ma kolumny `<V>_quality` i `<V>_source_flag`, a wartości nie są poprawiane według jakości. `series select` przyjmuje tylko lata z okresów szeregu (zakres przez rok nieopublikowany → `validation_error`).
 - **Katalog stacji:** osobna wersja katalogu dostawcy (`build_catalog(store, provider="CHMI")`, `imgw store catalog --provider CHMI`), położenie z metadanych `now` i historycznych z kontrolą obrysu Czech; współrzędne mają wartość z publikacji (JSON nie zachowuje końcowych zer zapisu, np. `50.6493690` → `50.649369`).
-- **Projekty:** zadanie dotyczy jednego zbioru, więc projekt może łączyć zadania IMGW-PIB i ČHMÚ. Piny zbiorów ČHMÚ z formą kanoniczną (`cz.chmi.hydro_daily` — archiwa, szereg i pliki stacji — oraz listy stacji) odtwarzają się z identycznymi bajtami albo — gdy źródło opublikowało inne bajty tej samej treści — jako `restored_by_content` (stan pinu `content_match`, ostrzeżenie `pin_restored_by_content` z obiema ścieżkami i sumami), a manifest się nie zmienia; piny CSV meteo ČHMÚ i IMGW-PIB — wyłącznie z identycznymi bajtami.
 - **Licencja:** CC BY 4.0; sidecary, szeregi, katalog i eksporty niosą atrybucję ČHMÚ (postaci przetworzone — z oznaczeniem zmian), a komunikat `license_terms` podaje warunki licencji.
 
 ### Katalog komend
@@ -329,7 +328,6 @@ imgw store export --version archives/versions/<ścieżka>/<wersja> --format json
 imgw series summary -d hydro/miesieczne -s 152210170
 imgw series export -d hydro/miesieczne -s 152210170 --variables Q_mean --output q.csv
 imgw pmaxtp sync --lat 52.23 --lon 21.01
-imgw project init --project-dir ./projekt --store-dir /dane/imgw
 
 # Dane ČHMÚ (kody stacji WIGOS; -s/--stations wymagane dla cz.chmi.*)
 imgw datasets providers
@@ -386,14 +384,6 @@ Komendy katalogu (pełna lista: `imgw commands list`):
 | `imgw series read` | `read_series` | — | `GET /api/v1/series/read` |
 | `imgw series summary` | `summarize_series` | — | `GET /api/v1/series/summary` |
 | `imgw series export` | `export_series` | `check_command` | `GET /api/v1/series/export` |
-| `imgw project init` | `init_project` | `check_command` | — (lokalna) |
-| `imgw project add` | `add_project_task` | `check_command` | — (lokalna) |
-| `imgw project remove` | `remove_project_task` | `check_command` | — (lokalna) |
-| `imgw project set-store` | `set_project_store` | `check_command` | — (lokalna) |
-| `imgw project download` | `download_project` | `check_project` | — (lokalna) |
-| `imgw project check` | `check_project` | sama | — (lokalna) |
-| `imgw project status` | `get_project_status` | — | — (lokalna) |
-| `imgw project verify` | `verify_project` | — | — (lokalna) |
 | `imgw commands list` | `list_commands` | — | `GET /api/v1/commands/list` |
 | `imgw commands schema` | `command_schema` | — | `GET /api/v1/commands/schema` |
 | `imgw commands guide` | `agent_guide` | `check_command` | `GET /api/v1/commands/guide` |
@@ -411,9 +401,9 @@ Poza katalogiem: `imgw version`, `imgw server`, `imgw mcp` i `imgw admin keys|cr
 | `2`–`9`, `1` | błąd według tabeli kodów (`validation_error` 2 … `io_error` 9, `internal_error` 1) |
 | `130` | anulowanie Ctrl+C |
 
-Punkt PMAXTP w ramce współrzędnych Polski, ale poza siatką IMGW (np. Kaliningrad, Lwów, Bałtyk) daje `validation_error` (CLI 2, REST 400). `imgw project set-store` przyjmuje nowy pusty magazyn z ostrzeżeniem `pins_not_in_store`; następne `imgw project download` odtwarza przypięte pliki z identycznym SHA-256 — a pliki ČHMÚ z formą kanoniczną także z tą samą treścią (`restored_by_content`, ostrzeżenie `pin_restored_by_content`) — inaczej zgłasza błąd zadania.
+Punkt PMAXTP w ramce współrzędnych Polski, ale poza siatką IMGW (np. Kaliningrad, Lwów, Bałtyk) daje `validation_error` (CLI 2, REST 400).
 
-**Zapis danych.** Komenda zapisująca ma dwa sposoby zapisu (DEV-19). `-o`/`--output-dir` zapisuje same pliki, bez metadanych, pod nazwami, które mają w magazynie (`datasets download`: układ ścieżek serwera dostawcy; `pmaxtp sync`: dwa pliki nazwane indeksami komórki); katalog powstaje, gdy go brak. Katalog, który jest magazynem (dowolnego narzędzia Nogat) albo leży w magazynie, jest odrzucany przed pierwszym żądaniem błędem `conflict` (`details.reason` = `output_in_store`, `details.paths` to ten katalog). Potem przed pierwszym bajtem powstaje pełna lista celów: duplikat nazwy, istniejący plik bez `--force` i cel, który wszedłby do podkatalogu z magazynem, kończą się błędem `conflict` (`details.reason` = `duplicate_output_name`, `output_exists`, `output_in_store`; `details.paths` wymienia wszystkie ścieżki). `--check` pokazuje plan z działaniami `write`, `replace` (z `--force`) i `conflict`; w trybie magazynu korzeń z cudzymi plikami (`not_empty`) albo zagnieżdżony magazyn (`nested_store`) to jedno działanie `conflict` planu, który kończy się sukcesem. Pliki trafiają najpierw do `<katalog>/.imgw-incoming/<host>_<pid>_<token>/` i dopiero po kontroli wchodzą na miejsce przez `os.replace`; ten katalog znika po sukcesie, błędzie, SIGINT i SIGTERM, a pozostałości starsze niż 24 h usuwa następne uruchomienie. Działa to na FAT/exFAT i SMB, bo nie używa dowiązań. `--force` zastępuje tylko wskazane pliki i niczego nie kasuje; w magazynie `--force` pobiera ponownie i daje nową wersję albo `unchanged`. Komendy, których wejściem albo wynikiem jest magazyn (`series build`, `store catalog`, `project *`), nie mają `--output-dir` (reguła „store only” w ich opisie), a `--plan` z `--output-dir` kończy się `validation_error` (`store_only_option`) z podpowiedzią `--root`. Przykład:
+**Zapis danych.** Komenda zapisująca ma dwa sposoby zapisu (DEV-19). `-o`/`--output-dir` zapisuje same pliki, bez metadanych, pod nazwami, które mają w magazynie (`datasets download`: układ ścieżek serwera dostawcy; `pmaxtp sync`: dwa pliki nazwane indeksami komórki); katalog powstaje, gdy go brak. Katalog, który jest magazynem (dowolnego narzędzia Nogat) albo leży w magazynie, jest odrzucany przed pierwszym żądaniem błędem `conflict` (`details.reason` = `output_in_store`, `details.paths` to ten katalog). Potem przed pierwszym bajtem powstaje pełna lista celów: duplikat nazwy, istniejący plik bez `--force` i cel, który wszedłby do podkatalogu z magazynem, kończą się błędem `conflict` (`details.reason` = `duplicate_output_name`, `output_exists`, `output_in_store`; `details.paths` wymienia wszystkie ścieżki). `--check` pokazuje plan z działaniami `write`, `replace` (z `--force`) i `conflict`; w trybie magazynu korzeń z cudzymi plikami (`not_empty`) albo zagnieżdżony magazyn (`nested_store`) to jedno działanie `conflict` planu, który kończy się sukcesem. Pliki trafiają najpierw do `<katalog>/.imgw-incoming/<host>_<pid>_<token>/` i dopiero po kontroli wchodzą na miejsce przez `os.replace`; ten katalog znika po sukcesie, błędzie, SIGINT i SIGTERM, a pozostałości starsze niż 24 h usuwa następne uruchomienie. Działa to na FAT/exFAT i SMB, bo nie używa dowiązań. `--force` zastępuje tylko wskazane pliki i niczego nie kasuje; w magazynie `--force` pobiera ponownie i daje nową wersję albo `unchanged`. Komendy, których wejściem albo wynikiem jest magazyn (`store init`, `series build`, `store catalog`), nie mają `--output-dir` (reguła „store only” w ich opisie), a `--plan` z `--output-dir` kończy się `validation_error` (`store_only_option`) z podpowiedzią `--root`. Przykład:
 
 ```bash
 imgw datasets download -d hydro/miesieczne -y 2023 -o dane --check   # plan: write/replace/conflict
@@ -430,7 +420,7 @@ Po uruchomieniu serwera (`imgw server`):
 - `GET /api/v1` — wersja i lista tras katalogu, `GET /health` — stan serwera, `GET /llms.txt` — przewodnik dla agentów (llms.txt) w języku z `Accept-Language` (domyślnie angielski)
 - `/mcp` — serwer MCP (Streamable HTTP), gdy `IMGW_MCP_ENABLED=true` (sekcja „Agenci AI”)
 
-Trasy powstają z katalogu: `/api/v1/<grupa>/<komenda>` (tabela wyżej; komendy lokalne — `datasets download`, `store init`, `project …` — nie mają tras). GET przyjmuje opcje w query (listy po przecinku albo powtórzony parametr), POST — w ciele JSON; `?check=true` przy POST zwraca plan bez zapisu. Odpowiedź to ta sama koperta `imgw-result/1` co w CLI; komendy listowe mają `limit` (domyślnie i najwyżej `IMGW_API_MAX_LIMIT`, 1000) i `offset`. Błędy: `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`). Język: powiadomienia, teksty pozycji i planów oraz `title` i `detail` problem+json są po angielsku, a po polsku przy `Accept-Language: pl` (wagi `q` wg RFC 9110); komendy z opcją `lang` (`commands list`, `commands schema`, `commands guide`) biorą ją z zapytania, a bez niego z nagłówka. Każda odpowiedź komendy ma `Content-Language`, a `Vary: Accept-Language`, gdy decydował nagłówek. Dokument OpenAPI (`/openapi.json`) jest po angielsku.
+Trasy powstają z katalogu: `/api/v1/<grupa>/<komenda>` (tabela wyżej; komendy lokalne — `datasets download`, `store init` — nie mają tras). GET przyjmuje opcje w query (listy po przecinku albo powtórzony parametr), POST — w ciele JSON; `?check=true` przy POST zwraca plan bez zapisu. Odpowiedź to ta sama koperta `imgw-result/1` co w CLI; komendy listowe mają `limit` (domyślnie i najwyżej `IMGW_API_MAX_LIMIT`, 1000) i `offset`. Błędy: `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`). Język: powiadomienia, teksty pozycji i planów oraz `title` i `detail` problem+json są po angielsku, a po polsku przy `Accept-Language: pl` (wagi `q` wg RFC 9110); komendy z opcją `lang` (`commands list`, `commands schema`, `commands guide`) biorą ją z zapytania, a bez niego z nagłówka. Każda odpowiedź komendy ma `Content-Language`, a `Vary: Accept-Language`, gdy decydował nagłówek. Dokument OpenAPI (`/openapi.json`) jest po angielsku.
 
 ```bash
 # Dane bieżące i URL-e archiwów
@@ -495,7 +485,7 @@ Web GUI obsługuje wyłącznie zbiory IMGW-PIB (formularz bez pola stacji nie ob
 - Język: serwer MCP mówi zawsze po angielsku (opisy narzędzi, instrukcje, tytuły i `detail` błędów; AGI-9.2), niezależnie od `IMGW_LANG`. Opcji `--lang` nie ma; tekst polski dostaje agent wyłącznie na jawną prośbę (argument `lang: "pl"` narzędzi `imgw_commands_list`, `imgw_commands_schema`, `imgw_commands_guide`).
 - `root` jak w CLI: argument narzędzia albo `IMGW_ROOT` serwera; bez nich korzeń domyślny `<data_dir>/imgw` (musi leżeć w `--allow-dir`); ścieżki względne liczą się od katalogu roboczego serwera (podanego w instrukcjach serwera).
 
-Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` z rejestru, wszystko po angielsku). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `output`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `output`; zapis wymaga `--allow-writes` i katalogu `--allow-dir`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 38 narzędzi z opisami to ok. 48 KB schematów (tryb bez zapisu).
+Wynik narzędzia: `structuredContent` = koperta `imgw-result/1` (te same bajty co stdout CLI, także jako tekst), `isError=false` również dla `partial` i `failed`. Błąd: `isError=true` i `{"code", "title", "detail", "details"}` (`code`, `detail` i `details` jak w linii błędu CLI, `title` z rejestru, wszystko po angielsku). Komendy listowe bez `limit` zwracają stronę 50 pozycji (najwyżej `IMGW_API_MAX_LIMIT`); strumienie (`store export`, `series export`, `commands guide` bez `output`) — tekst do 256 KiB z kopertą `result={format, bytes, lines}`, większy → `validation_error` (zawęź wybór, czytaj stronami `series read` albo zapisz plik opcją `output`; zapis wymaga `--allow-writes` i katalogu `--allow-dir`). Postęp idzie jako `notifications/progress`, anulowanie żądania przerywa pracę między plikami. Lista 30 narzędzi z opisami to ok. 42 KB schematów (tryb bez zapisu).
 
 **MCP przez HTTP.** `imgw server` udostępnia `/mcp` (Streamable HTTP) przy `IMGW_MCP_ENABLED=true`: narzędzia odpowiadają 28 trasom REST i są wywoływane jako żądania REST w tym samym procesie (z `Accept-Language: en`), więc obowiązują reguły serwera (magazyn z `IMGW_ROOT`, `version` względna do magazynu, `IMGW_API_MAX_LIMIT`, ukrywanie katalogów serwera); POST zawsze z `?check=true` — przez HTTP tylko odczyt i plan. Narzędzia są po angielsku, jak w `imgw mcp`; `IMGW_LANG` ich nie dotyczy. Dozwolone nagłówki `Host` wylicza `IMGW_MCP_ALLOWED_HOSTS` (domyślnie `127.0.0.1,localhost`); za `nginx` dopisz publiczną nazwę hosta.
 
@@ -631,11 +621,11 @@ Zbiory „tylko pobieranie” obsługują `datasets files|download`, ale nie mag
 
 ### Schematy
 
-`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`, `imgw-observation/1` (oraz rozszerzenie `imgw-pmaxtp/1`) mają własne liczniki wersji, niezależne od wersji pakietu; koperta wyniku komend to `imgw-result/1`. W ramach `/1` dochodzą tylko pola opcjonalne; zmiana niezgodna oznacza `/2`. Nieznana wersja jest raportowana (`store_info(...).supported is False`), a nie zgadywana. Dziedziny `/1` są otwarte na kolejnych dostawców (klucz `<kraj>.<dostawca>.<slug>`, kod stacji IMGW albo WIGOS; ADR-003).
+`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-observation/1` (oraz rozszerzenie `imgw-pmaxtp/1`) mają własne liczniki wersji, niezależne od wersji pakietu; koperta wyniku komend to `imgw-result/1`. W ramach `/1` dochodzą tylko pola opcjonalne; zmiana niezgodna oznacza `/2`. Nieznana wersja jest raportowana (`store_info(...).supported is False`), a nie zgadywana. Dziedziny `/1` są otwarte na kolejnych dostawców (klucz `<kraj>.<dostawca>.<slug>`, kod stacji IMGW albo WIGOS; ADR-003).
 
 ### Integracje
 
-- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_station_list`, `read_archive`, `read_series_index`, `read_series`, `summarize_series`, `read_pmaxtp`), dane obu dostawców tym samym adapterem (`provider` we wpisach, katalogach i stacjach; wpisy `kind="observation"` tylko do odczytu); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty. Od znacznika czytnik wymaga tylko `schema` (tak jak `open_store`); każdy problem z `StoreInfo.problems` ma kod w `problem_codes`; `Meta.producer` i `Meta.producer_version` mówią, które wydanie zapisało wersję; `iter_store(skip_versions=…)` zwraca znane konsumentowi wersje jako wpisy `skipped`, bez listowania i czytania ich (skan przyrostowy, parametr tylko biblioteki Pythona).
+- **Archiwista** czyta magazyn wyłącznie publicznym API odczytu (`store_info`, `iter_store`, `current_version`, `read_meta`, `read_catalog`, `read_station_list`, `read_archive`, `read_series_index`, `read_series`, `summarize_series`, `read_pmaxtp`), dane obu dostawców tym samym adapterem (`provider` we wpisach, katalogach i stacjach; wpisy `kind="observation"` tylko do odczytu); IMGWTools jest jedynym piszącym, a w magazynie nie ma plików Archiwisty. Od znacznika czytnik wymaga tylko `schema` (tak jak `open_store`); każdy problem z `StoreInfo.problems` ma kod w `problem_codes`; `Meta.producer` i `Meta.producer_version` mówią, które wydanie zapisało wersję; `iter_store(skip_versions=…)` zwraca znane konsumentowi wersje jako wpisy `skipped`, bez listowania i czytania ich (skan przyrostowy, parametr tylko biblioteki Pythona). Projekty przypinające wersje magazynu (po `sha256` i `content_sha256` z sidecara) prowadzi Archiwista (`archiwista-project/1`, ADR-008); IMGWTools nie ma własnych projektów.
 - **Retman** uruchamia działania jako handler przez publiczny katalog komend (`command_schema`, `data_commands`, `validate_command`, `format_command`, `check_command`, `run_command`) — te same opcje, walidacja, koperta i kody błędów co w CLI i REST; opisy angielskie z `command_schema(lang="en")`, skutki z `x-imgw.writes` i `x-imgw.network`.
 
 Poprzedni opcjonalny cache SQLite został usunięty w 3.0.0 bez migracji — zob. `docs/CHANGELOG.md`.
@@ -665,14 +655,13 @@ Pełna lista z tabelami migracji: [`docs/CHANGELOG.md`](CHANGELOG.md) (także wc
 
 - Magazyn wersjonowany z planem aktualności, szeregami Parquet, katalogiem stacji
   GeoJSON, PMAXTP per komórka i eksportem CSV/JSONL.
-- Jeden katalog 38 komend dla Pythona, CLI, REST i MCP (`command_schema`, `run_command`),
+- Jeden katalog 30 komend dla Pythona, CLI, REST i MCP (`command_schema`, `run_command`),
   koperta `imgw-result/1` ze stronicowaniem, rejestr kodów błędów `ERROR_CODES`.
 - `find_stations`, `fetch_meteo_current`, `fetch_hydro_states`, `download_archives`,
   `select_series`, `summarize_series`, `export_archive`; rejestr 17 zbiorów dwóch dostawców.
 - Dostawca ČHMÚ (Czechy): dobowe dane hydrologiczne i meteorologiczne per stacja,
   aktualność z listingu, treść kanoniczna i rejestr obserwacji, katalog stacji z progami SPA,
-  jakość i flagi ČHMÚ w szeregach, odtwarzanie przypięć treścią.
+  jakość i flagi ČHMÚ w szeregach.
 - Agenci AI: `AGENTS.md`, `llms.txt`, `imgw commands guide`, opisy katalogu po angielsku
   (polskie na prośbę: `--lang pl`, `Accept-Language`), metadane skutków komend, serwer MCP `imgw mcp` i `/mcp`.
-- Projekty `imgw-project/1` z przypięciem wersji po SHA-256 i publiczny budowniczy
-  magazynu testowego `imgwtools.testing.build_fixture_store` (także wariant PL + CZ).
+- Publiczny budowniczy magazynu testowego `imgwtools.testing.build_fixture_store` (także wariant PL + CZ).

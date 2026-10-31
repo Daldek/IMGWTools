@@ -616,7 +616,7 @@ def test_current_version_follows_last_modified_rule(root):
         "pmaxtp:POT:751_317",
         "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024",
         "raba:archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024",
-        # Station selectors exist only in project pins.
+        # Station selectors of series slots.
         "series:pl.imgw.hydro_daily:149190310",
         # Wrong key, selector or kind.
         "archive:pl.imgw.hydro_daily:codz_2024.zip",

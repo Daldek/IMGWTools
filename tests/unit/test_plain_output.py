@@ -344,21 +344,6 @@ def test_options_that_act_on_versions_name_root_when_given_with_output_dir(
     assert not (tmp_path / "out").exists()
 
 
-def test_a_task_of_a_project_takes_no_output_dir(tmp_path):
-    with pytest.raises(IMGWValidationError) as error:
-        validate_command(
-            "project add",
-            options={
-                "project_dir": tmp_path,
-                "name": "pobranie",
-                "command": "datasets download",
-                "options": {"dataset": SEMIANNUAL, "years": 2024, "output_dir": "x"},
-            },
-        )
-    assert error.value.details["reason"] == "store_only_option"
-    assert error.value.details["option"] == "options"
-
-
 def test_a_plain_pmaxtp_sync_writes_the_cell_and_the_raw_answer(respx_mock, tmp_path):
     FakeImgw(respx_mock).publish_pmaxtp("pmaxtp_pot_first")
     out = tmp_path / "out"

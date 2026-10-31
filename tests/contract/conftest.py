@@ -23,7 +23,7 @@ from tests.contract.support import FakeImgw
 
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 WRITE_TOKEN = "kontrakt-token"
-# Modules that stamp versions, plans and pins with the current time.
+# Modules that stamp versions and plans with the current time.
 _CLOCKED = (
     "imgwtools.store.writer",
     "imgwtools.store.series",
@@ -31,7 +31,6 @@ _CLOCKED = (
     "imgwtools.store.sync",
     "imgwtools.store.pmaxtp",
     "imgwtools.commands",
-    "imgwtools.project",
 )
 
 
@@ -54,7 +53,7 @@ def no_imgw_root(monkeypatch):
 
 @pytest.fixture
 def frozen(monkeypatch):
-    """Freeze the clock of every module that stamps versions, plans and pins."""
+    """Freeze the clock of every module that stamps versions and plans."""
 
     class Frozen(datetime):
         @classmethod

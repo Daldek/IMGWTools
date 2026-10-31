@@ -2,7 +2,7 @@
 Entry point of the ``imgw`` command line.
 
 The groups ``datasets``, ``stations``, ``current``, ``pmaxtp``, ``store``,
-``series``, ``project`` and ``commands`` are generated from the command catalog
+``series`` and ``commands`` are generated from the command catalog
 by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``,
 ``imgw mcp`` and ``imgw admin`` stay outside the catalog. Examples::
 

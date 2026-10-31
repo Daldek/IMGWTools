@@ -126,7 +126,6 @@ _LOOSE_TYPES: dict[str, Any] = {
     "float": _NUMBER,
     "bool": StrictBool | StrictStr,
     "list": list[StrictInt | StrictStr] | StrictStr | StrictInt,
-    "object": dict[str, Any],
 }
 # Result dataclasses of imgwtools.store.types annotate these names only for type
 # checkers; pydantic resolves them from here when it builds the OpenAPI schemas.

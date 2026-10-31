@@ -37,7 +37,7 @@ class Progress:
         Total number of units in the operation.
     unit : str
         Kind of unit being counted, e.g. ``"archive"``, ``"station"``,
-        ``"row"``, ``"task"`` or ``"file"``.
+        ``"row"`` or ``"file"``.
     status : str
         Outcome or state of the current unit, e.g. ``"new"`` or
         ``"failed"``.
@@ -116,8 +116,7 @@ class StoreInfo:
         unreadable marker.
     contracts : Mapping of str to str
         Contract versions supported by the library, keyed by ``store``,
-        ``meta``, ``series``, ``plan``, ``project``, ``pmaxtp`` and
-        ``observation``.
+        ``meta``, ``series``, ``plan``, ``pmaxtp`` and ``observation``.
     problems : tuple of str
         Human-readable descriptions of detected problems.
     providers : tuple of ProviderDescriptor, optional
@@ -242,7 +241,7 @@ class PlanItem:
 @dataclass(frozen=True)
 class PlanAction:
     """
-    Planned non-archive action, e.g. building a series, catalog or project.
+    Planned non-archive action, e.g. building a series or a catalog.
 
     A plain write (``output_dir``, DEV-19.10) lists each target as one action
     with ``action``, ``path`` and, for a conflict, ``reason``; a store write
@@ -327,8 +326,7 @@ class StorePlan:
     schema : {"imgw-plan/1"}
         Version of the plan contract.
     root : Path
-        Root the plan was checked against (store, project or output
-        directory).
+        Root the plan was checked against (store or output directory).
     checked_at : datetime
         Time of the check.
     items : tuple of PlanItem
@@ -565,26 +563,21 @@ class StorePlan:
 @dataclass(frozen=True)
 class OperationResult:
     """
-    Result of a single per-slot operation in a sync or project report.
+    Result of a single per-slot operation in a sync report.
 
     Attributes
     ----------
     slot : str or None
         Slot (spec §13.7) of the processed file, e.g.
-        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; the project task
-        name is kept separately in ``task``; None when the item has no slot
-        (e.g. an error of a whole project task).
-    status : {"new", "relabeled", "unchanged", "restored_by_content", "failed", "stale_plan", "cancelled"}
+        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; None when the item
+        has no slot.
+    status : {"new", "relabeled", "unchanged", "failed", "stale_plan", "cancelled"}
         Outcome of the operation; ``"stale_plan"`` means the remote signal
-        changed since the plan was made and the item was not downloaded;
-        ``"restored_by_content"`` means a project pin was restored by an
-        equivalent version with the same canonical content (a success).
+        changed since the plan was made and the item was not downloaded.
     version : Path or None
         Absolute path of the resulting version's main file, or None.
     error : str or None
         Error description of a failed, stale or skipped item, or None.
-    task : str or None, optional
-        Name of the project task the item belongs to, or None outside projects.
     error_code : ErrorCode or None, optional
         Error code from ``ERROR_CODES`` of a failed item, or None.
     """
@@ -594,14 +587,12 @@ class OperationResult:
         "new",
         "relabeled",
         "unchanged",
-        "restored_by_content",
         "failed",
         "stale_plan",
         "cancelled",
     ]
     version: Path | None
     error: str | None
-    task: str | None = None
     error_code: ErrorCode | None = None
 
 
@@ -1089,7 +1080,7 @@ class CommandOption:
     ----------
     name : str
         Python option name in ``snake_case``, equal to the function parameter.
-    type : {"str", "int", "float", "bool", "date", "path", "list", "choice", "object"}
+    type : {"str", "int", "float", "bool", "date", "path", "list", "choice"}
         Value type of the option.
     required : bool
         Whether the option is required.
@@ -1121,17 +1112,15 @@ class CommandOption:
     path_role : {"input", "output", "root"} or None, optional
         Role of a ``"path"`` option (AGI-2.3): ``"input"`` a file or directory
         that is read, ``"output"`` where plain files or an export are written
-        (``output_dir``, ``output``, a plan file), ``"root"`` a store or
-        project directory; None for other types.
+        (``output_dir``, ``output``, a plan file), ``"root"`` a store
+        directory; None for other types.
     store_only : bool, optional
         Whether the option acts on versions and is valid only with a store
         (DEV-19.17): with ``output_dir`` it is a ``validation_error``.
     """
 
     name: str
-    type: Literal[
-        "str", "int", "float", "bool", "date", "path", "list", "choice", "object"
-    ]
+    type: Literal["str", "int", "float", "bool", "date", "path", "list", "choice"]
     required: bool
     flag: str
     choices: tuple[str, ...]
@@ -1151,7 +1140,7 @@ class CommandOption:
 @dataclass(frozen=True)
 class DataCommand:
     """
-    Data command available in the CLI, REST API and projects.
+    Data command available in the CLI, REST API, MCP and the web GUI.
 
     Attributes
     ----------
@@ -1304,8 +1293,8 @@ class CommandResult[T]:
         root : str or os.PathLike or None, optional
             Store root; absolute paths below it become POSIX paths relative to
             it, other absolute paths stay absolute. Relative paths of the
-            result (project pins, relative to the project's store) stay
-            relative in every working directory.
+            result (a Parquet file to its series version) stay relative in
+            every working directory.
         server : bool, optional
             REST mode: the root is written as ``"."`` and its prefix is
             removed from every text.
@@ -1359,128 +1348,3 @@ class SeriesSelection:
     variables: tuple[str, ...]
     years: tuple[int, ...]
     year_type: Literal["hydrological", "calendar"]
-
-
-@dataclass(frozen=True)
-class ProjectFile:
-    """
-    File pinned by a project task.
-
-    Attributes
-    ----------
-    role : {"series", "station_series", "catalog", "input"}
-        Role of the file in the task.
-    path : Path
-        Version file path relative to the project's store directory.
-    sha256 : str
-        Full SHA-256 hex digest of the file.
-    station_code : str or None, optional
-        Station code (``STATION_CODE_PATTERN``: nine IMGW-PIB digits or a
-        WIGOS identifier); required for ``"station_series"`` files.
-    content_sha256 : str or None, optional
-        ``content_sha256`` of the pinned archive version (canonical form);
-        None for pins of datasets without a canonical form.
-    content_form : str or None, optional
-        ``content_form`` of the pinned archive version; present exactly when
-        ``content_sha256`` is.
-    """
-
-    role: Literal["series", "station_series", "catalog", "input"]
-    path: Path
-    sha256: str
-    station_code: str | None = None
-    content_sha256: str | None = None
-    content_form: str | None = None
-
-
-@dataclass(frozen=True)
-class ProjectTask:
-    """
-    Task stored in an ``imgw-project/1`` manifest.
-
-    Attributes
-    ----------
-    name : str
-        Unique task name.
-    command : str
-        Data command the task runs, e.g. ``"series select"``.
-    options : Mapping of str to object
-        Command options in manifest form (JSON lists, relative POSIX paths).
-    geometry_sha256 : Mapping of str to str or None
-        SHA-256 of the geometry file used for selection by area, keyed by
-        its path, or None.
-    pinned_at : datetime or None
-        UTC time of pinning, or None for an unpinned task.
-    imgwtools_version : str or None
-        Package version that pinned the task, or None for an unpinned task.
-    files : tuple of ProjectFile
-        Pinned files.
-    """
-
-    name: str
-    command: str
-    options: Mapping[str, object]
-    geometry_sha256: Mapping[str, str] | None
-    pinned_at: datetime | None
-    imgwtools_version: str | None
-    files: tuple[ProjectFile, ...]
-
-
-@dataclass(frozen=True)
-class ProjectReport:
-    """
-    Report of a project download, status or verification.
-
-    Attributes
-    ----------
-    tasks : Mapping of str to {"unpinned", "current", "content_match", "missing", "changed", "upgraded", "failed", "cancelled"}
-        State of each processed task, keyed by task name; ``"content_match"``
-        means every pin is current or matched by an equivalent version with
-        the same canonical content (at least one), never silently current.
-    files : tuple of OperationResult
-        Per-file outcomes with the §13.7 slot of the pinned file (a station
-        file of a series has the selector ``series:<key>:<station_code>``)
-        and the task name in ``task``; an error of a whole task has
-        ``slot=None``, and failed items carry ``error_code``.
-    cancelled : bool
-        Whether the operation was cancelled.
-    """
-
-    tasks: Mapping[
-        str,
-        Literal[
-            "unpinned",
-            "current",
-            "content_match",
-            "missing",
-            "changed",
-            "upgraded",
-            "failed",
-            "cancelled",
-        ],
-    ]
-    files: tuple[OperationResult, ...]
-    cancelled: bool
-
-
-@dataclass(frozen=True)
-class Project:
-    """
-    Project defined by an ``imgw-project/1`` manifest.
-
-    Attributes
-    ----------
-    path : Path
-        Absolute project directory.
-    store_dir : Path
-        Normalised absolute path of the project's store.
-    tasks : tuple of ProjectTask
-        Tasks defined in the manifest.
-    extensions : Mapping of str to object, optional
-        Top-level ``extensions`` of the manifest, preserved on rewrite.
-    """
-
-    path: Path
-    store_dir: Path
-    tasks: tuple[ProjectTask, ...]
-    extensions: Mapping[str, object] = field(default_factory=dict)

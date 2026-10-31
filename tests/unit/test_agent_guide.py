@@ -3,7 +3,6 @@
 import hashlib
 import json
 import re
-import shlex
 from pathlib import Path
 
 import pytest
@@ -43,7 +42,6 @@ FICTIONAL = {
     "KOD_WIGOS": "0-203-1-900001",
     "WIGOS_ID": "0-203-1-900001",
 }
-PROJECT_SYMBOLS = ("PROJEKT", "PROJECT")
 
 
 @pytest.fixture(autouse=True)
@@ -195,9 +193,7 @@ def test_guides_carry_the_rules_shared_with_the_mcp_instructions(lang):
 
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
-def test_every_flow_command_of_the_guide_validates_with_fictional_values(
-    lang, tmp_path
-):
+def test_every_flow_command_of_the_guide_validates_with_fictional_values(lang):
     heading = "Typical flows" if lang == "en" else "Typowe przepływy"
     flows = section(text("agents", lang), heading)
     lines = re.findall(r"^\d+\. `(imgw [^`]+)`", flows, flags=re.MULTILINE)
@@ -208,8 +204,6 @@ def test_every_flow_command_of_the_guide_validates_with_fictional_values(
     for line in lines:
         for symbol, value in FICTIONAL.items():
             line = line.replace(symbol, value)
-        for symbol in PROJECT_SYMBOLS:
-            line = line.replace(symbol, shlex.quote(str(tmp_path / "projekt")))
         call = parse_command(line)
         validate_command(call.command, options=call.options)
 
@@ -230,7 +224,6 @@ def test_flow_steps_name_only_known_symbols():
     assert {(s.name("pl"), s.name("en")) for s in used} == {
         ("KOD_STACJI", "STATION_CODE"),
         ("KOD_WIGOS", "WIGOS_ID"),
-        ("PROJEKT", "PROJECT"),
     }
 
 

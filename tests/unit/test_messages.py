@@ -45,8 +45,9 @@ _SAME_AREAS = ("legal.",)
 _SAME_WORDS = frozenset({"agent_guide.header_status"})
 # Last segment of a file name such as ``series.json``, which is not a message key.
 _FILE_SUFFIXES = frozenset({"json", "geojson", "parquet", "csv", "zip", "toml"})
-# Polish keys of the JSON the IMGW-PIB API answers with: foreign data, not our text.
-_FOREIGN_KEYS = frozenset({"województwo", "stopień"})
+# Polish keys and values of the data IMGW-PIB answers with (JSON keys, the station
+# name of the catalog's example calls): foreign data, not our text.
+_FOREIGN_KEYS = frozenset({"województwo", "stopień", "Raba Górna"})
 
 
 def _same_by_design(key: str, text: Text) -> bool:

@@ -706,126 +706,6 @@
       },
       "additionalProperties": true
     },
-    "imgw-project/1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "required": [
-        "schema",
-        "store_dir",
-        "tasks"
-      ],
-      "properties": {
-        "schema": {
-          "const": "imgw-project/1"
-        },
-        "store_dir": {
-          "type": "string",
-          "minLength": 1
-        },
-        "extensions": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "tasks": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "name",
-              "command",
-              "options",
-              "pinned_at",
-              "imgwtools_version",
-              "files"
-            ],
-            "properties": {
-              "name": {
-                "type": "string",
-                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
-              },
-              "command": {
-                "type": "string"
-              },
-              "options": {
-                "type": "object"
-              },
-              "geometry_sha256": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
-                }
-              },
-              "pinned_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
-              },
-              "imgwtools_version": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "required": [
-                    "role",
-                    "path",
-                    "sha256"
-                  ],
-                  "properties": {
-                    "role": {
-                      "enum": [
-                        "series",
-                        "station_series",
-                        "catalog",
-                        "input"
-                      ]
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "sha256": {
-                      "type": "string",
-                      "pattern": "^[0-9a-f]{64}$"
-                    },
-                    "station_code": {
-                      "type": "string",
-                      "pattern": "^([0-9]{9}|0-[0-9]{1,5}-[0-9]{1,5}-[0-9A-Z]{1,16})$"
-                    },
-                    "content_sha256": {
-                      "type": "string",
-                      "pattern": "^[0-9a-f]{64}$"
-                    },
-                    "content_form": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "dependentRequired": {
-                    "content_sha256": [
-                      "content_form"
-                    ],
-                    "content_form": [
-                      "content_sha256"
-                    ]
-                  },
-                  "additionalProperties": false
-                }
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
-      "additionalProperties": false
-    },
     "imgw-pmaxtp/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1320,33 +1200,6 @@
       },
       "actions": []
     },
-    "imgw-project/1": {
-      "schema": "imgw-project/1",
-      "store_dir": "../imgw-store",
-      "tasks": [
-        {
-          "name": "raba-q",
-          "command": "series select",
-          "options": {
-            "dataset": "pl.imgw.hydro_daily",
-            "stations": [
-              "149190310"
-            ],
-            "variables": [
-              "Q"
-            ],
-            "years": [
-              2023,
-              2024
-            ],
-            "year_type": "hydrological"
-          },
-          "pinned_at": null,
-          "imgwtools_version": null,
-          "files": []
-        }
-      ]
-    },
     "imgw-pmaxtp/1": {
       "schema": "imgw-pmaxtp/1",
       "method": "POT",
@@ -1401,7 +1254,6 @@
             "status": "new",
             "version": "archives/versions/dane_hydrologiczne/dobowe/2023/codz_2023/2024-08-28_1a2b3c4d/codz_2023.zip",
             "error": null,
-            "task": null,
             "error_code": null
           },
           {
@@ -1409,7 +1261,6 @@
             "status": "stale_plan",
             "version": null,
             "error": "…",
-            "task": null,
             "error_code": null
           }
         ],

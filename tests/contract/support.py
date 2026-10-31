@@ -435,8 +435,7 @@ def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     ``imgw`` arguments of ``options`` given in their JSON form (spec §13.10).
 
     Every option takes its canonical flag from the catalog schema; a list is
-    comma-separated text, an object is JSON text and a boolean is ``--x`` or
-    ``--no-x``.
+    comma-separated text and a boolean is ``--x`` or ``--no-x``.
     """
     flags = command_document(command)["x-imgw"]["cli"]["flags"]
     words = command.split()
@@ -446,8 +445,6 @@ def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
             words.append(flag if value else f"--no-{flag[2:]}")
         elif isinstance(value, list | tuple):
             words += [flag, ",".join(str(item) for item in value)]
-        elif isinstance(value, Mapping):
-            words += [flag, json.dumps(value, ensure_ascii=False)]
         else:
             words += [flag, str(value)]
     return words
@@ -503,18 +500,6 @@ def unversioned(value: object) -> Iterator[str]:
     elif isinstance(value, list):
         for item in value:
             yield from unversioned(item)
-
-
-def version_slot(slot: str) -> str:
-    """
-    Slot that ``current_version`` takes for ``slot`` (spec §13.7).
-
-    A project pins the station file of a series as ``series:<key>:<code>``;
-    the station selector exists only in pins, the version is the series one.
-    """
-    kind, _, rest = slot.partition(":")
-    key, _, selector = rest.partition(":")
-    return f"{kind}:{key}" if kind == "series" and selector else slot
 
 
 def imgw_executable() -> list[str]:

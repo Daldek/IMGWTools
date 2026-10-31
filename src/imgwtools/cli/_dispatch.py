@@ -107,7 +107,6 @@ def _help_texts(lang: Lang) -> _HelpTexts:
             "path": message("cli.metavar_path", lang=lang),
             "choice": message("cli.metavar_value", lang=lang),
             "list": message("cli.metavar_list", lang=lang),
-            "object": "JSON",
         },
     )
 
@@ -560,7 +559,7 @@ def register_catalog(app: typer.Typer, /) -> None:
     Register every catalog group and command under the ``imgw`` application.
 
     Each group of the catalog (``datasets``, ``stations``, ``current``,
-    ``pmaxtp``, ``store``, ``series``, ``project``, ``commands``) becomes a
+    ``pmaxtp``, ``store``, ``series``, ``commands``) becomes a
     subcommand group with the catalog group description as its help, holding
     every catalog command of that group. Command help is the catalog
     description in the language of ``IMGW_LANG``; options are the catalog

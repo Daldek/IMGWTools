@@ -32,7 +32,7 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   writes the same line again, so a tool that exchanges `imgw` lines compares them as text.
 - **Example calls in the catalog (AGI-2.2):** every command of `command_schema` has
   `x-imgw.examples`, at least one `{call, result}`: a complete `imgw` line and an excerpt of the
-  `result` of its envelope (50 examples for the 38 commands, with `--check`, the ČHMÚ datasets
+  `result` of its envelope (41 examples for the 30 commands, with `--check`, the ČHMÚ datasets
   and plain `--output-dir` among them). Each call is the canonical line of `format_command`
   (AGI-2.1): `format_command` writes the call that `parse_command` reads from it as the same line,
   and `validate_command` accepts its options. A contract test holds this for every example (also
@@ -44,7 +44,7 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   (`default`, `env`, `dotenv`, `file`) and whether `imgw-store.json` is a file in it. It lists and
   measures nothing (`imgw config show` measures the size); Kartograf has the same function. It
   replaces `imgwtools.config.default_root()`, which returned the bare path (use `.root`).
-- **`commands list` (AGI-5.9):** the 38th catalog command and the public `list_commands(*, lang)`
+- **`commands list` (AGI-5.9):** a new catalog command and the public `list_commands(*, lang)`
   return the catalog summary `imgw-command-list/1`: per command its name, `operation_id`,
   group, one-sentence summary, effects (`writes`, `network`, `idempotent`), check twin, result
   shape and REST route. It is the first discovery step before `commands schema`; the MCP tool is
@@ -101,6 +101,26 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 
 ### Changed
 
+- **Breaking — projects move to Archiwista (ADR-008, Nogat ECO-054, ECO-020):** IMGWTools keeps no
+  projects any more; Archiwista owns them (`archiwista-project/1`) and pins store versions by the
+  `sha256` and `content_sha256` that the store already records. Removed without aliases: the
+  catalog group `project` and its eight commands `project init`, `project add`, `project remove`,
+  `project set-store`, `project download`, `project check`, `project status` and `project verify`
+  (CLI, REST, MCP; the catalog has 30 commands and 41 example calls); the functions
+  `init_project`, `open_project`, `add_project_task`, `remove_project_task`, `set_project_store`,
+  `download_project`, `check_project`, `get_project_status`, `verify_project` and the module
+  `imgwtools.project`; the types `Project`, `ProjectFile`, `ProjectTask` and `ProjectReport`; the
+  exception `IMGWProjectError`; the constant `PROJECT_FILE` (`imgw-project.json`); the contract
+  `imgw-project/1` (schema and example in `contract_schemas.json`) and the key `project` of
+  `StoreInfo.contracts`; the field `OperationResult.task` and the item status
+  `restored_by_content`, so the items of `imgw-result/1` carry no `task`; the message area
+  `imgwtools.messages.project`; the flow "Reproducible project" of `AGENTS.md` and `llms.txt`.
+  Unchanged: the store and its read API, `content_sha256` and `content_form` in the sidecars
+  (`imgw-meta/1`), the observation register (`imgw-observation/1`), `run_command`,
+  `check_command`, the read-only `series select` and `imgwtools.testing`. Projects were never
+  released, so existing `imgw-project.json` manifests are not migrated (Nogat plan decision D4).
+  Migration: keep a project in Archiwista; the command of a stored version comes with
+  `command_for_version` in a follow-up change.
 - **Breaking — `IMGW_DATA_DIR` no longer names the reference data (DEV-18.2):** `IMGW_DATA_DIR`
   (`data_dir`) is now the user data directory (`platformdirs.user_data_path("nogat")` by default),
   the parent of the stores (`<data_dir>/imgw`) and of the server state. The directory of the
@@ -180,9 +200,9 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   ADR-007 D2, D9):** the variable is renamed without an alias, `Settings.store_root` is
   `Settings.root` and `root` in `[imgw]` of `nogat.toml` sets it too. A command without `--root`
   uses the store at `IMGW_ROOT`, `[imgw] root` or `<data_dir>/imgw` (`imgwtools.store_root()`):
-  `root` is optional in every store command and `validate_command` fills it in (not for a project
-  task, not for a command given a `version`, not for `stations find` unless `source=store`), so the
-  `--root` of the CLI no longer reads an environment variable of its own. `imgw config show --json`
+  `root` is optional in every store command and `validate_command` fills it in (not for a command
+  given a `version`, not for `stations find` unless `source=store`), so the `--root` of the CLI no
+  longer reads an environment variable of its own. `imgw config show --json`
   reports `store.root` with its source, whether it exists and its size. The REST server still writes
   only to its configured `IMGW_ROOT`, never to the default. `imgw mcp` has `--allow-dir DIR`
   (repeatable): every path option and the default root must lie inside an allowed directory
@@ -190,9 +210,9 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   `forbidden` (`no_allowed_dir`), while a plan needs none. Migration: rename `IMGW_STORE_ROOT`; pass
   `--allow-dir` to `imgw mcp --allow-writes`.
 - **Breaking — the store status `created` is `new` (DEV-19.19, ADR-007 D7):** `VersionResult`,
-  `OperationResult`, `SeriesReport`, `CatalogReport`, `PMaXTPStoreResult`, the pin states of the
-  project reports and the fixture builder say `new` where they said `created`, and a series
-  version built from the same inputs is `unchanged` (it was `reused`); `relabeled` stays. The
+  `OperationResult`, `SeriesReport`, `CatalogReport`, `PMaXTPStoreResult` and the fixture builder
+  say `new` where they said `created`, and a series version built from the same inputs is
+  `unchanged` (it was `reused`); `relabeled` stays. The
   statuses of plain files, `written` and `replaced`, come with plain mode. Migration:
   `status == "created"` → `"new"`, and `"reused"` → `"unchanged"` for a series.
 - **Breaking — the store marker, the first write and nested stores (DEV-19.12 to DEV-19.14,
@@ -234,9 +254,8 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   sha256, status}` with `written` or `replaced` (plain) and `new`, `unchanged` or `relabeled`
   (store). `--check` plans each target as `write`, `replace` (with `--force`) or `conflict`
   (`PlanAction.action`, `path`, `reason`; the plan is `ok` and exits 0 whatever it lists, only
-  the real run fails). A project task `datasets download` runs in the project store and pins the
-  versions it fetched (it took `output`, default `<project>/data/downloaded`). The command
-  schema publishes `x-imgw-path-role` (`input`, `output`, `root`) of every path option,
+  the real run fails). The command schema publishes `x-imgw-path-role` (`input`, `output`,
+  `root`) of every path option,
   `x-imgw-store-only` of an option and `x-imgw.exclusive` and `x-imgw.store_only` of a command;
   the CLI prints the paths of every result relative to the validated root, the default root
   included. Migration: `--output DIR` → `--output-dir DIR`; `output=` → `output_dir=`; read
@@ -251,9 +270,9 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   --output-dir` writes `<METHOD>/<indX>_<indY>/cell.json` and the raw `response.json`: the names
   come from the answer, so only a call that gives `--ind-x` and `--ind-y` refuses before the
   request. `plan` and `series` of `store sync` are store-only: with `output_dir` they are
-  `validation_error` with `details.reason="store_only_option"` (a project task takes no
-  `output_dir` either); `store init`, `store catalog`, `series build` and `project *` have no plain
-  mode and say so in their rules (`x-imgw.store_only`). In the store `store sync --force` fetches
+  `validation_error` with `details.reason="store_only_option"`; `store init`, `store catalog` and
+  `series build` have no plain mode and say so in their rules (`x-imgw.store_only`). In the store
+  `store sync --force` fetches
   every selected archive again (a version is never overwritten). `SyncReport`, `SeriesReport`,
   `CatalogReport` and `PMaXTPStoreResult` list `files[]` (`{path, size_bytes, sha256, status}`
   from the sidecar, statuses `new`, `unchanged`, `relabeled`; `written` and `replaced` for plain
@@ -303,9 +322,9 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   write of the archive was cancelled"); the plan item error `anulowano` became `cancelled`.
 - **Breaking — notices, progress lines and plan lines are English (AGI-9.2, ADR-006):** the
   `text` of every `Notice`, the `message` of every `Progress`, the `detail` of every `PlanAction`,
-  the `error` of a plan item or a result item, the problems of a catalog or series report and the
-  pin, check and status texts of a project are catalog messages (about 300 more entries in
-  `imgwtools.messages.<area>`), English by default; `Message.localized("pl")` gives the Polish
+  the `error` of a plan item or a result item and the problems of a catalog or series report are
+  catalog messages (more entries in `imgwtools.messages.<area>`), English by default;
+  `Message.localized("pl")` gives the Polish
   text. The `license_terms` notice is the
   attribution followed by the translated notice of the provider (`ProviderDescriptor.license_notice`);
   the attribution formulas themselves and the official name of IMGW-PIB keep their wording in every
@@ -373,8 +392,8 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 - **`--check` and a nested store (DEV-19.10, DEV-19.14):** `imgw datasets download --root <dir in
   another tool's store> --check` planned the download as `missing` while the run refused it with
   `conflict` (`nested_store`); the plans of `store init`, `store sync`, `pmaxtp sync`, `series
-  build`, `store catalog` and `project download` had the same gap, and the plans of `store sync`
-  and `store catalog` even sent requests, and the plans of `store sync`, `pmaxtp sync`, `series
+  build` and `store catalog` had the same gap, and the plans of `store sync` and `store catalog`
+  even sent requests, and the plans of `store sync`, `pmaxtp sync`, `series
   build` and `store catalog` raised `store_unavailable` for a root that holds another tool's store
   or a store below it. Each plan
   now lists one action `conflict` with `reason="nested_store"`, the root as `path` and status
@@ -429,15 +448,6 @@ standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
   A caller that relied on `None` for a probability that is not published gets the error now. The
   docstrings of `PMaXTPData` and `fetch_pmaxtp` give the 16 durations and the 27 probabilities
   (they said 7 and 6).
-- **An unreadable marker in the store of a project is `data_error` (DEV-19.10, DEV-19.13, ADR-007
-  erratum):** `imgw project init` (`init_project`), `project set-store` and every call that opens
-  a project whose `store_dir` holds an `imgw-store.json` that is invalid JSON or has no `schema`
-  said `store_unavailable` with `details.reason="unsupported"`, while the writer, `store init`,
-  `series build` and the plans of every store write say `data_error` with
-  `details.reason="invalid_marker"`. The project check follows them now (`details.option` stays
-  `store_dir`); a marker of another store schema, a directory with other files and a layout
-  without a marker stay `store_unavailable` (`unsupported`). Nothing is written: a refused
-  `project init` does not create the project directory.
 - **`imgw mcp` sends nothing but protocol messages on stdout, also when the client leaves (the
   stdio transport of MCP):** while the server serves, the SDK points file descriptor 1 at
   stderr, so a `print` in a command goes there; but a client starts the server without
@@ -470,7 +480,7 @@ a request; `imgw mcp` writes only inside its `--allow-dir` directories and with 
 | `DownloadReport.output` | `DownloadReport.mode` (`plain`/`store`), `.output_dir` or `.root`, `.files` |
 | `export_archive`, `export_series`, `agent_guide` with `path=F`; `--path F`, `-p F` | `output=F` (`force=True` over an existing file); `--output F` (`--force`) |
 | their `Path` result; envelope `result` `"<path>"` | `OutputReport` (`.output`, `.files`); `{"output": …, "files": […]}` |
-| status `created`; series status `reused` | `new`; `unchanged` (also in the pins of project reports) |
+| status `created`; series status `reused` | `new`; `unchanged` |
 | `.part` files beside the targets | staging directory `<dir>/.imgw-incoming/<host>_<pid>_<token>/`, removed after every run (success, error, SIGINT, SIGTERM) |
 | `imgw-store.json` with `schema`, `created_by` | also `tool` (`imgw`), `created_at`, `producer_version`, always; the first write creates it, `imgw store init` only verifies the layout |
 | nested stores found by `kartograf-project.json` and `kartograf-meta/1` sidecars | by the marker names `kartograf-store.json` and `imgw-store.json` only |
@@ -494,9 +504,9 @@ while the file is written. `items[]` keep the per-unit outcomes (`DownloadItem`:
 | `conflict` (4) | `not_empty` | a store write or `store init` into a directory with other files and no layout (was `path_conflict`), or into a file |
 | `store_unavailable` (8) | `no_marker` | a root that has the layout and no marker; hint `imgw store init --root <path>` |
 | `data_error` (7) | `invalid_layout` | `store init` found a foreign or invalid file |
-| `data_error` (7) | `invalid_marker` | the marker of the root is unreadable (invalid JSON, no `schema`); it was `store_unavailable` in the writer and in the store check of a project |
+| `data_error` (7) | `invalid_marker` | the marker of the root is unreadable (invalid JSON, no `schema`); it was `store_unavailable` in the writer |
 | `validation_error` (2) | `exclusive_options` | `output_dir` with `root` (`details.option` is `root`, `details.options` both) |
-| `validation_error` (2) | `store_only_option` | `plan` or `series` of `store sync`, or any `output_dir` of a project task, with `output_dir` |
+| `validation_error` (2) | `store_only_option` | `plan` or `series` of `store sync` with `output_dir` |
 | `validation_error` (2) | `not_in_store` | a store download of a dataset that has no place in the store (hint `--output-dir`) |
 | `validation_error` (2) | `years_required_in_plain_mode` | plain `store sync` of ČHMÚ station files without `years` |
 | `forbidden` (12) | `no_allowed_dir`, `outside_allowed_dirs` | an MCP write without `--allow-dir`, or outside it |

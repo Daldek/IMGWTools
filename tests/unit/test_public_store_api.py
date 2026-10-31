@@ -81,15 +81,6 @@ SPEC_FUNCTIONS = (
     "check_command",
     "run_command",
     "agent_guide",
-    "init_project",
-    "open_project",
-    "set_project_store",
-    "add_project_task",
-    "remove_project_task",
-    "check_project",
-    "download_project",
-    "get_project_status",
-    "verify_project",
 )
 SPEC_TYPES = (
     "PathArg",
@@ -136,10 +127,6 @@ SPEC_TYPES = (
     "CommandCall",
     "Page",
     "SeriesSelection",
-    "ProjectFile",
-    "ProjectTask",
-    "ProjectReport",
-    "Project",
     "ErrorSpec",
 )
 # Type aliases and constants.
@@ -165,7 +152,6 @@ SPEC_EXCEPTIONS = (
     "IMGWStoreConflictError",
     "IMGWStoreDependencyError",
     "IMGWCancelledError",
-    "IMGWProjectError",
 )
 # 2.x names kept (signatures changed per spec §13.8 and §13.11).
 LEGACY_NAMES = (

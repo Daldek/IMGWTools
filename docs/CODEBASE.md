@@ -12,10 +12,9 @@ src/imgwtools/
 ├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, NormalizedRecord, Measurement, ...)
 ├── stations.py           # PUBLIC: find_stations (live lists of IMGW-PIB and ČHMÚ, or store)
 ├── datasets.py           # PUBLIC: Provider registry (providers, get_provider) + 17 dataset descriptors, archive_files
-├── commands.py           # PUBLIC: Command catalog (38 commands, PL + EN texts, effects), run_command, command_schema, list_commands
+├── commands.py           # PUBLIC: Command catalog (30 commands, PL + EN texts, effects), run_command, command_schema, list_commands
 ├── agent_guide.py        # PUBLIC: agent_guide (AGENTS.md / llms.txt), MCP server instructions
 ├── coverage.py           # PUBLIC: summarize_coverage (per-station periods for ČHMÚ)
-├── project.py            # PUBLIC: imgw-project/1 manifests (restore by content for ČHMÚ)
 ├── exceptions.py         # PUBLIC: IMGWError hierarchy + ERROR_CODES registry (title as a catalog message)
 ├── messages/             # Message catalog: message(), Message, localize(), one module of Text(en, pl) per area (ADR-006)
 ├── urls.py               # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
@@ -150,8 +149,6 @@ Every live function has an `*_async` twin with identical arguments.
 |`check_command(command, /, *, options)`|Plan of a command without side effects → `CommandResult`|
 |`agent_guide(*, format="agents", lang="en", output=None, force=False)`|Agent guide `AGENTS.md`/`llms.txt`: line iterator, or with `output` one plain file and its `OutputReport`|
 
-**Projects:** `init_project`, `open_project`, `set_project_store`, `add_project_task`, `remove_project_task`, `check_project`, `download_project`, `get_project_status`, `verify_project`.
-
 **Data Models:**
 |Model|Description|
 |---|---|
@@ -177,7 +174,6 @@ Every live function has an `*_async` twin with identical arguments.
 |`IMGWStoreError`|`store_unavailable`|Bad/unsupported store root (`not_found` for missing versions)|
 |`IMGWStoreConflictError`|`conflict`|Collisions, races, non-atomic filesystems|
 |`IMGWStoreDependencyError`|`missing_dependency`|pyarrow missing|
-|`IMGWProjectError`|`validation_error`|Project manifest/lock/pins|
 |`IMGWCancelledError`|`cancelled`|Cancelled operation|
 
 **Parsers:** `parse_zip_file(zip_data, interval)`, `parse_daily_csv`, `parse_monthly_csv`, `parse_semi_annual_csv`, `parse_stations_csv(content, /, *, kind)`, `parse_meteo_climate_daily`, `parse_meteo_precip_daily`, `parse_chmi_hydro_daily`, `parse_chmi_meteo_daily`, `parse_chmi_stations`, `normalize_archive`, `IMGW_ENCODING` (CP1250).
@@ -185,7 +181,7 @@ Every live function has an `*_async` twin with identical arguments.
 ## Key Module: `commands.py`
 
 The command catalog is the single source of options, validation, help texts and result types:
-- `_CATALOG` — 38 `DataCommand` entries (spec §13.3 + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text (`description`, `help`, `rules`, group titles) is an English catalog message of `messages/commands.py` with its Polish variant (`localize(text, "pl")`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
+- `_CATALOG` — 30 `DataCommand` entries (spec §13.3 without the `project` group + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text (`description`, `help`, `rules`, group titles) is an English catalog message of `messages/commands.py` with its Polish variant (`localize(text, "pl")`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
 - `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `imgw_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
 - `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
 - CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
@@ -258,21 +254,13 @@ CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET 
 |`series read`|`read_series`|—|`GET /api/v1/series/read`|
 |`series summary`|`summarize_series`|—|`GET /api/v1/series/summary`|
 |`series export`|`export_series`|`check_command`|`GET /api/v1/series/export`|
-|`project init`|`init_project`|`check_command`|local|
-|`project add`|`add_project_task`|`check_command`|local|
-|`project remove`|`remove_project_task`|`check_command`|local|
-|`project set-store`|`set_project_store`|`check_command`|local|
-|`project download`|`download_project`|`check_project`|local|
-|`project check`|`check_project`|self|local|
-|`project status`|`get_project_status`|—|local|
-|`project verify`|`verify_project`|—|local|
 |`commands list`|`list_commands`|—|`GET /api/v1/commands/list`|
 |`commands schema`|`command_schema`|—|`GET /api/v1/commands/schema`|
 |`commands guide`|`agent_guide`|`check_command`|`GET /api/v1/commands/guide`|
 
 Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`, repeatable `--allow-dir`), `imgw admin keys|create|revoke|delete|stats`, `imgw config show`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
 
-Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions/tasks, `replace` = may replace or remove user content (`project remove|set-store|download`); writing options (`x-imgw-writes`): `plan` of `store check`/`project check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
+Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions, `replace` = may replace or remove user content (no command as a whole; only writing options); writing options (`x-imgw-writes`): `plan` of `store check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
 
 ### Options
 
@@ -289,7 +277,7 @@ Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-00
 |`--output` (no short form)|`output`|exactly one file of an export (`store export`, `series export`, `commands guide`)|
 |`--force`|`force`|plain: replace existing targets (never deletes other files); store: fetch again, a new version or `unchanged`|
 
-- `output_dir` and `root` exclude each other: `validation_error`, `details.reason="exclusive_options"`. Commands whose input or result is the store (`series build`, `store catalog`, `project *`) have no `output_dir` (rule "store only" in their description); `--plan` with `output_dir` is `validation_error` (`store_only_option`); a dataset without a store form given `root`: `not_in_store`.
+- `output_dir` and `root` exclude each other: `validation_error`, `details.reason="exclusive_options"`. Commands whose input or result is the store (`series build`, `store catalog`) have no `output_dir` (rule "store only" in their description); `--plan` with `output_dir` is `validation_error` (`store_only_option`); a dataset without a store form given `root`: `not_in_store`.
 - Preflight before the first byte: a directory that is or lies in a store of any tool → `conflict` (`output_in_store`, hint `--root`, `details.paths` the directory, before any request); then duplicate names → `conflict` (`duplicate_output_name`), a target that would enter a subdirectory with a store marker → `output_in_store` (its path), existing target without `--force` → `conflict` (`output_exists`); `details.paths` lists every offending path. `--check` plans `write`, `replace` or `conflict` per target; a plan with conflicts is `ok`. In store mode `--check` lists a root that is `nested_store` or `not_empty` as one `conflict` action of the root; `store_unavailable` (`no_marker`) and `data_error` (an unreadable marker) are raised.
 - Writing: staging `<dir>/.imgw-incoming/<host>_<pid>_<token>/`, sha256 computed while streaming, `os.replace` into place; staging removed on success, error, SIGINT and SIGTERM, leftovers older than 24 h by the next run. No sidecar, hard link or `versions/`. Result `files[]` = `{path, size_bytes, sha256, status}`, status `written`/`replaced` (store: `new`/`unchanged`/`relabeled`).
 - Servers: REST writes only to its own `IMGW_ROOT` with writes enabled and takes none of these options in a request; MCP writes only inside `--allow-dir` with `--allow-writes`.
@@ -432,11 +420,11 @@ Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-
 
 Slots (spec §13.7): `archive:<key>:<file>` (e.g. `archive:pl.imgw.hydro_daily:2024/codz_2024.zip`, `archive:cz.chmi.hydro_daily:H_0-203-1-001000_DQ_2025.json`, `archive:cz.chmi.meteo_daily:precipitation/dly-0-203-0-11573-SRA.csv`), `series:<key>`, `catalog:pl.imgw.stations`, `catalog:cz.chmi.stations`, `pmaxtp:pl.imgw.pmaxtp:<METHOD>/<indX>_<indY>`.
 
-ČHMÚ specifics (ADR-003): freshness from one directory listing per dataset (plan fields `station_code`, `signal`, `remote_listed_at`, `local_observation`, `requests`); a station × year missing at the source is `unverifiable` with `error="not published"` (`download_archives`: `not_published`); datasets with the content form `chmi-json/1` store `content_sha256` — other bytes with the same canonical content give `unchanged` + notice `content_unchanged` + an observation, not a new version; series of per-station datasets carry `stations[<code>].periods` (unpublished years are unknown, not gaps); meteo series add `<V>_quality`/`<V>_source_flag`; project pins of form datasets restore by content (`restored_by_content`, pin state `content_match`, warning `pin_restored_by_content`).
+ČHMÚ specifics (ADR-003): freshness from one directory listing per dataset (plan fields `station_code`, `signal`, `remote_listed_at`, `local_observation`, `requests`); a station × year missing at the source is `unverifiable` with `error="not published"` (`download_archives`: `not_published`); datasets with the content form `chmi-json/1` store `content_sha256` — other bytes with the same canonical content give `unchanged` + notice `content_unchanged` + an observation, not a new version; series of per-station datasets carry `stations[<code>].periods` (unpublished years are unknown, not gaps); meteo series add `<V>_quality`/`<V>_source_flag`. Projects that pin store versions (by `sha256` and `content_sha256`) belong to Archiwista (`archiwista-project/1`, ADR-008).
 
 ### Contracts (IMGW-13)
 
-`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, envelope `imgw-result/1`, `imgw-commands/1` (command schema). Each has its own `/N` counter; within `/1` only optional fields are added. `/1` domains are open to further providers (ADR-003 C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, station code `STATION_CODE_PATTERN` (9-digit IMGW or WIGOS), optional `content_sha256`/`content_form` in sidecars and project pins. Additive fields of 3.0.0 (ADR-003/004): sidecar `request.station_code`/`param`, `extra.period.station_code`, `license.terms_url`; series `stations[<code>].periods`; catalog `thresholds`; plan item `station_code`/`signal`/`remote_listed_at`/`local_observation` and plan `requests`; command schema `lang`, `x-imgw.writes`/`network`/`operation_id`, `x-imgw-writes`. IMGW-PIB files keep their bytes.
+`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, envelope `imgw-result/1`, `imgw-commands/1` (command schema). Each has its own `/N` counter; within `/1` only optional fields are added. `/1` domains are open to further providers (ADR-003 C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, station code `STATION_CODE_PATTERN` (9-digit IMGW or WIGOS), optional `content_sha256`/`content_form` in sidecars. Additive fields of 3.0.0 (ADR-003/004): sidecar `request.station_code`/`param`, `extra.period.station_code`, `license.terms_url`; series `stations[<code>].periods`; catalog `thresholds`; plan item `station_code`/`signal`/`remote_listed_at`/`local_observation` and plan `requests`; command schema `lang`, `x-imgw.writes`/`network`/`operation_id`, `x-imgw-writes`. IMGW-PIB files keep their bytes.
 
 ### IMGW CSV Format Notes
 
@@ -462,12 +450,11 @@ src/imgwtools/
 ├── store/        # Magazyn wersjonowany: writer, sync, series, catalog, pmaxtp, reader, export, content, plain
 ├── output.py     # Zapis zwykłych plików (--output-dir): resolve_target, plan_plain, Staging, OutputReport
 ├── datasets.py   # Rejestr dostawców i 17 zbiorów (pl.imgw.*, cz.chmi.*), generator plików archiwów
-├── commands.py   # Katalog 38 komend wspólny dla Pythona, CLI, REST, MCP i integracji
+├── commands.py   # Katalog 30 komend wspólny dla Pythona, CLI, REST, MCP i integracji
 ├── agent_guide.py # Przewodnik dla agentów (AGENTS.md, llms.txt): agent_guide, commands guide
 ├── fetch.py      # Dane bieżące, PMAXTP, pobieranie archiwów
 ├── stations.py   # find_stations (IMGW-PIB i ČHMÚ)
 ├── urls.py       # Stałe URL IMGW, build_pmaxtp_url, build_api_url
-├── project.py    # Manifest projektu imgw-project/1
 ├── testing.py    # build_fixture_store — magazyn testowy offline (także PL + CZ)
 ├── web/          # Web GUI (HTMX + Jinja2)
 └── config.py     # Konfiguracja (IMGW_*)

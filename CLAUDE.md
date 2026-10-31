@@ -41,9 +41,9 @@ Extras: `imgwtools[cli|api|store|mcp|pandas|full]` (install lines in the README)
 ```
 src/imgwtools/
 ├── __init__.py, fetch.py, models.py, stations.py, datasets.py, urls.py, parsers.py   # PUBLIC API (single __all__)
-├── commands.py           # command catalog (38 commands), run_command, command_schema
+├── commands.py           # command catalog (30 commands), run_command, command_schema
 ├── agent_guide.py        # AGENTS.md / llms.txt generator, MCP instructions
-├── project.py, coverage.py, exceptions.py (ERROR_CODES), testing.py, config.py, reference_data.py
+├── coverage.py, exceptions.py (ERROR_CODES), testing.py, config.py, reference_data.py
 ├── messages/             # message catalog: English text with a Polish variant per key (ADR-006)
 ├── _parsing/             # IMGW-PIB and ČHMÚ file parsers
 ├── _data/                # borders, agents/ templates, packaged fixtures
@@ -67,7 +67,7 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 | Public API, command catalog, option and error tables, data sources and formats, configuration variables, deployment | [docs/CODEBASE.md](docs/CODEBASE.md) |
 | Running tests, test layout, markers | [docs/TESTING.md](docs/TESTING.md), plan in [docs/TEST_PLAN.md](docs/TEST_PLAN.md) |
 | Product goals and requirements | [docs/PRD.md](docs/PRD.md) |
-| Why a design was chosen (ADR-001..005) | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| Why a design was chosen (ADR-001..008) | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | Current state, next steps, open questions | [docs/PROGRESS.md](docs/PROGRESS.md) |
 | Release history, closed backlog, cross-project analysis | [docs/HISTORY.md](docs/HISTORY.md) |
 | What changed in a release, breaking list, migration tables | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
@@ -86,7 +86,7 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 
 ## 7. Cross-project context
 
-IMGWTools is a tool of the Nogat ecosystem; its entry (interfaces, provided contracts `imgw-store/1`, `imgw-meta/1`, ..., data sources) is `IMGWTools` in [ecosystem.yaml](https://github.com/Daldek/Nogat/blob/main/ecosystem.yaml). Hydrolog has no package dependency on it (it reads the CSV of `imgw series export`); Hydrograf and Hydraulik call `fetch_pmaxtp`; Kartograf is a neighbour. Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries) and **Retman** (command catalog: `command_schema` — English by default, `lang="pl"` for Polish — `x-imgw.writes`/`network`, `validate_command`, `format_command`, `check_command`, `run_command`). What a consumer changes for the data output (ADR-007): [docs/CHANGELOG.md](docs/CHANGELOG.md), "Migration guide: data output". Cross-project analysis: [docs/HISTORY.md](docs/HISTORY.md).
+IMGWTools is a tool of the Nogat ecosystem; its entry (interfaces, provided contracts `imgw-store/1`, `imgw-meta/1`, ..., data sources) is `IMGWTools` in [ecosystem.yaml](https://github.com/Daldek/Nogat/blob/main/ecosystem.yaml). Hydrolog has no package dependency on it (it reads the CSV of `imgw series export`); Hydrograf and Hydraulik call `fetch_pmaxtp`; Kartograf is a neighbour. Store consumers: **Archiwista** (public read API only; IMGW-PIB and ČHMÚ through the same adapter, `provider` fields, read-only `kind="observation"` entries; it owns the projects that pin store versions, `archiwista-project/1`, ADR-008) and **Retman** (command catalog: `command_schema` — English by default, `lang="pl"` for Polish — `x-imgw.writes`/`network`, `validate_command`, `format_command`, `check_command`, `run_command`). What a consumer changes for the data output (ADR-007): [docs/CHANGELOG.md](docs/CHANGELOG.md), "Migration guide: data output". Cross-project analysis: [docs/HISTORY.md](docs/HISTORY.md).
 
 ## Deviations
 

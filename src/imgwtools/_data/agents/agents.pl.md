@@ -58,7 +58,7 @@ Jedna linia na komendę, według skutku; opcje, reguły i skutki opcji: `imgw co
 
 ## Typowe przepływy
 
-Symbole pisane wielkimi literami (`KOD_STACJI`, `KOD_WIGOS`, `PROJEKT`) zastąp wartościami z wcześniejszych kroków.
+Symbole pisane wielkimi literami (`KOD_STACJI`, `KOD_WIGOS`) zastąp wartościami z wcześniejszych kroków.
 
 <!-- imgw:flows -->
 
@@ -66,7 +66,7 @@ Symbole pisane wielkimi literami (`KOD_STACJI`, `KOD_WIGOS`, `PROJEKT`) zastąp 
 
 1. Nie buduj URL-i serwerów IMGW-PIB i ČHMÚ ręcznie ani ich nie przeszukuj — `datasets files`, `datasets download`, `store sync`.
 2. Kody wyjścia 10 i 11 nie oznaczają awarii programu — przeczytaj kopertę (`items[].status`, `error_code`).
-3. Nie uruchamiaj zapisu (`store sync`, `series build`, `datasets download`, `project download`) bez planu i zgody użytkownika.
+3. Nie uruchamiaj zapisu (`store sync`, `series build`, `datasets download`) bez planu i zgody użytkownika.
 4. Nie zgaduj stacji ani zbioru: przy kilku trafieniach `stations find` zapytaj; obecność stacji w zbiorze sprawdź `series summary`.
 5. Nie edytuj, nie przenoś i nie usuwaj plików magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — magazyn jest tylko przyrostowy.
 6. Nie pobieraj „na zapas”: zawężaj `years`, `months` i `stations`; nie mieszaj dostawców w jednym wywołaniu ze `stations`.

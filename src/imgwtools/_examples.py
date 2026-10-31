@@ -35,7 +35,6 @@ _DAILY_VERSION = (
 )
 _SERIES_VERSION = "series/versions/hydro_daily/2026-10-19_9a64f921/series.json"
 _CELL_VERSION = "pmaxtp/versions/POT/751_317/2026-10-25_3f9c2a71/cell.json"
-_PROJECT = "/data/projekt-raba"
 _PMAXTP = {"method": "POT", "latitude": 52.23, "longitude": 21.01}
 _RABA_ITEM = {
     "kind": "hydro",
@@ -73,16 +72,6 @@ _DAILY_SYNC = {
         }
     ],
     "cancelled": False,
-}
-_PROJECT_RESULT = {"path": _PROJECT, "store_dir": "../imgw"}
-_TASK = {
-    "name": "raba-daily",
-    "command": "series select",
-    "options": {
-        "dataset": "pl.imgw.hydro_daily",
-        "stations": ["149190310"],
-        "years": [2020, 2021, 2022, 2023],
-    },
 }
 
 EXAMPLES: Mapping[str, tuple[Example, ...]] = {
@@ -485,70 +474,6 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                 "output": "/data/raba.csv",
                 "files": [{"path": "/data/raba.csv", "status": "written"}],
             },
-        ),
-    ),
-    "project init": (
-        Example(
-            "imgw project init --project-dir /data/projekt-raba --store-dir ../imgw",
-            {**_PROJECT_RESULT, "tasks": []},
-        ),
-    ),
-    "project add": (
-        Example(
-            "imgw project add --project-dir /data/projekt-raba --name raba-daily "
-            "--command 'series select' --options "
-            '\'{"dataset":"pl.imgw.hydro_daily","stations":["149190310"],'
-            '"years":[2020,2021,2022,2023]}\'',
-            {**_PROJECT_RESULT, "tasks": [_TASK]},
-        ),
-    ),
-    "project remove": (
-        Example(
-            "imgw project remove --project-dir /data/projekt-raba --name raba-daily",
-            {**_PROJECT_RESULT, "tasks": []},
-        ),
-    ),
-    "project set-store": (
-        Example(
-            "imgw project set-store --project-dir /data/projekt-raba "
-            "--store-dir /data/imgw",
-            {"path": _PROJECT, "store_dir": _ROOT},
-        ),
-    ),
-    "project download": (
-        Example(
-            "imgw project download --project-dir /data/projekt-raba",
-            {"tasks": {"raba-daily": "current"}, "cancelled": False},
-        ),
-        Example(
-            "imgw project download --project-dir /data/projekt-raba --check",
-            {
-                "schema": "imgw-plan/1",
-                "root": _ROOT,
-                "actions": [{"command": "project download", "status": "missing"}],
-            },
-        ),
-    ),
-    "project check": (
-        Example(
-            "imgw project check --project-dir /data/projekt-raba --plan /data/plan.json",
-            {
-                "schema": "imgw-plan/1",
-                "root": _ROOT,
-                "actions": [{"command": "project download", "status": "missing"}],
-            },
-        ),
-    ),
-    "project status": (
-        Example(
-            "imgw project status --project-dir /data/projekt-raba",
-            {"tasks": {"raba-daily": "unpinned"}},
-        ),
-    ),
-    "project verify": (
-        Example(
-            "imgw project verify --project-dir /data/projekt-raba",
-            {"tasks": {"raba-daily": "unpinned"}, "files": []},
         ),
     ),
     "commands list": (

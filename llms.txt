@@ -1,9 +1,9 @@
 # IMGWTools
 
-> Python library, CLI, REST API and MCP server for public hydrological and meteorological data: a versioned store of archives and station series, current data and PMAXTP. Version 3.0.0. Providers: IMGW-PIB — Poland, ČHMÚ — Czechia. Datasets in the registry: 17. Commands of the catalog shared by every interface: 38 (groups: 8).
+> Python library, CLI, REST API and MCP server for public hydrological and meteorological data: a versioned store of archives and station series, current data and PMAXTP. Version 3.0.0. Providers: IMGW-PIB — Poland, ČHMÚ — Czechia. Datasets in the registry: 17. Commands of the catalog shared by every interface: 30 (groups: 7).
 
 1. **Learn the commands:** `imgw commands list` (a one-sentence summary of each), then `imgw commands schema --command …` or `imgw <group> <command> --schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `imgw_commands_list` and `imgw_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-imgw.rules`, effects in `x-imgw.writes`, `x-imgw.network` and `x-imgw.idempotent`.
-2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `imgw-plan/1` plan without writing and without downloading content. `store check` and `project check` are checks themselves. Ask the user about a large plan.
+2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `imgw-plan/1` plan without writing and without downloading content. `store check` is a check itself. Ask the user about a large plan.
 3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
 4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — without downloading again.
 5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `detail` text is for humans.

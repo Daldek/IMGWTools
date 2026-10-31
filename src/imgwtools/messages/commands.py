@@ -63,14 +63,6 @@ MESSAGES = {
         "The option {name} needs a non-empty list of values",
         "Opcja {name} wymaga niepustej listy wartości",
     ),
-    "option_must_json_object": Text(
-        "The option {name} must be a JSON object: {exc}",
-        "Opcja {name} musi być obiektem JSON: {exc}",
-    ),
-    "option_must_json_object_2": Text(
-        "The option {name} must be a JSON object: {value!r}",
-        "Opcja {name} musi być obiektem JSON: {value!r}",
-    ),
     "semi_annual_series_supports_only": Text(
         "A semi-annual series supports only the hydrological year",
         "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
@@ -89,18 +81,6 @@ MESSAGES = {
         "The start of the range {start} is later than its end {end}",
         "Początek zakresu {start} jest późniejszy niż koniec {end}",
     ),
-    "selection_area_geometry_applies_only": Text(
-        "Selection by area (geometry) applies only to series select tasks",
-        "Wybór obszarem (geometry) dotyczy wyłącznie zadań series select",
-    ),
-    "options_task": Text(
-        "The options of the task {command}: {detail}",
-        "Opcje zadania {command}: {detail}",
-    ),
-    "series_select_task_project_needs": Text(
-        "A series select task of a project needs the option years given explicitly",
-        "Zadanie series select w projekcie wymaga jawnej opcji years",
-    ),
     "options_command_must_mapping_name": Text(
         "The options of the command {name} must be a mapping of name → value",
         "Opcje komendy {name} muszą być mapowaniem nazwa → wartość",
@@ -108,11 +88,6 @@ MESSAGES = {
     "unknown_option_command_available": Text(
         "Unknown option {key!r} of the command {name}; available: {known}",
         "Nieznana opcja {key!r} komendy {name}; dostępne: {known}",
-    ),
-    "project_task_does_not_give": Text(
-        "A project task does not give root: the store comes from the store_dir of "
-        "the project",
-        "Zadanie projektu nie podaje root: magazyn wynika ze store_dir projektu",
     ),
     "missing_required_option_command": Text(
         "Missing the required option {name} ({flag}) of the command {name_2}",
@@ -179,14 +154,6 @@ MESSAGES = {
         "Read the series {path} (offline)",
         "Odczyt szeregu {path} (offline)",
     ),
-    "manifest_exists": Text(
-        "The project manifest already exists: {manifest}",
-        "Manifest projektu już istnieje: {manifest}",
-    ),
-    "no_manifest": Text(
-        "No project manifest {manifest}",
-        "Brak manifestu projektu {manifest}",
-    ),
     "commands_catalog_description": Text(
         "Description of the command catalog imgw-commands/1 (offline)",
         "Opis katalogu komend imgw-commands/1 (offline)",
@@ -198,14 +165,6 @@ MESSAGES = {
     "marker_will_be_created": Text(
         "The marker {store_marker} will be created in {root}",
         "Zostanie utworzony znacznik {store_marker} w {root}",
-    ),
-    "manifest_will_be_created": Text(
-        "The project manifest {manifest} will be created",
-        "Zostanie utworzony manifest {manifest}",
-    ),
-    "manifest_will_be_updated": Text(
-        "The project manifest {manifest} will be updated",
-        "Zostanie zaktualizowany manifest {manifest}",
     ),
     "command_list_description": Text(
         "Command list imgw-command-list/1 (offline)",
@@ -232,10 +191,6 @@ MESSAGES = {
         "not with --output-dir ({flag})",
         "Opcja {name} działa na wersjach magazynu: jest ważna tylko z --root, nie z "
         "--output-dir ({flag})",
-    ),
-    "project_task_writes_project_store": Text(
-        "A project task writes to the project store, so it takes no output_dir",
-        "Zadanie projektu zapisuje do magazynu projektu, więc nie ma output_dir",
     ),
     "not_in_store": Text(
         "The dataset {dataset} is not kept in the store (download only): use "
@@ -277,16 +232,6 @@ MESSAGES = {
         "else <data_dir>/imgw",
         "Korzeń magazynu; domyślnie: $IMGW_ROOT, potem root w nogat.toml (sekcja imgw), "
         "inaczej <data_dir>/imgw",
-    ),
-    "project_dir_help": Text(
-        "Project directory with the imgw-project.json manifest",
-        "Katalog projektu z manifestem imgw-project.json",
-    ),
-    "store_dir_help": Text(
-        "IMGW store directory of the project; a relative path is resolved against "
-        "the project directory",
-        "Katalog magazynu IMGW projektu; ścieżka względna liczona wobec katalogu "
-        "projektu",
     ),
     "archive_dataset_help": Text(
         "Archive dataset: key, slug or legacy alias, e.g. pl.imgw.hydro_daily, "
@@ -431,14 +376,6 @@ MESSAGES = {
     "plan_file_help": Text(
         "File to write the imgw-plan/1 plan to, outside the store",
         "Plik planu imgw-plan/1 do zapisania poza magazynem",
-    ),
-    "tasks_help": Text(
-        "Comma-separated names of project tasks (default: all)",
-        "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)",
-    ),
-    "task_name_option_help": Text(
-        "Task name: 1–64 characters a-z, 0-9, _ or -, starting with a letter or digit",
-        "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra",
     ),
     "language_help": Text(
         "Language of the descriptions: en (default) or pl (REST: by Accept-Language)",
@@ -594,10 +531,8 @@ MESSAGES = {
         "Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.",
     ),
     "series_select_description": Text(
-        "Select stations, variables and years of the current series (without "
-        "writing; an input of a project).",
-        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście "
-        "projektu).",
+        "Select stations, variables and years of the current series (without writing).",
+        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu).",
     ),
     "series_select_rule_1": Text(
         "stations and years only of the current series",
@@ -622,47 +557,6 @@ MESSAGES = {
         "Export the series of one station as CSV with the attribution of the data "
         "provider.",
         "Wyeksportuj szereg jednej stacji jako CSV z atrybucją dostawcy danych.",
-    ),
-    "project_init_description": Text(
-        "Create the imgw-project.json manifest of a project pointing to a store.",
-        "Utwórz manifest projektu imgw-project.json wskazujący magazyn.",
-    ),
-    "project_add_description": Text(
-        "Add a task to the project manifest.",
-        "Dodaj zadanie do manifestu projektu.",
-    ),
-    "project_add_rule_1": Text(
-        "geometry only for series select tasks",
-        "geometry wyłącznie dla zadań series select",
-    ),
-    "project_add_rule_2": Text(
-        "a series select task requires an explicit years option",
-        "zadanie series select wymaga jawnej opcji years",
-    ),
-    "project_remove_description": Text(
-        "Remove a task from the project manifest.",
-        "Usuń zadanie z manifestu projektu.",
-    ),
-    "project_set_store_description": Text(
-        "Point the project to a new store directory after verifying the pinned files.",
-        "Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików.",
-    ),
-    "project_download_description": Text(
-        "Download and pin the data of the project tasks.",
-        "Pobierz i przypnij dane zadań projektu.",
-    ),
-    "project_check_description": Text(
-        "Check the freshness of the data of the project tasks without writing to the "
-        "store.",
-        "Sprawdź aktualność danych zadań projektu bez zapisu do magazynu.",
-    ),
-    "project_status_description": Text(
-        "Show the state of the pinned files of the project tasks (offline).",
-        "Pokaż stan przypiętych plików zadań projektu (offline).",
-    ),
-    "project_verify_description": Text(
-        "Verify the SHA-256 sums of the pinned files of a project (offline).",
-        "Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline).",
     ),
     "commands_list_description": Text(
         "List the catalog commands: tool names, effects and routes. Start here, then "
@@ -806,36 +700,6 @@ MESSAGES = {
         "Export format (csv only)",
         "Format eksportu (tylko csv)",
     ),
-    "project_add_command_help": Text(
-        "Catalog command of the task, e.g. series select",
-        "Komenda zadania z katalogu, np. series select",
-    ),
-    "project_add_options_help": Text(
-        "Options of the task command as a JSON object (without root: the store "
-        "follows from the project)",
-        "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z projektu)",
-    ),
-    "project_add_geometry_help": Text(
-        "GeoJSON file of the station selection area in the project directory (series "
-        "select only)",
-        "Plik GeoJSON obszaru wyboru stacji w katalogu projektu (tylko series select)",
-    ),
-    "project_remove_task_name_option_help": Text(
-        "Name of the task to remove",
-        "Nazwa usuwanego zadania",
-    ),
-    "project_set_store_store_dir_help": Text(
-        "New IMGW store directory of the project",
-        "Nowy katalog magazynu IMGW projektu",
-    ),
-    "project_download_plan_help": Text(
-        "imgw-plan/1 plan file of the project check command",
-        "Plik planu imgw-plan/1 z komendy project check",
-    ),
-    "project_download_update_help": Text(
-        "Mode: pinned (restore the pinned versions) or upgrade (change the pins)",
-        "Tryb: pinned (odtwórz przypięte wersje) albo upgrade (zmień piny)",
-    ),
     "commands_schema_command_help": Text(
         "Name of a catalog command; none = the whole imgw-commands/1 catalog",
         "Nazwa komendy katalogu; brak = cały katalog imgw-commands/1",
@@ -852,12 +716,6 @@ MESSAGES = {
     "pattern_synop_station": Text(
         "synoptic station code of 5 digits",
         "kod stacji synoptycznej z 5 cyfr",
-    ),
-    "pattern_task_pattern": Text(
-        "task name of 1–64 characters a-z, 0-9, _ or -, starting with a letter or a "
-        "digit",
-        "nazwa zadania z 1–64 znaków a-z, 0-9, _ lub -, zaczynająca się literą lub "
-        "cyfrą",
     ),
     "group_datasets": Text(
         "Registry of providers and datasets: list, files and download",
@@ -882,10 +740,6 @@ MESSAGES = {
     "group_series": Text(
         "Station series",
         "Szeregi stacji",
-    ),
-    "group_project": Text(
-        "imgw-project/1 projects",
-        "Projekty imgw-project/1",
     ),
     "group_commands": Text(
         "Description of the command catalog",

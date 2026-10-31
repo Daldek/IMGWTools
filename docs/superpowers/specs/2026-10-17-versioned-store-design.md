@@ -9,6 +9,8 @@
 
 > [ADR-007, erraty 2026-10-25] Czytnik (`store_info`, `iter_store`, `current_version`) wymaga od znacznika tylko `schema`, tak jak `open_store`; `created_by` jest polem opcjonalnym, więc poniższe „brak `created_by`” (rozstrzygnięcia T15) i schemat znacznika z `required: ["schema","created_by"]` nie obowiązują.
 
+> [ADR-008, 2026-10-31] Projekty przeniesiono do Archiwisty: §10.1, §11.6 oraz części §10, §12 i §13 o projekcie (komendy `imgw project …`, typy `Project*`, `IMGWProjectError`, pole `task` pozycji) nie obowiązują. Poniższa treść zachowuje stan z 2026-10-17.
+
 ## 1. Granice i organizacja kodu
 
 Producentem danych i jedynym piszącym do katalogu IMGW jest IMGWTools; konsument czyta wyłącznie publiczne API. Korzeń magazynu jest jawnie wskazany i absolutyzowany na wejściu; nie ma domyślnego `./data`, połączenia z katalogiem Kartografa, plików ani indeksu Archiwisty w magazynie. Bieżące hydro, synop, ostrzeżenia i `fetch_pmaxtp` pozostają live-only i nie zmieniają kontraktu. API serwera pozostaje domyślnie generatorem URL; zapis do magazynu na serwerze tylko po jawnej konfiguracji uprawnionego katalogu.
@@ -551,6 +553,8 @@ Wywołania **piszące** wymagają jednocześnie `IMGW_STORE_WRITES_ENABLED=true`
 
 ### 10.1 `imgw-project/1` (własny manifest obok Kartografa)
 
+> **Zastąpione przez ADR-008** (2026-10-31): projekty przeniesiono do Archiwisty.
+
 ```python
 @dataclass(frozen=True)
 class ProjectFile:
@@ -710,6 +714,8 @@ Norma zapisu: JSON UTF-8, LF, full SHA = 64 małe cyfry hex, brak nieznanej wers
 ```
 
 ### 11.6 `imgw-project.json` — `imgw-project/1`
+
+> **Zastąpione przez ADR-008** (2026-10-31): projekty przeniesiono do Archiwisty.
 
 > [ADR-002] Pole `files[].station` nazywa się `station_code`.
 

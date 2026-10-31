@@ -27,19 +27,14 @@ from mcp.types import CallToolResult
 
 from imgwtools import (
     ERROR_CODES,
-    add_project_task,
     check_command,
-    download_project,
-    init_project,
     run_command,
 )
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
 from tests.contract.support import (
-    DAILY,
     H2024,
     NEW,
-    RABA,
     V3,
     FakeImgw,
     canonical,
@@ -212,8 +207,6 @@ def test_without_writes_a_write_is_its_plan_of_check_in_python_and_cli(
 # Local commands without a REST route
 # --------------------------------------------------------------------------
 
-TASK = {"dataset": DAILY, "stations": [RABA], "years": [2024]}
-
 
 @dataclass(frozen=True)
 class Local:
@@ -243,45 +236,9 @@ def _datasets_download(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Lo
     return Local(options, output, _gone(output))
 
 
-def _project_init(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
-    project = tmp_path / "projekt"
-    options = {"project_dir": project, "store_dir": "../magazyn"}
-    return Local(options, project, _gone(project))
-
-
-def _project_add(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
-    project = tmp_path / "projekt"
-
-    def reset() -> None:
-        shutil.rmtree(project, ignore_errors=True)
-        init_project(project, store_dir="../store")
-
-    options = {
-        "project_dir": project,
-        "name": "raba",
-        "command": "series select",
-        "options": TASK,
-    }
-    return Local(options, project, reset)
-
-
-def _pinned(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
-    shutil.copytree(fixture_root, tmp_path / "store")
-    project = tmp_path / "project"
-    imgw.publish(H2024, V3, NEW)
-    init_project(project, store_dir="../store")
-    add_project_task(project, name="raba", command="series select", options=TASK)
-    assert download_project(project).tasks == {"raba": "current"}
-    return Local({"project_dir": project}, tmp_path, lambda: None)
-
-
 LOCAL = {
     "store init": _store_init,
     "datasets download": _datasets_download,
-    "project init": _project_init,
-    "project add": _project_add,
-    "project status": _pinned,
-    "project verify": _pinned,
 }
 
 

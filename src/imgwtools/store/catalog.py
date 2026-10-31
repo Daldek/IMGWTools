@@ -2081,7 +2081,7 @@ def build_catalog(
         ``python -m imgwtools.reference_data``); raised before any download.
     IMGWStoreError
         If ``root`` is not a supported IMGW store or collides with a Kartograf
-        store or project.
+        store.
     IMGWConnectionError
         If a station list cannot be checked or downloaded, or another source
         cannot be downloaded.
