@@ -18,6 +18,7 @@ MESSAGES = {
     "title_io_error": Text("File system error", "Błąd systemu plików"),
     "title_cancelled": Text("Operation cancelled", "Operację anulowano"),
     "title_forbidden": Text("Write not permitted", "Brak uprawnień do zapisu"),
+    "title_unsupported": Text("Not supported", "Nieobsługiwane"),
     "title_method_not_allowed": Text(
         "HTTP method not allowed", "Niedozwolona metoda HTTP"
     ),

@@ -66,7 +66,8 @@ PROBLEM_SCHEMA: dict[str, object] = {
 PROBLEM_RESPONSES: dict[int | str, dict[str, Any]] = {
     "4XX": {
         "description": "Request error: validation (400), no permission to write "
-        "(403), no object or route (404), method not allowed (405), conflict (409)",
+        "(403), no object or route (404), method not allowed (405), conflict (409), "
+        "not supported (422)",
         "content": {PROBLEM_MEDIA_TYPE: {"schema": PROBLEM_SCHEMA}},
     },
     "5XX": {

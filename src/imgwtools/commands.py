@@ -29,7 +29,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, NoReturn, cast
 
 from imgwtools import fetch as _fetch
@@ -39,12 +39,14 @@ from imgwtools._examples import EXAMPLES
 from imgwtools._version import __version__
 from imgwtools.config import store_root
 from imgwtools.datasets import (
+    _CATALOG_DATASETS,
     STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
     MonthsArg,
     ProviderDescriptor,
     YearsArg,
+    _archive_from_path,
     archive_files,
     datasets,
     get_dataset,
@@ -56,15 +58,20 @@ from imgwtools.datasets import (
 from imgwtools.exceptions import (
     ERROR_CODES,
     IMGWCancelledError,
+    IMGWDataError,
     IMGWError,
+    IMGWStoreError,
     IMGWValidationError,
+    io_error,
 )
 from imgwtools.messages import LANGS, Lang, localize, message, reason
 from imgwtools.store import export as _export
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
 from imgwtools.store import writer as _writer
+from imgwtools.store.catalog import _NESTED_CATALOGS, CATALOG_FILE
 from imgwtools.store.plain import plain_actions
+from imgwtools.store.pmaxtp import CELL_FILE, RESPONSE_FILE
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
@@ -73,9 +80,11 @@ from imgwtools.store.types import (
     CommandResult,
     DataCommand,
     DownloadReport,
+    Meta,
     Notice,
     NoticeHook,
     Page,
+    PathArg,
     PlanAction,
     PMaXTPStoreResult,
     ProgressHook,
@@ -88,6 +97,7 @@ from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 __all__ = [
     "check_command",
+    "command_for_version",
     "command_schema",
     "data_commands",
     "format_command",
@@ -2077,6 +2087,354 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
     given.update(lists)
     options = {o.name: given[o.name] for o in spec.options if o.name in given}
     return CommandCall(name, options, run)
+
+
+# --- komenda zapisanej wersji ----------------------------------------------------------------
+
+# ``details.reason`` of a version whose metadata does not give its command (ECO-054).
+_NOT_REBUILDABLE = "command_not_rebuildable"
+
+
+def _not_a_version(relative: str) -> NoReturn:
+    raise IMGWValidationError(
+        message("commands.not_a_version", version=relative),
+        details={"option": "version", "value": relative},
+    )
+
+
+def _no_version(base: Path, relative: str) -> IMGWStoreError:
+    return IMGWStoreError(
+        message("commands.version_not_found", root=base, version=relative),
+        code="not_found",
+        details={"version": relative},
+    )
+
+
+def _mismatch(relative: str, field: str, value: object, expected: object) -> NoReturn:
+    raise IMGWDataError(
+        message(
+            "commands.version_meta_mismatch",
+            version=relative,
+            field=field,
+            value=value,
+            expected=expected,
+        ),
+        details={"version": relative, "field": field},
+    )
+
+
+def _invalid_request(relative: str, field: str, value: object) -> NoReturn:
+    raise IMGWDataError(
+        message(
+            "commands.version_request_invalid",
+            version=relative,
+            field=field,
+            value=value,
+        ),
+        details={"version": relative, "field": field},
+    )
+
+
+def _not_rebuildable(detail: str, relative: str, **details: object) -> NoReturn:
+    raise IMGWError(
+        detail,
+        code="unsupported",
+        details={"reason": _NOT_REBUILDABLE, "version": relative, **details},
+    )
+
+
+def _missing_field(relative: str, field: str) -> NoReturn:
+    _not_rebuildable(
+        message(
+            "commands.version_command_missing_field", version=relative, field=field
+        ),
+        relative,
+        field=field,
+    )
+
+
+def _version_path(base: Path, version: PathArg) -> tuple[str, Path]:
+    """The text of ``version`` relative to the root and its path, checked."""
+    given = Path(version).expanduser()
+    if given.is_absolute():
+        try:
+            given = given.relative_to(base)
+        except ValueError:
+            raise IMGWValidationError(
+                message("commands.version_outside_root", version=given, root=base),
+                details={"option": "version", "value": str(given)},
+            ) from None
+    relative = given.as_posix()
+    return relative, _writer._validate_slot(base, relative)
+
+
+def _locate_version(base: Path, relative: str, path: Path) -> tuple[str, Path, str]:
+    """
+    Slot, directory and main file of the version ``path`` names.
+
+    ``path`` is the version directory, its main file, its sidecar, an
+    attachment (the PMAXTP ``response.json``) or a station file of a series
+    version (``stations/<code>.parquet``); only the layout of the store places
+    it, the data file itself need not exist.
+    """
+    parts = PurePosixPath(relative).parts
+    station_file = (
+        parts[:2] == ("series", "versions")
+        and len(parts) == 6
+        and parts[4] == "stations"
+    )
+    given: str | None = None
+    if path.is_dir():
+        directory = path
+    elif path.name.endswith(_reader._SIDECAR):
+        directory, given = path.parent, path.name.removesuffix(_reader._SIDECAR)
+    elif station_file:
+        directory = path.parent.parent
+    else:
+        directory, given = path.parent, path.name
+    if not directory.is_dir() or not _reader._VERSION_DIR.match(directory.name):
+        if path.exists():
+            _not_a_version(relative)
+        raise _no_version(base, relative)
+    where = directory.relative_to(base).parts
+    series = _reader._series_datasets()
+    attachments: tuple[str, ...] = ()
+    if where[:2] == ("archives", "versions") and len(where) >= 5:
+        found = _reader._scanned_archive_slot(base / "archives" / "versions", directory)
+        if found is None:
+            _not_a_version(relative)
+        slot, name = found[0], PurePosixPath(found[1]).name
+    elif where[:2] == ("series", "versions") and len(where) == 4 and where[2] in series:
+        slot, name = f"series:{series[where[2]].key}", _reader.SERIES_FILE
+    elif where[:2] == ("stations", "versions") and (
+        len(where) == 3 or (len(where) == 4 and where[2] in _NESTED_CATALOGS)
+    ):
+        owner = "IMGW-PIB" if len(where) == 3 else _NESTED_CATALOGS[where[2]]
+        slot, name = f"catalog:{_CATALOG_DATASETS[owner]}", CATALOG_FILE
+    elif (
+        where[:2] == ("pmaxtp", "versions")
+        and len(where) == 5
+        and where[2] in ("POT", "AMP")
+        and _reader._CELL.match(where[3])
+    ):
+        slot = f"pmaxtp:{_reader._PMAXTP_KEY}:{where[2]}/{where[3]}"
+        name, attachments = CELL_FILE, (RESPONSE_FILE,)
+    else:
+        _not_a_version(relative)
+    if given is not None and given not in (name, *attachments):
+        _not_a_version(relative)
+    return slot, directory, name
+
+
+def _version_meta(base: Path, relative: str, sidecar: Path) -> Meta:
+    """The sidecar of a version: missing is ``not_found``, invalid ``data_error``."""
+    try:
+        return _reader._load_meta(sidecar)
+    except _reader._Invalid as exc:
+        if exc.code == "missing_sidecar":
+            raise _no_version(base, relative) from exc
+        if isinstance(exc.__cause__, OSError):
+            raise io_error(exc.__cause__) from exc.__cause__
+        raise IMGWDataError(
+            message("reader.invalid_sidecar", sidecar=sidecar, exc=reason(exc)),
+            details={"version": relative},
+        ) from exc
+
+
+def _archive_call(
+    relative: str, meta: Meta, key: str, server_path: str
+) -> tuple[str, Options]:
+    """``store sync`` of an archive version, or ``store catalog`` of a station list."""
+    descriptor = get_dataset(key)
+    request = meta.request
+    if request.get("server_path", server_path) != server_path:
+        _mismatch(relative, "request.server_path", request["server_path"], server_path)
+    if descriptor.time_unit == "station_list":
+        # Station lists are downloaded by the catalog of their provider.
+        return "store catalog", {"provider": descriptor.provider}
+    unselected = message(
+        "commands.version_command_unselected",
+        version=relative,
+        dataset=key,
+        server_path=server_path,
+    )
+    archive = _archive_from_path(key, server_path)
+    if archive is None:
+        _not_rebuildable(unselected, relative, server_path=server_path)
+    for field in ("year", "month", "station_code", "param"):
+        if field in request and request[field] != getattr(archive, field):
+            _mismatch(
+                relative, f"request.{field}", request[field], getattr(archive, field)
+            )
+    options: Options = {"datasets": [key]}
+    if descriptor.archive_scope == "country":
+        options["years"] = [archive.year]
+        if archive.month is not None:
+            options["months"] = [archive.month]
+    else:
+        options["stations"] = [archive.station_code]
+        if descriptor.archive_scope == "station_year":
+            options["years"] = [archive.year]
+    try:
+        _, _, candidates, archives = _sync._selection(
+            options["datasets"],
+            options.get("years"),
+            options.get("months"),
+            options.get("stations"),
+        )
+    except IMGWValidationError:
+        _not_rebuildable(unselected, relative, server_path=server_path)
+    offered = (candidates.get(key) or ()) if candidates else archives
+    if server_path not in {item.server_path for item in offered}:
+        _not_rebuildable(unselected, relative, server_path=server_path)
+    return "store sync", options
+
+
+def _catalog_call(relative: str, meta: Meta, key: str) -> tuple[str, Options]:
+    """``store catalog`` of a catalog version built without a user's coordinates."""
+    provider = next(owner for owner, item in _CATALOG_DATASETS.items() if item == key)
+    if "user_locations" not in meta.request:
+        _missing_field(relative, "request.user_locations")
+    user = meta.request["user_locations"]
+    if isinstance(user, str) and user:
+        _not_rebuildable(
+            message(
+                "commands.version_command_user_locations",
+                version=relative,
+                name=user,
+                provider=provider,
+            ),
+            relative,
+            field="request.user_locations",
+        )
+    if user is not None:
+        _invalid_request(relative, "request.user_locations", user)
+    return "store catalog", {"provider": provider}
+
+
+def _pmaxtp_call(relative: str, meta: Meta, slot: str) -> tuple[str, Options]:
+    """``pmaxtp sync`` of the point and the cell a PMAXTP version was fetched for."""
+    method, cell = slot.rsplit(":", 1)[1].split("/")
+    ind_x, ind_y = (int(index) for index in cell.split("_"))
+    request = meta.request
+    for field, expected in (("method", method), ("ind_x", ind_x), ("ind_y", ind_y)):
+        if field in request and request[field] != expected:
+            _mismatch(relative, f"request.{field}", request[field], expected)
+    point: Options = {}
+    for field in ("latitude", "longitude"):
+        if field not in request:
+            _missing_field(relative, f"request.{field}")
+        value = request[field]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            _invalid_request(relative, f"request.{field}", value)
+        point[field] = value
+    return "pmaxtp sync", {**point, "method": method, "ind_x": ind_x, "ind_y": ind_y}
+
+
+def command_for_version(
+    version: str | os.PathLike[str],
+    *,
+    root: str | os.PathLike[str] | None = None,
+) -> CommandCall:
+    """
+    Give the data command that fetches a stored version again, from its metadata.
+
+    Offline and read-only: the version's sidecar (``imgw-meta/1``) and the
+    layout of the store give the call of the command that selects this data
+    in the store (ECO-054, ADR-008). The call has the shape `parse_command`
+    returns, so `format_command`, `check_command` and `run_command` take it:
+    it is the call `parse_command` reads from the canonical line of
+    `format_command`, with ``root`` the absolute root of the store (a store
+    command always names its root, ADR-007 D2) and no ``run`` flags.
+
+    ======================================  ========================================
+    Version                                 Command
+    ======================================  ========================================
+    IMGW-PIB archive                        ``store sync --datasets <key> --years
+                                            <year>`` (``--months <month>`` of a
+                                            monthly file)
+    ČHMÚ hydrological archive               ``store sync --datasets <key> --stations
+                                            <code> --years <year>``
+    ČHMÚ meteorological archive             ``store sync --datasets <key> --stations
+                                            <code>``
+    station list (both providers)           ``store catalog --provider <provider>``
+    station catalog                         ``store catalog --provider <provider>``
+    series version (or its station file)    ``series build --dataset <key>``
+    PMAXTP cell                             ``pmaxtp sync --latitude --longitude
+                                            --method --ind-x --ind-y``
+    ======================================  ========================================
+
+    The call is the narrowest one that selects the version's file; it may
+    select files beside it that the same options cover (the ``H``, ``Q`` and
+    ``T`` files of a half-year, every element of a ČHMÚ meteorological
+    station), each with its own plan item. A version whose metadata does not
+    give the call is refused, never guessed: a catalog built with a user's
+    coordinates file (only its name is recorded), a sidecar without a field
+    the call needs, or a file that ``store sync`` does not select.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        A stored version: its directory, its main file (``StoreEntry.version``),
+        its sidecar, the PMAXTP ``response.json`` or a station file of a
+        series version; relative to ``root`` (an absolute path must lie in
+        it). The main file need not exist: the sidecar gives the call.
+    root : str, os.PathLike or None, optional
+        Store root; ``None`` takes the default root (`store_root`).
+
+    Returns
+    -------
+    CommandCall
+        The command, its options as the texts of its canonical line and an
+        empty ``run``; ``check_command(call.command, options=call.options)``
+        plans the version's file again.
+
+    Raises
+    ------
+    IMGWError
+        Code ``unsupported`` with ``details.reason="command_not_rebuildable"``
+        (``details.version``, and ``field`` or ``server_path``) when the
+        metadata does not give the call; the text says how to pin the version
+        instead.
+    IMGWStoreError
+        Code ``not_found`` (``details.version``) when the store has no such
+        version or its sidecar is missing; ``store_unavailable`` when the root
+        is not a supported store; ``validation_error`` when a path component
+        is a symbolic link.
+    IMGWValidationError
+        If ``version`` lies outside the root, contains ``..`` or names
+        something that is no version (``details.option="version"``).
+    IMGWDataError
+        If the sidecar is invalid or contradicts the layout (``details.version``,
+        ``details.field``); code ``io_error`` if it cannot be read.
+    """
+    base = _reader._open(store_root().root if root is None else root)
+    relative, path = _version_path(base, version)
+    slot, directory, name = _locate_version(base, relative, path)
+    meta = _version_meta(base, relative, directory / f"{name}{_reader._SIDECAR}")
+    kind, key = slot.split(":")[:2]
+    if meta.dataset_key != key:
+        _mismatch(relative, "dataset", meta.dataset, key)
+    if kind == "archive":
+        server_path = slot.removeprefix(f"archive:{key}:")
+        server_dir = get_dataset(key).server_dir
+        command, options = _archive_call(
+            relative, meta, key, f"{server_dir}/{server_path}"
+        )
+    elif kind == "series":
+        if meta.request.get("dataset", key) != key:
+            _mismatch(relative, "request.dataset", meta.request["dataset"], key)
+        command, options = "series build", {"dataset": key}
+    elif kind == "catalog":
+        command, options = _catalog_call(relative, meta, key)
+    else:
+        command, options = _pmaxtp_call(relative, meta, slot)
+    try:
+        line = format_command(command, options={"root": base, **options})
+    except IMGWValidationError as exc:
+        field = str(exc.details.get("option"))
+        _invalid_request(relative, f"request.{field}", options.get(field))
+    return parse_command(line)
 
 
 # --- dyspozytor ------------------------------------------------------------------------------

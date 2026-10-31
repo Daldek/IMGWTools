@@ -568,6 +568,18 @@ def _forbidden(setting: Setting) -> Scenario:
     return Scenario("series build", {"dataset": PRECIP}, setting.store(), ("rest",))
 
 
+def _unsupported(setting: Setting) -> Scenario:
+    # No catalog command refuses a combination itself (command_for_version is
+    # Python only); a refusal raised below a command is reported alike.
+    refusal = IMGWError(
+        "Komenda wersji nie do odtworzenia",
+        code="unsupported",
+        details={"reason": "command_not_rebuildable"},
+    )
+    setting.raising(store, "store_info", refusal)
+    return Scenario("store info", {}, setting.store())
+
+
 def _method_not_allowed(setting: Setting) -> Scenario:
     return Scenario("store info", {}, setting.store(), ("rest",), method="DELETE")
 
@@ -589,6 +601,7 @@ SCENARIOS = {
     "io_error": _io_error,
     "cancelled": _cancelled,
     "forbidden": _forbidden,
+    "unsupported": _unsupported,
     "method_not_allowed": _method_not_allowed,
     "internal_error": _internal_error,
 }

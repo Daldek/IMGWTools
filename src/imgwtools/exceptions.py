@@ -34,6 +34,7 @@ ErrorCode = Literal[
     "io_error",
     "cancelled",
     "forbidden",
+    "unsupported",
     "method_not_allowed",
     "internal_error",
 ]
@@ -86,6 +87,7 @@ ERROR_CODES: Mapping[ErrorCode, ErrorSpec] = MappingProxyType(
             ErrorSpec("io_error", message("errors.title_io_error"), 9, 500),
             ErrorSpec("cancelled", message("errors.title_cancelled"), 130, None),
             ErrorSpec("forbidden", message("errors.title_forbidden"), 12, 403),
+            ErrorSpec("unsupported", message("errors.title_unsupported"), 15, 422),
             ErrorSpec(
                 "method_not_allowed",
                 message("errors.title_method_not_allowed"),

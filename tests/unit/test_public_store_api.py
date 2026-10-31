@@ -78,6 +78,7 @@ SPEC_FUNCTIONS = (
     "validate_command",
     "format_command",
     "parse_command",
+    "command_for_version",
     "check_command",
     "run_command",
     "agent_guide",

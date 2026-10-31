@@ -50,6 +50,7 @@ from imgwtools.agent_guide import agent_guide
 # Data command catalog
 from imgwtools.commands import (
     check_command,
+    command_for_version,
     command_schema,
     data_commands,
     format_command,
@@ -389,6 +390,7 @@ __all__ = [
     "validate_command",
     "format_command",
     "parse_command",
+    "command_for_version",
     "check_command",
     "run_command",
     "agent_guide",

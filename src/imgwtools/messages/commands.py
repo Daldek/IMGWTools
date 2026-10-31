@@ -859,4 +859,55 @@ MESSAGES = {
         "The command {command} has no --check: it is a check itself or only reads",
         "Komenda {command} nie ma --check: sama jest sprawdzeniem albo tylko odczytuje",
     ),
+    # command_for_version
+    "version_outside_root": Text(
+        "The version {version} lies outside the store {root}: give its path relative "
+        "to the root",
+        "Wersja {version} leży poza magazynem {root}: podaj jej ścieżkę względem "
+        "korzenia",
+    ),
+    "not_a_version": Text(
+        "{version} is no version of the store: give the version directory, its main "
+        "file or its sidecar, relative to the root, as iter_store names them",
+        "{version} nie jest wersją magazynu: podaj katalog wersji, jej plik główny "
+        "albo sidecar względem korzenia, tak jak nazywa je iter_store",
+    ),
+    "version_not_found": Text(
+        "The store {root} has no version {version}",
+        "Magazyn {root} nie ma wersji {version}",
+    ),
+    "version_meta_mismatch": Text(
+        "The sidecar of {version} does not describe it: {field} is {value!r}, the "
+        "store layout gives {expected!r}",
+        "Sidecar wersji {version} jej nie opisuje: {field} ma wartość {value!r}, a "
+        "układ magazynu daje {expected!r}",
+    ),
+    "version_request_invalid": Text(
+        "The sidecar of {version} has an invalid {field}: {value!r}",
+        "Sidecar wersji {version} ma niepoprawne pole {field}: {value!r}",
+    ),
+    "version_command_missing_field": Text(
+        "The command of {version} cannot be rebuilt: its sidecar has no {field}. Pin "
+        "it as local data, or give its command yourself",
+        "Nie można odtworzyć komendy wersji {version}: jej sidecar nie ma pola "
+        "{field}. Przypnij ją jako dane lokalne albo podaj komendę samodzielnie",
+    ),
+    "version_command_user_locations": Text(
+        "The command of the catalog version {version} cannot be rebuilt: it was built "
+        "with the coordinates file {name!r}, whose path the sidecar does not record. "
+        "Pin it as local data, or run imgw store catalog --provider {provider} "
+        "--user-locations <file> with that file",
+        "Nie można odtworzyć komendy wersji katalogu {version}: zbudowano ją z pliku "
+        "współrzędnych {name!r}, którego ścieżki sidecar nie zapisuje. Przypnij ją "
+        "jako dane lokalne albo uruchom imgw store catalog --provider {provider} "
+        "--user-locations <plik> z tym plikiem",
+    ),
+    "version_command_unselected": Text(
+        "The command of {version} cannot be rebuilt: imgw store sync --datasets "
+        "{dataset} selects no file {server_path} (a file name this release does not "
+        "download). Pin it as local data",
+        "Nie można odtworzyć komendy wersji {version}: imgw store sync --datasets "
+        "{dataset} nie wybiera pliku {server_path} (nazwy, której to wydanie nie "
+        "pobiera). Przypnij ją jako dane lokalne",
+    ),
 }
