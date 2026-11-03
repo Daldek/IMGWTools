@@ -1,5 +1,6 @@
 """The package built from this checkout works without any extra (core dependencies)."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -51,20 +52,29 @@ class _Installed(NamedTuple):
     work: Path
 
 
-def _uv(*arguments: str | Path) -> None:
+def _uv(*arguments: str | Path, env: dict[str, str] | None = None) -> None:
     result = subprocess.run(
         ["uv", *map(str, arguments)],
         capture_output=True,
         text=True,
         check=False,
         timeout=120,
+        env=env,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.fixture(scope="module")
 def installed(tmp_path_factory: pytest.TempPathFactory) -> _Installed:
-    """The wheel built from this checkout, installed alone into a fresh venv."""
+    """The wheel built from this checkout, installed into a fresh venv with core dependencies only.
+
+    Offline: the core dependencies come from ``uv.lock`` (``uv sync`` installs
+    them by their locked URLs from the uv cache that syncing this checkout
+    filled). ``uv pip install`` of the wheel's own requirements would need the
+    registry's index pages, which a fresh cache (CI) does not hold. The wheel
+    goes in without dependencies; ``uv pip check`` then proves that its
+    declared requirements are what the venv holds.
+    """
     if shutil.which("uv") is None:
         pytest.skip("uv is not installed")
     work = tmp_path_factory.mktemp("library-install")
@@ -72,11 +82,23 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> _Installed:
     venv = work / "venv"
     _uv("build", "--offline", "--wheel", "--out-dir", wheels, ROOT)
     (wheel,) = wheels.glob("imgwtools-*.whl")
-    _uv("venv", "--offline", "--python", sys.executable, venv)
+    _uv(
+        "sync",
+        "--offline",
+        "--frozen",
+        "--no-install-project",
+        "--no-default-groups",
+        "--project",
+        ROOT,
+        "--python",
+        sys.executable,
+        env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)},
+    )
     python = venv / "bin" / "python"
     if not python.exists():  # Windows layout
         python = venv / "Scripts" / "python.exe"
-    _uv("pip", "install", "--offline", "--python", python, wheel)
+    _uv("pip", "install", "--offline", "--no-deps", "--python", python, wheel)
+    _uv("pip", "check", "--python", python)
     return _Installed(wheel, python, work)
 
 
