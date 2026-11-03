@@ -1071,10 +1071,11 @@ release have the same bytes as without the ČHMÚ provider.
   installed, and one uvicorn process runs. `docker/docker-compose.yml` has no obsolete `version`
   key and takes `IMGW_MCP_ENABLED` and `IMGW_MCP_ALLOWED_HOSTS` from the environment of
   `docker compose`.
-- **`imgw` writes its output in UTF-8 whatever the locale:** on Windows a redirected stdout or
-  stderr uses the code page (cp1252), so a Polish letter in the envelope ended the command with
-  `internal_error` (`UnicodeEncodeError`) and the error line on stderr was not UTF-8. The CLI
-  switches both streams to UTF-8 before it runs.
+- **`imgw` writes its output in UTF-8 with LF line ends whatever the system:** on Windows a
+  redirected stdout or stderr uses the code page (cp1252) and writes a line end as CRLF, so a
+  Polish letter in the envelope ended the command with `internal_error` (`UnicodeEncodeError`),
+  the error line on stderr was not UTF-8, and the envelope ended with `\r\n`. The CLI switches
+  both streams to UTF-8 and LF before it runs.
 - **`imgw` on Windows ends quietly when the reader of its output leaves:** Windows reports a write
   to a pipe whose reading end is closed as `EINVAL`, not `EPIPE` (`BrokenPipeError`), so `imgw
   store export … | head` ended with `io_error` ("File system error: Invalid argument") and, as the
