@@ -15,6 +15,7 @@ and as ``imgw --version`` with ``--root``. No request leaves the recordings.
 import functools
 import importlib
 import json
+import os
 import shutil
 import sys
 from dataclasses import dataclass
@@ -773,14 +774,19 @@ def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
         "io_error",
         spec.title,
     )
-    # The CLI text with the server root hidden (paths relative to it, T21).
+    # The CLI text with the server root hidden (paths relative to it, T21); the
+    # root and its separator as they stand in JSON text (backslashes on Windows).
+    hidden = json.dumps(f"{root}{os.sep}", ensure_ascii=False)[1:-1]
     assert canonical([body["detail"], body["details"]]) == canonical(expected).replace(
-        f"{root}/", ""
+        hidden, ""
     )
     assert str(root) not in answered.text
     return raised
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="chmod only sets the read-only attribute on Windows"
+)
 @pytest.mark.parametrize("unreadable", list(UNREADABLE))
 def test_an_unreadable_version_is_an_io_error_in_every_interface(
     unreadable, cli, rest, server, monkeypatch, tmp_path, served_root

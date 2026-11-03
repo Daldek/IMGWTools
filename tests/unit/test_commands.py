@@ -406,14 +406,20 @@ def test_parse_command_refuses_a_line_that_is_no_call_of_the_catalog(line, detai
     assert error.value.details == {"reason": "usage", **details}
 
 
+def quoted(path):
+    """Word of a path in a command line: absolute, so with a drive on Windows."""
+    return shlex.quote(str(Path(path).absolute()))
+
+
 def test_format_command_writes_check_last_and_refuses_another_flag_of_a_run():
     plan = {"root": "/s", "plan": "/p.json"}
+    words = f"--root {quoted('/s')} --plan {quoted('/p.json')}"
 
     assert format_command("store sync", options=plan, run={"check": True}) == (
-        "imgw store sync --root /s --plan /p.json --check"
+        f"imgw store sync {words} --check"
     )
     assert format_command("store sync", options=plan, run={"check": False}) == (
-        "imgw store sync --root /s --plan /p.json"
+        f"imgw store sync {words}"
     )
     for command, options, run, option in (
         ("store sync", plan, {"force": True}, "force"),
@@ -426,16 +432,17 @@ def test_format_command_writes_check_last_and_refuses_another_flag_of_a_run():
 
 
 def test_format_command_quotes_and_writes_bools_as_flags():
+    words = f"--root {quoted('/s')} --plan {quoted('/p.json')}"
     assert (
         format_command("store info", options={"root": "/a b/s"})
-        == "imgw store info --root '/a b/s'"
+        == f"imgw store info --root {quoted('/a b/s')}"
     )
     assert format_command(
         "store sync", options={"root": "/s", "plan": "/p.json", "series": True}
-    ) == ("imgw store sync --root /s --plan /p.json")
+    ) == (f"imgw store sync {words}")
     assert format_command(
         "store sync", options={"root": "/s", "plan": "/p.json", "series": False}
-    ) == ("imgw store sync --root /s --plan /p.json --no-series")
+    ) == (f"imgw store sync {words} --no-series")
     assert (
         format_command("current hydro-states", options={"main_only": "true"})
         == "imgw current hydro-states --main-only"

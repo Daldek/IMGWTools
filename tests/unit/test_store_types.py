@@ -124,7 +124,7 @@ def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
     plan = _plan(tmp_path)
     archive = plan.items[0].archive
     path = plan.to_json(tmp_path / "plan.json")
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text("utf-8"))
     payload["future_field"] = "accepted"
     payload["items"][0]["future_field"] = "accepted"
     path.write_text(json.dumps(payload))
@@ -145,7 +145,7 @@ def test_plan_url_must_match_dataset_registry(tmp_path):
     plan = _plan(tmp_path)
     path = plan.to_json(tmp_path / "plan.json")
     assert StorePlan.from_json(path) == plan
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text("utf-8"))
     payload["items"][0]["url"] = "http://127.0.0.1:22/x"
     path.write_text(json.dumps(payload))
     with pytest.raises(IMGWDataError, match="does not match the dataset registry"):
@@ -269,7 +269,7 @@ def test_to_json_keeps_relative_paths_relative_in_any_working_directory(
 def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):
     plan = _plan(tmp_path)
     envelope = CommandResult("store check", True, "ok", plan, ())
-    saved = json.loads(plan.to_json(tmp_path / "plan.json").read_text())
+    saved = json.loads(plan.to_json(tmp_path / "plan.json").read_text("utf-8"))
 
     local = envelope.to_json(root=tmp_path)["result"]
     served = envelope.to_json(root=tmp_path, server=True)["result"]

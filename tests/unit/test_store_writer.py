@@ -71,7 +71,9 @@ def test_archive_provenance_relabel_and_unchanged(tmp_path):
         f"2026-10-17_{first.sha256[:8]}/codz_2024.zip"
     )
     assert first.path.read_bytes() == DATA
-    meta = json.loads(first.path.with_name(first.path.name + ".meta.json").read_text())
+    meta = json.loads(
+        first.path.with_name(first.path.name + ".meta.json").read_text("utf-8")
+    )
     assert meta["schema"] == "imgw-meta/1"
     assert meta["sha256"] == hashlib.sha256(DATA).hexdigest()
     assert meta["size_bytes"] == len(DATA)
@@ -329,7 +331,7 @@ def test_archive_sidecar_without_http_is_conflict(tmp_path):
     root = init_store(tmp_path / "store")
     first = write_archive(root, archive=ARCHIVE, response=response())
     sidecar = first.path.with_name(first.path.name + ".meta.json")
-    meta = json.loads(sidecar.read_text())
+    meta = json.loads(sidecar.read_text("utf-8"))
     del meta["extra"]["http"]
     sidecar.write_text(json.dumps(meta))
     with pytest.raises(IMGWStoreConflictError, match="A corrupt archive version"):

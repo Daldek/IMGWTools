@@ -20,7 +20,9 @@ from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
     row["case"]: row
-    for row in json.loads((FIXTURES / "recordings.json").read_text())["interactions"]
+    for row in json.loads((FIXTURES / "recordings.json").read_text("utf-8"))[
+        "interactions"
+    ]
 }
 HYDRO = "pl.imgw.hydro_daily"
 H2024 = archive_files(HYDRO, years=[2024])[0]

@@ -199,7 +199,7 @@ def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
     assert len(hydro_versions) == 2 and hydro_versions[-1].read_bytes() == newer_csv
     assert len(stored_lists(store, METEO_LIST)) == 1
     sources = json.loads(
-        second.version.with_name("stations.geojson.meta.json").read_text()
+        second.version.with_name("stations.geojson.meta.json").read_text("utf-8")
     )["extra"]["catalog"]
     hydro_source = next(s for s in sources if s["source"] == "hydro_stations")
     assert hydro_source["sha256"] == hashlib.sha256(newer_csv).hexdigest()
@@ -463,7 +463,7 @@ def test_location_precedence_rejections_and_reasons(
     } <= codes
     assert any("GPS" in n.text and n.code == "location_source" for n in notices)
     sources = json.loads(
-        report.version.with_name("stations.geojson.meta.json").read_text()
+        report.version.with_name("stations.geojson.meta.json").read_text("utf-8")
     )["extra"]["catalog"]
     assert {s["source"] for s in sources} >= {"user", "static"}
     assert (
@@ -489,7 +489,7 @@ def test_missing_static_file_is_reported_and_recorded(store, isolated_reference_
         n.code == "catalog_problem" and "reference_data" in n.text for n in notices
     )
     sources = json.loads(
-        report.version.with_name("stations.geojson.meta.json").read_text()
+        report.version.with_name("stations.geojson.meta.json").read_text("utf-8")
     )["extra"]["catalog"]
     static_source = next(s for s in sources if s["source"] == "static")
     assert static_source["available"] is False

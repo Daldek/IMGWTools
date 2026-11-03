@@ -684,6 +684,8 @@ def _store_unavailable(tmp_path, root, router, monkeypatch):
 
 
 def _io_error(tmp_path, root, router, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("chmod only sets the read-only attribute on Windows")
     if os.geteuid() == 0:
         pytest.skip("użytkownik root pomija prawa dostępu do katalogów")
     locked = tmp_path / "tylko-odczyt"
