@@ -1,64 +1,64 @@
-# IMGWTools — Zasady pracy i standardy
+# IMGWTools — Working rules and standards
 
-## 1. Styl i jakość kodu
-- styl: **PEP8**
-- docstringi: **NumPy Style** (wymuszane przez reguły `D` w ruff, `convention = "numpy"`)
-- linting/formatowanie: **ruff** (`ruff check`, `ruff format` — całe repozytorium)
-- typowanie: **typing** (obowiązkowe)
-
----
-
-## 2. Testy
-- **testy jednostkowe i kontraktowe** — wymagane, stan: 2446 testów w `tests/unit` i `tests/contract` (2026-10-31), wszystkie offline
-- **testy na żywo** — 67 testów w `tests/live` (znacznik `live`, poza bramką: `pytest -m live`): 45 na serwerach IMGW-PIB (30 komend × Python/CLI/REST, błędy na żywo, noga MCP `-k imgw_mcp`) i 22 na opendata.chmi.cz (dostawca ČHMÚ)
-- pokrycie: ostatni pomiar **94,37%** (2026-10-25), próg bramki **80%**
-- zmiana katalogu komend, CLI, REST, MCP lub web musi utrzymać kontrakt Python = CLI = REST = MCP (`tests/contract/test_interface_contract.py`, `test_mcp_contract.py`, `test_mcp_http_contract.py`)
-- zmiana tekstów katalogu, rejestrów (zbiory, dostawcy, kody błędów) albo szablonów przewodnika regeneruje `AGENTS.md` i `llms.txt` w tej samej zmianie (test dryfu w `tests/unit/test_agent_guide.py`)
-- nie merge'ujemy PR bez testów
+## 1. Code style and quality
+- style: **PEP8**
+- docstrings: **NumPy Style** (enforced by the `D` rules in ruff, `convention = "numpy"`)
+- linting/formatting: **ruff** (`ruff check`, `ruff format` — the whole repository)
+- typing: **typing** (mandatory)
 
 ---
 
-## 3. Workflow Git
-Branch'e:
-- `master` — stabilne wydania
-- `slave` — główna gałąź rozwojowa
-- `feature/*` — nowe funkcje
-- `hotfix/*` — poprawki krytyczne
+## 2. Tests
+- **unit and contract tests** — required, status: 2446 tests in `tests/unit` and `tests/contract` (2026-10-31), all offline
+- **live tests** — 67 tests in `tests/live` (marker `live`, outside the gate: `pytest -m live`): 45 against IMGW-PIB servers (30 commands × Python/CLI/REST, live errors, MCP leg `-k imgw_mcp`) and 22 against opendata.chmi.cz (ČHMÚ provider)
+- coverage: last measurement **94.37%** (2026-10-25), gate threshold **80%**
+- a change of the command catalog, CLI, REST, MCP or web must keep the Python = CLI = REST = MCP contract (`tests/contract/test_interface_contract.py`, `test_mcp_contract.py`, `test_mcp_http_contract.py`)
+- a change of catalog texts, registries (datasets, providers, error codes) or guide templates regenerates `AGENTS.md` and `llms.txt` in the same change (drift test in `tests/unit/test_agent_guide.py`)
+- we do not merge a PR without tests
+
+---
+
+## 3. Git workflow
+Branches:
+- `main` — stable releases
+- `develop` — main development branch
+- `feature/*` — new features
+- `hotfix/*` — critical fixes
 
 Commit:
-- znaczący opis w języku polskim lub angielskim
-- brak commitów typu "fix" bez kontekstu
+- a meaningful description in Polish or English
+- no "fix"-type commits without context
 
 ---
 
-## 4. Dokumentacja
-Każda zmiana funkcjonalna musi:
-- aktualizować dokumentację Markdown,
-- aktualizować komentarze i docstringi,
-- aktualizować OpenAPI (jeśli dotyczy).
+## 4. Documentation
+Every functional change must:
+- update the Markdown documentation,
+- update comments and docstrings,
+- update OpenAPI (if applicable).
 
 ---
 
-## 5. Integracja z Claude Code
-Projekt używa **Claude Code** (claude.ai/code) do wspomagania developmentu.
+## 5. Claude Code integration
+The project uses **Claude Code** (claude.ai/code) to support development.
 
-Konfiguracja:
-- `CLAUDE.md` w katalogu głównym — automatycznie ładowany przez Claude Code
-- Zawiera instrukcje, komendy, strukturę projektu
+Configuration:
+- `CLAUDE.md` in the root directory — loaded automatically by Claude Code
+- Contains instructions, commands, project structure
 
-Claude Code pomaga w:
-- generowaniu i modyfikacji kodu,
-- aktualizacji dokumentacji,
-- utrzymaniu spójności projektu.
+Claude Code helps with:
+- generating and modifying code,
+- updating documentation,
+- keeping the project consistent.
 
 ---
 
 ## 6. Code Review
-- min. 1 osoba review (jeśli zespół > 1)
-- sprawdzenie testów
-- sprawdzenie dokumentacji
+- at least 1 reviewer (if the team > 1)
+- checking the tests
+- checking the documentation
 
 ---
 
-## 7. Licencja
-Projekt **Open Source**, licencja MIT.
+## 7. License
+**Open Source** project, MIT license.

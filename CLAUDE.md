@@ -16,7 +16,7 @@ IMGWTools (`imgwtools` on PyPI, v3.0.0, profiles `tool` and `app`) is a Python l
 - `IMGW_STORE_WRITE_TOKEN` is a credential: environment only, never from a file, never printed.
 - Text for a person (an error `detail`, a notice, a progress or plan line, a printed line, a command description or option help) is never inline: it is an entry of `imgwtools.messages.<area>` (`Text(en, pl)`, English first) rendered by `message("<area>.<name>", value=…)` (ADR-006); `tests/unit/test_messages.py` checks both languages, the call sites and that no Polish literal is left outside the catalog.
 - Every functional change updates the Markdown docs, docstrings and OpenAPI where affected; no change without tests.
-- Approvals (DEV-3.3): without the author's approval in the current session never merge a pull request, create or move tags, publish a release, force-push a shared branch or rewrite the history of `master`/`slave` (to become `main`/`develop`). A change of a public interface or across more than one module starts with a plan approved by the author (DEV-17.4).
+- Approvals (DEV-3.3): without the author's approval in the current session never merge a pull request, create or move tags, publish a release, force-push a shared branch or rewrite the history of `main`/`develop`. A change of a public interface or across more than one module starts with a plan approved by the author (DEV-17.4).
 - Change only this repository (DEV-17.5); a need in another project is a GitHub issue there labelled `request`.
 - Commits: English Conventional Commits, no AI attribution lines (`scripts/check-commits.sh`).
 - Document budgets (DOC-1.7): `CLAUDE.md` 200 lines, `docs/PROGRESS.md` 300, `README.md` 400; reference material goes to `docs/`, history to `docs/HISTORY.md`.
@@ -71,7 +71,7 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 | Current state, next steps, open questions | [docs/PROGRESS.md](docs/PROGRESS.md) |
 | Release history, closed backlog, cross-project analysis | [docs/HISTORY.md](docs/HISTORY.md) |
 | What changed in a release, breaking list, migration tables | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
-| Code style, naming, errors, docstrings | [docs/RULES.md](docs/RULES.md), [docs/DEVELOPMENT_STANDARDS.md](docs/DEVELOPMENT_STANDARDS.md) |
+| Code style, naming, errors, docstrings | [docs/RULES.md](docs/RULES.md), the Nogat [development standard](https://github.com/Daldek/Nogat/blob/main/standards/DEVELOPMENT_STANDARDS.md) (standard 1.0) |
 | Contributor licence | [docs/CLA.md](docs/CLA.md) |
 | Obserwator (planned rename of the observer tool) | [docs/OBSERWATOR_SPEC.md](docs/OBSERWATOR_SPEC.md), [docs/OBSERWATOR_RESEARCH.md](docs/OBSERWATOR_RESEARCH.md) |
 | Plans, specs and research behind 3.0.0 | `docs/superpowers/` (plans, specs, research) |

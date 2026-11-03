@@ -1,6 +1,6 @@
 # IMGWTools — Codebase Reference
 
-Code and module reference moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 2.1, DOC-3.2): package tree, public library API, command catalog, data sources and formats, deployment, versioned store. Architecture and component diagrams: [ARCHITECTURE.md](ARCHITECTURE.md); tests: [TESTING.md](TESTING.md); task-oriented usage: [USAGE.md](USAGE.md).
+Code and module reference moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 1.0, DOC-3.2): package tree, public library API, command catalog, data sources and formats, deployment, versioned store. Architecture and component diagrams: [ARCHITECTURE.md](ARCHITECTURE.md); tests: [TESTING.md](TESTING.md); task-oriented usage: [USAGE.md](USAGE.md).
 
 ## Package Tree
 
@@ -365,7 +365,7 @@ Services: app (FastAPI, `python:3.12-slim`, `pip install ".[api,mcp]"`, one uvic
 ## Cloud & Deployment Details
 
 ### Deployment Model
-Aplikacja hostowana na prywatnym serwerze. Komponenty:
+Application hosted on a private server. Components:
 - **Nginx** — reverse proxy + HTTPS + rate limiting
 - **FastAPI (Uvicorn)** — backend API
 
@@ -374,12 +374,12 @@ Aplikacja hostowana na prywatnym serwerze. Komponenty:
 - API keys support rate limits (configured per key, stored in JSON)
 
 ### Authorization (Planned)
-Klucze API w pliku JSON (`api_keys.json`). Naglowek: `X-API-Key: <token>`
+API keys in a JSON file (`api_keys.json`). Header: `X-API-Key: <token>`
 
 **Note:** API key validation middleware is not yet implemented. Keys are managed via CLI but not enforced in API requests. Store writes over REST use their own token (`IMGW_STORE_WRITE_TOKEN`, sent as `X-API-Key`).
 
 ### API versioning
-Wszystkie endpointy pod `/api/v1/...`
+All endpoints under `/api/v1/...`
 
 ## Versioned Store (Optional)
 
@@ -438,31 +438,31 @@ Archive files are inconsistent between years — parsers auto-detect the format 
 - **Missing data codes**: `9999` (water level), `99999.999` (flow), `99.9` (temperature); meteo status 8 = `missing`, 9 = `no_phenomenon`
 - **Hydrological year**: November 1 - October 31 (month 1 = November)
 
-## Struktura projektu (z README)
+## Project structure (from README)
 
-Drzewo katalogów z README (po polsku, bez zmian); szczegółowe drzewo modułów: „Package Tree” wyżej.
+Directory tree from the README (moved unchanged); the detailed module tree: "Package Tree" above.
 
 ```
 src/imgwtools/
-├── api/          # REST API (FastAPI): routes/commands.py (trasy z katalogu), errors.py (problem+json), main.py (/health, /api/v1, /llms.txt, /mcp)
-├── cli/          # CLI: _dispatch.py (komendy z katalogu), admin.py, main.py (version, server, mcp)
-├── mcp/          # Serwer MCP (dodatek imgwtools[mcp]): narzędzia z katalogu, stdio i /mcp
-├── _parsing/     # Parsery archiwów IMGW-PIB i ČHMÚ, listingu i list stacji (publicznie: imgwtools.parsers)
-├── _data/        # Obrysy Polski i Czech (Natural Earth), szablony przewodnika agents/, fixtury testowe
-├── store/        # Magazyn wersjonowany: writer, sync, series, catalog, pmaxtp, reader, export, content, plain
-├── output.py     # Zapis zwykłych plików (--output-dir): resolve_target, plan_plain, Staging, OutputReport
-├── datasets.py   # Rejestr dostawców i 17 zbiorów (pl.imgw.*, cz.chmi.*), generator plików archiwów
-├── commands.py   # Katalog 30 komend wspólny dla Pythona, CLI, REST, MCP i integracji
-├── agent_guide.py # Przewodnik dla agentów (AGENTS.md, llms.txt): agent_guide, commands guide
-├── fetch.py      # Dane bieżące, PMAXTP, pobieranie archiwów
-├── stations.py   # find_stations (IMGW-PIB i ČHMÚ)
-├── urls.py       # Stałe URL IMGW, build_pmaxtp_url, build_api_url
-├── testing.py    # build_fixture_store — magazyn testowy offline (także PL + CZ)
+├── api/          # REST API (FastAPI): routes/commands.py (routes from the catalog), errors.py (problem+json), main.py (/health, /api/v1, /llms.txt, /mcp)
+├── cli/          # CLI: _dispatch.py (commands from the catalog), admin.py, main.py (version, server, mcp)
+├── mcp/          # MCP server (extra imgwtools[mcp]): tools from the catalog, stdio and /mcp
+├── _parsing/     # Parsers of IMGW-PIB and ČHMÚ archives, listings and station lists (public: imgwtools.parsers)
+├── _data/        # Borders of Poland and Czechia (Natural Earth), guide templates agents/, test fixtures
+├── store/        # Versioned store: writer, sync, series, catalog, pmaxtp, reader, export, content, plain
+├── output.py     # Writing plain files (--output-dir): resolve_target, plan_plain, Staging, OutputReport
+├── datasets.py   # Registry of providers and 17 datasets (pl.imgw.*, cz.chmi.*), archive file generator
+├── commands.py   # Catalog of 30 commands shared by Python, CLI, REST, MCP and integrations
+├── agent_guide.py # Guide for agents (AGENTS.md, llms.txt): agent_guide, commands guide
+├── fetch.py      # Current data, PMAXTP, archive downloads
+├── stations.py   # find_stations (IMGW-PIB and ČHMÚ)
+├── urls.py       # IMGW URL constants, build_pmaxtp_url, build_api_url
+├── testing.py    # build_fixture_store — offline test store (also PL + CZ)
 ├── web/          # Web GUI (HTMX + Jinja2)
-└── config.py     # Konfiguracja (IMGW_*)
+└── config.py     # Configuration (IMGW_*)
 
-AGENTS.md, llms.txt  # Przewodnik dla agentów AI — pliki pochodne (imgw commands guide)
+AGENTS.md, llms.txt  # Guide for AI agents — derived files (imgw commands guide)
 
-docker/           # Konfiguracja Docker
-tests/            # Testy (offline; fixtury magazynu w tests/fixtures/store)
+docker/           # Docker configuration
+tests/            # Tests (offline; store fixtures in tests/fixtures/store)
 ```

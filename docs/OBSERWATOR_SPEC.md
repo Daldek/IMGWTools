@@ -1,107 +1,107 @@
-# Obserwator — Specyfikacja techniczna (przyszłe wydanie major, roboczo 4.0.0)
+# Obserwator — Technical specification (future major release, working version 4.0.0)
 
-**Status:** Draft do review · **Data:** 2026-08-11 · **Aktualizacja:** 2026-10-18 (częściowo zastąpiony: §7 przez ADR-001, część ČHMÚ przez ADR-003)
-**Podstawa:** `docs/OBSERWATOR_RESEARCH.md` (badanie wykonalności z 2026-08-11)
+**Status:** Draft for review · **Date:** 2026-08-11 · **Updated:** 2026-10-18 (partly superseded: §7 by ADR-001, the ČHMÚ part by ADR-003)
+**Basis:** `docs/OBSERWATOR_RESEARCH.md` (feasibility study of 2026-08-11)
 
-> **Uwaga (decyzja właściciela z 2026-10-17):** wydanie **3.0.0** pakietu `imgwtools` to wersjonowany magazyn danych według ADR-001 (`docs/DECISIONS.md`, `docs/CHANGELOG.md`), a nie Obserwator. Wynikają z tego dwie zmiany tego szkicu:
-> 1. **§7 „Cache SQLite — schemat v2” jest zastąpiony** przez magazyn wersjonowany (pliki + sidecary, bez bazy). Cache SQLite usunięto w 3.0.0; Obserwator nie przywraca bazy.
-> 2. **Obserwator to wyłącznie przyszła zmiana nazwy i rozszerzenie o providery** (warstwa providerów, ČHMÚ, angielskie API) w kolejnym wydaniu major — roboczo 4.0.0, nie 3.0.0. Kontrakty magazynu (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`) zmieniają się tylko według polityki IMGW-13 (nowe `/N`, okres przejściowy).
+> **Note (owner decision of 2026-10-17):** release **3.0.0** of the `imgwtools` package is the versioned data store according to ADR-001 (`docs/DECISIONS.md`, `docs/CHANGELOG.md`), not Obserwator. This causes two changes to this draft:
+> 1. **§7 "SQLite cache — schema v2" is superseded** by the versioned store (files + sidecars, no database). The SQLite cache was removed in 3.0.0; Obserwator does not bring the database back.
+> 2. **Obserwator is only a future rename and extension with providers** (provider layer, ČHMÚ, English API) in the next major release — working version 4.0.0, not 3.0.0. The store contracts (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`) change only according to the IMGW-13 policy (new `/N`, transition period).
 >
-> Pozostałe sekcje opisują stan planu z 2026-08-11 i wymagają ponownego przeglądu przed realizacją.
+> The remaining sections describe the state of the plan as of 2026-08-11 and need another review before implementation.
 
-> **Uwaga (2026-10-18, ADR-003 — propozycja):** część ČHMÚ tego szkicu zastępują `docs/DECISIONS.md` ADR-003 („Dostawca ČHMÚ w magazynie IMGW”) i `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`. ČHMÚ wchodzi jako drugi dostawca w kontraktach 3.x (wydanie 3.1.0, bez zmiany nazwy pakietu): w rejestrze zbiorów (`cz.chmi.*`), magazynie, katalogu komend ADR-002 i kodach błędów `IMGWError`. W zakresie ČHMÚ zastąpione są: §6 w całości (niżej zachowany jako zapis historyczny z erratą), interfejs i rejestr providerów z §3.2–§3.4 oraz fasada `provider=` z §4 (zamiast nich `ProviderDescriptor` i opcja `provider` katalogu komend), komendy ČHMÚ z §8, trasy `/api/v2/{provider}` z §9, mapa stanów ČHMÚ z §10, etap 7 z §12, ryzyka ČHMÚ z §13 i punkt 3 z §14. Zakres ČHMÚ to archiwa dobowe hydro (H, Q, T) i meteo (opad, temperatura powietrza) z katalogiem stacji; dane bieżące, ostrzeżenia CAP i archiwa miesięczne ČHMÚ są poza zakresem. Zmiana nazwy na Obserwator pozostaje przyszłą decyzją.
+> **Note (2026-10-18, ADR-003 — proposal):** the ČHMÚ part of this draft is superseded by `docs/DECISIONS.md` ADR-003 ("ČHMÚ provider in the IMGW store") and `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`. ČHMÚ enters as the second provider within the 3.x contracts (release 3.1.0, without renaming the package): in the dataset registry (`cz.chmi.*`), the store, the ADR-002 command catalog and the `IMGWError` error codes. For ČHMÚ, the following are superseded: §6 in full (kept below as a historical record with an erratum), the provider interface and registry from §3.2–§3.4 and the `provider=` facade from §4 (replaced by `ProviderDescriptor` and the `provider` option of the command catalog), the ČHMÚ commands from §8, the `/api/v2/{provider}` routes from §9, the ČHMÚ state map from §10, stage 7 from §12, the ČHMÚ risks from §13 and item 3 from §14. The ČHMÚ scope is the daily hydro archives (H, Q, T) and meteo archives (precipitation, air temperature) with the station catalog; ČHMÚ current data, CAP warnings and monthly archives are out of scope. The rename to Obserwator remains a future decision.
 
-> **Uwaga (2026-10-31, ADR-008):** projekty przeniesiono do Archiwisty (`archiwista-project/1`); z listy kontraktów w punkcie 2 wyżej usunięto manifest projektu, a z §8 grupę komend `project`. Obserwator, jak IMGWTools, nie ma własnych projektów.
+> **Note (2026-10-31, ADR-008):** projects moved to Archiwista (`archiwista-project/1`); the project manifest was removed from the list of contracts in item 2 above, and the `project` command group from §8. Obserwator, like IMGWTools, has no projects of its own.
 
 ---
 
-## 1. Cel i zakres wydania Obserwatora
+## 1. Goal and scope of the Obserwator release
 
-Przekształcenie `imgwtools` (3.x, z magazynem wersjonowanym) w `obserwator` — wieloźródłową bibliotekę danych hydro-meteorologicznych, w wydaniu major następującym po 3.0.0 (roboczo 4.0.0). Zakres pierwszego wydania Obserwatora:
+Turning `imgwtools` (3.x, with the versioned store) into `obserwator` — a multi-source library of hydro-meteorological data, in the major release following 3.0.0 (working version 4.0.0). Scope of the first Obserwator release:
 
-1. Warstwa providerów (abstrakcja źródła danych) i przeniesienie IMGW za jej interfejs.
-2. Drugi provider: **ČHMÚ** (Czechy, opendata.chmi.cz).
-3. Pełny rebranding **bez aliasów wstecznych** — konsumenci są pod naszą kontrolą i migrują jednorazowo.
-4. Publiczne API w języku **angielskim** (enumy, parametry, nazwy funkcji).
-5. Aktualizacja wszystkich 4 interfejsów: biblioteka, CLI, REST API, Web GUI.
+1. Provider layer (data source abstraction) and moving IMGW behind its interface.
+2. Second provider: **ČHMÚ** (Czechia, opendata.chmi.cz).
+3. Full rebranding **without backward aliases** — the consumers are under our control and migrate once.
+4. Public API in **English** (enums, parameters, function names).
+5. Update of all 4 interfaces: library, CLI, REST API, Web GUI.
 
-Poza zakresem tego wydania (przewidziane w architekturze, realizowane w kolejnych wydaniach): providery DE (PEGELONLINE, DWD), moduł Bałtyk, SK (opendata.shmu.sk + Meteoalarm).
+Out of scope for this release (anticipated in the architecture, delivered in later releases): DE providers (PEGELONLINE, DWD), Baltic module, SK (opendata.shmu.sk + Meteoalarm).
 
-### Decyzje kierunkowe (zatwierdzone przez właściciela)
+### Directional decisions (approved by the owner)
 
-| Decyzja | Wybór | Uzasadnienie |
+| Decision | Choice | Rationale |
 |---|---|---|
-| Kompatybilność wsteczna | **Brak** — czysty break | Kontrola nad wszystkimi konsumentami; priorytet: czystość architektury |
-| Rebranding | Pełny od razu (pakiet, CLI, env, wyjątki) | Jedna nazwa wszędzie, bez okresu przejściowego |
-| Język API | Angielski | Spójność przy wielu krajach; polskie stringi zostają wyłącznie jako segmenty URL wewnątrz providera IMGW |
-| Wersja | roboczo 4.0.0 (SemVer — major break); numer 3.0.0 zajął magazyn wersjonowany (ADR-001) | Zgodnie z PRD §10 |
+| Backward compatibility | **None** — clean break | Control over all consumers; priority: clean architecture |
+| Rebranding | Full, at once (package, CLI, env, exceptions) | One name everywhere, no transition period |
+| API language | English | Consistency across many countries; Polish strings remain only as URL segments inside the IMGW provider |
+| Version | working version 4.0.0 (SemVer — major break); the number 3.0.0 was taken by the versioned store (ADR-001) | In line with PRD §10 |
 
 ---
 
-## 2. Nazewnictwo i pakietowanie
+## 2. Naming and packaging
 
-| Element | Było (2.x/3.x) | Będzie (Obserwator) |
+| Element | Was (2.x/3.x) | Will be (Obserwator) |
 |---|---|---|
-| Pakiet Python / PyPI | `imgwtools` | `obserwator` |
-| Katalog źródeł | `src/imgwtools/` | `src/obserwator/` |
-| Entry point CLI | `imgw` | `obserwator` |
-| Prefix env | `IMGW_` | `OBSERWATOR_` |
-| Wyjątki | `IMGWError`, `IMGWConnectionError`, … | `ObserwatorError`, `SourceConnectionError`, `SourceDataError`, `SourceValidationError`, `ProviderNotFoundError` |
-| Przechowywanie danych | do 2.2.0: plik bazy SQLite; od 3.0.0: magazyn wersjonowany z jawnym korzeniem | magazyn wersjonowany bez zmian koncepcyjnych (ADR-001); bez pliku bazy |
-| Extras | `[cli]`, `[api]`, `[store]`, `[pandas]`, `[full]` | bez zmian koncepcyjnie; providery NIE są osobnymi extras (rdzeń: `httpx` + `pydantic` wystarcza dla IMGW i ČHMÚ) |
+| Python / PyPI package | `imgwtools` | `obserwator` |
+| Source directory | `src/imgwtools/` | `src/obserwator/` |
+| CLI entry point | `imgw` | `obserwator` |
+| Env prefix | `IMGW_` | `OBSERWATOR_` |
+| Exceptions | `IMGWError`, `IMGWConnectionError`, … | `ObserwatorError`, `SourceConnectionError`, `SourceDataError`, `SourceValidationError`, `ProviderNotFoundError` |
+| Data storage | up to 2.2.0: SQLite database file; from 3.0.0: versioned store with an explicit root | versioned store with no conceptual changes (ADR-001); no database file |
+| Extras | `[cli]`, `[api]`, `[store]`, `[pandas]`, `[full]` | conceptually unchanged; providers are NOT separate extras (core: `httpx` + `pydantic` is enough for IMGW and ČHMÚ) |
 
-Stała `IMGW_ENCODING` znika z publicznego API — kodowanie jest własnością providera (`ProviderInfo.archive_encoding`).
+The `IMGW_ENCODING` constant disappears from the public API — the encoding is a property of the provider (`ProviderInfo.archive_encoding`).
 
 ---
 
-## 3. Architektura warstwy providerów
+## 3. Provider layer architecture
 
-### 3.1 Struktura katalogów
+### 3.1 Directory structure
 
 ```
 src/obserwator/
-├── __init__.py              # publiczne API (fasada + rejestr providerów)
+├── __init__.py              # public API (facade + provider registry)
 ├── _version.py
 ├── config.py                # pydantic-settings, env_prefix="OBSERWATOR_"
 ├── exceptions.py
-├── models.py                # modele KANONICZNE (wspólne dla wszystkich providerów)
-├── http.py                  # wspólny klient HTTP (sync+async, retry, User-Agent)
+├── models.py                # CANONICAL models (shared by all providers)
+├── http.py                  # shared HTTP client (sync+async, retry, User-Agent)
 ├── providers/
 │   ├── __init__.py          # registry: get_provider(), list_providers()
 │   ├── base.py              # DataProvider (Protocol), ProviderInfo, Capability
 │   ├── imgw/
 │   │   ├── __init__.py      # class ImgwProvider
-│   │   ├── urls.py          # dawny url_builder.py (bez zmian logiki)
-│   │   ├── mappers.py       # JSON IMGW → modele kanoniczne (dawne from_api_response)
-│   │   └── parsers.py       # parsery CSV archiwów (CP1250, rok hydrologiczny)
+│   │   ├── urls.py          # former url_builder.py (logic unchanged)
+│   │   ├── mappers.py       # IMGW JSON → canonical models (former from_api_response)
+│   │   └── parsers.py       # archive CSV parsers (CP1250, hydrological year)
 │   └── chmi/
 │       ├── __init__.py      # class ChmiProvider
-│       ├── urls.py          # wzorce URL opendata.chmi.cz
-│       ├── mappers.py       # JSON ČHMÚ → modele kanoniczne
-│       └── metadata.py      # meta1/meta2.json → stacje, progi SPA
+│       ├── urls.py          # opendata.chmi.cz URL patterns
+│       ├── mappers.py       # ČHMÚ JSON → canonical models
+│       └── metadata.py      # meta1/meta2.json → stations, SPA thresholds
 ├── parsing/
 │   ├── csv_utils.py         # _detect_delimiter, _decode_content, _iter_rows, _safe_float
-│   └── cap.py               # parser CAP XML (ostrzeżenia; użyje go ČHMÚ, później DE/Meteoalarm)
-├── store/                   # magazyn wersjonowany (ADR-001; zastępuje dawny §7)
-├── api/                     # FastAPI (patrz §9)
-├── cli/                     # Typer (patrz §8)
-└── web/                     # Web GUI (patrz §10)
+│   └── cap.py               # CAP XML parser (warnings; used by ČHMÚ, later DE/Meteoalarm)
+├── store/                   # versioned store (ADR-001; replaces the former §7)
+├── api/                     # FastAPI (see §9)
+├── cli/                     # Typer (see §8)
+└── web/                     # Web GUI (see §10)
 ```
 
-Usuwane bez następcy: `core/imgw_api.py`, `core/imgw_datastore.py`, `core/imgw_spatial.py` (legacy, ~817 linii), `urls.py` i `parsers.py` jako re-eksporty na poziomie roota (zastąpione przez przestrzenie providerów).
+Removed without a successor: `core/imgw_api.py`, `core/imgw_datastore.py`, `core/imgw_spatial.py` (legacy, ~817 lines), `urls.py` and `parsers.py` as root-level re-exports (replaced by the provider namespaces).
 
-### 3.2 Interfejs providera (`providers/base.py`)
+### 3.2 Provider interface (`providers/base.py`)
 
 ```python
 class Capability(StrEnum):
-    """Zdolności providera — provider deklaruje, co potrafi."""
-    CURRENT_HYDRO = "current_hydro"        # bieżące stany/przepływy
-    CURRENT_WEATHER = "current_weather"    # bieżące dane meteo (d. "synop")
-    ARCHIVE_HYDRO = "archive_hydro"        # archiwa hydro
-    ARCHIVE_WEATHER = "archive_weather"    # archiwa meteo
-    STATIONS = "stations"                  # lista stacji ze współrzędnymi
-    WARNINGS = "warnings"                  # ostrzeżenia
-    PMAX = "pmax"                          # opady maksymalne prawdopodobne (IMGW-only)
+    """Provider capabilities — the provider declares what it can do."""
+    CURRENT_HYDRO = "current_hydro"        # current water levels/discharges
+    CURRENT_WEATHER = "current_weather"    # current meteo data (formerly "synop")
+    ARCHIVE_HYDRO = "archive_hydro"        # hydro archives
+    ARCHIVE_WEATHER = "archive_weather"    # meteo archives
+    STATIONS = "stations"                  # station list with coordinates
+    WARNINGS = "warnings"                  # warnings
+    PMAX = "pmax"                          # probable maximum precipitation (IMGW-only)
 
 
 @dataclass(frozen=True)
@@ -109,15 +109,15 @@ class ProviderInfo:
     id: str                    # "imgw", "chmi"
     name: str                  # "IMGW-PIB", "ČHMÚ"
     country: str               # ISO 3166-1 alpha-2: "PL", "CZ"
-    bbox: BBox                 # walidacja współrzędnych (zamiast stałych POLAND_*)
+    bbox: BBox                 # coordinate validation (instead of the POLAND_* constants)
     capabilities: frozenset[Capability]
-    license: str               # np. "CC BY 4.0"
-    attribution: str           # wymagany tekst atrybucji
+    license: str               # e.g. "CC BY 4.0"
+    attribution: str           # required attribution text
     archive_encoding: str      # "cp1250" (IMGW) / "utf-8" (ČHMÚ)
 
 
 class DataProvider(Protocol):
-    """Kontrakt providera. Metody spoza capabilities rzucają NotSupportedError."""
+    """Provider contract. Methods outside capabilities raise NotSupportedError."""
     info: ProviderInfo
 
     def list_stations(self, kind: StationKind) -> list[Station]: ...
@@ -126,37 +126,37 @@ class DataProvider(Protocol):
     def build_archive_urls(self, query: ArchiveQuery) -> list[DownloadURL]: ...
     def download_archive(self, query: ArchiveQuery) -> bytes: ...
     def parse_archive(self, data: bytes, query: ArchiveQuery) -> list[ArchiveRecord]: ...
-    # każda metoda ma wariant async: alist_stations(), afetch_current(), ...
+    # every method has an async variant: alist_stations(), afetch_current(), ...
 ```
 
-Rejestr: `providers/__init__.py` utrzymuje słownik `{id: klasa}`; `get_provider("chmi")` zwraca singleton. Rejestracja przez wpis w słowniku (bez entry_points w pierwszym wydaniu Obserwatora — wrócimy do tego, gdy providery staną się zewnętrznymi pakietami).
+Registry: `providers/__init__.py` keeps an `{id: class}` dictionary; `get_provider("chmi")` returns a singleton. Registration is an entry in the dictionary (no entry_points in the first Obserwator release — we will come back to this when providers become external packages).
 
-### 3.3 Modele kanoniczne (`models.py`)
+### 3.3 Canonical models (`models.py`)
 
-Zachowujemy sprawdzoną zasadę z 2.x: **pola neutralne językowo, jednostki w nazwach, cała specyfika źródła w mapperach providera**.
+We keep the proven principle from 2.x: **language-neutral fields, units in the names, all source specifics in the provider mappers**.
 
 ```python
 class Station(BaseModel):
     provider: str                      # "imgw" / "chmi"
-    station_id: str                    # natywne ID providera (IMGW: "153140010", ČHMÚ: WIGOS "0-203-1-001000")
+    station_id: str                    # native provider ID (IMGW: "153140010", ČHMÚ: WIGOS "0-203-1-001000")
     name: str
     kind: StationKind                  # HYDRO / WEATHER
     latitude: float | None
     longitude: float | None
     river: str | None = None
     elevation_m: float | None = None
-    alert_levels: AlertLevels | None = None   # progi: warning/alarm (IMGW) ≙ SPA1-3 (ČHMÚ)
+    alert_levels: AlertLevels | None = None   # thresholds: warning/alarm (IMGW) ≙ SPA1-3 (ČHMÚ)
     water_state: str | None = None
 
 class HydroMeasurement(BaseModel):
     provider: str
     station_id: str
-    timestamp: datetime                # zawsze aware, UTC
+    timestamp: datetime                # always aware, UTC
     water_level_cm: float | None
     flow_m3s: float | None
     water_temp_c: float | None
 
-class WeatherMeasurement(BaseModel):   # d. SynopData
+class WeatherMeasurement(BaseModel):   # formerly SynopData
     provider: str
     station_id: str
     timestamp: datetime
@@ -171,23 +171,23 @@ class Warning_(BaseModel):
     provider: str
     kind: WarningKind                  # HYDRO / WEATHER
     event: str
-    severity: str                      # skala CAP: Minor/Moderate/Severe/Extreme (IMGW mapowane)
+    severity: str                      # CAP scale: Minor/Moderate/Severe/Extreme (IMGW mapped)
     area: str
     valid_from: datetime | None
     valid_to: datetime | None
     description: str | None
 ```
 
-Klucz tożsamości stacji w całym systemie: para **`(provider, station_id)`** — nigdy samo `station_id`.
+The station identity key across the whole system is the pair **`(provider, station_id)`** — never `station_id` alone.
 
-### 3.4 Enumy publiczne (angielskie)
+### 3.4 Public enums (English)
 
 ```python
 class Interval(StrEnum):
     DAILY = "daily"            # IMGW: "dobowe",   ČHMÚ: DQ
-    HOURLY = "hourly"          # IMGW: brak,       ČHMÚ: HQ
+    HOURLY = "hourly"          # IMGW: none,       ČHMÚ: HQ
     MONTHLY = "monthly"        # IMGW: "miesieczne", ČHMÚ: MQ
-    SEMI_ANNUAL = "semi_annual"  # IMGW: "polroczne_i_roczne", ČHMÚ: brak
+    SEMI_ANNUAL = "semi_annual"  # IMGW: "polroczne_i_roczne", ČHMÚ: none
 
 class WeatherSubtype(StrEnum):
     CLIMATE = "climate"        # IMGW: "klimat" (k)
@@ -195,42 +195,42 @@ class WeatherSubtype(StrEnum):
     SYNOP = "synop"            # IMGW: "synop" (s)
 ```
 
-Mapowanie enum → natywny segment URL/typ pliku jest wewnętrzną sprawą providera (`providers/imgw/urls.py`, `providers/chmi/urls.py`). Kombinacje niedostępne u danego providera → `NotSupportedError` z czytelnym komunikatem (jak dziś `ValueError` dla terminowe+opad).
+Mapping an enum to the native URL segment/file type is an internal matter of the provider (`providers/imgw/urls.py`, `providers/chmi/urls.py`). Combinations unavailable at a given provider → `NotSupportedError` with a readable message (like today's `ValueError` for terminowe+opad).
 
-### 3.5 Wspólny klient HTTP (`http.py`)
+### 3.5 Shared HTTP client (`http.py`)
 
-Eliminuje 12× powtórzony boilerplate z `fetch.py` 2.x:
+Eliminates the boilerplate repeated 12× in the 2.x `fetch.py`:
 
 ```python
 def get_json(url, *, timeout=30.0, headers=None) -> Any
 def get_bytes(url, *, timeout=120.0, headers=None) -> bytes
-# + warianty async; wspólne: retry (3× z backoff), User-Agent "obserwator/{version}",
-# mapowanie wyjątków httpx → SourceConnectionError (z nazwą providera w komunikacie)
+# + async variants; shared: retry (3× with backoff), User-Agent "obserwator/{version}",
+# mapping of httpx exceptions → SourceConnectionError (with the provider name in the message)
 ```
 
 ---
 
-## 4. Publiczne API biblioteki (fasada)
+## 4. Public library API (facade)
 
-Fasada w `obserwator/__init__.py` — cienka warstwa nad rejestrem providerów. Wszystkie funkcje przyjmują `provider: str = "imgw"` (IMGW pozostaje domyślny — zachowanie „polskie z urodzenia", świadoma decyzja produktowa).
+The facade in `obserwator/__init__.py` — a thin layer over the provider registry. All functions take `provider: str = "imgw"` (IMGW stays the default — "Polish by birth" behavior, a deliberate product decision).
 
 ```python
 from obserwator import (
-    # fasada
+    # facade
     fetch_hydro_current,      # (provider="imgw", station_id=None) -> list[HydroMeasurement]
-    fetch_weather_current,    # d. fetch_synop
+    fetch_weather_current,    # formerly fetch_synop
     fetch_warnings,           # (kind, provider="imgw") -> list[Warning_]
-    fetch_pmax,               # d. fetch_pmaxtp; deleguje do providerów z Capability.PMAX
+    fetch_pmax,               # formerly fetch_pmaxtp; delegates to providers with Capability.PMAX
     list_stations,            # (kind, provider="imgw") -> list[Station]
     build_archive_urls,       # (ArchiveQuery) -> list[DownloadURL]
     download_archive,         # (ArchiveQuery) -> bytes
-    # rejestr
+    # registry
     get_provider, list_providers,
-    # modele, enumy, wyjątki — jak w §3
+    # models, enums, exceptions — as in §3
 )
 ```
 
-`ArchiveQuery` (pydantic) zastępuje rozproszone parametry `interval/year/month/param/subtype`:
+`ArchiveQuery` (pydantic) replaces the scattered `interval/year/month/param/subtype` parameters:
 
 ```python
 class ArchiveQuery(BaseModel):
@@ -239,74 +239,74 @@ class ArchiveQuery(BaseModel):
     interval: Interval
     year: int
     month: int | None = None
-    station_id: str | None = None        # wymagane przez ČHMÚ (pliki per stacja), ignorowane przez IMGW
+    station_id: str | None = None        # required by ČHMÚ (per-station files), ignored by IMGW
     param: HydroParam | None = None      # IMGW polroczne: T/Q/H
     subtype: WeatherSubtype | None = None
 ```
 
-Walidacja krzyżowa (np. `month` wymagany dla IMGW daily <2023, `station_id` wymagany dla ČHMÚ) w walidatorach providera, nie w modelu — model tylko niesie dane.
+Cross-validation (e.g. `month` required for IMGW daily <2023, `station_id` required for ČHMÚ) lives in the provider validators, not in the model — the model only carries data.
 
-Wszystkie funkcje sync mają odpowiedniki `a*` (async), implementowane raz — wariant sync jest wrapperem na async (`anyio`/`asyncio.run` w cienkiej warstwie), co likwiduje duplikację sync/async z 2.x.
+All sync functions have `a*` (async) counterparts, implemented once — the sync variant is a wrapper over the async one (`anyio`/`asyncio.run` in a thin layer), which removes the sync/async duplication of 2.x.
 
 ---
 
-## 5. Provider IMGW (`providers/imgw/`)
+## 5. IMGW provider (`providers/imgw/`)
 
-Przeniesienie istniejącej, przetestowanej logiki bez zmian merytorycznych:
+Moving the existing, tested logic without substantive changes:
 
-- `urls.py` ← `core/url_builder.py` (wzorce `codz_`/`mies_`/`polr_`, foldery meteo 5-letnie, wyjątki kombinacji). Stałe URL przenoszone do modułu providera.
-- `mappers.py` ← metody `from_api_response()` z `models.py` 2.x (mapowanie `id_stacji`, `stan_wody`, `przeplyw`, `województwo`…).
-- `parsers.py` ← `_parsing/hydro.py` i `_parsing/meteo.py` (3.0.0) minus generyczne helpery (te idą do `parsing/csv_utils.py`). Rok hydrologiczny (XI–X), kody braków (`9999`, `99999.999`, `99.9`), format `"Odra (1)"` — zostają tutaj jako wiedza providera.
-- Stacje: trzy źródła jak dziś (CSV hydro, CSV meteo, hydro-back.imgw.pl z nagłówkiem Referer) — skonsolidowane w jednym miejscu; **duplikat parsowania w `web/app.py` usuwany**, warstwy wołają providera.
-- `ProviderInfo`: bbox Polski (49.0–55.0 / 14.0–24.5), `capabilities = {CURRENT_HYDRO, CURRENT_WEATHER, ARCHIVE_HYDRO, ARCHIVE_WEATHER, STATIONS, WARNINGS, PMAX}`, `archive_encoding="cp1250"`, atrybucja „Źródłem pochodzenia danych jest IMGW-PIB".
-- Znane rozszerzenie z researchu (nie blokuje wydania, ale warto od razu): stacje mareograficzne są w API bieżącym, lecz nie w CSV stacji — `list_stations` dla IMGW powinno łączyć oba źródła.
+- `urls.py` ← `core/url_builder.py` (patterns `codz_`/`mies_`/`polr_`, 5-year meteo folders, combination exceptions). URL constants move into the provider module.
+- `mappers.py` ← the `from_api_response()` methods from the 2.x `models.py` (mapping of `id_stacji`, `stan_wody`, `przeplyw`, `województwo`…).
+- `parsers.py` ← `_parsing/hydro.py` and `_parsing/meteo.py` (3.0.0) minus the generic helpers (those go to `parsing/csv_utils.py`). The hydrological year (XI–X), missing-value codes (`9999`, `99999.999`, `99.9`) and the `"Odra (1)"` format stay here as provider knowledge.
+- Stations: three sources as today (hydro CSV, meteo CSV, hydro-back.imgw.pl with a Referer header) — consolidated in one place; **the duplicated parsing in `web/app.py` is removed**, the layers call the provider.
+- `ProviderInfo`: bbox of Poland (49.0–55.0 / 14.0–24.5), `capabilities = {CURRENT_HYDRO, CURRENT_WEATHER, ARCHIVE_HYDRO, ARCHIVE_WEATHER, STATIONS, WARNINGS, PMAX}`, `archive_encoding="cp1250"`, attribution "Źródłem pochodzenia danych jest IMGW-PIB" ("The source of the data is IMGW-PIB").
+- A known extension from the research (does not block the release, but worth doing right away): tide-gauge stations are in the current-data API but not in the station CSV — `list_stations` for IMGW should merge both sources.
 
-## 6. ~~Provider ČHMÚ (`providers/chmi/`)~~ (ZASTĄPIONE przez ADR-003 — nie realizować)
+## 6. ~~ČHMÚ provider (`providers/chmi/`)~~ (SUPERSEDED by ADR-003 — do not implement)
 
-> **Zastąpione 2026-10-18** przez ADR-003 i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (zakres §1, rejestr §2, inwentarz z listingu §4, parsery §5, katalog stacji §7, licencja §8). Treść poniżej to zapis historyczny szkicu z 2026-08-11. **Errata z rozpoznania opendata.chmi.cz na żywo 2026-10-18** (fakty błędne albo niepełne w tabeli i decyzjach poniżej; źródła — spec 2026-10-18 §0):
+> **Superseded 2026-10-18** by ADR-003 and the spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (scope §1, registry §2, inventory from the listing §4, parsers §5, station catalog §7, license §8). The content below is a historical record of the 2026-08-11 draft. **Erratum from the live reconnaissance of opendata.chmi.cz on 2026-10-18** (facts that are wrong or incomplete in the table and decisions below; sources — spec 2026-10-18 §0):
 >
-> - `hydrology/now/data/{WIGOS}.json` jest przepisywany co 20 minut (:00, :20, :40), gdy przyszły nowe dane, a nie „co 1 h”; krok pomiaru zależy od stacji (5, 10, 15, 30 albo 60 min); temperatura wody ma kod `TH`; w tym samym pliku są prognozy `H_F`/`Q_F` (158 stacji).
-> - Archiwa `HQ`, `MQ` i `MMQ` nie leżą w `daily/`: każdy kod ma własny katalog (`hourly/`, `monthly/`, `monthly_max/` …). Lata stacji mają dziury, więc inwentarz wymaga listingu katalogu (rada researchu §3 „konstruować nazwy, nie listować” nie działa dla archiwów), a 404 oznacza rocznik nieopublikowany, nie błąd.
-> - W `meta1.json` `SPA4H`/`SPA4Q` to stan albo przepływ odpowiadający przepływowi 50-letniemu, nie czwarty stopień; progi bywają puste; przypisanie SPA do stanów ostrzegawczych i alarmowych IMGW (§3.3 „≙ SPA1-3”, §7 „SPA2/SPA3”) jest niezweryfikowane.
-> - Czas: dane `now` i `recent` hydro są w UTC (sprawdzone), a PDF klimatu też podaje UTC; zapis „SEČ a SELČ” pochodzi z PDF hydrologii, a dla danych `historical` UTC czy stały SEČ — niepotwierdzone. Dane dobowe meteo mają dobę klimatologiczną (opad od terminu 06 UTC dnia D, Tmax i Tmin za okres 20–20 UTC). Czasy w CAP mają przesunięcie lokalne (`+01:00`/`+02:00`).
-> - CAP: pliki typu 50 mają 0,86–2,35 MB, pliki typu 70 (susza HAMR) 0,4–61 KB i mogą nie mieć żadnego `<info>`; obszar opisuje `EMMA_ID`, nie NUTS3.
-> - Metadane stacji zawierają stacje zagraniczne (np. Reykjavik, baza Marambio), więc prostokąt CZ nie wystarcza do walidacji położenia.
-> - Tabela `DT,VAL` dotyczy wyłącznie archiwów `historical` hydro; `now` i `recent` hydro mają `objList` z listą `{dt, value}`, a meteo — tabele `STATION,ELEMENT,…`.
-> - JSON meteo i pliki metadanych mają kopertę (`zaznamID`, `datumVytvoreni`) zmienianą przy każdej generacji: te same dane dają inną sumę SHA-256.
+> - `hydrology/now/data/{WIGOS}.json` is rewritten every 20 minutes (:00, :20, :40) when new data has arrived, not "every 1 h"; the measurement step depends on the station (5, 10, 15, 30 or 60 min); water temperature has the code `TH`; the same file contains the `H_F`/`Q_F` forecasts (158 stations).
+> - The `HQ`, `MQ` and `MMQ` archives are not in `daily/`: each code has its own directory (`hourly/`, `monthly/`, `monthly_max/` …). Station years have gaps, so the inventory requires a directory listing (the research advice in §3 "construct names, do not list" does not work for archives), and a 404 means an unpublished year, not an error.
+> - In `meta1.json`, `SPA4H`/`SPA4Q` are the water level or discharge corresponding to the 50-year discharge, not a fourth degree; thresholds may be empty; the assignment of SPA to IMGW warning and alarm levels (§3.3 "≙ SPA1-3", §7 "SPA2/SPA3") is unverified.
+> - Time: the hydro `now` and `recent` data are in UTC (checked), and the climate PDF also states UTC; the "SEČ a SELČ" note comes from the hydrology PDF, and for the `historical` data UTC versus fixed SEČ is unconfirmed. Daily meteo data use the climatological day (precipitation from the 06 UTC term of day D, Tmax and Tmin for the 20–20 UTC period). Times in CAP carry a local offset (`+01:00`/`+02:00`).
+> - CAP: type 50 files are 0.86–2.35 MB, type 70 files (HAMR drought) are 0.4–61 KB and may have no `<info>` at all; the area is described by `EMMA_ID`, not NUTS3.
+> - Station metadata include foreign stations (e.g. Reykjavik, Marambio base), so the CZ rectangle is not enough to validate location.
+> - The `DT,VAL` table applies only to the `historical` hydro archives; hydro `now` and `recent` have an `objList` with a list of `{dt, value}`, and meteo — `STATION,ELEMENT,…` tables.
+> - Meteo JSON and the metadata files have an envelope (`zaznamID`, `datumVytvoreni`) that changes with every generation: the same data give a different SHA-256 sum.
 
-Na podstawie zweryfikowanych endpointów (research §3):
+Based on the verified endpoints (research §3):
 
-| Funkcja | Źródło | Wzorzec URL |
+| Function | Source | URL pattern |
 |---|---|---|
-| `fetch_current(HYDRO, station_id)` | hydrology/now | `https://opendata.chmi.cz/hydrology/now/data/{WIGOS}.json` (10-min H/Q/T, dopis co 1 h) |
-| `fetch_current(WEATHER, station_id)` | climate/now | `.../meteorology/climate/now/data/10m-{WSI}-{YYYYMMDD}.json` i `1h-…` |
-| `build_archive_urls(HYDRO, daily)` | historical | `.../hydrology/historical/data/daily/H_{WIGOS}_DQ_{ROK}.json` (analogicznie `HQ`, `MQ`, `MMQ`) |
-| `build_archive_urls(WEATHER, …)` | climate/historical | `dly-{WSI}.json`, `mly-{WSI}.json`, CSV per element w `historical_csv/` |
-| `list_stations(HYDRO)` | metadata | `.../hydrology/now/metadata/meta1.json` (nazwa, rzeka, GEOGR1/2, progi SPA1–3 → `alert_levels`) |
+| `fetch_current(HYDRO, station_id)` | hydrology/now | `https://opendata.chmi.cz/hydrology/now/data/{WIGOS}.json` (10-min H/Q/T, appended every 1 h) |
+| `fetch_current(WEATHER, station_id)` | climate/now | `.../meteorology/climate/now/data/10m-{WSI}-{YYYYMMDD}.json` and `1h-…` |
+| `build_archive_urls(HYDRO, daily)` | historical | `.../hydrology/historical/data/daily/H_{WIGOS}_DQ_{ROK}.json` (likewise `HQ`, `MQ`, `MMQ`) |
+| `build_archive_urls(WEATHER, …)` | climate/historical | `dly-{WSI}.json`, `mly-{WSI}.json`, per-element CSV in `historical_csv/` |
+| `list_stations(HYDRO)` | metadata | `.../hydrology/now/metadata/meta1.json` (name, river, GEOGR1/2, SPA1–3 thresholds → `alert_levels`) |
 | `fetch_warnings(…)` | alerts | `.../meteorology/weather/alerts/cap/alert_cap_50_*.xml` → `parsing/cap.py` |
 
-Decyzje implementacyjne:
+Implementation decisions:
 
-1. **`station_id` obowiązkowe** dla `fetch_current` i archiwów (format WIGOS) — ČHMÚ nie ma endpointu „cały kraj". Fasada NIE emuluje go pętlą po stacjach (setki żądań); jeśli użytkownik chce wiele stacji, iteruje świadomie sam lub synchronizuje je do magazynu wersjonowanego.
-2. **404 archiwum = `ArchiveNotAvailableError`** (podklasa `SourceDataError`) — głębokość archiwum różni się per stacja; nie sondujemy automatycznie.
-3. Czasy: JSON ČHMÚ niesie sufiks `Z` — parsujemy jako UTC (rozbieżność z PDF-dokumentacją odnotowana w docstringu).
-4. Ostrzeżenia CAP: pliki ~1–2 MB — parser strumieniowy (`iterparse`), zwraca `Warning_` z mapowaniem severity CAP wprost.
-5. `ProviderInfo`: bbox CZ (48.5–51.1 / 12.0–18.9), licencja CC BY 4.0, atrybucja ČHMÚ, `archive_encoding="utf-8"`.
-6. `parse_archive`: format ČHMÚ (JSON z tabelą `DT,VAL`) → `ArchiveRecord` — osobny, prosty parser (bez ZIP/CSV).
+1. **`station_id` mandatory** for `fetch_current` and archives (WIGOS format) — ČHMÚ has no "whole country" endpoint. The facade does NOT emulate it with a loop over stations (hundreds of requests); a user who wants many stations iterates deliberately themselves or syncs them to the versioned store.
+2. **Archive 404 = `ArchiveNotAvailableError`** (a subclass of `SourceDataError`) — archive depth differs per station; we do not probe automatically.
+3. Times: ČHMÚ JSON carries the `Z` suffix — we parse it as UTC (the discrepancy with the PDF documentation is noted in the docstring).
+4. CAP warnings: files of ~1–2 MB — streaming parser (`iterparse`), returns `Warning_` with CAP severity mapped directly.
+5. `ProviderInfo`: CZ bbox (48.5–51.1 / 12.0–18.9), CC BY 4.0 license, ČHMÚ attribution, `archive_encoding="utf-8"`.
+6. `parse_archive`: the ČHMÚ format (JSON with a `DT,VAL` table) → `ArchiveRecord` — a separate, simple parser (no ZIP/CSV).
 
 ---
 
-## 7. ~~Cache SQLite — schemat v2~~ (ZASTĄPIONE — nie realizować)
+## 7. ~~SQLite cache — schema v2~~ (SUPERSEDED — do not implement)
 
-> **Zastąpione 2026-10-17 przez magazyn wersjonowany (ADR-001, wydanie 3.0.0).** Cache SQLite usunięto w 3.0.0 bez shimów; dane przechowuje plikowy magazyn z niezmiennymi wersjami archiwów, sidecarami `imgw-meta/1`, szeregami Parquet (`imgw-series/1`) i planem `imgw-plan/1`. Obserwator przejmuje ten magazyn zamiast bazy. Problem granulacji opisany niżej (IMGW: „rok kraju”, ČHMÚ: „rok stacji”) rozwiązuje się w magazynie przez deskryptor zbioru providera (`archive_files` z plikami per stacja) i ścieżkę serwera w slocie, a nie przez `cached_ranges`. Treść poniżej zachowano wyłącznie jako zapis historyczny szkicu z 2026-08-11.
+> **Superseded 2026-10-17 by the versioned store (ADR-001, release 3.0.0).** The SQLite cache was removed in 3.0.0 without shims; data is kept by a file-based store with immutable archive versions, `imgw-meta/1` sidecars, Parquet series (`imgw-series/1`) and the `imgw-plan/1` plan. Obserwator takes over this store instead of the database. The granularity problem described below (IMGW: "country year", ČHMÚ: "station year") is solved in the store by the provider's dataset descriptor (`archive_files` with per-station files) and the server path in the slot, not by `cached_ranges`. The content below is kept only as a historical record of the 2026-08-11 draft.
 
-Cache to dane odtwarzalne — **bez ścieżki migracji z v1**: przy wykryciu schematu v1 komenda `db init --force` (lub komunikat z instrukcją) usuwa i tworzy od nowa. To świadome wykorzystanie zgody na łamanie kontraktów.
+The cache is reproducible data — **no migration path from v1**: when a v1 schema is detected, the `db init --force` command (or a message with instructions) deletes and recreates it. This is a deliberate use of the permission to break contracts.
 
-### Zmiany względem v1
+### Changes compared to v1
 
-1. Kolumna `provider TEXT NOT NULL` we wszystkich tabelach; wchodzi do wszystkich PK/UNIQUE/indeksów.
-2. Kanoniczną osią czasu jest **`measurement_date` (data kalendarzowa, ISO)** — rok hydrologiczny (XI–X) przestaje być kolumną kanoniczną; IMGW-owe `hydro_year`/`hydro_month` zostają jako kolumny pomocnicze (nullable), wypełniane tylko przez providera IMGW. ČHMÚ ich nie używa.
-3. Nazwy tabel bez prefiksu `hydro_` tam, gdzie to mylące; słownik interwałów w `cached_ranges` przechodzi na angielskie wartości enum.
+1. A `provider TEXT NOT NULL` column in all tables; it is part of all PKs/UNIQUEs/indexes.
+2. The canonical time axis is **`measurement_date` (calendar date, ISO)** — the hydrological year (XI–X) is no longer a canonical column; the IMGW-specific `hydro_year`/`hydro_month` remain as auxiliary (nullable) columns, filled only by the IMGW provider. ČHMÚ does not use them.
+3. Table names without the `hydro_` prefix where it is misleading; the interval vocabulary in `cached_ranges` switches to the English enum values.
 
 ```sql
 stations (
@@ -316,7 +316,7 @@ stations (
     name TEXT NOT NULL,
     river TEXT,
     latitude REAL, longitude REAL,
-    alert_warning REAL, alert_alarm REAL,   -- progi (IMGW: ostrzegawczy/alarmowy; ČHMÚ: SPA2/SPA3)
+    alert_warning REAL, alert_alarm REAL,   -- thresholds (IMGW: warning/alarm; ČHMÚ: SPA2/SPA3)
     updated_at TEXT NOT NULL,
     PRIMARY KEY (provider, station_id)
 );
@@ -324,20 +324,20 @@ stations (
 hydro_daily (
     provider TEXT NOT NULL,
     station_id TEXT NOT NULL,
-    measurement_date TEXT NOT NULL,   -- YYYY-MM-DD, kanoniczne
+    measurement_date TEXT NOT NULL,   -- YYYY-MM-DD, canonical
     water_level_cm REAL, flow_m3s REAL, water_temp_c REAL,
-    hydro_year INTEGER, hydro_month INTEGER,   -- pomocnicze, IMGW-only
+    hydro_year INTEGER, hydro_month INTEGER,   -- auxiliary, IMGW-only
     PRIMARY KEY (provider, station_id, measurement_date)
 );
 
--- hydro_monthly, hydro_semi_annual: analogicznie (+ provider, + measurement_date/okres)
+-- hydro_monthly, hydro_semi_annual: likewise (+ provider, + measurement_date/period)
 
 cached_ranges (
     provider TEXT NOT NULL,
-    interval TEXT NOT NULL,           -- wartości Interval (EN)
+    interval TEXT NOT NULL,           -- Interval values (EN)
     year INTEGER NOT NULL,
     month INTEGER,
-    station_id TEXT,                  -- NULL dla źródeł krajowych (IMGW), wymagane dla per-stacyjnych (ČHMÚ)
+    station_id TEXT,                  -- NULL for country-wide sources (IMGW), required for per-station ones (ČHMÚ)
     param TEXT,
     source_url TEXT NOT NULL,
     cached_at TEXT NOT NULL,
@@ -348,17 +348,17 @@ cached_ranges (
 schema_version (version INTEGER NOT NULL);   -- = 2
 ```
 
-`cached_ranges.station_id` rozwiązuje różnicę granulacji: IMGW cache'uje „rok kraju", ČHMÚ „rok stacji". `CacheManager.ensure_cached(query)` pyta providera o klucz zakresu (`query.cache_key()`), więc lazy loading działa identycznie dla obu modeli.
+`cached_ranges.station_id` resolves the granularity difference: IMGW caches a "country year", ČHMÚ a "station year". `CacheManager.ensure_cached(query)` asks the provider for the range key (`query.cache_key()`), so lazy loading works identically for both models.
 
 ---
 
 ## 8. CLI
 
-Entry point `obserwator`; wymiar providera jako globalna opcja `--provider/-P` (default `imgw`).
+Entry point `obserwator`; the provider dimension as a global option `--provider/-P` (default `imgw`).
 
 ```bash
 obserwator version
-obserwator providers                              # NOWE: lista providerów + capabilities + licencje
+obserwator providers                              # NEW: list of providers + capabilities + licenses
 obserwator server [--host] [--port] [--reload]
 
 obserwator fetch hydro    -P chmi --station 0-203-1-001000 -i daily -y 2020 [-o out.json]
@@ -366,113 +366,112 @@ obserwator fetch weather  -P imgw -i monthly -s climate -y 2023
 obserwator fetch current hydro   -P chmi --station 0-203-1-001000
 obserwator fetch current weather -P imgw
 obserwator fetch warnings --kind hydro -P chmi
-obserwator fetch pmax --lat 52.23 --lon 21.01     # d. pmaxtp; tylko providery z Capability.PMAX
+obserwator fetch pmax --lat 52.23 --lon 21.01     # formerly pmaxtp; only providers with Capability.PMAX
 
 obserwator list stations --kind hydro -P chmi [--search] [--limit]
-obserwator list datasets -P imgw                  # co provider oferuje (z capabilities + zakresy lat)
+obserwator list datasets -P imgw                  # what the provider offers (from capabilities + year ranges)
 obserwator list intervals -P imgw
 
-obserwator store init|info|scan|check|sync|catalog  # magazyn wersjonowany (odpowiednik imgw store …; dawne komendy cache §7 zastąpione)
+obserwator store init|info|scan|check|sync|catalog  # versioned store (counterpart of imgw store …; the former cache commands of §7 are superseded)
 obserwator series build|export|select
 
-obserwator admin keys|create|revoke|delete|stats  # bez zmian merytorycznych
+obserwator admin keys|create|revoke|delete|stats  # no substantive changes
 ```
 
-Zmiany nazw: `fetch meteo` → `fetch weather`, `fetch current synop` → `fetch current weather`, `fetch pmaxtp` → `fetch pmax`, wartości `-i`/`-s` po angielsku. Teksty pomocy CLI po angielsku (spójnie z API); komunikaty mogą cytować polskie nazwy plików IMGW tam, gdzie to pomaga.
+Renames: `fetch meteo` → `fetch weather`, `fetch current synop` → `fetch current weather`, `fetch pmaxtp` → `fetch pmax`, `-i`/`-s` values in English. CLI help texts in English (consistent with the API); messages may quote Polish IMGW file names where that helps.
 
 ---
 
 ## 9. REST API — v2
 
-Nowy prefiks **`/api/v2`**; `/api/v1` usuwane (konsumenci pod kontrolą). Provider jako segment ścieżki — zasoby są hierarchiczne, a capabilities różnią się między providerami:
+New prefix **`/api/v2`**; `/api/v1` is removed (consumers under control). The provider as a path segment — the resources are hierarchical, and capabilities differ between providers:
 
 ```
-GET  /api/v2/providers                                  # lista + capabilities + licencje
+GET  /api/v2/providers                                  # list + capabilities + licenses
 GET  /api/v2/{provider}/stations?kind=hydro&search=...
 GET  /api/v2/{provider}/stations/{station_id}
 GET  /api/v2/{provider}/current/hydro[?station_id=...]
 GET  /api/v2/{provider}/current/weather[?station_id=...]
 GET  /api/v2/{provider}/warnings?kind=hydro
 GET  /api/v2/{provider}/archive/urls?kind=hydro&interval=daily&year=2020[&station_id=...]
-GET  /api/v2/{provider}/series/...                      # odczyt magazynu (odpowiednik /api/v1/store, /api/v1/series; wymaga skonfigurowanego root)
-POST /api/v2/imgw/pmax                                  # endpoint specyficzny providera (capability PMAX)
+GET  /api/v2/{provider}/series/...                      # store read (counterpart of /api/v1/store, /api/v1/series; requires a configured root)
+POST /api/v2/imgw/pmax                                  # provider-specific endpoint (capability PMAX)
 GET  /health
 ```
 
-Zasady:
+Rules:
 
-1. Provider bez danej capability → **404 z problem-details** (`{"type": "not-supported", "provider": "chmi", "capability": "pmax"}`).
-2. Schematy odpowiedzi = modele kanoniczne z §3.3 (jeden zestaw schematów dla wszystkich providerów; `provider` w każdym rekordzie).
-3. Usuwamy placeholdery z 2.x (zahardkodowane 2 stacje w `routes/hydro.py`/`meteo.py`) — stacje zawsze z providera.
-4. Zakresy lat w walidacji z `provider.get_available_years()`, nie ze statycznych `ge=1951, le=2024`.
-5. OpenAPI: tagi per provider, opisy capabilities w opisie endpointu.
+1. A provider without a given capability → **404 with problem-details** (`{"type": "not-supported", "provider": "chmi", "capability": "pmax"}`).
+2. Response schemas = the canonical models from §3.3 (one set of schemas for all providers; `provider` in every record).
+3. We remove the 2.x placeholders (2 hard-coded stations in `routes/hydro.py`/`meteo.py`) — stations always come from the provider.
+4. Year ranges in validation come from `provider.get_available_years()`, not from the static `ge=1951, le=2024`.
+5. OpenAPI: tags per provider, capability descriptions in the endpoint description.
 
 ---
 
 ## 10. Web GUI
 
-Zakres minimalny (GUI nie jest priorytetem wydania Obserwatora, ale nie może kłamać):
+Minimal scope (the GUI is not a priority of the Obserwator release, but it must not lie):
 
-1. Selektor providera (IMGW/ČHMÚ) na stronach pobierania i stacji; formularze renderują pola według capabilities (np. ČHMÚ archiwum → pole stacji obowiązkowe, brak wyboru miesiąca).
-2. Strony stacji i mapa: dane przez fasadę biblioteki (usunięcie zduplikowanego parsowania CSV z `web/app.py`); markery z `provider` w popupie i atrybucją licencyjną w stopce mapy.
-3. Mapa: warstwy per provider (Leaflet layer control); stan wody ČHMÚ mapowany z progów SPA na tę samą skalę kolorów co IMGW.
-4. Eksporty PMAXTP bez zmian (funkcja IMGW-only, ukryta dla innych providerów).
+1. Provider selector (IMGW/ČHMÚ) on the download and station pages; forms render fields according to capabilities (e.g. ČHMÚ archive → station field mandatory, no month choice).
+2. Station pages and the map: data through the library facade (removal of the duplicated CSV parsing from `web/app.py`); markers with `provider` in the popup and license attribution in the map footer.
+3. Map: layers per provider (Leaflet layer control); the ČHMÚ water state mapped from the SPA thresholds onto the same color scale as IMGW.
+4. PMAXTP exports unchanged (an IMGW-only feature, hidden for other providers).
 
 ---
 
-## 11. Usunięcia i porządki (pełna lista)
+## 11. Removals and cleanup (full list)
 
-| Co | Dlaczego |
+| What | Why |
 |---|---|
-| `core/imgw_api.py`, `core/imgw_datastore.py`, `core/imgw_spatial.py` | legacy, złamane importy, `wget`, ścieżki windowsowe (~817 linii) |
-| Duplikat parsowania stacji w `web/app.py` | jedna implementacja w providerze IMGW |
-| Placeholdery stacji w `api/routes/` | zastąpione danymi z providera |
-| Re-eksporty `urls.py`, `parsers.py` na roocie | zastąpione przestrzeniami providerów |
-| Stała publiczna `IMGW_ENCODING` | własność providera |
-| Statyczne `le=2024` w schematach | `get_available_years()` per provider |
-| Dwie klasy `HydroStation` | jeden kanoniczny `Station` |
-| `config.shapefile_path` (`polska.shp`) | martwe po usunięciu `imgw_spatial` |
+| `core/imgw_api.py`, `core/imgw_datastore.py`, `core/imgw_spatial.py` | legacy, broken imports, `wget`, Windows paths (~817 lines) |
+| Duplicated station parsing in `web/app.py` | one implementation in the IMGW provider |
+| Station placeholders in `api/routes/` | replaced by data from the provider |
+| Root-level `urls.py`, `parsers.py` re-exports | replaced by the provider namespaces |
+| Public `IMGW_ENCODING` constant | a property of the provider |
+| Static `le=2024` in schemas | `get_available_years()` per provider |
+| Two `HydroStation` classes | one canonical `Station` |
+| `config.shapefile_path` (`polska.shp`) | dead after removing `imgw_spatial` |
 
 ---
 
-## 12. Plan wdrożenia (etapy = osobne PR-y na `slave`)
+## 12. Implementation plan (stages = separate PRs to `develop` (then `slave`))
 
-| # | Etap | Wynik weryfikowalny |
+| # | Stage | Verifiable result |
 |---|---|---|
-| 1 | Porządki: usunięcie legacy `core/`, konsolidacja duplikatów | testy 2.x zielone, ruff/pyright czyste |
-| 2 | `parsing/csv_utils.py` + `http.py` (wspólny klient) | testy parserów przechodzą po przeniesieniu |
-| 3 | `providers/base.py` + modele kanoniczne + rejestr | testy jednostkowe interfejsu |
-| 4 | Provider IMGW za interfejsem (stare publiczne API jeszcze działa wewnętrznie) | testy 3.x przepisane/zielone |
-| 5 | Rebranding: pakiet `obserwator`, CLI, env, wyjątki, fasada EN | pełny test suite + smoke test CLI |
-| 6 | ~~DB schema v2~~ — zastąpione magazynem wersjonowanym 3.0.0 (ADR-001); etap obejmuje tylko deskryptory zbiorów providera w rejestrze magazynu | testy kontraktu magazynu (`imgw-store/1` i pokrewne) na obu modelach granulacji |
-| 7 | Provider ČHMÚ (current, archiwa, stacje, CAP) | testy na fixture'ach z prawdziwych odpowiedzi (respx) + test integracyjny (oznaczony `@network`) |
-| 8 | REST API v2 + Web GUI | testy endpointów, OpenAPI kompletne |
-| 9 | Dokumentacja: CLAUDE.md, README, PRD, ARCHITECTURE | spójne z kodem |
+| 1 | Cleanup: removal of legacy `core/`, consolidation of duplicates | 2.x tests green, ruff/pyright clean |
+| 2 | `parsing/csv_utils.py` + `http.py` (shared client) | parser tests pass after the move |
+| 3 | `providers/base.py` + canonical models + registry | interface unit tests |
+| 4 | IMGW provider behind the interface (the old public API still works internally) | 3.x tests rewritten/green |
+| 5 | Rebranding: `obserwator` package, CLI, env, exceptions, EN facade | full test suite + CLI smoke test |
+| 6 | ~~DB schema v2~~ — superseded by the 3.0.0 versioned store (ADR-001); the stage covers only the provider dataset descriptors in the store registry | store contract tests (`imgw-store/1` and related) on both granularity models |
+| 7 | ČHMÚ provider (current, archives, stations, CAP) | tests on fixtures from real responses (respx) + an integration test (marked `@network`) |
+| 8 | REST API v2 + Web GUI | endpoint tests, complete OpenAPI |
+| 9 | Documentation: CLAUDE.md, README, PRD, ARCHITECTURE | consistent with the code |
 
-Wymagania testowe (RULES.md): pokrycie ≥ 80%; fixtures dla ČHMÚ pobrane z prawdziwych endpointów i zamrożone w `tests/fixtures/chmi/`; testy sieciowe wydzielone markerem, poza domyślnym przebiegiem CI.
+Test requirements (RULES.md): coverage ≥ 80%; ČHMÚ fixtures downloaded from the real endpoints and frozen in `tests/fixtures/chmi/`; network tests separated by a marker, outside the default CI run.
 
 ---
 
-## 13. Ryzyka i pytania otwarte
+## 13. Risks and open questions
 
-| Ryzyko / pytanie | Mitygacja / propozycja |
+| Risk / question | Mitigation / proposal |
 |---|---|
-| ČHMÚ: granulacja per stacja kusi do pętli po setkach stacji | jawny brak emulacji „cały kraj" w fasadzie; dokumentacja wskazuje świadomą synchronizację wybranych stacji do magazynu |
-| ČHMÚ: głębokość archiwum różna per stacja (404) | `ArchiveNotAvailableError` + synchronizacja magazynu raportuje braki per plik (bez przerywania całości) |
-| ČHMÚ: dane operacyjne niewalidowane, korekty z opóźnieniem | pole `provider` + dokumentacja; korekta = nowa wersja w magazynie po zmianie sygnału/treści |
-| Niespójność stref czasowych w dok. ČHMÚ (SEČ vs UTC) | parsujemy `Z` jako UTC; test integracyjny pilnuje formatu |
-| Zmiana nazwy na PyPI (`obserwator` może być zajęte) | **do sprawdzenia przed etapem 5**; fallback: `obserwator-data` |
-| Repo/URL-e projektu po rebrandingu | decyzja właściciela: zmiana nazwy repo czy tylko pakietu |
-| Rate limiting wobec opendata.chmi.cz | klient HTTP: limit współbieżności + jitter w synchronizacji magazynu |
-| Przyszłe providery DE/Bałtyk/SK | interfejs §3.2 zaprojektowany pod nie (capabilities, per-station granularity, CAP parser wspólny) — bez zmian kontraktu |
+| ČHMÚ: per-station granularity tempts a loop over hundreds of stations | explicit absence of "whole country" emulation in the facade; the documentation points to deliberate syncing of selected stations to the store |
+| ČHMÚ: archive depth differs per station (404) | `ArchiveNotAvailableError` + store sync reports gaps per file (without aborting the whole run) |
+| ČHMÚ: operational data unvalidated, corrections delayed | `provider` field + documentation; a correction = a new version in the store after a signal/content change |
+| Time-zone inconsistency in the ČHMÚ docs (SEČ vs UTC) | we parse `Z` as UTC; an integration test guards the format |
+| Renaming on PyPI (`obserwator` may be taken) | **to be checked before stage 5**; fallback: `obserwator-data` |
+| Project repo/URLs after the rebranding | owner decision: rename the repo or only the package |
+| Rate limiting towards opendata.chmi.cz | HTTP client: concurrency limit + jitter in store sync |
+| Future DE/Baltic/SK providers | the §3.2 interface is designed for them (capabilities, per-station granularity, shared CAP parser) — no contract change |
 
 ---
 
-## 14. Definicja ukończenia wydania Obserwatora
+## 14. Definition of done for the Obserwator release
 
-1. `pip install obserwator` + `obserwator providers` pokazuje IMGW i ČHMÚ z capabilities.
-2. Wszystkie funkcje 2.x mają odpowiedniki w nowym API (tabela mapowania w README).
-3. ČHMÚ: bieżące hydro, archiwa daily/monthly, stacje z progami SPA, ostrzeżenia CAP — działają i są pokryte testami.
-4. Zero odwołań do nazw `imgwtools`/`IMGW_` poza providerem IMGW i dokumentacją historyczną.
-5. Pokrycie testami ≥ 80%, ruff + pyright czyste, OpenAPI kompletne.
-
+1. `pip install obserwator` + `obserwator providers` shows IMGW and ČHMÚ with capabilities.
+2. All 2.x functions have counterparts in the new API (mapping table in the README).
+3. ČHMÚ: current hydro, daily/monthly archives, stations with SPA thresholds, CAP warnings — work and are covered by tests.
+4. Zero references to the names `imgwtools`/`IMGW_` outside the IMGW provider and historical documentation.
+5. Test coverage ≥ 80%, ruff + pyright clean, complete OpenAPI.

@@ -11,11 +11,11 @@
 
 ## Dokumentacja
 
-- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/AGENTS.md): przewodnik dla agentów po angielsku (po polsku: `imgw commands guide --lang pl`) — komendy, zbiory, flagi, kody błędów, przepływy, czego nie robić
-- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/master/README.md): instalacja i przykłady Python, CLI, REST, MCP
-- [Architektura](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/ARCHITECTURE.md): moduły, magazyn, przepływ danych
-- [Zmiany](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/CHANGELOG.md): zmiany i migracja z 2.x
+- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/main/AGENTS.md): przewodnik dla agentów po angielsku (po polsku: `imgw commands guide --lang pl`) — komendy, zbiory, flagi, kody błędów, przepływy, czego nie robić
+- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/main/README.md): instalacja i przykłady Python, CLI, REST, MCP
+- [Architektura](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/ARCHITECTURE.md): moduły, magazyn, przepływ danych
+- [Zmiany](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/CHANGELOG.md): zmiany i migracja z 2.x
 
 ## Optional
 
-- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/master/docs/DECISIONS.md): ADR-001–ADR-004
+- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-008
