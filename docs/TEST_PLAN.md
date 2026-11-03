@@ -220,7 +220,7 @@ and `api/routes/store.py` – `monkeypatch.setattr` on the instance works everyw
 
 ### 3.4 Writing rules
 
-- Names `test_<function>_<scenario>` as in `DEVELOPMENT_STANDARDS.md` 5.2; no test classes in new files (flat functions, as in `test_parsers.py`).
+- Names `test_<function>_<scenario>` as in DEV-10.5 of the [Nogat development standard](https://github.com/Daldek/Nogat/blob/main/standards/DEVELOPMENT_STANDARDS.md) (standard 1.0); no test classes in new files (flat functions, as in `test_parsers.py`).
 - Ruff `E/W/F/I/B/UP/C4` applies to `tests/**` (only `D` is disabled) – sorted imports, no unused imports.
 - ASCII in sources; Polish characters in tests only in encoding fixtures (as `Ławica` today).
 - No `time.sleep`, no real files outside `tmp_path`, no global state without `monkeypatch`.
@@ -508,7 +508,7 @@ the command catalog, projects, the CLI and the store REST (sections 4.9 and 4.24
 | 3 | `test_api_system.py`, `test_api_hydro.py`, `test_api_meteo.py`, `test_api_download.py`, `test_api_pmaxtp.py` | `test: REST API endpoints via TestClient without network` | – |
 | 4 | `test_web.py` | `test: HTMX/Jinja web routes render with mocked data` | – |
 | 5 | `test_cli_main.py`, `test_cli_list.py`, `test_cli_admin.py`, `test_cli_fetch.py` (store CLI: section 4.24, done) | `test: CLI via CliRunner - help, exit codes, fetch, admin` | – |
-| 6 | `test_reference_data.py`; `--cov-fail-under=80` in `addopts`; update the numbers in `README.md` and `docs/DEVELOPMENT_STANDARDS.md` (5.1, 5.4, 10) | `test: reference_data with mocks and an 80 percent coverage threshold` | >= 80% |
+| 6 | `test_reference_data.py`; `--cov-fail-under=80` in `addopts`; update the numbers in `README.md` and the [Nogat development standard](https://github.com/Daldek/Nogat/blob/main/standards/DEVELOPMENT_STANDARDS.md) (standard 1.0) | `test: reference_data with mocks and an 80 percent coverage threshold` | >= 80% |
 
 Each phase: `pytest -q --cov…` green, `ruff check src/ tests/` clean, `pyright src/imgwtools/` unchanged (tests are not checked by pyright).
 The coverage column from the 2.2.0 plan (denominator 2586) is outdated; the 80% threshold is checked on the current code. Phases 3 and 5 can be split into two commits.
@@ -561,5 +561,5 @@ npx -y pyright src/imgwtools/                      # 0 errors (unchanged relativ
 git status                                         # changes only in tests/, pyproject.toml, README.md, docs/ (none in src/ except possible follow-ups from section 6)
 ```
 
-Additionally: in `README.md` (the tests section) and `docs/DEVELOPMENT_STANDARDS.md` 5.1/5.4/10 update the test count and percentage;
+Additionally: in `README.md` (the tests section) and the [Nogat development standard](https://github.com/Daldek/Nogat/blob/main/standards/DEVELOPMENT_STANDARDS.md) (standard 1.0) update the test count and percentage;
 in `docs/PROGRESS.md` an entry about reaching the threshold.
