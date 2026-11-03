@@ -50,6 +50,7 @@ from tests.contract.support import (
     command_document,
     current_path,
     envelope_errors,
+    in_json,
     rest_request,
     schema_errors,
     slots,
@@ -280,7 +281,7 @@ def assert_alike(command, python, printed, answered, root):
     if root is None:  # no root to write as "." in REST: the very same bytes
         assert printed.stdout_bytes == answered.content + b"\n"
     else:  # REST never shows the server's root (spec §13.1 p. 4)
-        assert str(root) not in answered.text
+        assert in_json(str(root)) not in answered.text
 
 
 # --------------------------------------------------------------------------
@@ -611,8 +612,9 @@ SCENARIOS = {
 def same_text(local: object, remote: object, temporary: Path) -> None:
     """REST repeats the local text, except that it hides server directories (T21)."""
     local_text, remote_text = canonical(local), canonical(remote)
-    if str(temporary) in local_text:
-        assert str(temporary) not in remote_text
+    directory = in_json(str(temporary))
+    if directory in local_text:
+        assert directory not in remote_text
     else:
         assert remote_text == local_text
 
@@ -776,11 +778,11 @@ def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
     )
     # The CLI text with the server root hidden (paths relative to it, T21); the
     # root and its separator as they stand in JSON text (backslashes on Windows).
-    hidden = json.dumps(f"{root}{os.sep}", ensure_ascii=False)[1:-1]
+    hidden = in_json(f"{root}{os.sep}")
     assert canonical([body["detail"], body["details"]]) == canonical(expected).replace(
         hidden, ""
     )
-    assert str(root) not in answered.text
+    assert in_json(str(root)) not in answered.text
     return raised
 
 

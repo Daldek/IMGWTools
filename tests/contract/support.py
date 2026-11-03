@@ -440,6 +440,11 @@ def canonical(document: object) -> str:
     )
 
 
+def in_json(text: str) -> str:
+    """``text`` inside a JSON string: a Windows path with its backslashes doubled."""
+    return json.dumps(text, ensure_ascii=False)[1:-1]
+
+
 def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     """
     ``imgw`` arguments of ``options`` given in their JSON form (spec §13.10).
