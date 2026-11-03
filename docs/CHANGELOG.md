@@ -1,8 +1,8 @@
 # Changelog — IMGWTools
 
-Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.1.0/), wersjonowanie
-zgodne z [SemVer](https://semver.org/lang/pl/). Każda zmiana publicznego API i schematów
-magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
+follow [SemVer](https://semver.org/). Every change of the public API and of the store schemas
+(`imgw-*/N`) is recorded in this file (ADR-001, policy IMGW-13).
 
 ## [Unreleased]
 
@@ -1263,9 +1263,9 @@ bajty co bez dostawcy ČHMÚ.
 
 ## [2.1.1] — 2026-07-06
 
-- Parsery archiwów hydro: auto-detekcja separatora, kodowania (UTF-8 z BOM) i wierszy
-  w cudzysłowach.
-- URL-e meteo zgodne z rzeczywistym układem serwera IMGW.
-- Zgodność z pyright; audyt dokumentacji.
+- Hydro archive parsers: automatic detection of the separator, the encoding (UTF-8 with BOM) and
+  quoted rows.
+- Meteo URLs follow the actual layout of the IMGW server.
+- Compatibility with pyright; documentation audit.
 
-Starsze wydania: `docs/HISTORY.md` (sekcja „Wydane wersje”).
+Older releases: `docs/HISTORY.md` (section "Released versions").
