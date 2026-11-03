@@ -1,139 +1,139 @@
-# Obserwator — badanie wykonalności rozszerzenia poza IMGW
+# Obserwator — feasibility study of extending beyond IMGW
 
-**Data badania:** 2026-08-11 · **Zakres:** Słowacja (SHMÚ), Czechy (ČHMÚ), Niemcy (DWD/WSV), Morze Bałtyckie
-**Metoda:** analiza kodu IMGWTools 2.1.1 + research internetowy z weryfikacją endpointów na żywo (WebFetch).
+**Study date:** 2026-08-11 · **Scope:** Slovakia (SHMÚ), Czechia (ČHMÚ), Germany (DWD/WSV), Baltic Sea
+**Method:** analysis of the IMGWTools 2.1.1 code + web research with live endpoint verification (WebFetch).
 
 ---
 
-## 1. Podsumowanie wykonawcze
+## 1. Executive summary
 
-Rozszerzenie biblioteki na kraje sąsiednie jest wykonalne, ale kraje różnią się dojrzałością otwartych danych w sposób zasadniczy:
+Extending the library to neighboring countries is feasible, but the countries differ fundamentally in the maturity of their open data:
 
-| Kraj / obszar | Dane bieżące | Archiwa hydro | Archiwa meteo | Stacje (lat/lon) | Ostrzeżenia | Ocena ogólna |
+| Country / area | Current data | Hydro archives | Meteo archives | Stations (lat/lon) | Warnings | Overall rating |
 |---|---|---|---|---|---|---|
-| **Czechy (ČHMÚ)** | ✅ JSON per stacja | ✅ JSON per stacja/rok | ✅ JSON + CSV | ✅ meta1.json | ✅ CAP XML | **Bardzo dobra** — integrować w pierwszej kolejności |
-| **Niemcy (DWD+WSV)** | ✅ PEGELONLINE REST | ⚠️ tylko portale landowe | ✅ DWD CDC (od 1891!) | ✅ stations.json + TXT | ✅ CAP XML + LHP | **Dobra** — z luką w archiwach hydro |
-| **Słowacja (SHMÚ)** | ⚠️ tylko scraping HTML (hydro) | ❌ brak otwartych | ⚠️ tylko „recent" CSV | ⚠️ INSPIRE/metadane | ✅ Meteoalarm CAP | **Słaba** — 2–4 lata za PL/CZ, obserwować |
-| **Bałtyk** | ✅ mareografy już w API IMGW(!) + SMHI/BSH/EMODnet | ⚠️ PSMSL/EMODnet | n/d | ⚠️ różne | ⚠️ różne | **Dobra** — częściowo już działa |
+| **Czechia (ČHMÚ)** | ✅ JSON per station | ✅ JSON per station/year | ✅ JSON + CSV | ✅ meta1.json | ✅ CAP XML | **Very good** — integrate first |
+| **Germany (DWD+WSV)** | ✅ PEGELONLINE REST | ⚠️ state portals only | ✅ DWD CDC (from 1891!) | ✅ stations.json + TXT | ✅ CAP XML + LHP | **Good** — with a gap in hydro archives |
+| **Slovakia (SHMÚ)** | ⚠️ HTML scraping only (hydro) | ❌ no open ones | ⚠️ "recent" CSV only | ⚠️ INSPIRE/metadata | ✅ Meteoalarm CAP | **Weak** — 2–4 years behind PL/CZ, watch |
+| **Baltic** | ✅ tide gauges already in the IMGW API(!) + SMHI/BSH/EMODnet | ⚠️ PSMSL/EMODnet | n/a | ⚠️ varies | ⚠️ varies | **Good** — partly works already |
 
-Kluczowe odkrycie: **polskie stacje mareograficzne (Świnoujście, Hel, Gdańsk, Kołobrzeg, Ustka, Władysławowo…) już są zwracane przez `fetch_hydro_current()`** — biblioteka „umie" dane bałtyckie, tylko ich nie eksponuje. Nie ma ich natomiast w `lista_stacji_hydro.csv`, więc obecna lista stacji ich nie widzi.
+Key finding: **Polish tide-gauge stations (Świnoujście, Hel, Gdańsk, Kołobrzeg, Ustka, Władysławowo…) are already returned by `fetch_hydro_current()`** — the library "knows" Baltic data, it just does not expose it. They are, however, missing from `lista_stacji_hydro.csv`, so the current station list does not see them.
 
-Wspólny mianownik regionu: **CAP XML jako format ostrzeżeń** (CZ, DE, SK przez Meteoalarm) oraz **model „serwer plików + przewidywalne URL-e"** (ČHMÚ, DWD, SHMÚ open data) — czyli dokładnie filozofia `url_builder.py`. Architektura koncepcyjnie przenosi się 1:1; problemem jest kod, nie koncepcja.
-
----
-
-## 2. Stan obecny biblioteki (wnioski z analizy kodu)
-
-### 2.1 Co biblioteka potrafi dziś
-
-Trzy hardkodowane bazy URL (`url_builder.py:64-66`): archiwa `danepubliczne.imgw.pl/data/...`, API bieżące `danepubliczne.imgw.pl/api/data`, PMAXTP `powietrze.imgw.pl/tpmax-api/point`. Publiczne API: `fetch_hydro_current`, `fetch_synop`, `fetch_warnings`, `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data`, listy stacji, parsery CSV, buildery URL — wszystko wyłącznie IMGW.
-
-### 2.2 Co jest generyczne (do reużycia bez zmian)
-
-- **Modele bieżące** (`models.py`): pola neutralne z jednostkami w nazwach (`water_level_cm`, `flow_m3s`); cała specyfika IMGW zamknięta w `from_api_response()` — dla nowego kraju wystarczy nowy mapper.
-- **Parsery CSV — mechanika**: auto-detekcja separatora, kodowania (BOM), cudzysłowów — te same problemy wystąpią w danych DWD (średniki, latin-1) i SHMÚ.
-- **Warstwa SQLite** (`connection.py`), wzorzec `cached_ranges` + lazy loading.
-- **Dataclass `DownloadURL`**, hierarchia wyjątków, podział na extras w `pyproject.toml`, wzorzec testów (respx + fixtury).
-
-### 2.3 Co jest twardo związane z IMGW (do refaktoryzacji)
-
-- `url_builder.py` — brak jakiejkolwiek abstrakcji „provider"; enumy pełnią podwójną rolę: semantyka + segment URL (`HydroInterval.DAILY = "dobowe"`).
-- `fetch.py` — bbox Polski zaszyty w module, komunikaty błędów „IMGW API...", 12× powtórzony boilerplate HTTP bez wspólnego klienta/retry/User-Agent.
-- **Schemat SQLite bez kolumny `provider`** — największe pojedyncze ryzyko: kody stacji SHMÚ/ČHMÚ/DWD mogą kolidować z IMGW i nadpisywać dane. Konieczna migracja do v2.
-- Rok hydrologiczny XI–X jako kolumny kanoniczne (`hydro_year`/`hydro_month`) — dane morskie w ogóle go nie używają; lepiej kanonizować `measurement_date`.
-- Nazwy publiczne: `IMGWError`, `IMGW_ENCODING`, prefix env `IMGW_`, CLI `imgw`, polskie stringi w sygnaturach (`interval="dobowe"`, `subtype="klimat"`).
-- Dług do usunięcia przed refaktorem: `core/imgw_api.py`, `core/imgw_datastore.py`, `core/imgw_spatial.py` (~817 linii legacy, złamane importy, `wget`, ścieżki windowsowe); duplikacja parsowania stacji w 3 miejscach (`stations.py`, `db/parsers.py`, `web/app.py`); placeholdery w `api/routes/` (zahardkodowane 2 stacje); statyczne `le=2024` w schematach API.
+Common denominator of the region: **CAP XML as the warning format** (CZ, DE, SK via Meteoalarm) and **the "file server + predictable URLs" model** (ČHMÚ, DWD, SHMÚ open data) — exactly the philosophy of `url_builder.py`. The architecture carries over conceptually 1:1; the problem is the code, not the concept.
 
 ---
 
-## 3. Czechy — ČHMÚ (najlepszy kandydat)
+## 2. Current state of the library (findings from the code analysis)
 
-Od 1.01.2025 działa ustawa 262/2024 Sb. i „Narodowa baza danych hydrometeorologicznych" = **https://opendata.chmi.cz** — statyczny serwer plików z przewidywalnymi URL-ami, **CC BY 4.0, bez rejestracji i klucza**. Model identyczny z filozofią IMGWTools.
+### 2.1 What the library can do today
+
+Three hard-coded URL bases (`url_builder.py:64-66`): archives `danepubliczne.imgw.pl/data/...`, current-data API `danepubliczne.imgw.pl/api/data`, PMAXTP `powietrze.imgw.pl/tpmax-api/point`. Public API: `fetch_hydro_current`, `fetch_synop`, `fetch_warnings`, `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data`, station lists, CSV parsers, URL builders — all IMGW-only.
+
+### 2.2 What is generic (reusable without changes)
+
+- **Current-data models** (`models.py`): neutral fields with units in the names (`water_level_cm`, `flow_m3s`); all IMGW specifics are enclosed in `from_api_response()` — a new country needs only a new mapper.
+- **CSV parsers — the mechanics**: auto-detection of the delimiter, encoding (BOM), quotes — the same problems will occur in DWD data (semicolons, latin-1) and SHMÚ data.
+- **SQLite layer** (`connection.py`), the `cached_ranges` pattern + lazy loading.
+- **The `DownloadURL` dataclass**, the exception hierarchy, the split into extras in `pyproject.toml`, the test pattern (respx + fixtures).
+
+### 2.3 What is tightly bound to IMGW (to refactor)
+
+- `url_builder.py` — no "provider" abstraction at all; the enums play a double role: semantics + URL segment (`HydroInterval.DAILY = "dobowe"`).
+- `fetch.py` — the bbox of Poland hard-wired in the module, "IMGW API..." error messages, HTTP boilerplate repeated 12× without a shared client/retry/User-Agent.
+- **SQLite schema without a `provider` column** — the biggest single risk: SHMÚ/ČHMÚ/DWD station codes can collide with IMGW ones and overwrite data. A migration to v2 is required.
+- The XI–X hydrological year as canonical columns (`hydro_year`/`hydro_month`) — marine data does not use it at all; it is better to canonicalize `measurement_date`.
+- Public names: `IMGWError`, `IMGW_ENCODING`, the `IMGW_` env prefix, the `imgw` CLI, Polish strings in signatures (`interval="dobowe"`, `subtype="klimat"`).
+- Debt to remove before the refactor: `core/imgw_api.py`, `core/imgw_datastore.py`, `core/imgw_spatial.py` (~817 lines of legacy, broken imports, `wget`, Windows paths); station parsing duplicated in 3 places (`stations.py`, `db/parsers.py`, `web/app.py`); placeholders in `api/routes/` (2 hard-coded stations); static `le=2024` in the API schemas.
+
+---
+
+## 3. Czechia — ČHMÚ (the best candidate)
+
+Since 1.01.2025, Act 262/2024 Sb. has been in force, and the "National Hydrometeorological Database" = **https://opendata.chmi.cz** — a static file server with predictable URLs, **CC BY 4.0, no registration or key**. The model is identical to the IMGWTools philosophy.
 
 ### Hydro
-- **Bieżące** (zweryfikowane na żywo): `https://opendata.chmi.cz/hydrology/now/data/{WIGOS_ID}.json` — H (cm), Q (m³/s), temperatura wody, krok 10 min, dopis co godzinę. Np. `0-203-1-001000.json`.
-- **Ostatni rok**: `/hydrology/recent/`.
-- **Archiwa** (zweryfikowane): `/hydrology/historical/data/daily/H_{WIGOS}_DQ_{ROK}.json` (dobowe H/Q), także `HQ` (godzinowe), `MQ` (miesięczne), `MMQ` (maksima). Czystszy format niż ZIP+CSV IMGW. Głębokość archiwum różna per stacja (404 → sondować).
-- **Stacje**: `/hydrology/now/metadata/meta1.json` — nazwa, rzeka, współrzędne + **progi stopni powodziowych SPA1–3** (odpowiednik stanów ostrzegawczych/alarmowych IMGW).
+- **Current** (verified live): `https://opendata.chmi.cz/hydrology/now/data/{WIGOS_ID}.json` — H (cm), Q (m³/s), water temperature, 10-min step, appended every hour. E.g. `0-203-1-001000.json`.
+- **Last year**: `/hydrology/recent/`.
+- **Archives** (verified): `/hydrology/historical/data/daily/H_{WIGOS}_DQ_{ROK}.json` (daily H/Q), also `HQ` (hourly), `MQ` (monthly), `MMQ` (maxima). A cleaner format than the IMGW ZIP+CSV. Archive depth varies per station (404 → probe).
+- **Stations**: `/hydrology/now/metadata/meta1.json` — name, river, coordinates + **SPA1–3 flood degree thresholds** (the counterpart of IMGW warning/alarm levels).
 
 ### Meteo
-- `/meteorology/climate/`: `now/` (10-min i 1-h JSON per stacja), `recent/` (dobowe `dly-{WSI}-{YYYYMM}.json`, miesięczne), `historical/` (pliki stacyjne za cały okres pomiarów; 10-min/1-h od 2018), `historical_csv/` (CSV per element). ID stacji = WIGOS (np. `0-20000-0-11406`).
+- `/meteorology/climate/`: `now/` (10-min and 1-h JSON per station), `recent/` (daily `dly-{WSI}-{YYYYMM}.json`, monthly), `historical/` (station files for the whole measurement period; 10-min/1-h from 2018), `historical_csv/` (CSV per element). Station ID = WIGOS (e.g. `0-20000-0-11406`).
 
-### Ostrzeżenia
-- CAP XML: `/meteorology/weather/alerts/cap/` — pliki ~1–2 MB, cały kraj (gminy ORP), CZ+EN, obejmują też hydro (SPA).
+### Warnings
+- CAP XML: `/meteorology/weather/alerts/cap/` — files of ~1–2 MB, whole country (ORP municipalities), CZ+EN, also cover hydro (SPA).
 
-### Ograniczenia
-Granulacja per stacja (brak endpointu „cały kraj naraz" jak w IMGW — pobranie stanu kraju = setki żądań); ogromne listingi katalogów (konstruować nazwy plików, nie listować); dokumentacja po czesku w PDF; drobna niespójność stref czasowych (PDF: SEČ vs faktycznie UTC w JSON).
-
----
-
-## 4. Niemcy — DWD + PEGELONLINE (dobre, z jedną luką)
-
-### PEGELONLINE (WSV) — hydro bieżące
-REST API JSON (zweryfikowane): `https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations.json` — ~660 stacji z uuid, współrzędnymi, rzeką. Pomiary: `.../stations/{id}/W/currentmeasurement.json` (z klasyfikacją stanu `stateMnwMhw`/`stateNswHsw` — odpowiednik `water_state` z hydro-back.imgw.pl), szeregi `measurements.json?start=P15D`. Aktualizacja co 15 min, bez rejestracji, licencja otwarta (DL-DE). **Uwaga: tylko ~31 dni wstecz — to nie archiwum.**
-
-### DWD Open Data — meteo/klimat
-`https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/` — interwały od 1-minutowych po roczne, dane od **1891 r.** ZIP+CSV (średniki, braki `-999`), podział `historical/` + `recent/` (ostatnie ~500 dni, codziennie). Lista stacji w `*_Beschreibung_Stationen.txt` (stałoszerokościowy, latin-1). Licencja CC BY 4.0 / GeoNutzV, bez klucza. Haczyk dla url_buildera: nazwy plików historycznych zawierają daty serii (`tageswerte_KL_00003_18910101_20110331_hist.zip`) — trzeba raz sparsować listing katalogu (analogia do problemu synop per-station w IMGW).
-
-### Ostrzeżenia
-DWD CAP: `https://opendata.dwd.de/weather/alerts/cap/`. Powodziowe: hochwasserzentralen.de (LHP) — webservices JSON/GeoJSON (status ~1200 wodowskazów, bez wartości pomiarów; gotowy klient PyPI `de-hochwasserzentralen`).
-
-### Główna luka: archiwa hydro
-Wieloletnie archiwa stanów/przepływów (odpowiednik `codz_`/`mies_`) **nie mają źródła federalnego** — są rozproszone po 16 portalach landowych (np. GKD Bayern, gkd.bayern.de, CC BY 4.0, eksport CSV per stacja). GRDC (BfG) ma długie serie, ale research-only. Realistyczny zakres v1: DWD + PEGELONLINE + LHP; archiwa landowe jako opcjonalne pluginy (zacząć od Bawarii).
-
-**Prior art:** biblioteka `wetterdienst` (github.com/earthobservations/wetterdienst) już implementuje DWD — warto przejrzeć przed pisaniem własnego parsera.
+### Limitations
+Per-station granularity (no "whole country at once" endpoint as at IMGW — fetching the state of the country = hundreds of requests); huge directory listings (construct file names, do not list); documentation in Czech in PDF; a minor time-zone inconsistency (PDF: SEČ vs actually UTC in JSON).
 
 ---
 
-## 5. Słowacja — SHMÚ (najsłabsza, obserwować)
+## 4. Germany — DWD + PEGELONLINE (good, with one gap)
 
-- **opendata.shmu.sk** (uruchomiony ~2025, wzorowany na czeskim): serwer plików CSV, **CC BY 4.0, bez klucza** — ale głównie meteo „recent" (klimat, opady, radar, jakość powietrza), **bez katalogu hydro i bez głębokiej historii**.
-- **Hydro bieżące**: wyłącznie HTML na shmu.sk (`?page=1&id=hydro_vod_all`) — wymagany scraping; strona miewa awarie (całodniowa przerwa I 2026).
-- **Archiwa hydro**: nieotwarte — „Modrá platforma" (mp.shmu.dcmc.sk, CKAN CC0) jest jawnie w becie: słowniki + aplikacja z danymi 2018–2023, bez udokumentowanego API. Starsze serie tylko na wniosek/odpłatnie.
-- **Ostrzeżenia**: dobrze przez Meteoalarm (feeds.meteoalarm.org, ATOM/CAP, darmowe).
-- **Ryzyko**: planowane docelowe REST API meteo ma wymagać rejestracji i limitów (~1000 żądań/15 min).
+### PEGELONLINE (WSV) — current hydro
+REST API JSON (verified): `https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations.json` — ~660 stations with uuid, coordinates, river. Measurements: `.../stations/{id}/W/currentmeasurement.json` (with the `stateMnwMhw`/`stateNswHsw` state classification — the counterpart of `water_state` from hydro-back.imgw.pl), series `measurements.json?start=P15D`. Updated every 15 min, no registration, open license (DL-DE). **Note: only ~31 days back — this is not an archive.**
 
-**Rekomendacja:** w v1 tylko moduł opendata.shmu.sk (pliki CSV) + Meteoalarm; hydro oznaczyć jako eksperymentalne lub odłożyć do czasu dojrzenia Modrej platformy.
+### DWD Open Data — meteo/climate
+`https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/` — intervals from 1-minute to annual, data from **1891**. ZIP+CSV (semicolons, missing values `-999`), split into `historical/` + `recent/` (last ~500 days, daily). Station list in `*_Beschreibung_Stationen.txt` (fixed-width, latin-1). License CC BY 4.0 / GeoNutzV, no key. A catch for the url_builder: historical file names contain the series dates (`tageswerte_KL_00003_18910101_20110331_hist.zip`) — the directory listing has to be parsed once (analogous to the per-station synop problem at IMGW).
 
----
+### Warnings
+DWD CAP: `https://opendata.dwd.de/weather/alerts/cap/`. Flood: hochwasserzentralen.de (LHP) — JSON/GeoJSON webservices (status of ~1200 gauges, without measured values; a ready PyPI client `de-hochwasserzentralen`).
 
-## 6. Morze Bałtyckie
+### Main gap: hydro archives
+Multi-year archives of water levels/discharges (the counterpart of `codz_`/`mies_`) **have no federal source** — they are scattered across 16 state portals (e.g. GKD Bayern, gkd.bayern.de, CC BY 4.0, CSV export per station). GRDC (BfG) has long series, but research-only. Realistic v1 scope: DWD + PEGELONLINE + LHP; state archives as optional plugins (start with Bavaria).
 
-### Polska — częściowo już działa
-- **Mareografy IMGW są w `api/data/hydro`** (zweryfikowane: Świnoujście id 153140010, `stan_wody: 524 cm`, `rzedna_zerawodowskazu: -4.915` → poziom morza; też Hel, Gdańsk, Kołobrzeg, Ustka, Władysławowo, Gdynia, Puck, stacje zalewów). Wystarczy filtr/moduł „morze" w istniejącym `fetch_hydro_current()`.
-- **Ale nie ma ich w `lista_stacji_hydro.csv`** — obecna lista stacji ich nie pokazuje; brać z API bieżącego lub hydro-back.imgw.pl. Obecność mareografów w archiwach `codz_`/`mies_` — do zweryfikowania przy implementacji.
-- baltyk.imgw.pl (prognozy MIKE21/SWAN, zlodzenie) — tylko HTML/obrazki, bez API. SatBałtyk, Urzędy Morskie — bez otwartego API.
-- Polska **nie publikuje otwartych danych o falowaniu i zasoleniu** — tylko modele CMEMS lub boje sąsiadów.
-
-### Zagranica (ranking dopasowania do modelu „generujemy linki")
-1. **SMHI (Szwecja)**: `https://opendata-download-ocobs.smhi.se/api` — REST do CSV/JSON, parametry: poziom morza, T, zasolenie, falowanie, prądy, z pełnym archiwum (`corrected-archive`). CC BY 4.0, bez klucza. Wzorcowe.
-2. **BSH (Niemcy)**: OGC API Features `https://gdi.bsh.de/ldproxy/rest/services/WaterLevelForecast` — prognozy + obserwacje poziomu wody wybrzeża bałtyckiego, JSON, CC BY 4.0, bez rejestracji. Surowe pomiary niemieckich stacji bałtyckich (Kiel, Warnemünde, Sassnitz…) — przez PEGELONLINE.
-3. **EMODnet Physics ERDDAP**: `https://erddap.emodnet-physics.eu/erddap/` — paneuropejskie in-situ (poziom morza NRT 5/60-min, T, S, falowanie) + PSMSL (Świnoujście od 1811 r.!); HTTP GET → CSV/JSON/NetCDF, bez rejestracji. Minus: wydajność, trzeba znać PLATFORMCODE.
-4. **FMI (Finlandia)**: WFS XML — otwarte, ale format cięższy.
-5. **Copernicus Marine**: najbogatsze (modele, SST, reanaliza od 1993, in-situ od 1841), ale wymaga konta i toolboxa `copernicusmarine` — nie da się wygenerować anonimowego linku. Ewentualnie opcjonalny extras `obserwator[cmems]`.
-6. **IOC SLSMF**: otwarte API, ale brak polskich stacji. **HELCOM/ICES**: dane kampanijne, plikowe — nie operacyjne.
+**Prior art:** the `wetterdienst` library (github.com/earthobservations/wetterdienst) already implements DWD — worth reviewing before writing our own parser.
 
 ---
 
-## 7. Rekomendowana kolejność prac
+## 5. Slovakia — SHMÚ (the weakest, watch)
 
-1. **Sprzątanie** — usunąć legacy `core/imgw_api.py`, `imgw_datastore.py`, `imgw_spatial.py`; skonsolidować 3× zduplikowane parsowanie stacji; naprawić placeholdery w `api/routes/`.
-2. **Schemat DB v2** — kolumna `provider` we wszystkich tabelach i kluczach UNIQUE + realna migracja (warunek konieczny przed jakimkolwiek nowym krajem).
-3. **Warstwa providerów** — `providers/base.py` (Protocol: `list_stations`, `fetch_current`, `fetch_warnings`, `build_archive_url`, `parse_archive` + `ProviderInfo` z bbox, kodowaniem, zakresami lat); przenieść IMGW za ten interfejs **bez zmiany publicznego API**; wspólny helper HTTP (sync/async, retry, User-Agent).
-4. **Provider #1: ČHMÚ** — najlepszy stosunek wartości do wysiłku (JSON, CC BY 4.0, pełen zakres funkcji). Przy okazji: wspólny parser CAP XML (posłuży CZ, DE i Meteoalarm).
-5. **Provider #2: Niemcy** — PEGELONLINE (bieżące hydro) + DWD CDC (archiwa meteo) + CAP.
-6. **Moduł Bałtyk** — filtr mareografów w istniejącym API IMGW + SMHI + BSH; EMODnet jako źródło paneuropejskie.
-7. **Rebranding na Obserwator** — dopiero po (3): pakiet `obserwator`, CLI `obserwator` z aliasem `imgw`, `ObserwatorError` z aliasem `IMGWError`, env `OBSERWATOR_` z fallbackiem `IMGW_`.
-8. **Słowacja** — na końcu, zakres minimalny (opendata.shmu.sk + Meteoalarm), monitorować Modrą platformę.
+- **opendata.shmu.sk** (launched ~2025, modeled on the Czech one): a CSV file server, **CC BY 4.0, no key** — but mainly "recent" meteo (climate, precipitation, radar, air quality), **no hydro catalog and no deep history**.
+- **Current hydro**: only HTML on shmu.sk (`?page=1&id=hydro_vod_all`) — scraping required; the site has outages (a day-long outage in January 2026).
+- **Hydro archives**: not open — "Modrá platforma" (mp.shmu.dcmc.sk, CKAN CC0) is explicitly in beta: code lists + an application with 2018–2023 data, no documented API. Older series only on request/for a fee.
+- **Warnings**: well covered via Meteoalarm (feeds.meteoalarm.org, ATOM/CAP, free).
+- **Risk**: the planned target meteo REST API is to require registration and limits (~1000 requests/15 min).
+
+**Recommendation:** in v1 only the opendata.shmu.sk module (CSV files) + Meteoalarm; mark hydro as experimental or postpone it until Modrá platforma matures.
 
 ---
 
-## 8. Kluczowe źródła
+## 6. Baltic Sea
 
-**Czechy:** [opendata.chmi.cz](https://opendata.chmi.cz/) · [przykład hydro now](https://opendata.chmi.cz/hydrology/now/data/0-203-1-001000.json) · [archiwum dobowe 2020](https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2020.json) · [meta1.json](https://opendata.chmi.cz/hydrology/now/metadata/meta1.json) · [opis danych klimat (PDF)](https://opendata.chmi.cz/meteorology/climate/Klimatologicka_data_popis.pdf) · [CAP](https://opendata.chmi.cz/meteorology/weather/alerts/cap/)
+### Poland — partly works already
+- **IMGW tide gauges are in `api/data/hydro`** (verified: Świnoujście id 153140010, `stan_wody: 524 cm`, `rzedna_zerawodowskazu: -4.915` → sea level; also Hel, Gdańsk, Kołobrzeg, Ustka, Władysławowo, Gdynia, Puck, lagoon stations). A "sea" filter/module in the existing `fetch_hydro_current()` is enough.
+- **But they are not in `lista_stacji_hydro.csv`** — the current station list does not show them; take them from the current-data API or hydro-back.imgw.pl. Whether tide gauges are present in the `codz_`/`mies_` archives — to be verified during implementation.
+- baltyk.imgw.pl (MIKE21/SWAN forecasts, ice cover) — HTML/images only, no API. SatBałtyk, Maritime Offices (Urzędy Morskie) — no open API.
+- Poland **does not publish open data on waves and salinity** — only CMEMS models or the neighbors' buoys.
 
-**Niemcy:** [PEGELONLINE stations.json](https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations.json) · [DWD CDC](https://opendata.dwd.de/climate_environment/CDC/) · [DWD daily/kl historical](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/daily/kl/historical/) · [DWD CAP](https://opendata.dwd.de/weather/alerts/cap/) · [LHP developers](https://www.hochwasserzentralen.de/developers/) · [GKD Bayern](https://www.gkd.bayern.de/) · [wetterdienst (prior art)](https://github.com/earthobservations/wetterdienst)
+### Abroad (ranking of fit to the "we generate links" model)
+1. **SMHI (Sweden)**: `https://opendata-download-ocobs.smhi.se/api` — REST to CSV/JSON, parameters: sea level, T, salinity, waves, currents, with the full archive (`corrected-archive`). CC BY 4.0, no key. Exemplary.
+2. **BSH (Germany)**: OGC API Features `https://gdi.bsh.de/ldproxy/rest/services/WaterLevelForecast` — forecasts + water-level observations for the Baltic coast, JSON, CC BY 4.0, no registration. Raw measurements from German Baltic stations (Kiel, Warnemünde, Sassnitz…) — via PEGELONLINE.
+3. **EMODnet Physics ERDDAP**: `https://erddap.emodnet-physics.eu/erddap/` — pan-European in-situ (NRT sea level 5/60-min, T, S, waves) + PSMSL (Świnoujście since 1811!); HTTP GET → CSV/JSON/NetCDF, no registration. Downside: performance, you need to know the PLATFORMCODE.
+4. **FMI (Finland)**: WFS XML — open, but a heavier format.
+5. **Copernicus Marine**: the richest (models, SST, reanalysis from 1993, in-situ from 1841), but requires an account and the `copernicusmarine` toolbox — an anonymous link cannot be generated. Possibly an optional `obserwator[cmems]` extra.
+6. **IOC SLSMF**: open API, but no Polish stations. **HELCOM/ICES**: campaign data, file-based — not operational.
 
-**Słowacja:** [opendata.shmu.sk](https://opendata.shmu.sk/) · [SHMÚ wodowskazy (HTML)](https://www.shmu.sk/sk/?page=1&id=hydro_vod_all) · [Modrá platforma](https://mp.shmu.dcmc.sk/) · [CKAN SHMÚ](https://opendata.shmu.dcmc.sk/en/dataset) · [Meteoalarm feeds](https://feeds.meteoalarm.org/)
+---
 
-**Bałtyk:** [IMGW api/data/hydro](https://danepubliczne.imgw.pl/api/data/hydro) · [SMHI ocobs](https://opendata-download-ocobs.smhi.se/api) · [BSH WaterLevelForecast](https://gdi.bsh.de/ldproxy/rest/services/WaterLevelForecast) · [EMODnet ERDDAP](https://erddap.emodnet-physics.eu/erddap/) · [FMI WFS](https://opendata.fmi.fi/wfs) · [Copernicus Marine](https://data.marine.copernicus.eu) · [IOC SLSMF](https://www.ioc-sealevelmonitoring.org)
+## 7. Recommended order of work
+
+1. **Cleanup** — remove the legacy `core/imgw_api.py`, `imgw_datastore.py`, `imgw_spatial.py`; consolidate the 3× duplicated station parsing; fix the placeholders in `api/routes/`.
+2. **DB schema v2** — a `provider` column in all tables and UNIQUE keys + a real migration (a precondition before any new country).
+3. **Provider layer** — `providers/base.py` (Protocol: `list_stations`, `fetch_current`, `fetch_warnings`, `build_archive_url`, `parse_archive` + `ProviderInfo` with bbox, encoding, year ranges); move IMGW behind this interface **without changing the public API**; a shared HTTP helper (sync/async, retry, User-Agent).
+4. **Provider #1: ČHMÚ** — the best value-to-effort ratio (JSON, CC BY 4.0, full feature range). Along the way: a shared CAP XML parser (will serve CZ, DE and Meteoalarm).
+5. **Provider #2: Germany** — PEGELONLINE (current hydro) + DWD CDC (meteo archives) + CAP.
+6. **Baltic module** — a tide-gauge filter in the existing IMGW API + SMHI + BSH; EMODnet as the pan-European source.
+7. **Rebranding to Obserwator** — only after (3): `obserwator` package, `obserwator` CLI with an `imgw` alias, `ObserwatorError` with an `IMGWError` alias, `OBSERWATOR_` env with an `IMGW_` fallback.
+8. **Slovakia** — last, minimal scope (opendata.shmu.sk + Meteoalarm), monitor Modrá platforma.
+
+---
+
+## 8. Key sources
+
+**Czechia:** [opendata.chmi.cz](https://opendata.chmi.cz/) · [hydro now example](https://opendata.chmi.cz/hydrology/now/data/0-203-1-001000.json) · [daily archive 2020](https://opendata.chmi.cz/hydrology/historical/data/daily/H_0-203-1-001000_DQ_2020.json) · [meta1.json](https://opendata.chmi.cz/hydrology/now/metadata/meta1.json) · [climate data description (PDF)](https://opendata.chmi.cz/meteorology/climate/Klimatologicka_data_popis.pdf) · [CAP](https://opendata.chmi.cz/meteorology/weather/alerts/cap/)
+
+**Germany:** [PEGELONLINE stations.json](https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations.json) · [DWD CDC](https://opendata.dwd.de/climate_environment/CDC/) · [DWD daily/kl historical](https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/daily/kl/historical/) · [DWD CAP](https://opendata.dwd.de/weather/alerts/cap/) · [LHP developers](https://www.hochwasserzentralen.de/developers/) · [GKD Bayern](https://www.gkd.bayern.de/) · [wetterdienst (prior art)](https://github.com/earthobservations/wetterdienst)
+
+**Slovakia:** [opendata.shmu.sk](https://opendata.shmu.sk/) · [SHMÚ gauges (HTML)](https://www.shmu.sk/sk/?page=1&id=hydro_vod_all) · [Modrá platforma](https://mp.shmu.dcmc.sk/) · [CKAN SHMÚ](https://opendata.shmu.dcmc.sk/en/dataset) · [Meteoalarm feeds](https://feeds.meteoalarm.org/)
+
+**Baltic:** [IMGW api/data/hydro](https://danepubliczne.imgw.pl/api/data/hydro) · [SMHI ocobs](https://opendata-download-ocobs.smhi.se/api) · [BSH WaterLevelForecast](https://gdi.bsh.de/ldproxy/rest/services/WaterLevelForecast) · [EMODnet ERDDAP](https://erddap.emodnet-physics.eu/erddap/) · [FMI WFS](https://opendata.fmi.fi/wfs) · [Copernicus Marine](https://data.marine.copernicus.eu) · [IOC SLSMF](https://www.ioc-sealevelmonitoring.org)
