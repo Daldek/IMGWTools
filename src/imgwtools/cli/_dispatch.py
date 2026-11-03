@@ -25,6 +25,7 @@ another value ends every call with ``validation_error`` (spec 2026-10-19
 the envelope of stdout; ``--lang`` of the description commands defaults to English.
 """
 
+import errno
 import inspect
 import json
 import os
@@ -32,7 +33,7 @@ import signal
 import sys
 import threading
 import traceback
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -175,18 +176,45 @@ def _print_notice(level: str, text: str) -> None:
     )
 
 
+def _to_stdout(write: Callable[..., object], *args: object) -> None:
+    """
+    Call a write of stdout; a reader that left (``| head``) is `BrokenPipeError`.
+
+    POSIX reports a write to a pipe whose reading end is closed as EPIPE,
+    Windows as EINVAL (the code its C runtime gives ``ERROR_NO_DATA``).
+    """
+    try:
+        write(*args)
+    except OSError as exc:
+        if os.name == "nt" and exc.errno == errno.EINVAL:
+            raise BrokenPipeError(errno.EPIPE, os.strerror(errno.EPIPE)) from exc
+        raise
+
+
 def _write_lines(lines: Iterator[str]) -> None:
     """Write the data lines of a stream to stdout as UTF-8, line ends unchanged."""
     stream = typer.get_binary_stream("stdout")
     for line in lines:
-        stream.write(line.encode("utf-8"))
-    stream.flush()
+        _to_stdout(stream.write, line.encode("utf-8"))
+    _to_stdout(stream.flush)
 
 
 def _silence_stdout() -> None:
     """Send the final stdout flush to devnull once the reader left (``| head``)."""
     with suppress(OSError, ValueError):
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+
+def _utf8_streams() -> None:
+    """Write stdout and stderr in UTF-8 with LF line ends, as `_write_lines` does.
+
+    On Windows the text streams default to the code page and turn a line end
+    into CRLF; the envelope and the error line are the same bytes everywhere.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", newline="\n")
 
 
 # --- błędy -----------------------------------------------------------------------------------
@@ -305,8 +333,14 @@ class ImgwGroup(TyperGroup):
     ``validation_error`` of spec §13.5: stdout stays empty, the last stderr
     line is ``{"code", "detail", "details"}`` with an English ``detail`` and the
     original Click message in ``details.click``, and the exit code is 2. The
-    help elements of Typer and Click are in the CLI language.
+    help elements of Typer and Click are in the CLI language. stdout and stderr
+    are written in UTF-8 whatever the locale (cp1252 and the like on Windows).
     """
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        """Run ``imgw`` with stdout and stderr in UTF-8."""
+        _utf8_streams()
+        return super().main(*args, **kwargs)
 
     def make_context(
         self,
@@ -442,7 +476,7 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
                 _write_lines(outcome.result)
             else:
                 base = root if isinstance(root, Path) else None
-                typer.echo(_json(outcome.to_json(root=base)))
+                _to_stdout(typer.echo, _json(outcome.to_json(root=base)))
         except BrokenPipeError:
             _silence_stdout()
             return 0

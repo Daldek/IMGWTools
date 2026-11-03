@@ -364,7 +364,13 @@ def _tree_size(root: Path) -> int:
                     if entry.is_dir(follow_symlinks=False):
                         pending.append(Path(entry.path))
                     elif entry.is_file(follow_symlinks=False):
-                        info = entry.stat(follow_symlinks=False)
+                        # On Windows DirEntry.stat() leaves st_nlink, st_ino and
+                        # st_dev at 0; only os.stat() reads them there.
+                        info = (
+                            os.stat(entry.path, follow_symlinks=False)
+                            if os.name == "nt"
+                            else entry.stat(follow_symlinks=False)
+                        )
                         if info.st_nlink > 1:
                             identity = (info.st_dev, info.st_ino)
                             if identity in seen:

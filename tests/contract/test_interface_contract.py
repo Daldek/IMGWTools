@@ -15,6 +15,7 @@ and as ``imgw --version`` with ``--root``. No request leaves the recordings.
 import functools
 import importlib
 import json
+import os
 import shutil
 import sys
 from dataclasses import dataclass
@@ -49,6 +50,7 @@ from tests.contract.support import (
     command_document,
     current_path,
     envelope_errors,
+    in_json,
     rest_request,
     schema_errors,
     slots,
@@ -279,7 +281,7 @@ def assert_alike(command, python, printed, answered, root):
     if root is None:  # no root to write as "." in REST: the very same bytes
         assert printed.stdout_bytes == answered.content + b"\n"
     else:  # REST never shows the server's root (spec §13.1 p. 4)
-        assert str(root) not in answered.text
+        assert in_json(str(root)) not in answered.text
 
 
 # --------------------------------------------------------------------------
@@ -610,8 +612,9 @@ SCENARIOS = {
 def same_text(local: object, remote: object, temporary: Path) -> None:
     """REST repeats the local text, except that it hides server directories (T21)."""
     local_text, remote_text = canonical(local), canonical(remote)
-    if str(temporary) in local_text:
-        assert str(temporary) not in remote_text
+    directory = in_json(str(temporary))
+    if directory in local_text:
+        assert directory not in remote_text
     else:
         assert remote_text == local_text
 
@@ -773,14 +776,19 @@ def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
         "io_error",
         spec.title,
     )
-    # The CLI text with the server root hidden (paths relative to it, T21).
+    # The CLI text with the server root hidden (paths relative to it, T21); the
+    # root and its separator as they stand in JSON text (backslashes on Windows).
+    hidden = in_json(f"{root}{os.sep}")
     assert canonical([body["detail"], body["details"]]) == canonical(expected).replace(
-        f"{root}/", ""
+        hidden, ""
     )
-    assert str(root) not in answered.text
+    assert in_json(str(root)) not in answered.text
     return raised
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="chmod only sets the read-only attribute on Windows"
+)
 @pytest.mark.parametrize("unreadable", list(UNREADABLE))
 def test_an_unreadable_version_is_an_io_error_in_every_interface(
     unreadable, cli, rest, server, monkeypatch, tmp_path, served_root

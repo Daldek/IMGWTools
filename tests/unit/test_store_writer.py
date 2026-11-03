@@ -4,6 +4,7 @@ import errno
 import hashlib
 import json
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -71,7 +72,9 @@ def test_archive_provenance_relabel_and_unchanged(tmp_path):
         f"2026-10-17_{first.sha256[:8]}/codz_2024.zip"
     )
     assert first.path.read_bytes() == DATA
-    meta = json.loads(first.path.with_name(first.path.name + ".meta.json").read_text())
+    meta = json.loads(
+        first.path.with_name(first.path.name + ".meta.json").read_text("utf-8")
+    )
     assert meta["schema"] == "imgw-meta/1"
     assert meta["sha256"] == hashlib.sha256(DATA).hexdigest()
     assert meta["size_bytes"] == len(DATA)
@@ -232,9 +235,9 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
     assert old.exists()  # no operation began, so nothing was cleaned
     write_archive(root, archive=ARCHIVE, response=response())
     assert not old.exists() and new.exists()
-    assert (
-        len(fsynced) >= 4
-    )  # marker, archive, sidecar, stage directory, published parent
+    # The archive and its sidecar; the stage directory and the published parent
+    # too, except on Windows, which cannot open a directory for fsync.
+    assert len(fsynced) >= (2 if sys.platform == "win32" else 4)
 
 
 def test_sidecar_failure_cannot_publish_half_version(tmp_path, monkeypatch):
@@ -329,7 +332,7 @@ def test_archive_sidecar_without_http_is_conflict(tmp_path):
     root = init_store(tmp_path / "store")
     first = write_archive(root, archive=ARCHIVE, response=response())
     sidecar = first.path.with_name(first.path.name + ".meta.json")
-    meta = json.loads(sidecar.read_text())
+    meta = json.loads(sidecar.read_text("utf-8"))
     del meta["extra"]["http"]
     sidecar.write_text(json.dumps(meta))
     with pytest.raises(IMGWStoreConflictError, match="A corrupt archive version"):

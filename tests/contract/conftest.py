@@ -6,6 +6,7 @@ The three interfaces run in this process: Python through ``run_command``, the
 
 import importlib
 import socket
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -36,13 +37,35 @@ _CLOCKED = (
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    """Any real connection fails the test; recorded answers come through respx."""
+    """
+    Any real connection fails the test; recorded answers come through respx.
+
+    ``socket.socketpair`` stays local by construction: where the system has none
+    (Windows), Python connects a socket to its own listener on the loopback, as
+    for the self-pipe of every asyncio event loop. Only that connection passes.
+    """
+    connect = socket.socket.connect
+    socketpair = socket.socketpair
+    pairing = threading.local()
 
     def refuse(*args, **kwargs):
         raise AssertionError("połączenie sieciowe w teście kontraktu offline")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
+    def connect_in_pair(sock, *args, **kwargs):
+        if not getattr(pairing, "active", False):
+            refuse()
+        return connect(sock, *args, **kwargs)
+
+    def pair(*args, **kwargs):
+        pairing.active = True
+        try:
+            return socketpair(*args, **kwargs)
+        finally:
+            pairing.active = False
+
+    monkeypatch.setattr(socket.socket, "connect", connect_in_pair)
     monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket, "socketpair", pair)
 
 
 @pytest.fixture(autouse=True)

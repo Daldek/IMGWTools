@@ -65,8 +65,9 @@ def test_a_shared_key_comes_from_the_first_layer_of_dev_18_1(tmp_path, monkeypat
         ("/nogat-file", "file", "[nogat]"),
     ]
     for value, source, name in expected:
-        assert source_of("data_dir") == (value, source, name)
-        assert str(Settings().data_dir) == value
+        # data_dir is a path, reported in its native form (``\imgw-env`` on Windows).
+        assert source_of("data_dir") == (str(Path(value)), source, name)
+        assert Settings().data_dir == Path(value)
         # Drop the layer that won, so the next one shows.
         if source == "env":
             monkeypatch.delenv(name)

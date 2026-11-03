@@ -3,6 +3,7 @@
 import functools
 import hashlib
 import importlib
+import io
 import json
 import os
 import shlex
@@ -61,13 +62,19 @@ from tests.contract.support import (
 )
 from tests.unit.test_commands import SAMPLES
 
-RUNNER = CliRunner()
+# Help is compared as plain text of a fixed width. Typer forces a terminal
+# under GitHub Actions or FORCE_COLOR/PY_COLORS (escape codes even into a
+# pipe); rich writes no escape codes to a dumb terminal, whatever forces it.
+PLAIN_TERMINAL = {"TERM": "dumb", "COLUMNS": "80"}
+RUNNER = CliRunner(env=PLAIN_TERMINAL)
 SPECS = {spec.name: spec for spec in data_commands()}
 CATALOG = command_schema(lang="pl")
 EXIT_CODES = CATALOG["exit_codes"]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
-INSTALLED = Path(sys.executable).with_name("imgw")
+INSTALLED = Path(sys.executable).with_name(
+    "imgw.exe" if sys.platform == "win32" else "imgw"
+)
 # Last stderr line of a failed command (spec §13.5).
 CLI_ERROR = {
     "type": "object",
@@ -219,6 +226,7 @@ def run_installed(*args, lang=None, **kwargs):
         if key not in ("IMGW_ROOT", "IMGW_LANG")
     }
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "NO_PROXY": ""}
+    env |= PLAIN_TERMINAL
     if lang is not None:
         env["IMGW_LANG"] = lang
     return subprocess.run(
@@ -382,9 +390,9 @@ def test_cli_help_follows_imgw_lang_en():
     spec = SPECS["store sync"]
 
     printed = run_installed(
-        "store", "sync", "--help", lang="en", capture_output=True, text=True
+        "store", "sync", "--help", lang="en", capture_output=True, encoding="utf-8"
     )
-    listed = run_installed("--help", lang="en", capture_output=True, text=True)
+    listed = run_installed("--help", lang="en", capture_output=True, encoding="utf-8")
 
     assert printed.returncode == 0, printed.stderr
     text = shown(printed.stdout)
@@ -684,6 +692,8 @@ def _store_unavailable(tmp_path, root, router, monkeypatch):
 
 
 def _io_error(tmp_path, root, router, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("chmod only sets the read-only attribute on Windows")
     if os.geteuid() == 0:
         pytest.skip("użytkownik root pomija prawa dostępu do katalogów")
     locked = tmp_path / "tylko-odczyt"
@@ -886,6 +896,36 @@ def test_cli_catalog_installed_imgw_prints_the_envelope_of_run_command():
     assert json.loads(result.stdout) == expected.to_json()
 
 
+def test_cli_catalog_installed_imgw_writes_utf8_whatever_the_locale(monkeypatch):
+    # cp1252 is the encoding of a pipe on Windows; it has no "ł", and its "–"
+    # is another byte than in UTF-8.
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    schema = run_installed("commands", "schema", "--lang", "pl", capture_output=True)
+    assert schema.returncode == 0, schema.stderr
+    assert json.loads(schema.stdout.decode("utf-8"))["result"] == json.loads(
+        json.dumps(command_schema(lang="pl"))
+    )
+    refused = run_installed(
+        "pmaxtp", "fetch", "--latitude", "1", "--longitude", "1", capture_output=True
+    )
+    assert "(49.0–55.0)" in refused.stderr.decode("utf-8").splitlines()[-1]
+
+
+def test_cli_streams_are_utf8_with_lf_like_on_windows(monkeypatch):
+    # A Windows console stream: code page cp1252 and "\n" written as "\r\n".
+    streams = {
+        name: io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
+        for name in ("stdout", "stderr")
+    }
+    for name, stream in streams.items():
+        monkeypatch.setattr(sys, name, stream)
+    _dispatch._utf8_streams()
+    for stream in streams.values():
+        stream.write('{"detail":"ł"}\n')
+        stream.flush()
+        assert stream.buffer.getvalue() == '{"detail":"ł"}\n'.encode()
+
+
 def test_cli_catalog_installed_imgw_stream_ends_quietly_when_the_reader_leaves(
     fixture_root,
 ):
@@ -897,7 +937,7 @@ def test_cli_catalog_installed_imgw_stream_ends_quietly_when_the_reader_leaves(
     try:
         result = run_installed(
             "store", "export", "--version", version, stdout=writer,
-            stderr=subprocess.PIPE, text=True,
+            stderr=subprocess.PIPE, encoding="utf-8",
         )  # fmt: skip
     finally:
         os.close(writer)
