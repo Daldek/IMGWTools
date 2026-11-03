@@ -16,7 +16,7 @@ IMGWTools (`imgwtools` on PyPI, v3.0.0, profiles `tool` and `app`) is a Python l
 - `IMGW_STORE_WRITE_TOKEN` is a credential: environment only, never from a file, never printed.
 - Text for a person (an error `detail`, a notice, a progress or plan line, a printed line, a command description or option help) is never inline: it is an entry of `imgwtools.messages.<area>` (`Text(en, pl)`, English first) rendered by `message("<area>.<name>", value=…)` (ADR-006); `tests/unit/test_messages.py` checks both languages, the call sites and that no Polish literal is left outside the catalog.
 - Every functional change updates the Markdown docs, docstrings and OpenAPI where affected; no change without tests.
-- Approvals (DEV-3.3): without the author's approval in the current session never merge a pull request, create or move tags, publish a release, force-push a shared branch or rewrite the history of `master`/`slave` (to become `main`/`develop`). A change of a public interface or across more than one module starts with a plan approved by the author (DEV-17.4).
+- Approvals (DEV-3.3): without the author's approval in the current session never merge a pull request, create or move tags, publish a release, force-push a shared branch or rewrite the history of `main`/`develop`. A change of a public interface or across more than one module starts with a plan approved by the author (DEV-17.4).
 - Change only this repository (DEV-17.5); a need in another project is a GitHub issue there labelled `request`.
 - Commits: English Conventional Commits, no AI attribution lines (`scripts/check-commits.sh`).
 - Document budgets (DOC-1.7): `CLAUDE.md` 200 lines, `docs/PROGRESS.md` 300, `README.md` 400; reference material goes to `docs/`, history to `docs/HISTORY.md`.
