@@ -61,7 +61,11 @@ from tests.contract.support import (
 )
 from tests.unit.test_commands import SAMPLES
 
-RUNNER = CliRunner()
+# Help is compared as plain text of a fixed width. Typer forces a terminal
+# under GitHub Actions or FORCE_COLOR/PY_COLORS (escape codes even into a
+# pipe); rich writes no escape codes to a dumb terminal, whatever forces it.
+PLAIN_TERMINAL = {"TERM": "dumb", "COLUMNS": "80"}
+RUNNER = CliRunner(env=PLAIN_TERMINAL)
 SPECS = {spec.name: spec for spec in data_commands()}
 CATALOG = command_schema(lang="pl")
 EXIT_CODES = CATALOG["exit_codes"]
@@ -219,6 +223,7 @@ def run_installed(*args, lang=None, **kwargs):
         if key not in ("IMGW_ROOT", "IMGW_LANG")
     }
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "NO_PROXY": ""}
+    env |= PLAIN_TERMINAL
     if lang is not None:
         env["IMGW_LANG"] = lang
     return subprocess.run(
