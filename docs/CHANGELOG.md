@@ -1071,6 +1071,28 @@ release have the same bytes as without the ČHMÚ provider.
   installed, and one uvicorn process runs. `docker/docker-compose.yml` has no obsolete `version`
   key and takes `IMGW_MCP_ENABLED` and `IMGW_MCP_ALLOWED_HOSTS` from the environment of
   `docker compose`.
+- **`imgw` writes its output in UTF-8 whatever the locale:** on Windows a redirected stdout or
+  stderr uses the code page (cp1252), so a Polish letter in the envelope ended the command with
+  `internal_error` (`UnicodeEncodeError`) and the error line on stderr was not UTF-8. The CLI
+  switches both streams to UTF-8 before it runs.
+- **`imgw` on Windows ends quietly when the reader of its output leaves:** Windows reports a write
+  to a pipe whose reading end is closed as `EINVAL`, not `EPIPE` (`BrokenPipeError`), so `imgw
+  store export … | head` ended with `io_error` ("File system error: Invalid argument") and, as the
+  flush of stdout at exit failed again, with exit code 120. A write of the envelope or of the data
+  lines that fails with `EINVAL` on Windows is the reader leaving now: stdout goes to the null
+  device and the command ends with 0, as on Linux and macOS. An `EINVAL` of the command itself
+  (of a file it writes) is still `io_error`.
+- **The agent guide is the same on Windows:** the flows of `imgw commands guide` (also REST and
+  MCP) write their commands with `format_command`, which makes `--root /data/imgw` absolute, so on
+  Windows the lines named `'D:\data\imgw'`, with the drive of the working directory, and the guide
+  differed by system and by working directory. They name `/data/imgw` on every system.
+- **Store size on Windows:** `imgw config show` counted a hard-linked store file once per link,
+  because `os.DirEntry.stat()` reports no link count or inode there; the size now comes from
+  `os.stat()` on Windows.
+- **Reference CSV on Windows:** the locations CSV was written with `\r\r\n` line ends (the `csv`
+  module's `\r\n` in text mode); it is opened with `newline=""`.
+- The repository keeps LF line endings in every checkout (`.gitattributes`, DEV-14.1); the
+  recorded fixtures are binary.
 
 ### Migration guide: data output (ADR-007, DEV §19)
 
