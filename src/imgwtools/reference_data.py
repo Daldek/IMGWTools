@@ -61,7 +61,9 @@ def _write_csv(path: Path, header: list[str], rows: Iterable[list[object]]) -> N
         writer.writerow(row)
         count += 1
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(buf.getvalue(), encoding="utf-8")
+    # newline="": the csv module already ended each row with \r\n; text mode would
+    # turn it into \r\r\n on Windows.
+    path.write_text(buf.getvalue(), encoding="utf-8", newline="")
     print(message("reference.rows_written", lang=_LANG, path=path, count=count))
 
 
