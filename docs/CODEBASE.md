@@ -1,11 +1,11 @@
-# IMGWTools — Codebase Reference
+# Obserwator — Codebase Reference
 
 Code and module reference moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 1.0, DOC-3.2): package tree, public library API, command catalog, data sources and formats, deployment, versioned store. Architecture and component diagrams: [ARCHITECTURE.md](ARCHITECTURE.md); tests: [TESTING.md](TESTING.md); task-oriented usage: [USAGE.md](USAGE.md).
 
 ## Package Tree
 
 ```
-src/imgwtools/
+src/obserwator/
 ├── __init__.py           # PUBLIC API - single __all__ (spec §13.12, ČHMÚ spec §9.1, agent_guide)
 ├── _version.py           # Version: 3.0.0
 ├── fetch.py              # PUBLIC: live data (fetch_*), PMAXTP, download_archives, download_*_data
@@ -15,19 +15,19 @@ src/imgwtools/
 ├── commands.py           # PUBLIC: Command catalog (30 commands, PL + EN texts, effects), run_command, command_schema, list_commands
 ├── agent_guide.py        # PUBLIC: agent_guide (AGENTS.md / llms.txt), MCP server instructions
 ├── coverage.py           # PUBLIC: summarize_coverage (per-station periods for ČHMÚ)
-├── exceptions.py         # PUBLIC: IMGWError hierarchy + ERROR_CODES registry (title as a catalog message)
+├── exceptions.py         # PUBLIC: ObserwatorError hierarchy + ERROR_CODES registry (title as a catalog message)
 ├── messages/             # Message catalog: message(), Message, localize(), one module of Text(en, pl) per area (ADR-006)
 ├── urls.py               # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
 ├── parsers.py            # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
 ├── testing.py            # PUBLIC: build_fixture_store (complete, complete_pl_cz, ...), fixture_files
 ├── _jsonable.py          # Single JSON converter (envelope, relative store paths)
-├── _examples.py          # Example calls of the catalog (x-imgw.examples): canonical line + result excerpt
+├── _examples.py          # Example calls of the catalog (x-obserwator.examples): canonical line + result excerpt
 ├── output.py             # Plain output (ADR-007): resolve_target, plan_plain, refuse, Staging, FileResult, OutputReport, STORE_MARKERS
-├── reference_data.py     # python -m imgwtools.reference_data (reference files in IMGW_REFERENCE_DIR)
-├── config.py             # Settings (pydantic-settings, IMGW_*)
+├── reference_data.py     # python -m obserwator.reference_data (reference files in OBSERWATOR_REFERENCE_DIR)
+├── config.py             # Settings (pydantic-settings, OBSERWATOR_*)
 ├── _data/                # Poland/Czechia borders (Natural Earth), agents/ guide templates, packaged fixtures
 ├── _parsing/             # common.py, hydro.py, meteo.py, stations.py, chmi.py (ČHMÚ files, listings, metadata)
-├── store/                # Versioned store [Parquet: imgwtools[store]]
+├── store/                # Versioned store [Parquet: obserwator[store]]
 │   ├── types.py          # Dataclasses: StorePlan, CommandResult, Page, StoreEntry, ...
 │   ├── writer.py         # init_store, write_archive (atomic, append-only, content_unchanged + observations)
 │   ├── content.py        # Canonical content forms (chmi-json/1), content_sha256
@@ -37,17 +37,17 @@ src/imgwtools/
 │   ├── pmaxtp.py         # check_pmaxtp, sync_pmaxtp, read_pmaxtp
 │   ├── reader.py         # store_info, iter_store, current_version, read_*, select/summarize_series
 │   ├── export.py         # export_archive, export_series (CSV/JSONL, file or line iterator)
-│   └── plain.py          # plain_actions: the imgw-plan/1 actions of a plain write
-├── api/                  # FastAPI REST API [optional: imgwtools[api]]
+│   └── plain.py          # plain_actions: the obserwator-plan/1 actions of a plain write
+├── api/                  # FastAPI REST API [optional: obserwator[api]]
 │   ├── main.py           # App entry point (/health, /api/v1, /llms.txt, /mcp, web router, static)
-│   ├── routes/commands.py# Routes generated from command_schema() (x-imgw.rest), Accept-Language (English by default)
+│   ├── routes/commands.py# Routes generated from command_schema() (x-obserwator.rest), Accept-Language (English by default)
 │   ├── errors.py         # application/problem+json handlers, hide_server_paths, accept_language
 │   └── schemas.py        # HealthCheck
-├── cli/                  # Typer/Click CLI [optional: imgwtools[cli]]
-│   ├── main.py           # Entry point (imgw command): version, server, mcp, admin + catalog groups
-│   ├── _dispatch.py      # ImgwGroup + register_catalog: the only CLI adapter of the catalog (IMGW_LANG)
+├── cli/                  # Typer/Click CLI [optional: obserwator[cli]]
+│   ├── main.py           # Entry point (obserwator command): version, server, mcp, admin + catalog groups
+│   ├── _dispatch.py      # ObserwatorGroup + register_catalog: the only CLI adapter of the catalog (OBSERWATOR_LANG)
 │   └── admin.py          # API key management
-├── mcp/                  # MCP adapter [optional: imgwtools[mcp]]; not in imgwtools.__all__
+├── mcp/                  # MCP adapter [optional: obserwator[mcp]]; not in obserwator.__all__
 │   ├── _tools.py         # Tools from the catalog (modes read/write/http, schemas, annotations)
 │   ├── _calls.py         # Calls: stdio (check_command/run_command), http (REST routes in process)
 │   └── server.py         # create_server, run_stdio, http_app
@@ -56,44 +56,44 @@ src/imgwtools/
     ├── templates/        # Jinja2 templates
     └── static/           # CSS, JavaScript
 
-AGENTS.md, llms.txt       # Agent guide — DERIVED files: regenerate with `imgw commands guide` (drift test)
+AGENTS.md, llms.txt       # Agent guide — DERIVED files: regenerate with `obserwator commands guide` (drift test)
 ```
 
 ## CLI Examples
 
 ```bash
-# CLI examples (stdout = one-line JSON envelope imgw-result/1)
-imgw version                                         # Show version
-imgw server --host 0.0.0.0 --port 8000               # Run API server
-imgw datasets list -k hydro                          # Dataset registry
-imgw datasets files -d hydro/dobowe -y 2023 -m 1     # Archive URLs (no download)
-imgw datasets download -d hydro/dobowe -y 2023 -m 1 -o dane   # Download archives
-imgw stations find -k hydro -q wisla --limit 20      # Search station lists
-imgw current hydro -s 150160180                      # Current hydro data
-imgw current warnings -k meteo                       # Warnings
-imgw pmaxtp fetch --lat 52.23 --lon 21.01            # PMAXTP data (method POT)
-imgw store init --root /dane/imgw                    # Versioned store
-imgw store sync --root /dane/imgw -d pl.imgw.hydro_daily -y 2024 --check   # Plan only
-imgw series summary --root /dane/imgw -d hydro/dobowe -s 149180020
-imgw datasets providers                              # IMGW-PIB and CHMI
-imgw stations find -k hydro -q spindleruv --provider CHMI   # ČHMÚ station (WIGOS id)
-imgw store check --root /dane/imgw -d cz.chmi.hydro_daily -s 0-203-1-001000 -y 2024-2025   # ČHMÚ listing check
-imgw store catalog --root /dane/imgw --provider CHMI # ČHMÚ station catalog
-imgw commands schema --command "store sync"          # JSON Schema of a command
-imgw commands schema --command "store sync" --lang pl   # Same, Polish texts
-imgw store sync --schema                             # Same, via the command itself
-imgw commands guide --format agents --output AGENTS.md --force   # Regenerate AGENTS.md (English)
-imgw mcp [--allow-writes --allow-dir DIR]            # MCP server on stdio, English; writes only inside --allow-dir (imgwtools[mcp])
-imgw admin keys                                      # List API keys
-imgw admin create --name "User1"                     # Create API key
-imgw admin revoke <key_id>                           # Revoke API key
-imgw admin delete <key_id>                           # Delete API key
-imgw admin stats                                     # Show API key statistics
+# CLI examples (stdout = one-line JSON envelope obserwator-result/1)
+obserwator version                                   # Show version
+obserwator server --host 0.0.0.0 --port 8000         # Run API server
+obserwator datasets list -k hydro                    # Dataset registry
+obserwator datasets files -d hydro/dobowe -y 2023 -m 1  # Archive URLs (no download)
+obserwator datasets download -d hydro/dobowe -y 2023 -m 1 -o dane  # Download archives
+obserwator stations find -k hydro -q wisla --limit 20  # Search station lists
+obserwator current hydro -s 150160180                # Current hydro data
+obserwator current warnings -k meteo                 # Warnings
+obserwator pmaxtp fetch --lat 52.23 --lon 21.01      # PMAXTP data (method POT)
+obserwator store init --root /dane/obserwator        # Versioned store
+obserwator store sync --root /dane/obserwator -d pl.imgw.hydro_daily -y 2024 --check  # Plan only
+obserwator series summary --root /dane/obserwator -d hydro/dobowe -s 149180020
+obserwator datasets providers                        # IMGW-PIB and CHMI
+obserwator stations find -k hydro -q spindleruv --provider CHMI  # ČHMÚ station (WIGOS id)
+obserwator store check --root /dane/obserwator -d cz.chmi.hydro_daily -s 0-203-1-001000 -y 2024-2025  # ČHMÚ listing check
+obserwator store catalog --root /dane/obserwator --provider CHMI # ČHMÚ station catalog
+obserwator commands schema --command "store sync"    # JSON Schema of a command
+obserwator commands schema --command "store sync" --lang pl  # Same, Polish texts
+obserwator store sync --schema                       # Same, via the command itself
+obserwator commands guide --format agents --output AGENTS.md --force  # Regenerate AGENTS.md (English)
+obserwator mcp [--allow-writes --allow-dir DIR]      # MCP server on stdio, English; writes only inside --allow-dir (obserwator[mcp])
+obserwator admin keys                                # List API keys
+obserwator admin create --name "User1"               # Create API key
+obserwator admin revoke <key_id>                     # Revoke API key
+obserwator admin delete <key_id>                     # Delete API key
+obserwator admin stats                               # Show API key statistics
 ```
 
 ## Public Library API
 
-The public API is exposed via `from imgwtools import ...` (one `__all__`, also re-exported from the defining modules). The first object argument may be positional; every further argument is keyword-only. Station codes are always `str` (`station_code`): 9 digits for IMGW-PIB, a WIGOS id for ČHMÚ (`STATION_CODE_PATTERN`).
+The public API is exposed via `from obserwator import ...` (one `__all__`, also re-exported from the defining modules). The first object argument may be positional; every further argument is keyword-only. Station codes are always `str` (`station_code`): 9 digits for IMGW-PIB, a WIGOS id for ČHMÚ (`STATION_CODE_PATTERN`).
 
 **Live Data and Downloads:**
 |Function|Description|
@@ -121,7 +121,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`build_pmaxtp_url(latitude, longitude, *, method="POT")`|PMAXTP API URL|
 |`build_api_url(endpoint, /, *, station, station_name)`|IMGW real-time API URL|
 
-**Versioned Store** (also in `imgwtools.store`):
+**Versioned Store** (also in `obserwator.store`):
 |Function|Description|
 |---|---|
 |`init_store`, `open_store`, `store_info`|Create/open/describe a store; `store_info` does not raise for a root that is no store: `StoreInfo.problems` has a code in `problem_codes` for each problem (`missing_store`, `missing_marker`, `invalid_marker`, `unsupported_store`)|
@@ -139,12 +139,12 @@ Every live function has an `*_async` twin with identical arguments.
 **Command Catalog:**
 |Function|Description|
 |---|---|
-|`command_schema(command=None, /, *, lang="en")`|JSON Schema of the catalog or one command (`x-imgw`: function, CLI, REST, rules, `writes`, `network`, `idempotent`, `operation_id`); `lang="pl"` = Polish texts|
-|`list_commands(*, lang="en")`|Catalog summary `imgw-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`imgw commands list`, MCP `imgw_commands_list`)|
+|`command_schema(command=None, /, *, lang="en")`|JSON Schema of the catalog or one command (`x-obserwator`: function, CLI, REST, rules, `writes`, `network`, `idempotent`, `operation_id`); `lang="pl"` = Polish texts|
+|`list_commands(*, lang="en")`|Catalog summary `obserwator-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`obserwator commands list`, MCP `obserwator_commands_list`)|
 |`data_commands(*, provider=None)`|Catalog entries (`DataCommand`; `provider` = view of one provider)|
-|`validate_command(command, /, *, options)`|Normalized options or `IMGWValidationError` with `details.option`|
+|`validate_command(command, /, *, options)`|Normalized options or `ObserwatorValidationError` with `details.option`|
 |`format_command(command, /, *, options, run=None)`|Canonical CLI command line of a call; `run={"check": True}` adds `--check`|
-|`parse_command(line, /)`|An `imgw` line (text or words) → `CommandCall(command, options, run)` with the texts the CLI passes (`run`: `check`); a mistake of the line is `validation_error`, `details.reason="usage"`|
+|`parse_command(line, /)`|An `obserwator` line (text or words) → `CommandCall(command, options, run)` with the texts the CLI passes (`run`: `check`); a mistake of the line is `validation_error`, `details.reason="usage"`|
 |`command_for_version(version, *, root=None)`|Offline, read-only: the `CommandCall` that fetches a stored version again, from its sidecar and the layout (`version` relative to `root`, default `store_root()`: directory, main file, sidecar, PMAXTP `response.json` or a series station file); the shape `parse_command` gives, with the absolute `root`. Archives → `store sync` (IMGW-PIB `--datasets --years [--months]`, ČHMÚ `--datasets --stations [--years]`), station lists and catalogs → `store catalog --provider`, series → `series build --dataset`, PMAXTP → `pmaxtp sync` of its point and cell. Refusals: `unsupported` with `details.reason="command_not_rebuildable"` (catalog built with `user_locations`, sidecar without a needed field, a file `store sync` does not select), `not_found`, `data_error`; ADR-008|
 |`run_command(command, /, *, options)`|Run a command → `CommandResult` (list commands → `Page`)|
 |`check_command(command, /, *, options)`|Plan of a command without side effects → `CommandResult`|
@@ -161,21 +161,21 @@ Every live function has an `*_async` twin with identical arguments.
 |`StationListEntry`|Station list row (`kind`, `station_code`, `name`, `provider`, ...)|
 |`NormalizedRecord`, `Measurement`|Normalized archive/series record with value flags (`Measurement.quality`, `source_flag` for ČHMÚ meteo)|
 |`ProviderDescriptor`|Data provider: id, names, country, key prefix, base URL, license, station code pattern, datasets|
-|`CommandResult`, `Page`|Result envelope (`imgw-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
+|`CommandResult`, `Page`|Result envelope (`obserwator-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
 |`CommandCall`|A command line read by `parse_command` (or rebuilt by `command_for_version`): `command`, `options`, `run`|
 |`FileResult`, `OutputReport`|One written file `{path, size_bytes, sha256, status}` and the result of an export `{output, files[]}`|
 
-**Exceptions** (every `IMGWError` has `code` from `ERROR_CODES` and `details`):
+**Exceptions** (every `ObserwatorError` has `code` from `ERROR_CODES` and `details`):
 |Exception|Default code|Description|
 |---|---|---|
-|`IMGWError`|`internal_error`|Base exception|
-|`IMGWValidationError`|`validation_error`|Input validation errors (e.g. coords outside Poland)|
-|`IMGWConnectionError`|`source_unavailable`|Connection/timeout/HTTP errors|
-|`IMGWDataError`|`data_error`|Data parsing errors|
-|`IMGWStoreError`|`store_unavailable`|Bad/unsupported store root (`not_found` for missing versions)|
-|`IMGWStoreConflictError`|`conflict`|Collisions, races, non-atomic filesystems|
-|`IMGWStoreDependencyError`|`missing_dependency`|pyarrow missing|
-|`IMGWCancelledError`|`cancelled`|Cancelled operation|
+|`ObserwatorError`|`internal_error`|Base exception|
+|`ObserwatorValidationError`|`validation_error`|Input validation errors (e.g. coords outside Poland)|
+|`ObserwatorConnectionError`|`source_unavailable`|Connection/timeout/HTTP errors|
+|`ObserwatorDataError`|`data_error`|Data parsing errors|
+|`ObserwatorStoreError`|`store_unavailable`|Bad/unsupported store root (`not_found` for missing versions)|
+|`ObserwatorStoreConflictError`|`conflict`|Collisions, races, non-atomic filesystems|
+|`ObserwatorStoreDependencyError`|`missing_dependency`|pyarrow missing|
+|`ObserwatorCancelledError`|`cancelled`|Cancelled operation|
 
 **Parsers:** `parse_zip_file(zip_data, interval)`, `parse_daily_csv`, `parse_monthly_csv`, `parse_semi_annual_csv`, `parse_stations_csv(content, /, *, kind)`, `parse_meteo_climate_daily`, `parse_meteo_precip_daily`, `parse_chmi_hydro_daily`, `parse_chmi_meteo_daily`, `parse_chmi_stations`, `normalize_archive`, `IMGW_ENCODING` (CP1250).
 
@@ -183,10 +183,10 @@ Every live function has an `*_async` twin with identical arguments.
 
 The command catalog is the single source of options, validation, help texts and result types:
 - `_CATALOG` — 30 `DataCommand` entries (spec §13.3 without the `project` group + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text (`description`, `help`, `rules`, group titles) is an English catalog message of `messages/commands.py` with its Polish variant (`localize(text, "pl")`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
-- `command_schema(lang=)` — JSON Schema per command with `x-imgw` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `imgw_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
+- `command_schema(lang=)` — JSON Schema per command with `x-obserwator` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `obserwator_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
 - `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
 - CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
-- Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`imgw commands guide --format agents --output AGENTS.md --force`, `--format llms --output llms.txt --force`); `tests/unit/test_agent_guide.py` compares the bytes
+- Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`obserwator commands guide --format agents --output AGENTS.md --force`, `--format llms --output llms.txt --force`); `tests/unit/test_agent_guide.py` compares the bytes
 
 ## External Data Sources
 
@@ -208,7 +208,7 @@ The command catalog is the single source of options, validation, help texts and 
 - **Hydro stations with coordinates**: `https://hydro-back.imgw.pl/map/stations/hydrologic?onlyMainStations=false`
   - Requires headers: `User-Agent`, `Referer: https://hydro.imgw.pl/`
   - Returns: 900+ stations with lat/lon and water state (alarm, warning, high, medium, low, etc.)
-  - Public access: `fetch_hydro_states()`, `imgw current hydro-states`, `GET /api/v1/current/hydro-states`
+  - Public access: `fetch_hydro_states()`, `obserwator current hydro-states`, `GET /api/v1/current/hydro-states`
 
 ### Station Pages
 - **Hydro**: `https://hydro.imgw.pl/#/station/hydro/{station_code}`
@@ -219,12 +219,12 @@ The command catalog is the single source of options, validation, help texts and 
 - **Meteo daily** (`cz.chmi.meteo_daily`): `meteorology/climate/historical_csv/data/daily/{precipitation,temperature}/dly-<WIGOS>-{SRA,T,TMA,TMI}.csv` — four CSV files per station with the whole station history; `QUALITY` 0–5 and `FLAG` kept as `quality`/`source_flag`
 - **Station lists** (`cz.chmi.hydro_stations`, `cz.chmi.meteo_stations`): `hydrology/historical/metadata/meta1.json`, `meteorology/climate/historical/metadata/meta1.json` (JSON envelope `zaznamID`/`datumVytvoreni` changes with every regeneration → canonical form `chmi-json/1`)
 - **Catalog sources**: `hydrology/now/metadata/meta1.json` (SPA thresholds), `meta3.json` (`HLGP4`), newest `meteorology/climate/now/metadata/meta1-<YYYYMMDD>.json` (directory listing); meteo `GEOGR1` = longitude, hydro `GEOGR1` = latitude
-- **Inventory and freshness**: nginx directory listings (name, mtime to the minute, size): one GET instead of a HEAD per file; requests are sequential with `User-Agent: imgwtools/<version>`; license CC BY 4.0 (attribution from the registry)
+- **Inventory and freshness**: nginx directory listings (name, mtime to the minute, size): one GET instead of a HEAD per file; requests are sequential with `User-Agent: obserwator/<version>`; license CC BY 4.0 (attribution from the registry)
 - Out of scope: `now`/`recent` data, hourly data, CAP warnings, PMAXTP
 
 ## Command Catalog (CLI, REST and MCP)
 
-CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing); MCP tool = `x-imgw.operation_id` (`imgw_` + name with spaces and `-` → `_`, e.g. `imgw_store_sync`; also the REST `operationId`). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`/`check: true`; `—` = no `--check`; "self" = the command is a check.
+CLI command = `obserwator <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing); MCP tool = `x-obserwator.operation_id` (`obserwator_` + name with spaces and `-` → `_`, e.g. `obserwator_store_sync`; also the REST `operationId`). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`/`check: true`; `—` = no `--check`; "self" = the command is a check.
 
 |Command|Function|Check|REST|
 |---|---|---|---|
@@ -259,35 +259,35 @@ CLI command = `imgw <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET 
 |`commands schema`|`command_schema`|—|`GET /api/v1/commands/schema`|
 |`commands guide`|`agent_guide`|`check_command`|`GET /api/v1/commands/guide`|
 
-Outside the catalog: `imgw version`, `imgw server` (`--host`, `--port`, `--reload`), `imgw mcp` (`--allow-writes`, repeatable `--allow-dir`), `imgw admin keys|create|revoke|delete|stats`, `imgw config show`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `IMGW_MCP_ENABLED=true`) and the HTML pages.
+Outside the catalog: `obserwator version`, `obserwator server` (`--host`, `--port`, `--reload`), `obserwator mcp` (`--allow-writes`, repeatable `--allow-dir`), `obserwator admin keys|create|revoke|delete|stats`, `obserwator config show`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `OBSERWATOR_MCP_ENABLED=true`) and the HTML pages.
 
-Effects (`x-imgw.writes`/`x-imgw.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions, `replace` = may replace or remove user content (no command as a whole; only writing options); writing options (`x-imgw-writes`): `plan` of `store check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
+Effects (`x-obserwator.writes`/`x-obserwator.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions, `replace` = may replace or remove user content (no command as a whole; only writing options); writing options (`x-obserwator-writes`): `plan` of `store check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
 
 ### Options
 
-Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets: see "Data output" below. Lists: comma-separated or repeated flag/parameter. `--root` reads `IMGW_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-imgw.rules`). `--lang pl|en` in `commands list`/`commands schema`/`commands guide` (default `en`); `IMGW_LANG=pl|en` sets only the CLI help language (incl. Typer/Click elements; invalid value → `validation_error`, exit 2).
+Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets: see "Data output" below. Lists: comma-separated or repeated flag/parameter. `--root` reads `OBSERWATOR_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-obserwator.rules`). `--lang pl|en` in `commands list`/`commands schema`/`commands guide` (default `en`); `OBSERWATOR_LANG=pl|en` sets only the CLI help language (incl. Typer/Click elements; invalid value → `validation_error`, exit 2).
 
 ### Data output
 
-Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-007); `imgwtools/output.py` implements the plain way once.
+Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-007); `obserwator/output.py` implements the plain way once.
 
 |CLI|Python|Meaning|
 |---|---|---|
 |`-o`, `--output-dir`|`output_dir`|plain files in a directory: no metadata, named as in the store (`datasets download`: the provider's server path), `mkdir -p`|
-|`-r`, `--root`|`root`|versioned store root; neither option given = the store at the first of `--root`, `IMGW_ROOT`, `[imgw] root`, `<data_dir>/imgw`|
+|`-r`, `--root`|`root`|versioned store root; neither option given = the store at the first of `--root`, `OBSERWATOR_ROOT`, `[obserwator] root`, `<data_dir>/obserwator`|
 |`--output` (no short form)|`output`|exactly one file of an export (`store export`, `series export`, `commands guide`)|
 |`--force`|`force`|plain: replace existing targets (never deletes other files); store: fetch again, a new version or `unchanged`|
 
 - `output_dir` and `root` exclude each other: `validation_error`, `details.reason="exclusive_options"`. Commands whose input or result is the store (`series build`, `store catalog`) have no `output_dir` (rule "store only" in their description); `--plan` with `output_dir` is `validation_error` (`store_only_option`); a dataset without a store form given `root`: `not_in_store`.
 - Preflight before the first byte: a directory that is or lies in a store of any tool → `conflict` (`output_in_store`, hint `--root`, `details.paths` the directory, before any request); then duplicate names → `conflict` (`duplicate_output_name`), a target that would enter a subdirectory with a store marker → `output_in_store` (its path), existing target without `--force` → `conflict` (`output_exists`); `details.paths` lists every offending path. `--check` plans `write`, `replace` or `conflict` per target; a plan with conflicts is `ok`. In store mode `--check` lists a root that is `nested_store` or `not_empty` as one `conflict` action of the root; `store_unavailable` (`no_marker`) and `data_error` (an unreadable marker) are raised.
-- Writing: staging `<dir>/.imgw-incoming/<host>_<pid>_<token>/`, sha256 computed while streaming, `os.replace` into place; staging removed on success, error, SIGINT and SIGTERM, leftovers older than 24 h by the next run. No sidecar, hard link or `versions/`. Result `files[]` = `{path, size_bytes, sha256, status}`, status `written`/`replaced` (store: `new`/`unchanged`/`relabeled`).
-- Servers: REST writes only to its own `IMGW_ROOT` with writes enabled and takes none of these options in a request; MCP writes only inside `--allow-dir` with `--allow-writes`.
+- Writing: staging `<dir>/.obserwator-incoming/<host>_<pid>_<token>/`, sha256 computed while streaming, `os.replace` into place; staging removed on success, error, SIGINT and SIGTERM, leftovers older than 24 h by the next run. No sidecar, hard link or `versions/`. Result `files[]` = `{path, size_bytes, sha256, status}`, status `written`/`replaced` (store: `new`/`unchanged`/`relabeled`).
+- Servers: REST writes only to its own `OBSERWATOR_ROOT` with writes enabled and takes none of these options in a request; MCP writes only inside `--allow-dir` with `--allow-writes`.
 
 ### Output, errors and exit codes
 
-- CLI stdout: compact one-line JSON envelope `imgw-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{output, files[]}` (`OutputReport`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
+- CLI stdout: compact one-line JSON envelope `obserwator-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{output, files[]}` (`OutputReport`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
 - CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
-- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `IMGW_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
+- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `OBSERWATOR_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
 - MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
 
 |Code|Title (`title` / `title.localized("pl")`)|CLI exit|HTTP|
@@ -347,8 +347,8 @@ First folder differs per subtype: klimat `1951_1955`, opad `1950_1955`, synop `1
 **Files per interval/subtype:**
 - `miesieczne` (all subtypes): ONE file per folder — `{folder}_m_{k|o|s}.zip` (e.g. `1996_2000_m_s.zip`, `2023_m_s.zip`)
 - `dobowe`/`terminowe` klimat & opad: yearly `{year}_{k|o}.zip` until 2000, monthly `{year}_{month:02d}_{k|o}.zip` from 2001
-- `dobowe`/`terminowe` synop: PER-STATION files `{folder}_{station}_s.zip` — `get_dataset`/`archive_files` raise `IMGWValidationError` (`details.reason=per_station`)
-- `terminowe` opad: dataset does not exist — `IMGWValidationError` (`details.reason=not_published`)
+- `dobowe`/`terminowe` synop: PER-STATION files `{folder}_{station}_s.zip` — `get_dataset`/`archive_files` raise `ObserwatorValidationError` (`details.reason=per_station`)
+- `terminowe` opad: dataset does not exist — `ObserwatorValidationError` (`details.reason=not_published`)
 
 **Subtypes:** `k` (klimat), `o` (opad), `s` (synop)
 
@@ -357,10 +357,10 @@ First folder differs per subtype: klimat `1951_1955`, opad `1950_1955`, synop `1
 ```bash
 cd docker
 docker compose up -d
-IMGW_MCP_ENABLED=true IMGW_MCP_ALLOWED_HOSTS=dane.example.pl docker compose up -d   # with /mcp
+OBSERWATOR_MCP_ENABLED=true OBSERWATOR_MCP_ALLOWED_HOSTS=dane.example.pl docker compose up -d  # with /mcp
 ```
 
-Services: app (FastAPI, `python:3.12-slim`, `pip install ".[api,mcp]"`, one uvicorn process), nginx (reverse proxy, `location = /mcp` with the `api_limit` zone, no buffering). Compose passes `IMGW_MCP_ENABLED` (default `false`) and `IMGW_MCP_ALLOWED_HOSTS` (default `127.0.0.1,localhost`). No Redis needed.
+Services: app (FastAPI, `python:3.12-slim`, `pip install ".[api,mcp]"`, one uvicorn process), nginx (reverse proxy, `location = /mcp` with the `api_limit` zone, no buffering). Compose passes `OBSERWATOR_MCP_ENABLED` (default `false`) and `OBSERWATOR_MCP_ALLOWED_HOSTS` (default `127.0.0.1,localhost`). No Redis needed.
 
 ## Cloud & Deployment Details
 
@@ -376,43 +376,43 @@ Application hosted on a private server. Components:
 ### Authorization (Planned)
 API keys in a JSON file (`api_keys.json`). Header: `X-API-Key: <token>`
 
-**Note:** API key validation middleware is not yet implemented. Keys are managed via CLI but not enforced in API requests. Store writes over REST use their own token (`IMGW_STORE_WRITE_TOKEN`, sent as `X-API-Key`).
+**Note:** API key validation middleware is not yet implemented. Keys are managed via CLI but not enforced in API requests. Store writes over REST use their own token (`OBSERWATOR_STORE_WRITE_TOKEN`, sent as `X-API-Key`).
 
 ### API versioning
 All endpoints under `/api/v1/...`
 
 ## Versioned Store (Optional)
 
-The store is at `--root`, `IMGW_ROOT`, `root` in `[imgw]` of `nogat.toml` or `<data_dir>/imgw` (DEV-19.2, ADR-007; `init_store(root)` for a given root); readable offline, also from network shares; one store holds both providers. Writes need a file system with hard links, as Kartograf's store (its ADR-036): versions, observations and the marker are published by `os.link` from `.incoming/`, the main file's sidecar last (it commits the version); FAT/exFAT, some NAS/FUSE and the macOS SMB client → `conflict` with `details.reason="not_atomic"`. A version directory without its sidecar is an interrupted publication (`missing_sidecar`), completed by the next write of the same content under the same label, otherwise removed by hand while no write runs; a failed publication never removes linked data files. Decisions: `docs/DECISIONS.md` ADR-001, ADR-003; contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence) and `2026-10-18-chmi-provider-design.md` (ČHMÚ).
+The store is at `--root`, `OBSERWATOR_ROOT`, `root` in `[obserwator]` of `nogat.toml` or `<data_dir>/obserwator` (DEV-19.2, ADR-007; `init_store(root)` for a given root); readable offline, also from network shares; one store holds both providers. Writes need a file system with hard links, as Kartograf's store (its ADR-036): versions, observations and the marker are published by `os.link` from `.incoming/`, the main file's sidecar last (it commits the version); FAT/exFAT, some NAS/FUSE and the macOS SMB client → `conflict` with `details.reason="not_atomic"`. A version directory without its sidecar is an interrupted publication (`missing_sidecar`), completed by the next write of the same content under the same label, otherwise removed by hand while no write runs; a failed publication never removes linked data files. Decisions: `docs/DECISIONS.md` ADR-001, ADR-003; contracts: `docs/superpowers/specs/2026-10-17-versioned-store-design.md` (§13 = ADR-002 takes precedence) and `2026-10-18-chmi-provider-design.md` (ČHMÚ).
 
 ### Configuration
 
-Resolution (DEV-18.1, `src/imgwtools/_environment.py` and `config.py`): command-line option, `IMGW_<KEY>` variable, the same key in `.env`, `NOGAT_<KEY>` (shared keys `data_dir`, `cache_dir`, `lang`), `[imgw]` then `[nogat]` of `nogat.toml` (user config dir, or `NOGAT_CONFIG`; read with `tomllib`, absence is no error, an unusable file is `validation_error` for every `imgw` call), default. `IMGW_STORE_WRITE_TOKEN` is a credential: environment only, never from the file, never printed. Nothing is written to the working directory. `imgw config show [--json]` reports every key with its source (`imgw-config/1`, DEV-18.6; outside the catalog, `config_cmd.py`).
+Resolution (DEV-18.1, `src/obserwator/_environment.py` and `config.py`): command-line option, `OBSERWATOR_<KEY>` variable, the same key in `.env`, `NOGAT_<KEY>` (shared keys `data_dir`, `cache_dir`, `lang`), `[obserwator]` then `[nogat]` of `nogat.toml` (user config dir, or `NOGAT_CONFIG`; read with `tomllib`, absence is no error, an unusable file is `validation_error` for every `obserwator` call), default. `OBSERWATOR_STORE_WRITE_TOKEN` is a credential: environment only, never from the file, never printed. Nothing is written to the working directory. `obserwator config show [--json]` reports every key with its source (`obserwator-config/1`, DEV-18.6; outside the catalog, `config_cmd.py`).
 
 |Variable|Default|Description|
 |---|---|---|
-|`IMGW_ROOT`|`<data_dir>/imgw`|Store root of the CLI, the library and `imgw mcp` when `--root` is absent (also `root` in `[imgw]` of `nogat.toml`); of the REST server its only store: unset → store routes 503 `not_configured`, never the default|
-|`IMGW_STORE_WRITES_ENABLED`|`false`|Allow REST writes (`POST` store/series/pmaxtp routes)|
-|`IMGW_STORE_WRITE_TOKEN`|unset|Token required in `X-API-Key` for REST writes (else 403 `forbidden`)|
-|`IMGW_USER_LOCATIONS_DIR`|unset|Directory of user location CSVs allowed in REST `user_locations`|
-|`IMGW_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
-|`IMGW_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/imgw`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 it held the reference data: that is `IMGW_REFERENCE_DIR` now|
-|`IMGW_REFERENCE_DIR`|`<cache_dir>/imgw/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m imgwtools.reference_data`); `settings.reference_dir`|
-|`IMGW_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines only (`--lang` of `commands list\|schema\|guide` defaults to English whatever it says; REST answers follow `Accept-Language`, English without it; MCP is always English; the CLI error line and the envelope are English)|
-|`IMGW_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `imgw server` (needs `imgwtools[mcp]`; read and plan only)|
-|`IMGW_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
-|`IMGW_MCP_ALLOW_WRITES`|`false`|Envvar of `imgw mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|
-|`IMGW_CACHE_DIR`|user cache dir of `nogat`|Caches `<cache_dir>/imgw`; shared key (also `NOGAT_CACHE_DIR`, `[nogat] cache_dir`)|
-|`IMGW_API_KEYS_FILE`|`<data_dir>/imgw/api_keys.json`|File of the API keys of `imgw admin`|
-|`IMGW_RATE_LIMIT`|`100`|Requests per hour (0 = unlimited)|
-|`IMGW_ENV`, `IMGW_HOST`, `IMGW_PORT`, `IMGW_LOG_LEVEL`|`development`, `0.0.0.0`, `8000`, `INFO`|REST server (`imgw server`); `IMGW_ENV=production` disables reload|
+|`OBSERWATOR_ROOT`|`<data_dir>/obserwator`|Store root of the CLI, the library and `obserwator mcp` when `--root` is absent (also `root` in `[obserwator]` of `nogat.toml`); of the REST server its only store: unset → store routes 503 `not_configured`, never the default|
+|`OBSERWATOR_STORE_WRITES_ENABLED`|`false`|Allow REST writes (`POST` store/series/pmaxtp routes)|
+|`OBSERWATOR_STORE_WRITE_TOKEN`|unset|Token required in `X-API-Key` for REST writes (else 403 `forbidden`)|
+|`OBSERWATOR_USER_LOCATIONS_DIR`|unset|Directory of user location CSVs allowed in REST `user_locations`|
+|`OBSERWATOR_API_MAX_LIMIT`|`1000`|Default and maximum `limit` of REST list commands|
+|`OBSERWATOR_DATA_DIR`|user data dir of `nogat`|DEV-18.2 meaning since this change: parent of the stores (`<data_dir>/obserwator`) and of the server state; shared key (also `NOGAT_DATA_DIR`, `[nogat] data_dir`). Until 3.0.0 `IMGW_DATA_DIR` held the reference data: that is `OBSERWATOR_REFERENCE_DIR` now|
+|`OBSERWATOR_REFERENCE_DIR`|`<cache_dir>/obserwator/reference`|IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`; `python -m obserwator.reference_data`); `settings.reference_dir`|
+|`OBSERWATOR_LANG`|`pl`|`pl`\|`en`: CLI help, progress and notice lines only (`--lang` of `commands list\|schema\|guide` defaults to English whatever it says; REST answers follow `Accept-Language`, English without it; MCP is always English; the CLI error line and the envelope are English)|
+|`OBSERWATOR_MCP_ENABLED`|`false`|Serve MCP Streamable HTTP at `/mcp` in `obserwator server` (needs `obserwator[mcp]`; read and plan only)|
+|`OBSERWATOR_MCP_ALLOWED_HOSTS`|`127.0.0.1,localhost`|Allowed `Host` values of `/mcp` (comma-separated; behind nginx add the public host name)|
+|`OBSERWATOR_MCP_ALLOW_WRITES`|`false`|Envvar of `obserwator mcp --allow-writes`: writing tools still default to `check: true` (plan) and write only with `check: false`|
+|`OBSERWATOR_CACHE_DIR`|user cache dir of `nogat`|Caches `<cache_dir>/obserwator`; shared key (also `NOGAT_CACHE_DIR`, `[nogat] cache_dir`)|
+|`OBSERWATOR_API_KEYS_FILE`|`<data_dir>/obserwator/api_keys.json`|File of the API keys of `obserwator admin`|
+|`OBSERWATOR_RATE_LIMIT`|`100`|Requests per hour (0 = unlimited)|
+|`OBSERWATOR_ENV`, `OBSERWATOR_HOST`, `OBSERWATOR_PORT`, `OBSERWATOR_LOG_LEVEL`|`development`, `0.0.0.0`, `8000`, `INFO`|REST server (`obserwator server`); `OBSERWATOR_ENV=production` disables reload|
 
 ### Layout
 
 ```text
-<root>/imgw-store.json                                  # imgw-store/1 marker: schema, tool, created_at, producer_version (+ optional created_by)
+<root>/obserwator-store.json                            # obserwator-store/1 marker: schema, tool, created_at, producer_version (+ optional created_by)
   archives/versions/<server dir>/<stem>/<label>_<sha8>/<file> + <file>.meta.json
-  archives/versions/<server dir>/<stem>/observations/   # imgw-observation/1 signal register (ČHMÚ datasets with a content form)
+  archives/versions/<server dir>/<stem>/observations/   # obserwator-observation/1 signal register (ČHMÚ datasets with a content form)
   stations/versions/<label>_<sha8>/stations.geojson + .meta.json                # IMGW-PIB catalog
   stations/versions/chmi_stations/<label>_<sha8>/stations.geojson + .meta.json  # ČHMÚ catalog
   series/versions/<slug>/<label>_<sha8>/series.json + .meta.json + stations/<code>.parquet
@@ -426,7 +426,7 @@ Slots (spec §13.7): `archive:<key>:<file>` (e.g. `archive:pl.imgw.hydro_daily:2
 
 ### Contracts (IMGW-13)
 
-`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, envelope `imgw-result/1`, `imgw-commands/1` (command schema). Each has its own `/N` counter; within `/1` only optional fields are added. `/1` domains are open to further providers (ADR-003 C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, station code `STATION_CODE_PATTERN` (9-digit IMGW or WIGOS), optional `content_sha256`/`content_form` in sidecars. Additive fields of 3.0.0 (ADR-003/004): sidecar `request.station_code`/`param`, `extra.period.station_code`, `license.terms_url`; series `stations[<code>].periods`; catalog `thresholds`; plan item `station_code`/`signal`/`remote_listed_at`/`local_observation` and plan `requests`; command schema `lang`, `x-imgw.writes`/`network`/`operation_id`, `x-imgw-writes`. IMGW-PIB files keep their bytes.
+`obserwator-store/1`, `obserwator-meta/1`, `obserwator-series/1`, `obserwator-plan/1`, `obserwator-pmaxtp/1`, `obserwator-observation/1`, envelope `obserwator-result/1`, `obserwator-commands/1` (command schema). Each has its own `/N` counter; within `/1` only optional fields are added. `/1` domains are open to further providers (ADR-003 C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, station code `STATION_CODE_PATTERN` (9-digit IMGW or WIGOS), optional `content_sha256`/`content_form` in sidecars. Additive fields of 3.0.0 (ADR-003/004): sidecar `request.station_code`/`param`, `extra.period.station_code`, `license.terms_url`; series `stations[<code>].periods`; catalog `thresholds`; plan item `station_code`/`signal`/`remote_listed_at`/`local_observation` and plan `requests`; command schema `lang`, `x-obserwator.writes`/`network`/`operation_id`, `x-obserwator-writes`. IMGW-PIB files keep their bytes.
 
 ### IMGW CSV Format Notes
 
@@ -443,11 +443,11 @@ Archive files are inconsistent between years — parsers auto-detect the format 
 Directory tree from the README (moved unchanged); the detailed module tree: "Package Tree" above.
 
 ```
-src/imgwtools/
+src/obserwator/
 ├── api/          # REST API (FastAPI): routes/commands.py (routes from the catalog), errors.py (problem+json), main.py (/health, /api/v1, /llms.txt, /mcp)
 ├── cli/          # CLI: _dispatch.py (commands from the catalog), admin.py, main.py (version, server, mcp)
-├── mcp/          # MCP server (extra imgwtools[mcp]): tools from the catalog, stdio and /mcp
-├── _parsing/     # Parsers of IMGW-PIB and ČHMÚ archives, listings and station lists (public: imgwtools.parsers)
+├── mcp/          # MCP server (extra obserwator[mcp]): tools from the catalog, stdio and /mcp
+├── _parsing/     # Parsers of IMGW-PIB and ČHMÚ archives, listings and station lists (public: obserwator.parsers)
 ├── _data/        # Borders of Poland and Czechia (Natural Earth), guide templates agents/, test fixtures
 ├── store/        # Versioned store: writer, sync, series, catalog, pmaxtp, reader, export, content, plain
 ├── output.py     # Writing plain files (--output-dir): resolve_target, plan_plain, Staging, OutputReport
@@ -459,9 +459,9 @@ src/imgwtools/
 ├── urls.py       # IMGW URL constants, build_pmaxtp_url, build_api_url
 ├── testing.py    # build_fixture_store — offline test store (also PL + CZ)
 ├── web/          # Web GUI (HTMX + Jinja2)
-└── config.py     # Configuration (IMGW_*)
+└── config.py     # Configuration (OBSERWATOR_*)
 
-AGENTS.md, llms.txt  # Guide for AI agents — derived files (imgw commands guide)
+AGENTS.md, llms.txt  # Guide for AI agents — derived files (obserwator commands guide)
 
 docker/           # Docker configuration
 tests/            # Tests (offline; store fixtures in tests/fixtures/store)

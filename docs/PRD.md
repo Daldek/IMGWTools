@@ -1,13 +1,13 @@
-# IMGWTools — PRD (Product Requirements Document)
+# Obserwator — PRD (Product Requirements Document)
 
 ## 1. Product Goal
 
-IMGWTools is a tool for downloading, exposing, versioning and basic visualization of hydrological and meteorological data published by IMGW-PIB and, since 3.0.0, by ČHMÚ (Czech Hydrometeorological Institute, opendata.chmi.cz). The product provides:
+Obserwator is a tool for downloading, exposing, versioning and basic visualization of hydrological and meteorological data published by IMGW-PIB and, since 3.0.0, by ČHMÚ (Czech Hydrometeorological Institute, opendata.chmi.cz). The product provides:
 - Python library (public API)
 - CLI application
 - Web GUI application
 - Public REST API
-- MCP server for AI agents (`imgw mcp`, `/mcp`) and a generated agent guide (`AGENTS.md`, `llms.txt`)
+- MCP server for AI agents (`obserwator mcp`, `/mcp`) and a generated agent guide (`AGENTS.md`, `llms.txt`)
 - Optional versioned data store (ADR-001, `docs/DECISIONS.md`) for consumers such as Archiwista and Retman
 
 Analytical and statistical parts (hydrological calculations, probabilistic models, statistical analyses) live in a separate repository (Hydrolog) and are out of scope for this PRD.
@@ -37,17 +37,17 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | PMAXTP data | Implemented | Probabilistic max precipitation (IMGW-PIB grid only) |
 | Warnings | Implemented | Hydro/meteo warnings from API |
 | Versioned store | Implemented (3.0.0) | Immutable archive versions with provenance (both providers), freshness plan, Parquet series, `stations.geojson` per provider, PMAXTP cells, canonical content (`content_sha256`) and the observation register for ČHMÚ |
-| Projects (pins of store versions) | Moved to Archiwista (ADR-008, 2026-10-31) | IMGWTools' project manifest and the `imgw project` command group are removed; Archiwista keeps projects in `archiwista-project/1` and pins versions by the store's `sha256` and `content_sha256` |
+| Projects (pins of store versions) | Moved to Archiwista (ADR-008, 2026-10-31) | Obserwator's project manifest and the `imgw project` command group are removed; Archiwista keeps projects in `archiwista-project/1` and pins versions by the store's `sha256` and `content_sha256` |
 
 ### 3.2. Interfaces
 
 | Interface | Status | Description |
 |-----------|--------|-------------|
-| CLI | Implemented | `imgw` command: catalog groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `commands` plus `version`, `server`, `mcp`, `admin`; help in Polish or English (`IMGW_LANG`) |
+| CLI | Implemented | `obserwator` command: catalog groups `datasets`, `stations`, `current`, `pmaxtp`, `store`, `series`, `commands` plus `version`, `server`, `mcp`, `admin`; help in Polish or English (`OBSERWATOR_LANG`) |
 | Web GUI | Implemented | HTMX + Jinja2 web interface on the public library API (IMGW-PIB datasets) |
 | REST API | Implemented | FastAPI with OpenAPI documentation; routes generated from the same command catalog; `Accept-Language`; `GET /llms.txt` |
-| Python command catalog | Implemented (3.0.0) | 30 commands, `command_schema` and `list_commands` (Polish or English texts, declared effects), `run_command`/`check_command`, envelope `imgw-result/1`, error registry `ERROR_CODES` |
-| MCP server | Implemented (3.0.0) | `imgwtools[mcp]`: `imgw mcp` (stdio, read and plan by default, writes with `--allow-writes`) and `/mcp` in the REST server (read and plan only); tools = catalog commands |
+| Python command catalog | Implemented (3.0.0) | 30 commands, `command_schema` and `list_commands` (Polish or English texts, declared effects), `run_command`/`check_command`, envelope `obserwator-result/1`, error registry `ERROR_CODES` |
+| MCP server | Implemented (3.0.0) | `obserwator[mcp]`: `obserwator mcp` (stdio, read and plan by default, writes with `--allow-writes`) and `/mcp` in the REST server (read and plan only); tools = catalog commands |
 
 ### 3.3. Visualization
 
@@ -61,12 +61,12 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 
 | Format | Status | Description |
 |--------|--------|-------------|
-| JSON | Implemented | Envelope `imgw-result/1` (CLI stdout, REST body, MCP `structuredContent`); errors as `application/problem+json` |
+| JSON | Implemented | Envelope `obserwator-result/1` (CLI stdout, REST body, MCP `structuredContent`); errors as `application/problem+json` |
 | URLs | Implemented | Direct links to IMGW-PIB and ČHMÚ servers |
-| CSV | Implemented | PMAXTP export in the Web GUI; station series export (`export_series`, `imgw series export`) with units and the provider's attribution (IMGW-PIB or ČHMÚ CC BY 4.0); archive export (`export_archive`, CSV or JSONL) |
+| CSV | Implemented | PMAXTP export in the Web GUI; station series export (`export_series`, `obserwator series export`) with units and the provider's attribution (IMGW-PIB or ČHMÚ CC BY 4.0); archive export (`export_archive`, CSV or JSONL) |
 | GeoJSON | Implemented (store) | Versioned `stations.geojson` station catalogs per provider (RFC 7946); not yet exposed in REST/GUI |
-| Markdown | Implemented | Agent guide `AGENTS.md`/`llms.txt` (`imgw commands guide`, `GET /api/v1/commands/guide`, `GET /llms.txt`) |
-| Parquet | Implemented (store) | Station series per dataset (`imgw-series/1`, `imgwtools[store]`) |
+| Markdown | Implemented | Agent guide `AGENTS.md`/`llms.txt` (`obserwator commands guide`, `GET /api/v1/commands/guide`, `GET /llms.txt`) |
+| Parquet | Implemented (store) | Station series per dataset (`obserwator-series/1`, `obserwator[store]`) |
 
 ---
 
@@ -79,13 +79,13 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | OpenAPI/Swagger documentation | Implemented |
 | API versioning (`/api/v1/`) | Implemented |
 | Catalog routes `/api/v1/<group>/<command>` (datasets, stations, current, pmaxtp, store, series, commands) | Implemented — 28 routes generated from `command_schema()` |
-| Paging of list commands (`limit`/`offset`, maximum `IMGW_API_MAX_LIMIT`) | Implemented |
+| Paging of list commands (`limit`/`offset`, maximum `OBSERWATOR_API_MAX_LIMIT`) | Implemented |
 | Errors as `application/problem+json` with registry codes | Implemented |
 | Health check | Implemented |
 | Language negotiation (`Accept-Language`, `Content-Language`) | Implemented |
 | Agent guide `GET /llms.txt` | Implemented |
-| MCP Streamable HTTP `/mcp` (`IMGW_MCP_ENABLED`) | Implemented — read and plan only |
-| Store commands | Implemented — only with server-side `IMGW_ROOT`; writes need `IMGW_STORE_WRITES_ENABLED` + write token |
+| MCP Streamable HTTP `/mcp` (`OBSERWATOR_MCP_ENABLED`) | Implemented — read and plan only |
+| Store commands | Implemented — only with server-side `OBSERWATOR_ROOT`; writes need `OBSERWATOR_STORE_WRITES_ENABLED` + write token |
 
 ### Not Implemented
 
@@ -125,11 +125,11 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | Requirement | Status |
 |-------------|--------|
 | pip installation | Implemented |
-| `imgw datasets`, `imgw stations`, `imgw current` (replace `imgw fetch`/`imgw list` of 2.x) | Implemented (3.0.0, generated from the command catalog; `--provider`, `--stations` for ČHMÚ) |
-| `imgw admin` command | Implemented |
-| `imgw server` command | Implemented |
-| `imgw mcp` command (MCP server on stdio) | Implemented (3.0.0, `imgwtools[mcp]`) |
-| `imgw store`, `imgw series`, `imgw pmaxtp`, `imgw commands` | Implemented (3.0.0, generated from the command catalog) |
+| `obserwator datasets`, `obserwator stations`, `obserwator current` (replace `imgw fetch`/`imgw list` of 2.x) | Implemented (3.0.0, generated from the command catalog; `--provider`, `--stations` for ČHMÚ) |
+| `obserwator admin` command | Implemented |
+| `obserwator server` command | Implemented |
+| `obserwator mcp` command (MCP server on stdio) | Implemented (3.0.0, `obserwator[mcp]`) |
+| `obserwator store`, `obserwator series`, `obserwator pmaxtp`, `obserwator commands` | Implemented (3.0.0, generated from the command catalog) |
 | `imgw project` | Moved to Archiwista (ADR-008, 2026-10-31) |
 | `--check` (plan only, no writes), `--schema` (command schema) | Implemented |
 | JSON envelope on stdout, JSON error on stderr, exit codes from the error registry | Implemented |
@@ -141,47 +141,47 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 
 ```bash
 # Main commands
-imgw version
-imgw server [--host] [--port] [--reload]
-imgw mcp [--allow-writes]
+obserwator version
+obserwator server [--host] [--port] [--reload]
+obserwator mcp [--allow-writes]
 
 # Datasets, stations, live data (lists accept --limit/--offset)
-imgw datasets list [-k hydro|meteo] [--provider IMGW-PIB|CHMI]
-imgw datasets providers
-imgw datasets files -d <dataset> [-y <years>] [-m <months>] [--params H,Q,T] [-s <stations>]
-imgw datasets download -d <dataset> [-y <years>] [-m <months>] [--params] [-s <stations>] [-o <dir>] [--check]
-imgw stations find [-k hydro|meteo] [-q <query>] [--source live|store] [--root <dir>] [--provider IMGW-PIB|CHMI]
-imgw current hydro|meteo [-s <code>]
-imgw current synop [-s <code>] [--station-name <name>]
-imgw current warnings [-k hydro|meteo]
-imgw current hydro-states [--main-only]
-imgw pmaxtp fetch|url --lat <lat> --lon <lon> [--method POT|AMP]
+obserwator datasets list [-k hydro|meteo] [--provider IMGW-PIB|CHMI]
+obserwator datasets providers
+obserwator datasets files -d <dataset> [-y <years>] [-m <months>] [--params H,Q,T] [-s <stations>]
+obserwator datasets download -d <dataset> [-y <years>] [-m <months>] [--params] [-s <stations>] [-o <dir>] [--check]
+obserwator stations find [-k hydro|meteo] [-q <query>] [--source live|store] [--root <dir>] [--provider IMGW-PIB|CHMI]
+obserwator current hydro|meteo [-s <code>]
+obserwator current synop [-s <code>] [--station-name <name>]
+obserwator current warnings [-k hydro|meteo]
+obserwator current hydro-states [--main-only]
+obserwator pmaxtp fetch|url --lat <lat> --lon <lon> [--method POT|AMP]
 
 # Admin
-imgw admin keys
-imgw admin create --name <name> [--limit]
-imgw admin revoke <key_id>
-imgw admin delete <key_id> [--force]
-imgw admin stats [key_id]
+obserwator admin keys
+obserwator admin create --name <name> [--limit]
+obserwator admin revoke <key_id>
+obserwator admin delete <key_id> [--force]
+obserwator admin stats [key_id]
 
-# Versioned store (--root or IMGW_ROOT)
-imgw store init|info --root <dir>
-imgw store scan --root <dir> [-k archive|series|catalog|pmaxtp|observation|problem] [--provider IMGW-PIB|CHMI]
-imgw store check --root <dir> -d <keys> [-y <years>] [-m <months>] [-s <stations>] [--plan plan.json]
-imgw store sync --root <dir> (--plan plan.json | -d <keys> [-y <years>] [-s <stations>]) [--no-series] [--check]
-imgw store catalog --root <dir> [--provider IMGW-PIB|CHMI] [--user-locations <csv>] [--check]
-imgw store export --version <archive version> [--format csv|jsonl] [--output <file> [--force]]
-imgw series build --root <dir> -d <key> [--check]
-imgw series select --root <dir> -d <key> -s <codes> [--variables] [-y <years>] [--year-type]
-imgw series read|summary [--version <v> | --root <dir> -d <key>] -s <code(s)> [--variables]
-imgw series export [--version <v> | --root <dir> -d <key>] -s <code> [--variables] [--output <csv> [--force]]
-imgw pmaxtp check|sync --root <dir> --lat <lat> --lon <lon> [--method POT|AMP]
-imgw pmaxtp read --root <dir> --ind-x <x> --ind-y <y> [--method POT|AMP]
+# Versioned store (--root or OBSERWATOR_ROOT)
+obserwator store init|info --root <dir>
+obserwator store scan --root <dir> [-k archive|series|catalog|pmaxtp|observation|problem] [--provider IMGW-PIB|CHMI]
+obserwator store check --root <dir> -d <keys> [-y <years>] [-m <months>] [-s <stations>] [--plan plan.json]
+obserwator store sync --root <dir> (--plan plan.json | -d <keys> [-y <years>] [-s <stations>]) [--no-series] [--check]
+obserwator store catalog --root <dir> [--provider IMGW-PIB|CHMI] [--user-locations <csv>] [--check]
+obserwator store export --version <archive version> [--format csv|jsonl] [--output <file> [--force]]
+obserwator series build --root <dir> -d <key> [--check]
+obserwator series select --root <dir> -d <key> -s <codes> [--variables] [-y <years>] [--year-type]
+obserwator series read|summary [--version <v> | --root <dir> -d <key>] -s <code(s)> [--variables]
+obserwator series export [--version <v> | --root <dir> -d <key>] -s <code> [--variables] [--output <csv> [--force]]
+obserwator pmaxtp check|sync --root <dir> --lat <lat> --lon <lon> [--method POT|AMP]
+obserwator pmaxtp read --root <dir> --ind-x <x> --ind-y <y> [--method POT|AMP]
 
 # Command catalog
-imgw commands list [--lang pl|en]
-imgw commands schema [--command "<group> <name>"] [--lang pl|en]
-imgw commands guide [-f agents|llms] [--lang pl|en] [--output <file> [--force]]
+obserwator commands list [--lang pl|en]
+obserwator commands schema [--command "<group> <name>"] [--lang pl|en]
+obserwator commands guide [-f agents|llms] [--lang pl|en] [--output <file> [--force]]
 ```
 
 ---
@@ -190,11 +190,11 @@ imgw commands guide [-f agents|llms] [--lang pl|en] [--output <file> [--force]]
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`IMGW_ROOT`, CLI `--root`/`--output`) |
+| No server-side data storage by default | Implemented | Core design principle: URL generation and live proxy; data is stored only with explicit configuration (`OBSERWATOR_ROOT`, CLI `--root`/`--output`) |
 | PEP8 compliance | Implemented | Using ruff |
 | NumPy-style docstrings | Implemented | Enforced by ruff `D` rules, numpy convention |
 | Unit and contract tests | Implemented | 2446 tests in `/tests/unit` and `/tests/contract`, all offline (2026-10-31); Python = CLI = REST = MCP contract |
-| Live integration tests | Implemented | 67 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (45: 30 commands × Python/`imgw`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (22: ČHMÚ on opendata.chmi.cz) |
+| Live integration tests | Implemented | 67 tests marked `live` (outside the gate, run with `-m live`): `tests/live/test_interfaces_live.py` (45: 30 commands × Python/`obserwator`/REST on real IMGW-PIB servers, live errors, MCP leg) and `tests/live/test_chmi_live.py` (22: ČHMÚ on opendata.chmi.cz) |
 | API response time < 2s | Implemented | For proxied requests |
 | Online documentation | Implemented | Swagger at `/docs` |
 
@@ -208,7 +208,7 @@ The following are explicitly out of scope for this project:
 - Machine learning
 - Raster processing
 - Stream data processing
-- User authentication/accounts (MCP over HTTP is read-only; writes need a local `imgw mcp --allow-writes`)
+- User authentication/accounts (MCP over HTTP is read-only; writes need a local `obserwator mcp --allow-writes`)
 
 **Note:** The optional SQLite cache of 2.x was removed in 3.0.0 and replaced by the file-based versioned store (ADR-001); no database is part of the product.
 
@@ -229,7 +229,7 @@ The following are explicitly out of scope for this project:
 
 - SemVer for API and CLI/GUI package
 - Current version: 3.0.0 (release notes: `docs/CHANGELOG.md`)
-- Contracts (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-pmaxtp/1`, `imgw-observation/1`, `imgw-result/1`, `imgw-commands/1`) carry their own `/N` versions, independent of the package version (IMGW-13); ČHMÚ and agent support add only optional fields within `/1`; the project manifest contract left with the projects (ADR-008)
+- Contracts (`obserwator-store/1`, `obserwator-meta/1`, `obserwator-series/1`, `obserwator-plan/1`, `obserwator-pmaxtp/1`, `obserwator-observation/1`, `obserwator-result/1`, `obserwator-commands/1`) carry their own `/N` versions, independent of the package version (IMGW-13); ČHMÚ and agent support add only optional fields within `/1`; the project manifest contract left with the projects (ADR-008)
 
 ---
 

@@ -1,4 +1,4 @@
-# IMGWTools test overhaul plan (goal: >= 80% coverage)
+# IMGWTools (now Obserwator) test overhaul plan (goal: >= 80% coverage)
 
 As of: 2026-08-22, branch `develop` (then `slave`), v2.2.0, HEAD `bd90db2` (sections 1–2: baseline and historical arithmetic).
 Environment: `.venv/bin/python` only (the global python has an outdated package).

@@ -1,6 +1,6 @@
-# Decision log — IMGWTools
+# Decision log — Obserwator
 
-Each entry keeps the state of the decision as of the day it was accepted; later changes are described as dated errata, without rewriting history. Format: number, date, status, context, options, decision, consequences.
+Each entry keeps the state of the decision as of the day it was accepted; later changes are described as dated errata, without rewriting history. Format: number, date, status, context, options, decision, consequences. The tool is called Obserwator since ADR-009 (2026-11-03); the entries before it keep the names of their day (IMGWTools, `imgwtools`, `imgw`, `IMGW_*`, `imgw-*/1`) and read through its name map.
 
 ## Index
 
@@ -14,6 +14,7 @@ Each entry keeps the state of the decision as of the day it was accepted; later 
 | [ADR-006](#adr-006-message-catalog-and-english-machine-output) | Message catalog and English machine output | 2026-10-24 | Accepted |
 | [ADR-007](#adr-007-data-output-plain-mode-the-store-and-the-default-root) | Data output: plain mode, the store and the default root | 2026-10-24 | Accepted |
 | [ADR-008](#adr-008-projects-move-to-archiwista) | Projects move to Archiwista | 2026-10-31 | Accepted |
+| [ADR-009](#adr-009-the-tool-is-called-obserwator) | The tool is called Obserwator | 2026-11-03 | Accepted |
 
 ---
 
@@ -491,3 +492,27 @@ ADR-001 gave IMGWTools a project manifest of its own, `imgw-project.json` (`imgw
 | PMAXTP cell | `pmaxtp sync --latitude --longitude --method --ind-x --ind-y` | the point of `request`, the method and cell of the layout |
 
 The call is the narrowest that selects the version's file, and it is checked offline (`store sync`'s own selection must contain the file); it may cover files beside it that the same options select (the `H`, `Q` and `T` files of a half-year, every element of a ČHMÚ meteorological station), each a plan item of its own. **Refused, never guessed**, with `unsupported` (the Nogat registry code, added to `ERROR_CODES` with exit 15 and HTTP 422) and `details.reason="command_not_rebuildable"` (with `details.version` and `field` or `server_path`; the text names how to pin the version as local data instead): a catalog built with a user's coordinates file (the sidecar records its name, not its path), a sidecar without a field the call needs (`request.user_locations`, `request.latitude`, `request.longitude`), and an archive file `store sync` does not select (a file name this release does not download). A missing version or sidecar (an unfinished publication) is `not_found`; a sidecar that is invalid is `data_error` with `details.version`, one that contradicts the layout (`dataset`, `request.server_path`, `year`, `month`, `station_code`, `param`, the PMAXTP method or cell) also with `details.field`; a path that is no version (an observation, a slot directory, outside the root) is `validation_error` with `details.option="version"`. Rejected: a plan line (`imgw …`) instead of the call (a consumer would parse it back); the widest call of a dataset (it would download far more than the pin); guessing the coordinates file of a catalog from its name (any file of that name would do).
+
+## ADR-009: The tool is called Obserwator
+
+**Date:** 2026-11-03  
+**Status:** Accepted (the author decided the full rename, code included, on 2026-11-03; recorded as Nogat ECO-057); supersedes the note of `docs/OBSERWATOR_SPEC.md` (owner decision of 2026-10-17) that left the rename to the major release after 3.0.0 (working version 4.0.0)  
+**Plan:** Nogat [`docs/plans/2026-11-03-imgwtools-to-obserwator.md`](https://github.com/Daldek/Nogat/blob/main/docs/plans/2026-11-03-imgwtools-to-obserwator.md), step 2  
+**Standard:** Nogat ECO-057, ECO-056, ECO-022, HUB-5.2, AGI-4.1, AGI-5.2, DEV-18.2, DEV-18.3, DEV-19  
+
+### Context and options
+
+The tool was named after IMGW-PIB, the institute whose public data it reads; since 3.0.0 it reads ČHMÚ as well, so the institute's name on the distribution, the command, the variables, the store and every document id mixes the tool with one of its data providers. `docs/OBSERWATOR_SPEC.md` planned the name Obserwator for the major release after 3.0.0 (working version 4.0.0), together with a provider layer and an English API. The only release, 2.1.1 on `main`, has no store, no `IMGW_ROOT` and none of the document ids, which exist only on `develop`, so the moment before the first release from `develop` is the cheapest one. Options: (a) rename only the product and keep `imgw` for the command, the package and the ids (two names for one tool, and the institute's name on every identifier); (b) rename everything in 3.0.0 without aliases (chosen); (c) rename in 4.0.0 as planned (every id released in 3.0.0 would then need a `/2` with a transition period under the IMGW-13 policy, and every consumer would migrate twice); (d) aliases or fallbacks for the old variables, marker and ids (a compatibility layer for formats no user has, ECO-056).
+
+### Decisions D1–D4
+
+| ID | Decision | Rejected |
+|---|---|---|
+| D1 | **The name map (ECO-057).** The product Obserwator; the distribution and the import package `obserwator` (`nogat-obserwator` at ADOPTION_PLAN 6.1, where a final `imgwtools` release points to it); the command `obserwator` (`obserwator mcp`, `obserwator server`; the REST paths `/api/v1` are unchanged); the MCP tools and `operationId`s `obserwator_<group>_<verb>` and `obserwator_system_<function>` (the longest, `obserwator_current_hydro_states`, has 31 characters) and the MCP server `obserwator`; the variables `OBSERWATOR_<KEY>` (a key naming an IMGW-PIB endpoint would keep the provider, `OBSERWATOR_IMGW_<KEY>`; no setting is one); `[obserwator]` of `nogat.toml`, `<data_dir>/obserwator` and `<cache_dir>/obserwator`; the document ids `obserwator-<kind>/1`; the marker `obserwator-store.json` with `"tool": "obserwator"` and the staging directory `.obserwator-incoming/`; the producer `obserwator` of sidecars and markers and the Parquet key `obserwator_schema`; the catalog extensions `x-obserwator*` and the export headers `X-Obserwator-Status`, `X-Obserwator-Notices`; the problem type `urn:obserwator:error:<code>`; `ObserwatorError` and its subclasses; every other identifier naming the tool (`ObserwatorGroup`, message keys, test names). The table of old and new names is the first entry of `docs/CHANGELOG.md` (`[Unreleased]`). | Keeping `imgw` for the command, the package or the ids. |
+| D2 | **What keeps its name.** The institute: IMGW-PIB and IMGW in texts, the provider id `IMGW-PIB`, the dataset keys `pl.imgw.*`, the provider URLs and the identifiers naming the provider (the module constants `IMGW_API_URL`, `IMGW_PMAXTP_URL`, `IMGW_PUBLIC_DATA_URL` and `IMGW_ENCODING`, the message keys of its name and attribution, the fake IMGW-PIB server of the tests); the requirement ids IMGW-1..20, which belong to Archiwista's requirements; the repository URL `github.com/Daldek/IMGWTools` and the workspace directory until the author renames the repository; dated records (the released sections of the changelog, `docs/HISTORY.md`, `docs/superpowers/`, the ADRs before this one, `docs/OBSERWATOR_RESEARCH.md`, `docs/OBSERWATOR_SPEC.md` and `docs/TEST_PLAN.md`), read through D1. | Rewriting the dated records. |
+| D3 | **No alias and no migration (ECO-056).** An old variable and the section `[imgw]` are ignored; a store, sidecar, plan or envelope with an old id or the marker `imgw-store.json` is neither read nor converted, as only development builds wrote them. | Fallbacks for `IMGW_*`; a reader of `imgw-*/1`. |
+| D4 | **Only the names change.** The rename changes no behaviour, layout, field or version number (3.0.0); the provider layer, the English API and the other proposals of `docs/OBSERWATOR_SPEC.md` stay proposals for a later release. | The rename together with the provider layer of the spec. |
+
+### Consequences
+
+**Breaking** for every caller and reader of an old name (`docs/CHANGELOG.md`, `[Unreleased]`, with the migration lines); no released interface breaks, because 2.1.1 has none of the ids and 3.0.0 is untagged. `AGENTS.md` and `llms.txt` are regenerated with the new names. The consumers follow in the order of the Nogat plan (HUB-5.2): Archiwista, Retman, Hydraulik and Hydrolog pin the commit of this change and rename their imports, commands, variables and ids; the frozen Kartograf names `obserwator-store.json` in its `STORE_MARKERS`; Hydrograf keeps its pin and imports of `imgwtools` until after its v0.5.0. The author renames the GitHub repository later; the URLs follow then.

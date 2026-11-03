@@ -1,6 +1,6 @@
-# Contributing to IMGWTools
+# Contributing to Obserwator
 
-Thanks for your interest in improving IMGWTools! Contributions of all kinds —
+Thanks for your interest in improving Obserwator! Contributions of all kinds —
 bug reports, fixes, features, and documentation — are welcome.
 
 ## Getting started
