@@ -514,7 +514,9 @@ def unversioned(value: object) -> Iterator[str]:
 
 def imgw_executable() -> list[str]:
     """Command line of the installed ``imgw`` script (module run as a fallback)."""
-    script = Path(sys.executable).with_name("imgw")
+    script = Path(sys.executable).with_name(
+        "imgw.exe" if sys.platform == "win32" else "imgw"
+    )
     if script.exists():
         return [str(script)]
     return [sys.executable, "-m", "imgwtools.cli.main"]
