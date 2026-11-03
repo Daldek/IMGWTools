@@ -394,10 +394,9 @@ async def test_a_write_to_the_default_root_outside_the_allowed_directories_is_fo
 
 
 def test_the_cli_offers_allow_dir():
-    from typer.testing import CliRunner
-
     from imgwtools.cli.main import app
+    from tests.unit.test_cli_catalog import RUNNER
 
-    result = CliRunner().invoke(app, ["mcp", "--help"])
+    result = RUNNER.invoke(app, ["mcp", "--help"])
 
     assert "--allow-dir" in result.output
