@@ -1,6 +1,6 @@
 # Plan przebudowy testów IMGWTools (cel: >= 80% pokrycia)
 
-Stan na: 2026-08-22, gałąź `slave`, v2.2.0, HEAD `c89bb68` (sekcje 1–2: stan wyjściowy i arytmetyka historyczna).
+Stan na: 2026-08-22, gałąź `slave`, v2.2.0, HEAD `bd90db2` (sekcje 1–2: stan wyjściowy i arytmetyka historyczna).
 Środowisko: wyłącznie `.venv/bin/python` (globalny python ma nieaktualny pakiet).
 Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asyncio_mode = "auto"`),
 **respx 0.23** (jest w `[dev]`), fastapi 0.128 + starlette (TestClient), typer 0.21
@@ -111,7 +111,7 @@ budowanym `MagicMock` (ok. 10 linii boilerplate na test).
 - `api/routes/hydro.py:69,105` i `meteo.py:134` czytają `nazwa_stacji`, a IMGW API (i `models.py:192`) używa `stacja` ->
   `station_name` w odpowiedzi API jest zawsze `""`. **Naprawione w 3.0.0** (trasy czytają `stacja`); testy asertują poprawne zachowanie.
 - Zahardkodowane granice lat w API: `schemas.py:97,108` (`le=2024`), `routes/hydro.py:185-186,245-248`, `routes/meteo.py:204-205`,
-  `routes/download.py:40-70` (`year_range=(…, 2023)`), `download.py:85,155-156`. Ta sama klasa regresji, co naprawiona w `c89bb68`.
+  `routes/download.py:40-70` (`year_range=(…, 2023)`), `download.py:85,155-156`. Ta sama klasa regresji, co naprawiona w `bd90db2`.
   **Naprawione w 3.0.0**: URL-e z rejestru `archive_files`, walidacja lat bez górnej granicy 2024.
 - ~~`api/main.py:35` `API_VERSION = "1.0.0"`~~ – naprawione w 3.0.0: `API_VERSION = __version__`.
 - `cli/fetch.py:150` dla dobowych <2023 bez `--month` pobiera `range(1, 14)` (13 = zjawiska) – zamierzone, ale nieudokumentowane w `--help`.

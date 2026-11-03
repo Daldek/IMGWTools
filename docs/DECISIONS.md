@@ -266,7 +266,7 @@ Archiwista czyta ČHMÚ tym samym adapterem i kontraktami, a zachowanie IMGW si�
 **Data:** 2026-10-19  
 **Status:** Przyjęta (2026-10-19; zakres i wydanie 3.0.0 przesądził właściciel, decyzje D1–D12 przyjął koordynator wdrożenia w ramach udzielonej mu odpowiedzialności za architekturę)  
 **Spec:** `docs/superpowers/specs/2026-10-19-agent-support-design.md` (plan A01–A06 w §11)  
-**Źródło:** ADR-002 D14 (poza zakresem 3.0.0 zostały: AGENTS.md/llms.txt, opisy angielskie, serwer MCP, porządkowanie komunikatów legacy); decyzja właściciela przekazana 2026-10-19 (te cztery pozycje oraz kod dostawcy ČHMÚ, C02–C10, wchodzą do 3.0.0); specyfikacja MCP 2026-07-28 (*Tools*), SDK `mcp` 2.3.0 (PyPI, 2026-10-02), llms.txt v2 (llmstxt.org), agents.md; potrzeby Retmana (`Retman/docs/ARCHITECTURE.md` 3.2–4.3, 8.1) i Archiwisty (`Archiwista/docs/SPEC.md` 5.2, 7, 12.7). Fakty o kodzie z commita `d8cb11c` (2026-10-19), pomiary z tego dnia.
+**Źródło:** ADR-002 D14 (poza zakresem 3.0.0 zostały: AGENTS.md/llms.txt, opisy angielskie, serwer MCP, porządkowanie komunikatów legacy); decyzja właściciela przekazana 2026-10-19 (te cztery pozycje oraz kod dostawcy ČHMÚ, C02–C10, wchodzą do 3.0.0); specyfikacja MCP 2026-07-28 (*Tools*), SDK `mcp` 2.3.0 (PyPI, 2026-10-02), llms.txt v2 (llmstxt.org), agents.md; potrzeby Retmana (`Retman/docs/ARCHITECTURE.md` 3.2–4.3, 8.1) i Archiwisty (`Archiwista/docs/SPEC.md` 5.2, 7, 12.7). Fakty o kodzie z commita `93a91a3` (2026-10-19), pomiary z tego dnia.
 
 ### Kontekst i warianty
 

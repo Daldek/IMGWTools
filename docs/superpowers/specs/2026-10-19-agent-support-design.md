@@ -9,7 +9,7 @@ Dokument jest kontraktem implementacji, nie deklaracją wykonania. Nazwy, pola, 
 
 ## 0. Źródła i oznaczenia
 
-- **Kod:** gałąź `feature/chmi-agents`, commit `d8cb11c` (2026-10-19), przed C02–C10. Numery linii w §1.1 i §7 dotyczą tego commita; pliki zmieniane później przez taski C mają przesunięte linie, więc miejsca wyszukuje się po cytowanym tekście.
+- **Kod:** gałąź `feature/chmi-agents`, commit `93a91a3` (2026-10-19), przed C02–C10. Numery linii w §1.1 i §7 dotyczą tego commita; pliki zmieniane później przez taski C mają przesunięte linie, więc miejsca wyszukuje się po cytowanym tekście.
 - **Pomiary [V] 2026-10-19:** `command_schema()` dla 35 komend = 45 697 B zwartego JSON; schematy opcji bez `$schema`, `title` i `x-imgw` (postać narzędzi MCP) = 26 367 B; pomoc CLI z Typer 0.27.3 i Click 8.5.0 (`imgw --help`, `imgw store sync --help`); OpenAPI aplikacji REST (`/openapi.json`) przed zmianami C02.
 - **MCP:** specyfikacja 2026-07-28, rozdział *Tools* (nazwy narzędzi, adnotacje, `structuredContent`, błędy wykonania); SDK `mcp` z PyPI — wersja 2.3.0 z 2026-10-02 (`requires_python >=3.10`), informacje o wydaniu v2.0.0 z 2026-07-28 i dokumentacja `py.sdk.modelcontextprotocol.io` (*What's new in v2*, *The low-level Server*, *Tools*, *Add to an existing app*).
 - **Konwencje plików:** llms.txt v2 (llmstxt.org, zmiana 2026-08-10); AGENTS.md (agents.md, format otwarty pod opieką Agentic AI Foundation).
@@ -31,7 +31,7 @@ Każdy mechanizm jest ogólny: komendy i opcje ČHMÚ dodawane w C07 (`datasets 
 
 ### 1.1 Stan wyjściowy [V]
 
-| Obszar | Stan w `d8cb11c` |
+| Obszar | Stan w `93a91a3` |
 |---|---|
 | Katalog | 35 komend w 8 grupach (`data_commands()`); C07 dodaje `datasets providers` (36). Teksty dla człowieka wyłącznie po polsku: `CommandOption.help`, `DataCommand.description`, `DataCommand.rules`, `commands._GROUPS`, `ErrorSpec.title`, `DatasetDescriptor.title`. Brak informacji, czy komenda zapisuje albo łączy się z siecią. |
 | `command_schema` | JSON Schema 2020-12 z `x-imgw` (funkcja, CLI, REST, bliźniak, typ wyniku, reguły); brak parametru języka. |
@@ -488,7 +488,7 @@ Bez instalacji w systemie: `"command": "uvx", "args": ["--from", "imgwtools[mcp]
 
 ### 7.1 Metoda
 
-Skan `src/imgwtools/**` w `d8cb11c`, powtarzany przez A04 po C08 (taski ČHMÚ dodają teksty):
+Skan `src/imgwtools/**` w `93a91a3`, powtarzany przez A04 po C08 (taski ČHMÚ dodają teksty):
 
 1. AST: literały `str` poza docstringami modułów, klas i funkcji; osobno docstringi komend Typer i tras FastAPI (są pomocą CLI i opisami OpenAPI) oraz argumenty `help=`, `description=`, `summary=`, `title=`.
 2. Szablony HTML (tekst i atrybuty `title`, `placeholder`, `alt`, `aria-label`) i napisy w `web/static/js/app.js`.
@@ -499,7 +499,7 @@ Skan `src/imgwtools/**` w `d8cb11c`, powtarzany przez A04 po C08 (taski ČHMÚ d
 
 ### 7.2 Do poprawy (33 pozycje)
 
-| # | Miejsce (`d8cb11c`) | Obecnie | Zmiana | Task |
+| # | Miejsce (`93a91a3`) | Obecnie | Zmiana | Task |
 |---|---|---|---|---|
 | 1 | `cli/admin.py:73` (pomoc `--limit`) | „Limit zapytan na godzine” | „Limit zapytań na godzinę” | A04 |
 | 2 | `cli/admin.py:77,79` (docstring = pomoc `admin create`) | „Utworz nowy klucz API.”, „Przyklad:” | „Utwórz nowy klucz API.”, „Przykład:” | A04 |
@@ -539,7 +539,7 @@ Opisy pól modeli (poz. 18–26) są widoczne w OpenAPI jako schematy `result` t
 
 ### 7.3 Zostaje
 
-| Kategoria | Przykłady (`d8cb11c`) | Powód |
+| Kategoria | Przykłady (`93a91a3`) | Powód |
 |---|---|---|
 | Klucze API IMGW i kolumny źródeł | `models.py:277–286, 335–341, 393–402, 450–456` (`wojewodztwo`, `przeplyw`, `tresc`, `stopien`, `obowiazuje_od`, `prawdopodobienstwo`, `cisnienie`, …); `store/catalog.py:651–669` (`rzeka`, `nazwa_stacji`, `rok_zalozenia_stacji`, `rzedna_zerawodowskazu`, `wysokosc_npm`) | identyfikatory zewnętrzne, muszą odpowiadać źródłu |
 | Ścieżki serwera IMGW, słowa interwałów, aliasy legacy | `datasets.py` (`dane_hydrologiczne/miesieczne`, `polroczne_i_roczne`, `hydro/miesieczne`), `fetch.py:761–894`, `_parsing/hydro.py:209–568`, `store/sync.py:378–381`, `reference_data.py:33–41` | ścieżki na serwerze i wejście legacy (ADR-002 D4, D14) |

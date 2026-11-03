@@ -663,7 +663,7 @@ Dotyczy wyłącznie integracji pisanych na gałęzi przed ADR-002 (Archiwista, R
 | `DataCommand(name, description, options)` | + `function`, `check`, `result`, `method`, `requires`, `one_of`, `rules` |
 | `init_store` na systemie plików bez dowiązań twardych → `IMGWStoreError` | `IMGWStoreConflictError` (`details.reason="not_atomic"`) |
 
-#### Wobec stanu gałęzi przed ADR-003 i ADR-004 (commit `d8cb11c`)
+#### Wobec stanu gałęzi przed ADR-003 i ADR-004 (commit `93a91a3`)
 
 Dotyczy integracji pisanych na gałęzi przed dodaniem dostawcy ČHMÚ i wsparcia agentów.
 
