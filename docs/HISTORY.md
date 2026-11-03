@@ -1,250 +1,250 @@
-# IMGWTools - Historia wydań i zamknięte prace
+# IMGWTools - Release history and closed work
 
-Archiwum: historia wydań, analiza cross-project, zamknięte pozycje backlogu i notatki robocze przeniesione z [PROGRESS.md](PROGRESS.md) bez zmian treści (norma Nogat 2.1, DOC-6.1: PROGRESS zawiera tylko stan bieżący). Pełna lista zmian: [CHANGELOG.md](CHANGELOG.md).
+Archive: release history, cross-project analysis, closed backlog items and working notes moved from [PROGRESS.md](PROGRESS.md) with unchanged content (Nogat standard 2.1, DOC-6.1: PROGRESS holds only the current state). Full list of changes: [CHANGELOG.md](CHANGELOG.md).
 
-## Wydane wersje
+## Released versions
 
-| Wersja | Data | Zakres |
+| Version | Date | Scope |
 |--------|------|--------|
-| v3.0.0 | 2026-10 | **Wersjonowany magazyn danych** (ADR-001): `imgwtools.store`, parsery meteo, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, projekty `imgw-project/1`; **jeden katalog 37 komend** (ADR-002): koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, CLI i REST generowane z katalogu, problem+json; **dostawca ČHMÚ** (ADR-003): rejestr 17 zbiorów dwóch dostawców (`cz.chmi.*`), aktualność z listingu, treść kanoniczna i rejestr obserwacji, katalog stacji z progami SPA, jakość i flagi w szeregach, odtwarzanie przypięć treścią; **wsparcie agentów AI** (ADR-004): `AGENTS.md`/`llms.txt`, opisy angielskie, metadane skutków, serwer MCP (`imgw mcp`, `/mcp`), `GET /llms.txt`; **breaking:** `imgw fetch`/`imgw list` → grupy katalogu, nowe trasy REST, `station_id` → `station`/`station_code`, `download_*` → `DownloadResult`, usunięcie cache SQLite i `core/url_builder`. Szczegóły: `docs/CHANGELOG.md` |
-| v2.2.0 | 2026-08 | Licencja (rok, PEP 639), ręczny proces CLA, moduł danych referencyjnych IMGW-PIB (`reference_data.py`), usunięcie danych IMGW z repo, **usunięcie legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` usunięty) |
-| v2.1.1 | 2026-07 | Parsery: auto-detekcja separatora/kodowania (UTF-8 BOM)/cudzysłowów; URL-e meteo zgodne z serwerem IMGW; zgodność z pyright; audyt dokumentacji |
-| v2.1.0 | 2026-01 | Python 3.12+, modernizacja kodu (ruff fix), DEVELOPMENT_STANDARDS.md |
+| v3.0.0 | 2026-10 | **Versioned data store** (ADR-001): `imgwtools.store`, meteo parsers, Parquet series, `stations.geojson` catalog, PMAXTP per cell, `imgw-project/1` projects; **one catalog of 37 commands** (ADR-002): `imgw-result/1` envelope, pagination, error code registry, CLI and REST generated from the catalog, problem+json; **ČHMÚ provider** (ADR-003): registry of 17 datasets from two providers (`cz.chmi.*`), freshness from the listing, canonical content and observation registry, station catalog with SPA thresholds, quality and flags in series, restoring pins by content; **AI agent support** (ADR-004): `AGENTS.md`/`llms.txt`, English descriptions, side-effect metadata, MCP server (`imgw mcp`, `/mcp`), `GET /llms.txt`; **breaking:** `imgw fetch`/`imgw list` → catalog groups, new REST routes, `station_id` → `station`/`station_code`, `download_*` → `DownloadResult`, removal of the SQLite cache and `core/url_builder`. Details: `docs/CHANGELOG.md` |
+| v2.2.0 | 2026-08 | License (year, PEP 639), manual CLA process, IMGW-PIB reference data module (`reference_data.py`), removal of IMGW data from the repo, **removal of legacy `core/imgw_spatial.py`** (breaking: extras `[spatial]` → `[pandas]`, `StationMap` removed) |
+| v2.1.1 | 2026-07 | Parsers: auto-detection of delimiter/encoding (UTF-8 BOM)/quotes; meteo URLs consistent with the IMGW server; pyright compatibility; documentation audit |
+| v2.1.0 | 2026-01 | Python 3.12+, code modernization (ruff fix), DEVELOPMENT_STANDARDS.md (since removed; see the Nogat standard) |
 | v2.0.1 | 2026-01 | Fix import error (lazy load db module) |
-| v2.0.0 | 2026-01 | Refaktoring API, nowa architektura |
-| v1.0.0 | 2025-xx | Pierwsze stabilne wydanie |
+| v2.0.0 | 2026-01 | API refactoring, new architecture |
+| v1.0.0 | 2025-xx | First stable release |
 
 ---
 
-## v3.0.0 — szczegóły wydania (2026-10-19)
+## v3.0.0 — release details (2026-10-19)
 
-Wydanie major realizujące ADR-001 (`docs/DECISIONS.md`) według planu `docs/superpowers/plans/2026-10-17-versioned-store.md` (zadania T01–T24) i kontraktu `docs/superpowers/specs/2026-10-17-versioned-store-design.md`. Pełna lista zmian: `docs/CHANGELOG.md`.
+Major release implementing ADR-001 (`docs/DECISIONS.md`) according to the plan `docs/superpowers/plans/2026-10-17-versioned-store.md` (tasks T01–T24) and the contract `docs/superpowers/specs/2026-10-17-versioned-store-design.md`. Full list of changes: `docs/CHANGELOG.md`.
 
-- **Fala 0 (T01–T06):** rejestr `datasets.py` (`pl.imgw.*`, `archive_files`, `station_source_files`), `DownloadResult` w `download_*`, parsery w `_parsing/` (hydro przeniesione z `db/`, nowe meteo `k_d`/`o_d` z flagami), poprawki `stations.py` (`river_order`, `hydrographic_code`, pole `rzeka`), syntetyczne archiwa i nagrania w `tests/fixtures/store/`, typy i wyjątki magazynu.
-- **Fala 1 (T07–T10):** writer z atomową publikacją bez zastępowania i sidecarem `imgw-meta/1`, `summarize_coverage`, `imgw fetch` odwzorowujące ścieżki serwera, URL-e REST z rejestru.
-- **Fala 2 (T11–T14):** katalog `stations.geojson` (obrys Polski Natural Earth, bez GIS w runtime), `check_store`/`sync_store` z planem `imgw-plan/1`, szeregi Parquet `imgw-series/1`, PMAXTP per komórka.
-- **Fala 3 (T15–T16):** publiczne API odczytu (read-only, problemy raportowane) i `imgwtools.testing.build_fixture_store`.
-- **Fala 4–5 (T17–T19):** eksport CSV z atrybucją IMGW-PIB, katalog komend `commands.py`, projekty `imgw-project/1`.
-- **Fala 6 (T20–T21):** CLI `imgw store|series|pmaxtp|project` generowane z katalogu, REST magazynu za `IMGW_STORE_ROOT` i tokenem zapisu.
-- **Fala 7 (T22–T24):** usunięcie cache SQLite bez shimów (pakiet `db/`, komenda CLI, `/api/v1/hydro/data`, ustawienia, dodatek), jedna lista eksportów `imgwtools.__all__`, dodatek `[store]`, wersja 3.0.0, `docs/CHANGELOG.md` i aktualizacja dokumentacji.
+- **Wave 0 (T01–T06):** `datasets.py` registry (`pl.imgw.*`, `archive_files`, `station_source_files`), `DownloadResult` in `download_*`, parsers in `_parsing/` (hydro moved from `db/`, new meteo `k_d`/`o_d` with flags), fixes to `stations.py` (`river_order`, `hydrographic_code`, the `rzeka` field), synthetic archives and recordings in `tests/fixtures/store/`, store types and exceptions.
+- **Wave 1 (T07–T10):** writer with atomic no-replace publication and the `imgw-meta/1` sidecar, `summarize_coverage`, `imgw fetch` mirroring server paths, REST URLs from the registry.
+- **Wave 2 (T11–T14):** `stations.geojson` catalog (Natural Earth outline of Poland, no GIS at runtime), `check_store`/`sync_store` with the `imgw-plan/1` plan, `imgw-series/1` Parquet series, PMAXTP per cell.
+- **Wave 3 (T15–T16):** public read API (read-only, problems reported) and `imgwtools.testing.build_fixture_store`.
+- **Waves 4–5 (T17–T19):** CSV export with IMGW-PIB attribution, `commands.py` command catalog, `imgw-project/1` projects.
+- **Wave 6 (T20–T21):** CLI `imgw store|series|pmaxtp|project` generated from the catalog, store REST behind `IMGW_STORE_ROOT` and a write token.
+- **Wave 7 (T22–T24):** removal of the SQLite cache without shims (`db/` package, CLI command, `/api/v1/hydro/data`, settings, extra), a single export list `imgwtools.__all__`, the `[store]` extra, version 3.0.0, `docs/CHANGELOG.md` and documentation update.
 
-**Decyzja właściciela (2026-10-17):** magazyn wersjonowany wchodzi teraz, jako 3.0.0; dawna wizja „Obserwator 3.0” (`docs/OBSERWATOR_SPEC.md`) pozostaje przyszłym rozszerzeniem (zmiana nazwy, providery) i nie obejmuje już cache SQLite v2.
+**Owner's decision (2026-10-17):** the versioned store goes in now, as 3.0.0; the former "Obserwator 3.0" vision (`docs/OBSERWATOR_SPEC.md`) remains a future extension (renaming, providers) and no longer covers the v2 SQLite cache.
 
-**Stan po ADR-001 (T25, 2026-10-18):** 998 passed (w tym kontrakt T25 w `tests/contract/`), pokrycie 93% (`pytest --cov=imgwtools`), `ruff check` czysto, `pyright` 0 błędów.
+**State after ADR-001 (T25, 2026-10-18):** 998 passed (including the T25 contract in `tests/contract/`), coverage 93% (`pytest --cov=imgwtools`), `ruff check` clean, `pyright` 0 errors.
 
-**ADR-002 — jeden katalog komend i spójne interfejsy** (plan `docs/superpowers/plans/2026-10-17-versioned-store.md`, zadania U01–U16; spec §13):
+**ADR-002 — one command catalog and consistent interfaces** (plan `docs/superpowers/plans/2026-10-17-versioned-store.md`, tasks U01–U16; spec §13):
 
-- **Fale 10–11 (U01–U04):** rejestr kodów błędów `ERROR_CODES` (`code`, `details`, `IMGWCancelledError`), typy koperty `CommandResult`/`Page` i jeden konwerter JSON; rejestr 13 zbiorów z aliasami i `YearsArg`/`MonthsArg`; funkcje na żywo ze `station`/`station_code`, `find_stations`, `fetch_meteo_current`, `fetch_hydro_states`.
-- **Fale 12–13 (U05–U08):** jedna gramatyka slotów, `select_series`, `summarize_series`, `download_archives`, PMAXTP z `method="POT"`, `export_archive`/`export_series` (plik albo strumień linii), katalog 35 komend z `command_schema` i stronicowaniem.
-- **Fale 14–15 (U09–U12):** CLI i REST generowane z katalogu (koperta na stdout, JSON błędu na stderr, kody wyjścia, problem+json, `?check=true`), projekt w konwencjach ADR-002, web wyłącznie na publicznym API.
-- **Fala 16 (U13–U14):** usunięcie starych builderów URL, `core/` i tras legacy; `imgwtools.__all__` zgodne z §13.12; kontrakt międzyinterfejsowy Python = CLI = REST (`tests/contract/test_interface_contract.py`).
-- **C01 (ADR-003, przed tagiem):** otwarte dziedziny kontraktów `/1` (klucz zbioru, kraj, dostawca, licencja, kod WIGOS, `location_source`), `content_sha256`/`content_form`, rejestr obserwacji `imgw-observation/1`.
-- **Fala 17 (U15):** dokumentacja wydania (CHANGELOG z tabelami migracji §13.11, README, CLAUDE.md, ARCHITECTURE, standardy); przykłady README uruchomione raz (Python i CLI na żywo na świeżym magazynie, odczyt na `build_fixture_store`, REST przez `imgw server`); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy).
-- **Fala 17 (U16) — bramka końcowa i regresja na żywo:** nowy `tests/live/test_interfaces_live.py` (pomijany bez `IMGW_LIVE=1`, raport JSON przez `IMGW_LIVE_REPORT`). Przebieg 2026-10-18T21:09:34Z (178,4 s, świeży magazyn w tmpfs, `imgw server` na localhost, żądania sekwencyjne): **42 passed** — każda z 35 komend przez Python, zainstalowany `imgw` i REST zgodna (status, klucze, sloty, ścieżki, strumienie bajt w bajt, drzewa magazynu; komendy lokalne w REST → 404 `not_found`), 6 błędów na żywo zgodnych (`validation_error` 2/400, `not_found` 3/404, `store_unavailable` 8/503). Naprawa z przebiegu: względne ścieżki przypięć projektu w JSON koperty nie zależą już od katalogu roboczego (`_jsonable`). Przebiegi przerwane awarią po stronie IMGW zgłaszały ją jednakowo (`source_unavailable`, exit 5 / HTTP 502); test powtarza taki przebieg po 20 s i 60 s. Bramka: `pytest` 1377 passed, 42 skipped (live); `ruff check` i `ruff format --check` czysto; `pyright` 0 błędów. Razem 1419 testów (`pytest --collect-only`).
+- **Waves 10–11 (U01–U04):** `ERROR_CODES` error code registry (`code`, `details`, `IMGWCancelledError`), `CommandResult`/`Page` envelope types and a single JSON converter; registry of 13 datasets with aliases and `YearsArg`/`MonthsArg`; live functions with `station`/`station_code`, `find_stations`, `fetch_meteo_current`, `fetch_hydro_states`.
+- **Waves 12–13 (U05–U08):** one slot grammar, `select_series`, `summarize_series`, `download_archives`, PMAXTP with `method="POT"`, `export_archive`/`export_series` (file or line stream), catalog of 35 commands with `command_schema` and pagination.
+- **Waves 14–15 (U09–U12):** CLI and REST generated from the catalog (envelope on stdout, error JSON on stderr, exit codes, problem+json, `?check=true`), project following the ADR-002 conventions, web only on the public API.
+- **Wave 16 (U13–U14):** removal of the old URL builders, `core/` and legacy routes; `imgwtools.__all__` consistent with §13.12; cross-interface contract Python = CLI = REST (`tests/contract/test_interface_contract.py`).
+- **C01 (ADR-003, before the tag):** open domains of the `/1` contracts (dataset key, country, provider, license, WIGOS code, `location_source`), `content_sha256`/`content_form`, `imgw-observation/1` observation registry.
+- **Wave 17 (U15):** release documentation (CHANGELOG with the §13.11 migration tables, README, CLAUDE.md, ARCHITECTURE, standards); README examples run once (Python and CLI live on a fresh store, reading on `build_fixture_store`, REST via `imgw server`); README and CLAUDE.md command tables consistent with `imgw commands schema` (one-off script).
+- **Wave 17 (U16) — final gate and live regression:** new `tests/live/test_interfaces_live.py` (skipped without `IMGW_LIVE=1`, JSON report via `IMGW_LIVE_REPORT`). Run 2026-10-18T21:09:34Z (178.4 s, fresh store in tmpfs, `imgw server` on localhost, sequential requests): **42 passed** — each of the 35 commands consistent through Python, the installed `imgw` and REST (status, keys, slots, paths, streams byte for byte, store trees; local commands in REST → 404 `not_found`), 6 live errors consistent (`validation_error` 2/400, `not_found` 3/404, `store_unavailable` 8/503). Fix from the run: relative project pin paths in the envelope JSON no longer depend on the working directory (`_jsonable`). Runs interrupted by a failure on the IMGW side reported it identically (`source_unavailable`, exit 5 / HTTP 502); the test repeats such a run after 20 s and 60 s. Gate: `pytest` 1377 passed, 42 skipped (live); `ruff check` and `ruff format --check` clean; `pyright` 0 errors. 1419 tests in total (`pytest --collect-only`).
 
-**ADR-003 — dostawca ČHMÚ** (spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`, plan C01–C10 w §16; decyzją właściciela z 2026-10-19 w wydaniu 3.0.0, errata ADR-003 D16):
+**ADR-003 — ČHMÚ provider** (spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`, plan C01–C10 in §16; by the owner's decision of 2026-10-19 in release 3.0.0, ADR-003 erratum D16):
 
-- **Fala C1 (C02–C03):** rejestr dostawców (`ProviderDescriptor`, `providers`, `get_provider`) i 4 deskryptory `cz.chmi.*`, `archive_files(stations=)`, typy §9.4, `write_archive` z polami dostawcy z rejestru, formą kanoniczną `chmi-json/1` (`content_sha256`), wierszem `content_unchanged` i zapisem obserwacji; parsery ČHMÚ (hydro JSON, meteo CSV, metadane, listing nginx) i syntetyczne pliki z fikcyjnymi kodami WIGOS.
-- **Fala C2 (C04, C06):** aktualność z listingu katalogów (`check_store`/`sync_store` ze `stations`, pola planu `station_code`, `signal`, `remote_listed_at`, `local_observation`, `requests`), `download_archives` z `not_published`, nagrania `chmi_recordings.json`; katalog stacji ČHMÚ (`stations/versions/chmi_stations/`, progi SPA, obrys Czech), czytniki per dostawca (`iter_store`, `read_catalog`, `read_station_list`, `store_info().providers`).
-- **Fala C3 (C05, C07):** szeregi ČHMÚ z okresami znanymi per stacja (`stations[<kod>].periods`, `summarize_coverage(station_periods=)`), kolumny jakości i flag w Parquet, CSV i JSONL, atrybucja dostawcy w eksportach; katalog 36 komend (`datasets providers`, opcje `provider` i `stations`, `data_commands(provider=)`), `find_stations` dla ČHMÚ, tytuł „Źródło danych niedostępne”, web wyłącznie IMGW-PIB.
-- **Fala C4 (C08):** projekty z zadaniami ČHMÚ i odtwarzaniem treścią (`restored_by_content`, `content_match`, `pin_restored_by_content`, `get_project_status(on_notice=)`), magazyn testowy `build_fixture_store(variant="complete_pl_cz")`.
-- **Fala C5 (C09):** kontrakt IMGW-15..19 `tests/contract/test_chmi_contract.py` (68 testów, parytet Python/CLI/REST/MCP) i test na żywo `tests/live/test_chmi_live.py` — przebieg 2026-10-19: 26 passed w 77 s, 124 żądania, 31,5 MB (stacje `0-203-1-001000`, 2024–2026 z nieopublikowanym 2026, i `0-203-0-11799`); naprawa z przebiegu: `details.value` w `series select` jako lista. Pełna bramka (obejmuje A01–A05): `pytest` 2129 passed, 79 skipped (live); `ruff check` i `ruff format --check` czysto; `pyright` 0 błędów. Regresja IMGW-PIB na żywo (`tests/live/test_interfaces_live.py`, 37 komend i noga MCP): 53 passed w 103 s.
+- **Wave C1 (C02–C03):** provider registry (`ProviderDescriptor`, `providers`, `get_provider`) and 4 `cz.chmi.*` descriptors, `archive_files(stations=)`, §9.4 types, `write_archive` with provider fields from the registry, the canonical form `chmi-json/1` (`content_sha256`), a `content_unchanged` row and observation recording; ČHMÚ parsers (hydro JSON, meteo CSV, metadata, nginx listing) and synthetic files with fictitious WIGOS codes.
+- **Wave C2 (C04, C06):** freshness from the directory listing (`check_store`/`sync_store` with `stations`, plan fields `station_code`, `signal`, `remote_listed_at`, `local_observation`, `requests`), `download_archives` with `not_published`, `chmi_recordings.json` recordings; ČHMÚ station catalog (`stations/versions/chmi_stations/`, SPA thresholds, outline of Czechia), per-provider readers (`iter_store`, `read_catalog`, `read_station_list`, `store_info().providers`).
+- **Wave C3 (C05, C07):** ČHMÚ series with periods known per station (`stations[<code>].periods`, `summarize_coverage(station_periods=)`), quality and flag columns in Parquet, CSV and JSONL, provider attribution in exports; catalog of 36 commands (`datasets providers`, the `provider` and `stations` options, `data_commands(provider=)`), `find_stations` for ČHMÚ, the title "Źródło danych niedostępne" ("Data source unavailable"), web IMGW-PIB only.
+- **Wave C4 (C08):** projects with ČHMÚ tasks and restoring by content (`restored_by_content`, `content_match`, `pin_restored_by_content`, `get_project_status(on_notice=)`), test store `build_fixture_store(variant="complete_pl_cz")`.
+- **Wave C5 (C09):** IMGW-15..19 contract `tests/contract/test_chmi_contract.py` (68 tests, Python/CLI/REST/MCP parity) and live test `tests/live/test_chmi_live.py` — run 2026-10-19: 26 passed in 77 s, 124 requests, 31.5 MB (stations `0-203-1-001000`, 2024–2026 with an unpublished 2026, and `0-203-0-11799`); fix from the run: `details.value` in `series select` as a list. Full gate (covers A01–A05): `pytest` 2129 passed, 79 skipped (live); `ruff check` and `ruff format --check` clean; `pyright` 0 errors. Live IMGW-PIB regression (`tests/live/test_interfaces_live.py`, 37 commands and the MCP leg): 53 passed in 103 s.
 
-**ADR-004 — wsparcie agentów AI** (spec `docs/superpowers/specs/2026-10-19-agent-support-design.md`, plan A01–A06 w §11):
+**ADR-004 — AI agent support** (spec `docs/superpowers/specs/2026-10-19-agent-support-design.md`, plan A01–A06 in §11):
 
-- **Fala C4 + A1 (A01):** opisy angielskie katalogu, grup, błędów i zbiorów (`help_en`, `description_en`, `rules_en`, `title_en`), `command_schema(lang=)`, `IMGW_LANG` w CLI (także elementy Typer/Click), `Accept-Language` w REST, metadane skutków (`writes`, `network`, `operation_id`, `env_root_when`).
-- **Fala A2 (A02, A03):** `agent_guide`, komenda `commands guide` (37.), pliki pochodne `AGENTS.md` i `llms.txt` z testem dryfu; adapter MCP `src/imgwtools/mcp/` (dodatek `imgwtools[mcp]`, tryby `read`/`write`/`http`).
-- **Fala A3 (A04, A05):** porządek komunikatów legacy (pomoc `imgw admin`, `version`, `server`, opisy pól OpenAPI, `reference_data`, strony HTML poza OpenAPI; ponowny skan dopisał pozycje 34–37 spec §7.2 i uzupełnienia §7.3 — errata A04); `imgw mcp`, `/mcp` (`IMGW_MCP_ENABLED`, `IMGW_MCP_ALLOWED_HOSTS`), `GET /llms.txt`, obraz Dockera na Pythonie 3.12 z `.[api,mcp]` i `location = /mcp` w nginx (obraz zbudowany i sprawdzony 2026-10-19: `/health`, `/llms.txt`, `initialize` na `/mcp`).
-- **Fala A4 (A06) i C10:** dokumentacja wydania (CHANGELOG, README z sekcjami ČHMÚ i agentów, CLAUDE.md, ARCHITECTURE, standardy, PRD, RULES), erraty ADR-001 i ADR-002 według sekcji „Wpływ” ADR-003 i ADR-004, errata ADR-003 D13, status ADR-004 w indeksie, noty `[ADR-003]`/`[ADR-004]` w spec 2026-10-17 §13 i `[ADR-004]` w spec 2026-10-18 §9.3, „3.1.0” → 3.0.0 w spec ČHMÚ (z kontekstem historycznym); tabele komend README i CLAUDE.md zgodne z `imgw commands schema` (skrypt jednorazowy); przykłady ČHMÚ uruchomione raz offline na `complete_pl_cz` i na żywo (opendata.chmi.cz), przykłady MCP — konfiguracja stdio (także `--allow-writes`, `--lang en`, wariant `uvx`) i `/mcp` przez HTTP — przez klienta SDK, przykład Dockera na obrazie zbudowanym przez `docker compose build`. `AGENTS.md` i `llms.txt` bez regeneracji (teksty katalogu bez zmian); test dryfu i pełny `pytest`: 2129 passed, 79 skipped (live).
+- **Wave C4 + A1 (A01):** English descriptions of the catalog, groups, errors and datasets (`help_en`, `description_en`, `rules_en`, `title_en`), `command_schema(lang=)`, `IMGW_LANG` in the CLI (also Typer/Click elements), `Accept-Language` in REST, side-effect metadata (`writes`, `network`, `operation_id`, `env_root_when`).
+- **Wave A2 (A02, A03):** `agent_guide`, the `commands guide` command (the 37th), derived files `AGENTS.md` and `llms.txt` with a drift test; MCP adapter `src/imgwtools/mcp/` (extra `imgwtools[mcp]`, modes `read`/`write`/`http`).
+- **Wave A3 (A04, A05):** cleanup of legacy messages (help of `imgw admin`, `version`, `server`, OpenAPI field descriptions, `reference_data`, HTML pages outside OpenAPI; a repeated scan added items 34–37 of spec §7.2 and additions to §7.3 — erratum A04); `imgw mcp`, `/mcp` (`IMGW_MCP_ENABLED`, `IMGW_MCP_ALLOWED_HOSTS`), `GET /llms.txt`, Docker image on Python 3.12 with `.[api,mcp]` and `location = /mcp` in nginx (image built and checked 2026-10-19: `/health`, `/llms.txt`, `initialize` on `/mcp`).
+- **Wave A4 (A06) and C10:** release documentation (CHANGELOG, README with ČHMÚ and agent sections, CLAUDE.md, ARCHITECTURE, standards, PRD, RULES), errata to ADR-001 and ADR-002 according to the "Impact" sections of ADR-003 and ADR-004, ADR-003 erratum D13, ADR-004 status in the index, `[ADR-003]`/`[ADR-004]` notes in spec 2026-10-17 §13 and `[ADR-004]` in spec 2026-10-18 §9.3, "3.1.0" → 3.0.0 in the ČHMÚ spec (with historical context); README and CLAUDE.md command tables consistent with `imgw commands schema` (one-off script); ČHMÚ examples run once offline on `complete_pl_cz` and live (opendata.chmi.cz), MCP examples — stdio configuration (also `--allow-writes`, `--lang en`, the `uvx` variant) and `/mcp` over HTTP — via the SDK client, Docker example on an image built with `docker compose build`. `AGENTS.md` and `llms.txt` not regenerated (catalog texts unchanged); drift test and full `pytest`: 2129 passed, 79 skipped (live).
 
-**Poprawki zgodności z Archiwistą przed tagiem** (audyt zgodności 3.0.0 z wymaganiami Archiwisty i przegląd `cb6af4f`, decyzja właściciela 2026-10-19; gałąź `fix/archiwista-compat-2` od `slave`):
+**Compatibility fixes for Archiwista before the tag** (compatibility audit of 3.0.0 against Archiwista's requirements and review of `cb6af4f`, owner's decision 2026-10-19; branch `fix/archiwista-compat-2` from `develop` (then `slave`)):
 
-- **Wycofanie publikacji:** `_publish_dir` po błędzie albo Ctrl+C nie usuwa już dowiązanych plików danych — równoległy zapis tych samych bajtów mógł je przejąć i zatwierdzić swoim sidecarem, a ich usunięcie zostawiało zatwierdzoną wersję bez pliku głównego (`missing_file`, `IMGWDataError` dla slotu); zostaje przerwana publikacja, usuwane są tylko puste katalogi utworzone przez zapis. Regresja `test_failed_commit_keeps_files_a_concurrent_writer_committed` (EIO, Ctrl+C). Errata ADR-001 2026-10-19.
-- **Wymóg dowiązań twardych:** znacznik `imgw-store.json` zostaje przy `os.link`; README, ARCHITECTURE, CHANGELOG i erraty opisują wymóg (FAT/exFAT, część NAS i FUSE, klient SMB macOS → `not_atomic`; ten sam wymóg co magazyn Kartografa, jego ADR-036) i ręczne usuwanie przerwanej publikacji, której nie dokończy ponowienie pod tą samą etykietą (katalog stacji, PMAXTP, archiwum bez `Last-Modified` ponowione innego dnia). CHANGELOG: sekcja `[Unreleased]` włączona do `[3.0.0]`.
-- **B — `meteo_kind`:** katalog IMGW-PIB podaje `climate`/`precipitation` z bieżących szeregów `pl.imgw.meteo_climate_daily`/`pl.imgw.meteo_precip_daily`, `check_catalog` wykrywa zmianę (cherry-pick `e77a6f9` z `fix/archiwista-compat`). Errata ADR-001 2026-10-19.
-- **D — regresja płaskiego pobierania:** dobowe i terminowe `2001_01_k.zip` w osobnych ścieżkach serwera i slotach (cherry-pick `c280088`).
-- Bramka (offline, sieć zablokowana proxy): `pytest` 2134 passed, 79 skipped (live); `ruff check` i `ruff format --check src/ tests/` czysto; `pyright` 0 błędów.
+- **Publication rollback:** after an error or Ctrl+C, `_publish_dir` no longer removes the hard-linked data files — a concurrent write of the same bytes could have taken them over and committed them with its own sidecar, and removing them left a committed version without its main file (`missing_file`, `IMGWDataError` for the slot); the interrupted publication stays, and only empty directories created by the write are removed. Regression `test_failed_commit_keeps_files_a_concurrent_writer_committed` (EIO, Ctrl+C). ADR-001 erratum 2026-10-19.
+- **Hard-link requirement:** the `imgw-store.json` marker stays on `os.link`; README, ARCHITECTURE, CHANGELOG and the errata describe the requirement (FAT/exFAT, some NAS and FUSE, the macOS SMB client → `not_atomic`; the same requirement as Kartograf's store, its ADR-036) and the manual removal of an interrupted publication that a retry under the same label will not complete (station catalog, PMAXTP, an archive without `Last-Modified` retried on another day). CHANGELOG: the `[Unreleased]` section merged into `[3.0.0]`.
+- **B — `meteo_kind`:** the IMGW-PIB catalog gives `climate`/`precipitation` from the current series `pl.imgw.meteo_climate_daily`/`pl.imgw.meteo_precip_daily`, `check_catalog` detects the change (cherry-pick `e77a6f9` from `fix/archiwista-compat`). ADR-001 erratum 2026-10-19.
+- **D — flat download regression:** daily and sub-daily `2001_01_k.zip` in separate server paths and slots (cherry-pick `c280088`).
+- Gate (offline, network blocked by a proxy): `pytest` 2134 passed, 79 skipped (live); `ruff check` and `ruff format --check src/ tests/` clean; `pyright` 0 errors.
 
-## v2.2.0 — szczegóły wydania (2026-08-22)
+## v2.2.0 — release details (2026-08-22)
 
-Wydanie minor — 20 commitów na gałęzi `slave` ponad v2.1.1, w tym zmiany łamiące kompatybilność (usunięcie legacy modułów spatial, api i datastore).
+Minor release — 20 commits on the `develop` branch on top of v2.1.1, including breaking changes (removal of the legacy spatial, api and datastore modules).
 
-- **Licencja:** poprawiony rok w `LICENSE`; metadane licencji zgodne z PEP 639 w `pyproject.toml` (`license = "MIT"`, `license-files`).
-- **Proces CLA:** ręczny proces CLA — `docs/CLA.md`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`, szablon PR.
-- **Dane referencyjne IMGW-PIB:** dane IMGW usunięte z repozytorium (`36ea672`); nowy moduł `src/imgwtools/reference_data.py` do pobierania ich na żądanie (`python -m imgwtools.reference_data`); `data/shp` wyłączone spod śledzenia i zignorowane.
-- **README:** nowa sekcja o źródłach danych i atrybucji.
-- **Parsery:** notatki dokumentacyjne o przetwarzaniu ekstremów w `parse_semi_annual_csv`.
-- **Testy:** fikcyjna stacja testowa „San Escobar" (123456789) zamiast realnych danych IMGW w fixturach.
-- **Breaking: usunięcie `core/imgw_spatial.py`** — legacy moduł (martwe importy, błędy pyright) usunięty; extras `[spatial]` przemianowane na `[pandas]` (zależności `pyproj`/`pyshp` porzucone). Osoby instalujące `imgwtools[spatial]` lub importujące `StationMap` muszą zaktualizować kod — funkcjonalność nie ma bezpośredniego zamiennika w tym wydaniu.
-- **Breaking: usunięcie `core/imgw_api.py` i `core/imgw_datastore.py`** — klasy oznaczone jako DEPRECATED od 2.0.0 (`HYDRO`, `SYNOP`, `METEO`, `WARNINGS`, `PMAXTPAPI`, `DataDownloader`) usunięte; zamienniki w publicznym API: `fetch_hydro_current`, `fetch_synop`, `fetch_warnings`, `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data`. W `core/` pozostał wyłącznie `url_builder.py`.
-- **Dokumentacja i styl kodu (2026-08-22):** `ruff format` przebiegł na całym repozytorium (19 plików); wszystkie docstringi w `src/` przepisane na konwencję NumPy, a reguły `D` (pydocstyle, `convention = "numpy"`, bez `D401`) włączone w `pyproject.toml` jako stała bramka lintu (`tests/**` zwolnione). Skorygowano `docs/DEVELOPMENT_STANDARDS.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `CLAUDE.md` i `README.md` do stanu faktycznego kodu. Weryfikacja: **109 passed**, `ruff check` czysto, `ruff format --check` czysto, `pyright` 0 błędów, pokrycie **23%** (`pytest --cov=imgwtools`).
+- **License:** corrected year in `LICENSE`; license metadata compliant with PEP 639 in `pyproject.toml` (`license = "MIT"`, `license-files`).
+- **CLA process:** manual CLA process — `docs/CLA.md`, `CONTRIBUTING.md`, `CONTRIBUTORS.md`, PR template.
+- **IMGW-PIB reference data:** IMGW data removed from the repository (`36ea672`); new module `src/imgwtools/reference_data.py` for downloading it on demand (`python -m imgwtools.reference_data`); `data/shp` untracked and ignored.
+- **README:** new section on data sources and attribution.
+- **Parsers:** documentation notes on extreme-value processing in `parse_semi_annual_csv`.
+- **Tests:** fictitious test station "San Escobar" (123456789) instead of real IMGW data in fixtures.
+- **Breaking: removal of `core/imgw_spatial.py`** — the legacy module (dead imports, pyright errors) removed; extras `[spatial]` renamed to `[pandas]` (`pyproj`/`pyshp` dependencies dropped). Anyone installing `imgwtools[spatial]` or importing `StationMap` must update their code — the functionality has no direct replacement in this release.
+- **Breaking: removal of `core/imgw_api.py` and `core/imgw_datastore.py`** — classes marked DEPRECATED since 2.0.0 (`HYDRO`, `SYNOP`, `METEO`, `WARNINGS`, `PMAXTPAPI`, `DataDownloader`) removed; replacements in the public API: `fetch_hydro_current`, `fetch_synop`, `fetch_warnings`, `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data`. Only `url_builder.py` remained in `core/`.
+- **Documentation and code style (2026-08-22):** `ruff format` ran over the whole repository (19 files); all docstrings in `src/` rewritten to the NumPy convention, and the `D` rules (pydocstyle, `convention = "numpy"`, without `D401`) enabled in `pyproject.toml` as a permanent lint gate (`tests/**` exempt). `docs/DEVELOPMENT_STANDARDS.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `CLAUDE.md` and `README.md` corrected to the actual state of the code. Verification: **109 passed**, `ruff check` clean, `ruff format --check` clean, `pyright` 0 errors, coverage **23%** (`pytest --cov=imgwtools`).
 
-**Stan końcowy v2.2.0:** 109 passed, `ruff check` czysto, `pyright` 0 błędów (weryfikacja jak dla v2.1.1 poniżej).
+**Final state of v2.2.0:** 109 passed, `ruff check` clean, `pyright` 0 errors (verification as for v2.1.1 below).
 
-**Status:** przygotowane na gałęzi `slave`, commit `release: v2.2.0`; oczekuje scalenia do `master` (bez tagowania/publikacji na tym etapie).
+**Status:** prepared on the `develop` branch, commit `release: v2.2.0`; awaiting merge into `main` (then `master`) (no tagging/publishing at this stage).
 
-## v2.1.1 — szczegóły wydania (2026-07-06)
+## v2.1.1 — release details (2026-07-06)
 
-### 🐛 Bugfix: obsługa niespójnych formatów archiwów IMGW w parserach (2026-07-05)
+### 🐛 Bugfix: handling inconsistent IMGW archive formats in the parsers (2026-07-05)
 
-Archiwalne pliki CSV IMGW (`dane_hydrologiczne`) różnią się formatem między rocznikami w **trzech** aspektach. Parsery w `src/imgwtools/db/parsers.py` zakładały jeden format (średnik + CP1250), przez co większość roczników nie parsowała się wcale. Wszystkie trzy problemy naprawione:
+IMGW archival CSV files (`dane_hydrologiczne`) differ in format between years in **three** respects. The parsers in `src/imgwtools/db/parsers.py` assumed a single format (semicolon + CP1250), so most years did not parse at all. All three problems fixed:
 
-1. **Separator** — większość roczników używa przecinka z cudzysłowami, część (np. 2023) średnika; niektóre pliki mają dodatkowy wiersz nagłówka z kodami kolumn. Zahardkodowany `delimiter=";"` powodował, że `parse_zip_file` **po cichu zwracał 0 rekordów** dla roczników przecinkowych. → helper `_detect_delimiter()` (per plik, z pierwszej niepustej linii; remis → średnik).
-2. **Kodowanie** — standardem jest CP1250, ale `codz_2023.zip` (dobowe, plik roczny) jest w **UTF-8 z BOM**; parser rzucał `UnicodeDecodeError`. → helper `_decode_content()` (BOM → `utf-8-sig`; potem próba żądanego kodowania z fallbackiem UTF-8).
-3. **Cudzysłowy** — w plikach dobowych i miesięcznych **2024** każda linia jest opakowana w zewnętrzny cudzysłów z podwojonymi cudzysłowami wewnątrz (`"149180020,CHAŁUPKI,...,""2024"",..."`), więc `csv.reader` widział jedno pole i parser po cichu zwracał 0 rekordów. → helper `_iter_rows()` (wiersz jednopolowy zawierający separator jest parsowany ponownie).
+1. **Delimiter** — most years use a comma with quotes, some (e.g. 2023) a semicolon; some files have an extra header row with column codes. The hardcoded `delimiter=";"` caused `parse_zip_file` to **silently return 0 records** for comma years. → helper `_detect_delimiter()` (per file, from the first non-empty line; tie → semicolon).
+2. **Encoding** — CP1250 is the standard, but `codz_2023.zip` (daily, annual file) is in **UTF-8 with BOM**; the parser raised `UnicodeDecodeError`. → helper `_decode_content()` (BOM → `utf-8-sig`; then the requested encoding is tried with a UTF-8 fallback).
+3. **Quotes** — in the **2024** daily and monthly files every line is wrapped in an outer quote with doubled quotes inside (`"149180020,CHAŁUPKI,...,""2024"",..."`), so `csv.reader` saw a single field and the parser silently returned 0 records. → helper `_iter_rows()` (a single-field row containing the delimiter is parsed again).
 
-Wiodąca spacja w kodzie stacji i wiersz nagłówka są obsługiwane przez istniejące zabezpieczenia (`_safe_int`, `.strip().strip('"')`).
+A leading space in the station code and the header row are handled by the existing safeguards (`_safe_int`, `.strip().strip('"')`).
 
-**Testy:** `tests/unit/test_parsers.py` — 28 testów (separator, kodowanie, cudzysłowy, end-to-end przez `parse_zip_file`). Po tej poprawce pakiet liczył 103 testy; docelowo dla całego wydania v2.1.1 jest ich **109** (patrz poprawka URL-i meteo niżej). `ruff check src/ tests/` i `ruff format --check` (wówczas tylko dla zmienionych plików — od 2026-08-22 formatowanie obejmuje całe repozytorium) — czysto; przy okazji naprawiono 13 zastanych błędów lint w starych plikach testowych (nieużywane importy, sortowanie importów).
+**Tests:** `tests/unit/test_parsers.py` — 28 tests (delimiter, encoding, quotes, end-to-end via `parse_zip_file`). After this fix the suite had 103 tests; the final count for the whole v2.1.1 release is **109** (see the meteo URL fix below). `ruff check src/ tests/` and `ruff format --check` (then only for changed files — since 2026-08-22 formatting covers the whole repository) — clean; along the way 13 pre-existing lint errors in old test files were fixed (unused imports, import sorting).
 
-**Weryfikacja na danych rzeczywistych (2026-07-05, liczby rekordów):**
+**Verification on real data (2026-07-05, record counts):**
 
-| Plik | Format | Przed (2.1.0) | Po poprawce |
+| File | Format | Before (2.1.0) | After the fix |
 |------|--------|---------------|-------------|
-| polr_Q_2020 | przecinek, CP1250 | 0 | 6007 |
-| polr_Q_2023 | średnik, CP1250 | 6014 | 6014 |
-| polr_Q_2024 | przecinek, CP1250, nagłówek | 0 | 6198 |
-| mies_2019–2022 | przecinek, CP1250 | 0 | 29 802 – 30 171/rok |
-| mies_2023 | średnik, CP1250 | 29 805 | 29 805 |
-| mies_2024 | przecinek, CP1250, **linie w cudzysłowach** | 0 | 32 408 |
-| codz_2020_01, codz_2022_06 | przecinek, CP1250 | 0 | 24 913 / 24 881 |
-| codz_2023 | średnik, **UTF-8 z BOM** | `UnicodeDecodeError` | 301 994 |
-| codz_2024 | przecinek, CP1250, **linie w cudzysłowach** | 0 | 326 845 |
+| polr_Q_2020 | comma, CP1250 | 0 | 6007 |
+| polr_Q_2023 | semicolon, CP1250 | 6014 | 6014 |
+| polr_Q_2024 | comma, CP1250, header | 0 | 6198 |
+| mies_2019–2022 | comma, CP1250 | 0 | 29,802 – 30,171/year |
+| mies_2023 | semicolon, CP1250 | 29,805 | 29,805 |
+| mies_2024 | comma, CP1250, **quoted lines** | 0 | 32,408 |
+| codz_2020_01, codz_2022_06 | comma, CP1250 | 0 | 24,913 / 24,881 |
+| codz_2023 | semicolon, **UTF-8 with BOM** | `UnicodeDecodeError` | 301,994 |
+| codz_2024 | comma, CP1250, **quoted lines** | 0 | 326,845 |
 
-**Pozostałe zmiany w ramach przygotowania wydania:**
-- wersja podbita do **2.1.1** (`_version.py`, `pyproject.toml`); zaktualizowano `CLAUDE.md` (wersja, testy, notki o formacie CSV) i `README.md` (notka o formacie, liczby testów, pokrycie `db/parsers.py` 78%),
-- `.gitignore`: dodano `.coverage`, `dist/`, `.python-version`, pliki bazy SQLite,
-- naprawiono zastane błędy lint w `tests/` (ruff --fix).
+**Other changes as part of the release preparation:**
+- version bumped to **2.1.1** (`_version.py`, `pyproject.toml`); updated `CLAUDE.md` (version, tests, notes on the CSV format) and `README.md` (format note, test counts, `db/parsers.py` coverage 78%),
+- `.gitignore`: added `.coverage`, `dist/`, `.python-version`, SQLite database files,
+- fixed pre-existing lint errors in `tests/` (ruff --fix).
 
-**Status:** wydane w **v2.1.1** (patch — poprawki błędów, bez zmian publicznego API).
+**Status:** released in **v2.1.1** (patch — bug fixes, no public API changes).
 
-### 🔧 Typowanie: zgodność z Pylance/pyright (2026-07-05)
+### 🔧 Typing: Pylance/pyright compatibility (2026-07-05)
 
-Pylance w VSC zgłaszał błędy w `db/parsers.py` (i szerzej). Weryfikacja `pyright` (silnik Pylance) na venv projektu potwierdziła: **136 błędów** w `src/`. Po poprawkach: **0 błędów**.
+Pylance in VSC reported errors in `db/parsers.py` (and more broadly). A `pyright` check (the Pylance engine) on the project venv confirmed: **136 errors** in `src/`. After the fixes: **0 errors**.
 
-- **`Field(None, ...)` → `Field(default=None, ...)`** w 46 polach modeli pydantic (`models.py`, `db/models.py`, `api/schemas.py`, `stations.py`). Pyright nie rozpoznaje pozycyjnego defaultu przy przeciążeniach `Field` w pydantic 2.12 — pola opcjonalne wyglądały na wymagane (błędy „Arguments missing for parameters latitude, longitude"). Zmiana bez wpływu na runtime.
-- **`db/parsers.py`**: jawne zawężanie typów — `not isinstance(content, str)` (obsługuje też bytearray/memoryview lepiej niż stary wariant), warunki `or` zamiast `all([...])` (pyright nie zawęża przez `all`). Usunięte błędy `int | None` i `memoryview.lstrip`.
-- **`db/__init__.py`**: importy pod `TYPE_CHECKING` dla nazw ładowanych leniwie przez `__getattr__` — Pylance widzi symbole i podpowiada, runtime bez zmian (lazy loading zachowany).
-- **`cli/db.py`**: zawężanie `isinstance` w gałęziach wyświetlania rekordów; **`api/routes/hydro.py`**: adnotacja `list[HydroDailyDataPoint | HydroMonthlyDataPoint]` dla `data_points` (inwariancja list).
-- **`pyproject.toml`**: nowa sekcja `[tool.pyright]` (venvPath/venv + ignore dla legacy core); **`.vscode/settings.json`** (lokalna konfiguracja, nieśledzona w repo) ze wskazaniem interpretera `.venv` (bez niego Pylance analizuje pakiet ze starego globalnego pyenv 2.0.1).
+- **`Field(None, ...)` → `Field(default=None, ...)`** in 46 pydantic model fields (`models.py`, `db/models.py`, `api/schemas.py`, `stations.py`). Pyright does not recognize a positional default with the `Field` overloads in pydantic 2.12 — optional fields looked required (errors "Arguments missing for parameters latitude, longitude"). Change with no runtime impact.
+- **`db/parsers.py`**: explicit type narrowing — `not isinstance(content, str)` (also handles bytearray/memoryview better than the old variant), `or` conditions instead of `all([...])` (pyright does not narrow through `all`). Removed the `int | None` and `memoryview.lstrip` errors.
+- **`db/__init__.py`**: imports under `TYPE_CHECKING` for names loaded lazily via `__getattr__` — Pylance sees the symbols and offers completions, runtime unchanged (lazy loading preserved).
+- **`cli/db.py`**: `isinstance` narrowing in the record display branches; **`api/routes/hydro.py`**: annotation `list[HydroDailyDataPoint | HydroMonthlyDataPoint]` for `data_points` (list invariance).
+- **`pyproject.toml`**: new `[tool.pyright]` section (venvPath/venv + ignore for the legacy core); **`.vscode/settings.json`** (local configuration, not tracked in the repo) pointing to the `.venv` interpreter (without it Pylance analyzes the package from the old global pyenv 2.0.1).
 
-**Zrealizowane 2026-08-22 (v2.2.0):** legacy moduły `core/imgw_spatial.py`, `core/imgw_api.py` (DEPRECATED od 2.0.0) i `core/imgw_datastore.py` (martwy import `wget`) zostały usunięte; `[tool.pyright].ignore` nie jest już potrzebne. W `core/` pozostał wyłącznie `url_builder.py`.
+**Done 2026-08-22 (v2.2.0):** the legacy modules `core/imgw_spatial.py`, `core/imgw_api.py` (DEPRECATED since 2.0.0) and `core/imgw_datastore.py` (dead `wget` import) were removed; `[tool.pyright].ignore` is no longer needed. Only `url_builder.py` remained in `core/`.
 
-### 🐛 Bugfix: URL-e meteo niezgodne z rzeczywistą strukturą serwera IMGW (2026-07-05)
+### 🐛 Bugfix: meteo URLs inconsistent with the actual IMGW server structure (2026-07-05)
 
-Weryfikacja funkcjonalna GUI (serwer uruchomiony lokalnie, wszystkie trasy + formularze + statyki) wykazała, że strony, mapa, lista stacji i PMAXTP działają, ale **`build_meteo_url` generował martwe linki (404)** — struktura plików meteo na serwerze IMGW różni się od opisanej w dokumentacji. Zweryfikowano listingi katalogów na żywo:
+Functional GUI verification (server run locally, all routes + forms + static files) showed that the pages, map, station list and PMAXTP work, but **`build_meteo_url` generated dead links (404)** — the structure of meteo files on the IMGW server differs from the one described in the documentation. Directory listings were verified live:
 
-| Interwał | Podtyp | Rzeczywiste pliki | Poprzednio generowane |
+| Interval | Subtype | Actual files | Previously generated |
 |---|---|---|---|
-| miesieczne (k/o/s) | ≤2000 | **jeden plik na folder 5-letni** `{folder}_m_{x}.zip` | `{rok}_{x}.zip` → 404 |
-| dobowe/terminowe | klimat, opad | `{rok}_{x}.zip` (≤2000), `{rok}_{mm}_{x}.zip` (2001+) | ✓ poprawne |
-| dobowe/terminowe | synop | **pliki per stacja** `{folder}_{kod}_s.zip` | `{rok}_{mm}_s.zip` → 404 |
-| terminowe | opad | **zbiór nie istnieje** | `{rok}_{mm}_o.zip` → 404 |
+| miesieczne (k/o/s) | ≤2000 | **one file per 5-year folder** `{folder}_m_{x}.zip` | `{year}_{x}.zip` → 404 |
+| dobowe/terminowe | climate, precipitation | `{year}_{x}.zip` (≤2000), `{year}_{mm}_{x}.zip` (2001+) | ✓ correct |
+| dobowe/terminowe | synop | **per-station files** `{folder}_{code}_s.zip` | `{year}_{mm}_s.zip` → 404 |
+| terminowe | precipitation | **dataset does not exist** | `{year}_{mm}_o.zip` → 404 |
 
-Dodatkowo siatki folderów 5-letnich różnią się na starcie per podtyp: klimat `1951_1955`, opad `1950_1955`, synop `1960_1965` (folder 6-letni).
+Additionally, the 5-year folder grids start differently per subtype: climate `1951_1955`, precipitation `1950_1955`, synop `1960_1965` (a 6-year folder).
 
-**Poprawka (`core/url_builder.py`):**
-- `_get_meteo_folder(year, subtype)` — siatka folderów zależna od podtypu,
-- miesieczne: nazwa pliku `{folder}_m_{x}.zip` (obejmuje oba okresy),
-- synop dobowe/terminowe, terminowe opad, synop <1960 → czytelny `ValueError` zamiast martwego linku (GUI pokazuje komunikat w liście błędów),
-- GUI (`web/app.py`): deduplikacja linków (lata ≤2000 mapują się na wspólny plik 5-letni).
+**Fix (`core/url_builder.py`):**
+- `_get_meteo_folder(year, subtype)` — folder grid dependent on the subtype,
+- miesieczne: file name `{folder}_m_{x}.zip` (covers both periods),
+- synop dobowe/terminowe, terminowe precipitation, synop <1960 → a readable `ValueError` instead of a dead link (the GUI shows the message in the error list),
+- GUI (`web/app.py`): link deduplication (years ≤2000 map to a shared 5-year file).
 
-**Weryfikacja:** 6 nowych wzorców URL sprawdzonych HEAD-em na serwerach IMGW — wszystkie **200 OK** (m.in. `1996_2000_m_s.zip`, `1950_1955_m_o.zip`, `1960_1965_m_s.zip`). Formularz GUI: poprawne linki + komunikat błędu dla synop dobowych. Testy: `test_urls.py` 22→28 (**pełny pakiet: 109 passed**). Zaktualizowano opisy struktury meteo w README.md i CLAUDE.md.
+**Verification:** 6 new URL patterns checked with HEAD on the IMGW servers — all **200 OK** (incl. `1996_2000_m_s.zip`, `1950_1955_m_o.zip`, `1960_1965_m_s.zip`). GUI form: correct links + error message for daily synop. Tests: `test_urls.py` 22→28 (**full suite: 109 passed**). Updated the meteo structure descriptions in README.md and CLAUDE.md.
 
-### 📚 Audyt dokumentacji przed wydaniem (2026-07-05)
+### 📚 Pre-release documentation audit (2026-07-05)
 
-Pełny przegląd dokumentacji względem kodu (subagent + weryfikacja ręczna). Ujednolicono pod v2.1.1:
-- wersja 2.1.1 wszędzie (usunięto zalegające 2.0.0 w `ARCHITECTURE.md`, 1.0.0 w `PRD.md`),
-- liczba testów **109** i status testów spójne między README/CLAUDE/PRD/DEVELOPMENT_STANDARDS,
-- `ARCHITECTURE.md` — zaktualizowana sekcja parsowania CSV (auto-detekcja separatora/kodowania/cudzysłowów),
-- `README.md` — poprawione źródło danych mapy (`hydro-back.imgw.pl/map/stations/hydrologic`, wcześniej błędnie `danepubliczne.imgw.pl/api/data/hydro`),
-- type checker `mypy` → `pyright` w `DEVELOPMENT_STANDARDS.md` i sekcji „Komendy”; próg pokrycia ujednolicony na 80% (`RULES.md`/`PRD.md`/`DEVELOPMENT_STANDARDS.md`); dodano `test_parsers.py` i gałąź `slave` do odpowiednich list.
+Full review of the documentation against the code (subagent + manual verification). Unified for v2.1.1:
+- version 2.1.1 everywhere (removed the leftover 2.0.0 in `ARCHITECTURE.md`, 1.0.0 in `PRD.md`),
+- test count **109** and test status consistent across README/CLAUDE/PRD/DEVELOPMENT_STANDARDS,
+- `ARCHITECTURE.md` — updated CSV parsing section (auto-detection of delimiter/encoding/quotes),
+- `README.md` — corrected map data source (`hydro-back.imgw.pl/map/stations/hydrologic`, previously wrongly `danepubliczne.imgw.pl/api/data/hydro`),
+- type checker `mypy` → `pyright` in `DEVELOPMENT_STANDARDS.md` and in the "Commands" section; coverage threshold unified at 80% (`RULES.md`/`PRD.md`/`DEVELOPMENT_STANDARDS.md`); added `test_parsers.py` and the `develop` branch to the relevant lists.
 
-**Stan końcowy v2.1.1:** 109 passed, `ruff check` czysto, `pyright` 0 błędów.
+**Final state of v2.1.1:** 109 passed, `ruff check` clean, `pyright` 0 errors.
 
-### 🚀 Finalizacja wydania (2026-07-06)
+### 🚀 Release finalization (2026-07-06)
 
-- Usunięto sekcję `[tool.mypy]` i zależność `mypy>=1.6` z `pyproject.toml` — projekt używa wyłącznie **pyright** (`[tool.pyright]`).
-- Zbudowano świeże artefakty `dist/` dla **2.1.1** (`python -m build`, backend hatchling); usunięto stare koła 2.0.1.
-- Zmiany scalone z gałęzi `slave` do `master`.
+- Removed the `[tool.mypy]` section and the `mypy>=1.6` dependency from `pyproject.toml` — the project uses **pyright** only (`[tool.pyright]`).
+- Built fresh `dist/` artifacts for **2.1.1** (`python -m build`, hatchling backend); removed the old 2.0.1 wheels.
+- Changes merged from the `develop` branch into `main`.
 
 ---
 
 ## Cross-Project Analysis (2026-01-21)
 
-Przeprowadzono analizę integracji 4 repozytoriów: **Hydrograf**, **Hydrolog**, **Kartograf**, **IMGWTools**.
+An integration analysis of 4 repositories was carried out: **Hydrograf**, **Hydrolog**, **Kartograf**, **IMGWTools**.
 
-### Mapa zależności
+### Dependency map
 
 ```
-HYDROGRAF (główna aplikacja)
-    ├── IMGWTools (dane IMGW) ← TEN PROJEKT
-    ├── Kartograf (dane GIS)
-    └── Hydrolog (obliczenia hydrologiczne)
-            ├── IMGWTools (wymagany) ← TEN PROJEKT
-            └── Kartograf (opcjonalny)
+HYDROGRAF (main application)
+    ├── IMGWTools (IMGW data) ← THIS PROJECT
+    ├── Kartograf (GIS data)
+    └── Hydrolog (hydrological calculations)
+            ├── IMGWTools (required) ← THIS PROJECT
+            └── Kartograf (optional)
 ```
 
-### Rola IMGWTools
+### Role of IMGWTools
 
-IMGWTools jest **biblioteką bazową** używaną przez:
-- **Hydrograf** - bezpośrednio (dane IMGW, PMAXTP)
-- **Hydrolog** - jako wymagana zależność (dane opadowe dla obliczeń hydrologicznych)
+IMGWTools is a **base library** used by:
+- **Hydrograf** - directly (IMGW data, PMAXTP)
+- **Hydrolog** - as a required dependency (precipitation data for hydrological calculations)
 
-### Problemy wykryte w IMGWTools
+### Problems found in IMGWTools
 
-| Problem | Status | Priorytet |
+| Problem | Status | Priority |
 |---------|--------|-----------|
-| Python `>=3.11` (inne projekty `>=3.12`) | ✅ Naprawione (v2.1.0) | - |
-| Używa `ruff` (inne używają `black+flake8`) | 🟡 Informacyjnie | NISKI |
-| Używa `hatchling` (inne używają `setuptools`) | 🟡 Informacyjnie | NISKI |
-| Brak DEVELOPMENT_STANDARDS.md | ✅ Naprawione (v2.1.0) | - |
+| Python `>=3.11` (other projects `>=3.12`) | ✅ Fixed (v2.1.0) | - |
+| Uses `ruff` (others use `black+flake8`) | 🟡 Informational | LOW |
+| Uses `hatchling` (others use `setuptools`) | 🟡 Informational | LOW |
+| No DEVELOPMENT_STANDARDS.md | ✅ Fixed (v2.1.0) | - |
 
-### Standardy kodu - porównanie
+### Code standards - comparison
 
-| Aspekt | IMGWTools | Hydrolog | Kartograf | Zgodność |
+| Aspect | IMGWTools | Hydrolog | Kartograf | Compatibility |
 |--------|-----------|----------|-----------|----------|
 | Python | >=3.12 | >=3.12 | >=3.12 | ✅ |
 | Line length | 88 | 88 | 88 | ✅ |
 | Formatter | ruff | black | black | ⚠️ |
 | Build | hatchling | setuptools | setuptools | ⚠️ |
 
-### Rekomendacje
+### Recommendations
 
-1. ~~**[ROZWAŻYĆ]** Podnieść Python do `>=3.12` dla spójności z innymi projektami~~ ✅ Zrobione (v2.1.0)
-2. ~~**[BACKLOG]** Utworzyć DEVELOPMENT_STANDARDS.md (skopiować format z Hydrolog)~~ ✅ Zrobione (v2.1.0)
-3. **[INFO]** Używanie `ruff` zamiast `black+flake8` jest OK (nowoczesne podejście)
+1. ~~**[CONSIDER]** Raise Python to `>=3.12` for consistency with other projects~~ ✅ Done (v2.1.0)
+2. ~~**[BACKLOG]** Create DEVELOPMENT_STANDARDS.md (copy the format from Hydrolog)~~ ✅ Done (v2.1.0)
+3. **[INFO]** Using `ruff` instead of `black+flake8` is OK (modern approach)
 
-### Pełna dokumentacja
+### Full documentation
 
-Szczegółowa analiza cross-project: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
+Detailed cross-project analysis: `Hydrograf/docs/CROSS_PROJECT_ANALYSIS.md`
 
 ---
 
-## Backlog — pozycje zamknięte
+## Backlog — closed items
 
-_Pozycje otwarte backlogu są w [PROGRESS.md](PROGRESS.md), sekcja „Next”. Poniżej zamknięte pozycje przeniesione bez zmian._
+_Open backlog items are in [PROGRESS.md](PROGRESS.md), section "Next". Closed items moved without changes are below._
 
-### Magazyn wersjonowany (po 3.0.0)
+### Versioned store (after 3.0.0)
 
-- [x] T25 — końcowy zestaw kontraktowy (`tests/contract/`): offline state machine HEAD→plan→sync→series→catalog→CSV→projekt→verify/restore, parytet ścieżek/SHA CLI = API (zrobione 2026-10-18).
-- [x] **C01 przed tagiem v3.0.0:** otwarcie dziedzin kontraktów `/1` dla kolejnych dostawców (`dataset`, `country`, `provider`, `license.id`, kod stacji WIGOS, wartości `location_source`), opcjonalne pola treści kanonicznej `content_sha256` i `content_form` w `imgw-meta/1` i w `files[]` `imgw-project/1` oraz rejestr obserwacji `imgw-observation/1` (katalog `observations/` w slocie archiwum, wpisy `kind="observation"` w skanie, wewnętrzna publikacja obserwacji) — bez zmiany zachowania i bajtów IMGW (zrobione 2026-10-18, commit `549795c`; wywołanie zapisu obserwacji w `write_archive` należy do C02).
-- [x] **Dostawca ČHMÚ (Czechy, opendata.chmi.cz)** — ADR-003 i spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10), w wydaniu 3.0.0 (errata D16): `cz.chmi.hydro_daily`, `cz.chmi.meteo_daily`, listy stacji i katalog `cz.chmi.stations` z progami SPA, aktualność z listingu, treść kanoniczna `chmi-json/1` z rejestrem obserwacji, jakość i flagi ČHMÚ w szeregach, odtwarzanie przypięć treścią; kontrakt IMGW-15..19 i test na żywo (zrobione 2026-10-19, C02–C10). Spełnia wymagania Archiwisty IMGW-15..19 (v0.6 „PL + CZ”).
-- [x] **Zapis do magazynu na macOS i Windows** — publikacja wersji według modelu Kartografa (dowiązania twarde, sidecar zatwierdza wersję; ADR-001, errata 2026-10-19) zamiast `renameat2` dostępnego tylko na Linuksie; `fsync` katalogu pomijany na Windows (zrobione 2026-10-19; sprawdzone na Linuksie, Windows zasymulowany odmową `os.open` katalogu).
+- [x] T25 — final contract suite (`tests/contract/`): offline state machine HEAD→plan→sync→series→catalog→CSV→project→verify/restore, CLI = API path/SHA parity (done 2026-10-18).
+- [x] **C01 before the v3.0.0 tag:** opening the domains of the `/1` contracts to further providers (`dataset`, `country`, `provider`, `license.id`, WIGOS station code, `location_source` values), optional canonical-content fields `content_sha256` and `content_form` in `imgw-meta/1` and in `files[]` of `imgw-project/1`, and the `imgw-observation/1` observation registry (`observations/` directory in the archive slot, `kind="observation"` entries in the scan, internal publication of observations) — with no change to IMGW behavior or bytes (done 2026-10-18, commit `549795c`; calling observation recording in `write_archive` belongs to C02).
+- [x] **ČHMÚ provider (Czechia, opendata.chmi.cz)** — ADR-003 and spec `docs/superpowers/specs/2026-10-18-chmi-provider-design.md` (plan C02–C10), in release 3.0.0 (erratum D16): `cz.chmi.hydro_daily`, `cz.chmi.meteo_daily`, station lists and the `cz.chmi.stations` catalog with SPA thresholds, freshness from the listing, canonical content `chmi-json/1` with the observation registry, ČHMÚ quality and flags in series, restoring pins by content; IMGW-15..19 contract and live test (done 2026-10-19, C02–C10). Meets Archiwista's requirements IMGW-15..19 (v0.6 "PL + CZ").
+- [x] **Writing to the store on macOS and Windows** — version publication following Kartograf's model (hard links, the sidecar commits the version; ADR-001, erratum 2026-10-19) instead of `renameat2`, which is available only on Linux; directory `fsync` skipped on Windows (done 2026-10-19; checked on Linux, Windows simulated by refusing `os.open` on a directory).
 
-### Wsparcie agentów AI (po 3.0.0)
+### AI agent support (after 3.0.0)
 
-- [x] **Powierzchnie agentów po angielsku (AGI-9.2, ECO-042, DEV-2.3, AGI-9.1, ADR-006)** — katalog komunikatów `imgwtools.messages` (`Text(en, pl)` pod kluczem `<obszar>.<nazwa>`, `message()`, `Message`, `localize()`, `reason()`; test strażnik `tests/unit/test_messages.py`), `detail` wszystkich wyjątków i błędów pozycji, powiadomienia, linie postępu i planu, CLI (ostatnia linia stderr po angielsku, pomoc i linie wg `IMGW_LANG`), serwer MCP wyłącznie po angielsku (`imgw mcp --lang` usunięte), `command_schema`/`list_commands`/`agent_guide` domyślnie po angielsku, `AGENTS.md` i `llms.txt` po angielsku, REST bez `Accept-Language` po angielsku (`Content-Language`, `Vary`), OpenAPI po angielsku (opisy pól modeli też), tytuły zbiorów i opisy komend, opcji, reguł i grup jako wpisy katalogu z angielskim tekstem głównym (`help_en`, `description_en`, `rules_en`, `title_en` usunięte), strony web GUI w obszarze `web` (GUI zostaje po polsku). Zrobione 2026-10-24 w dziewięciu commitach gałęzi `chore/nogat-2.1`; po ostatnim nie został żaden polski literał poza katalogiem.
+- [x] **Agent surfaces in English (AGI-9.2, ECO-042, DEV-2.3, AGI-9.1, ADR-006)** — message catalog `imgwtools.messages` (`Text(en, pl)` under the key `<area>.<name>`, `message()`, `Message`, `localize()`, `reason()`; guard test `tests/unit/test_messages.py`), `detail` of all exceptions and item errors, notices, progress and plan lines, CLI (last stderr line in English, help and lines per `IMGW_LANG`), MCP server in English only (`imgw mcp --lang` removed), `command_schema`/`list_commands`/`agent_guide` in English by default, `AGENTS.md` and `llms.txt` in English, REST without `Accept-Language` in English (`Content-Language`, `Vary`), OpenAPI in English (model field descriptions too), dataset titles and descriptions of commands, options, rules and groups as catalog entries with English main text (`help_en`, `description_en`, `rules_en`, `title_en` removed), web GUI pages in the `web` area (the GUI stays in Polish). Done 2026-10-24 in nine commits on the `chore/nogat-2.1` branch; after the last one no Polish literal remained outside the catalog.
 
-### Zapis danych (po 3.0.0)
+### Data output (after 3.0.0)
 
-- [x] **Konwencja zapisu danych (ECO-051, DEV §19, ADR-007)** — gałąź `feature/data-output` (commity od `1dc2b61`; bez pushu, tagu i merge): trzy cele zapisu o jednej nazwie w bibliotece, CLI, MCP i przewodniku (`output_dir`/`--output-dir`/`-o` zwykłe pliki, `root`/`--root` magazyn, `output`/`--output` jeden plik eksportu, `--force`), domyślny magazyn `<data_dir>/imgw` i `IMGW_ROOT` zamiast `IMGW_STORE_ROOT`, tryb plain `datasets download`, `store sync`, `pmaxtp sync` i eksportów (preflight z `details.paths`, staging `.imgw-incoming/`, `os.replace`, `--force`, `--check` z `write|replace|conflict`, `files[]` ze strumieniowym SHA-256), znacznik `imgw-store.json` z `tool`, `created_at` i `producer_version` tworzony przez pierwszy zapis, zagnieżdżone magazyny po nazwach znaczników, statusy `new`/`unchanged`, `imgw mcp --allow-dir`; testy: odmowy REST i MCP (DEV-19.3), rdzeń sidecara (DEV-19.16), kontrakt znacznika (DEV-19.12), SIGINT i SIGTERM przez prawdziwe komendy (DEV-19.7); smoke `store sync` w domyślnym korzeniu bez wcześniejszego magazynu (zrobione 2026-10-25).
+- [x] **Data output convention (ECO-051, DEV §19, ADR-007)** — branch `feature/data-output` (commits from `1dc2b61`; no push, tag or merge): three output targets with one name across the library, CLI, MCP and guide (`output_dir`/`--output-dir`/`-o` plain files, `root`/`--root` store, `output`/`--output` a single export file, `--force`), default store `<data_dir>/imgw` and `IMGW_ROOT` instead of `IMGW_STORE_ROOT`, plain mode of `datasets download`, `store sync`, `pmaxtp sync` and exports (preflight with `details.paths`, staging `.imgw-incoming/`, `os.replace`, `--force`, `--check` with `write|replace|conflict`, `files[]` with streaming SHA-256), the `imgw-store.json` marker with `tool`, `created_at` and `producer_version` created by the first write, nested stores by marker names, statuses `new`/`unchanged`, `imgw mcp --allow-dir`; tests: REST and MCP refusals (DEV-19.3), sidecar core (DEV-19.16), marker contract (DEV-19.12), SIGINT and SIGTERM through real commands (DEV-19.7); smoke `store sync` in the default root without a prior store (done 2026-10-25).
 
-### Infrastruktura i jakość kodu
+### Infrastructure and code quality
 
-- [x] ~~Fallbackowe listy stacji zaszyte w kodzie (`api/routes/hydro.py`, `api/routes/meteo.py`)~~ — trasy usunięte w 3.0.0 (ADR-002); listy stacji daje `find_stations` z CSV IMGW.
+- [x] ~~Fallback station lists hardcoded in the code (`api/routes/hydro.py`, `api/routes/meteo.py`)~~ — routes removed in 3.0.0 (ADR-002); station lists come from `find_stations` using the IMGW CSV.
 
-### Zrobione (archiwum)
+### Done (archive)
 
 - [x] CLI (`imgw` command)
 - [x] REST API (FastAPI)
@@ -253,34 +253,34 @@ _Pozycje otwarte backlogu są w [PROGRESS.md](PROGRESS.md), sekcja „Next”. P
 - [x] Current hydro/meteo/synop data
 - [x] Archive data download
 - [x] Warnings
-- [x] ~~SQLite cache (optional)~~ — usunięty w 3.0.0 (ADR-001 D5), zastąpiony magazynem wersjonowanym
-- [x] Wersjonowany magazyn danych: archiwa 1:1 z sidecarami, plan aktualności, szeregi Parquet, katalog `stations.geojson`, PMAXTP per komórka, eksport CSV, projekty, CLI i REST (v3.0.0)
-- [x] Jeden katalog komend dla Pythona, CLI i REST: koperta `imgw-result/1`, stronicowanie, rejestr kodów błędów, `command_schema`, CLI i REST generowane z katalogu, kontrakt międzyinterfejsowy (ADR-002, v3.0.0)
-- [x] Dostawca ČHMÚ w rejestrze, magazynie, katalogu komend i projektach (ADR-003, v3.0.0)
-- [x] Wsparcie agentów AI: `AGENTS.md`/`llms.txt`, opisy angielskie katalogu, metadane skutków, serwer MCP `imgw mcp` i `/mcp`, porządek komunikatów legacy (ADR-004, v3.0.0)
-- [x] Parsery meteo dobowych `k_d`/`o_d` z flagami braków (v3.0.0)
-- [x] Publiczny budowniczy magazynu testowego `imgwtools.testing` dla Archiwisty i Retmana (v3.0.0)
-- [x] Podniesienie Pythona do `>=3.12` dla spójności z innymi projektami (rekomendacja cross-project, v2.1.0)
-- [x] DEVELOPMENT_STANDARDS.md w formacie z Hydrolog (rekomendacja cross-project, v2.1.0)
+- [x] ~~SQLite cache (optional)~~ — removed in 3.0.0 (ADR-001 D5), replaced by the versioned store
+- [x] Versioned data store: 1:1 archives with sidecars, freshness plan, Parquet series, `stations.geojson` catalog, PMAXTP per cell, CSV export, projects, CLI and REST (v3.0.0)
+- [x] One command catalog for Python, CLI and REST: `imgw-result/1` envelope, pagination, error code registry, `command_schema`, CLI and REST generated from the catalog, cross-interface contract (ADR-002, v3.0.0)
+- [x] ČHMÚ provider in the registry, store, command catalog and projects (ADR-003, v3.0.0)
+- [x] AI agent support: `AGENTS.md`/`llms.txt`, English catalog descriptions, side-effect metadata, MCP server `imgw mcp` and `/mcp`, cleanup of legacy messages (ADR-004, v3.0.0)
+- [x] Daily meteo parsers `k_d`/`o_d` with missing-value flags (v3.0.0)
+- [x] Public test store builder `imgwtools.testing` for Archiwista and Retman (v3.0.0)
+- [x] Raising Python to `>=3.12` for consistency with other projects (cross-project recommendation, v2.1.0)
+- [x] DEVELOPMENT_STANDARDS.md in the Hydrolog format (cross-project recommendation, v2.1.0)
 
 
 ---
 
-## Komendy
+## Commands
 
 ```bash
-# Testy (zawsze przez venv projektu)
+# Tests (always via the project venv)
 .venv/bin/python -m pytest
 .venv/bin/python -m pytest --cov=imgwtools
 
-# Linting i formatowanie
+# Linting and formatting
 .venv/bin/ruff check src/ tests/
 .venv/bin/ruff format --check src/ tests/
 
-# Type checking (config: [tool.pyright] w pyproject.toml)
+# Type checking (config: [tool.pyright] in pyproject.toml)
 npx -y pyright src/imgwtools/
 
-# Przewodnik dla agentów (pliki pochodne; po każdej zmianie katalogu, rejestrów albo szablonów)
+# Agent guide (derived files; after every change to the catalog, registries or templates)
 imgw commands guide --format agents --lang pl --path AGENTS.md
 imgw commands guide --format llms --lang pl --path llms.txt
 ```
@@ -289,7 +289,7 @@ imgw commands guide --format llms --lang pl --path llms.txt
 
 ## Git workflow
 
-- **master** - główna gałąź (stabilna)
-- **slave** - gałąź rozwojowa (v2.2.0)
-- **feature/versioned-store** - magazyn wersjonowany i spójne interfejsy, wydanie 3.0.0
-- **feature/chmi-agents** - dostawca ČHMÚ i wsparcie agentów AI, wydanie 3.0.0
+- **main** - default branch (stable)
+- **develop** - development branch (v2.2.0)
+- **feature/versioned-store** - versioned store and consistent interfaces, release 3.0.0
+- **feature/chmi-agents** - ČHMÚ provider and AI agent support, release 3.0.0
