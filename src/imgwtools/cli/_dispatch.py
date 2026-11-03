@@ -189,6 +189,14 @@ def _silence_stdout() -> None:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
+def _utf8_streams() -> None:
+    """Write stdout and stderr in UTF-8, as `_write_lines` writes the data lines."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
 # --- błędy -----------------------------------------------------------------------------------
 
 
@@ -305,8 +313,14 @@ class ImgwGroup(TyperGroup):
     ``validation_error`` of spec §13.5: stdout stays empty, the last stderr
     line is ``{"code", "detail", "details"}`` with an English ``detail`` and the
     original Click message in ``details.click``, and the exit code is 2. The
-    help elements of Typer and Click are in the CLI language.
+    help elements of Typer and Click are in the CLI language. stdout and stderr
+    are written in UTF-8 whatever the locale (cp1252 and the like on Windows).
     """
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        """Run ``imgw`` with stdout and stderr in UTF-8."""
+        _utf8_streams()
+        return super().main(*args, **kwargs)
 
     def make_context(
         self,

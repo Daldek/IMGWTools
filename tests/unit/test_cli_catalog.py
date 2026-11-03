@@ -382,9 +382,9 @@ def test_cli_help_follows_imgw_lang_en():
     spec = SPECS["store sync"]
 
     printed = run_installed(
-        "store", "sync", "--help", lang="en", capture_output=True, text=True
+        "store", "sync", "--help", lang="en", capture_output=True, encoding="utf-8"
     )
-    listed = run_installed("--help", lang="en", capture_output=True, text=True)
+    listed = run_installed("--help", lang="en", capture_output=True, encoding="utf-8")
 
     assert printed.returncode == 0, printed.stderr
     text = shown(printed.stdout)
@@ -886,6 +886,21 @@ def test_cli_catalog_installed_imgw_prints_the_envelope_of_run_command():
     assert json.loads(result.stdout) == expected.to_json()
 
 
+def test_cli_catalog_installed_imgw_writes_utf8_whatever_the_locale(monkeypatch):
+    # cp1252 is the encoding of a pipe on Windows; it has no "ł", and its "–"
+    # is another byte than in UTF-8.
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    schema = run_installed("commands", "schema", "--lang", "pl", capture_output=True)
+    assert schema.returncode == 0, schema.stderr
+    assert json.loads(schema.stdout.decode("utf-8"))["result"] == json.loads(
+        json.dumps(command_schema(lang="pl"))
+    )
+    refused = run_installed(
+        "pmaxtp", "fetch", "--latitude", "1", "--longitude", "1", capture_output=True
+    )
+    assert "(49.0–55.0)" in refused.stderr.decode("utf-8").splitlines()[-1]
+
+
 def test_cli_catalog_installed_imgw_stream_ends_quietly_when_the_reader_leaves(
     fixture_root,
 ):
@@ -897,7 +912,7 @@ def test_cli_catalog_installed_imgw_stream_ends_quietly_when_the_reader_leaves(
     try:
         result = run_installed(
             "store", "export", "--version", version, stdout=writer,
-            stderr=subprocess.PIPE, text=True,
+            stderr=subprocess.PIPE, encoding="utf-8",
         )  # fmt: skip
     finally:
         os.close(writer)

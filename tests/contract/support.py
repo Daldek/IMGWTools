@@ -518,7 +518,7 @@ def run_imgw(*args: object, check: bool = True) -> subprocess.CompletedProcess[s
     result = subprocess.run(
         [*imgw_executable(), *(str(arg) for arg in args)],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         env=env,
         timeout=120,
         check=False,
