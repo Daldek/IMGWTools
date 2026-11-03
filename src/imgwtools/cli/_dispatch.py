@@ -25,6 +25,7 @@ another value ends every call with ``validation_error`` (spec 2026-10-19
 the envelope of stdout; ``--lang`` of the description commands defaults to English.
 """
 
+import errno
 import inspect
 import json
 import os
@@ -32,7 +33,7 @@ import signal
 import sys
 import threading
 import traceback
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -175,12 +176,27 @@ def _print_notice(level: str, text: str) -> None:
     )
 
 
+def _to_stdout(write: Callable[..., object], *args: object) -> None:
+    """
+    Call a write of stdout; a reader that left (``| head``) is `BrokenPipeError`.
+
+    POSIX reports a write to a pipe whose reading end is closed as EPIPE,
+    Windows as EINVAL (the code its C runtime gives ``ERROR_NO_DATA``).
+    """
+    try:
+        write(*args)
+    except OSError as exc:
+        if os.name == "nt" and exc.errno == errno.EINVAL:
+            raise BrokenPipeError(errno.EPIPE, os.strerror(errno.EPIPE)) from exc
+        raise
+
+
 def _write_lines(lines: Iterator[str]) -> None:
     """Write the data lines of a stream to stdout as UTF-8, line ends unchanged."""
     stream = typer.get_binary_stream("stdout")
     for line in lines:
-        stream.write(line.encode("utf-8"))
-    stream.flush()
+        _to_stdout(stream.write, line.encode("utf-8"))
+    _to_stdout(stream.flush)
 
 
 def _silence_stdout() -> None:
@@ -456,7 +472,7 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
                 _write_lines(outcome.result)
             else:
                 base = root if isinstance(root, Path) else None
-                typer.echo(_json(outcome.to_json(root=base)))
+                _to_stdout(typer.echo, _json(outcome.to_json(root=base)))
         except BrokenPipeError:
             _silence_stdout()
             return 0
