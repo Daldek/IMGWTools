@@ -71,7 +71,7 @@ Full tree with module descriptions: [docs/CODEBASE.md](docs/CODEBASE.md) ("Packa
 | Current state, next steps, open questions | [docs/PROGRESS.md](docs/PROGRESS.md) |
 | Release history, closed backlog, cross-project analysis | [docs/HISTORY.md](docs/HISTORY.md) |
 | What changed in a release, breaking list, migration tables | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
-| Code style, naming, errors, docstrings | [docs/RULES.md](docs/RULES.md), [docs/DEVELOPMENT_STANDARDS.md](docs/DEVELOPMENT_STANDARDS.md) |
+| Code style, naming, errors, docstrings | [docs/RULES.md](docs/RULES.md), the Nogat [development standard](https://github.com/Daldek/Nogat/blob/main/standards/DEVELOPMENT_STANDARDS.md) (standard 1.0) |
 | Contributor licence | [docs/CLA.md](docs/CLA.md) |
 | Obserwator (planned rename of the observer tool) | [docs/OBSERWATOR_SPEC.md](docs/OBSERWATOR_SPEC.md), [docs/OBSERWATOR_RESEARCH.md](docs/OBSERWATOR_RESEARCH.md) |
 | Plans, specs and research behind 3.0.0 | `docs/superpowers/` (plans, specs, research) |
