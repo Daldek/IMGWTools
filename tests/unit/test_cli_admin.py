@@ -1,4 +1,4 @@
-"""``imgw admin``: API key lifecycle against an isolated key file."""
+"""``obserwator admin``: API key lifecycle against an isolated key file."""
 
 import json
 import re
@@ -6,8 +6,8 @@ import re
 import pytest
 from typer.testing import CliRunner
 
-from imgwtools.cli.main import app
-from imgwtools.config import settings
+from obserwator.cli.main import app
+from obserwator.config import settings
 
 RUNNER = CliRunner()
 

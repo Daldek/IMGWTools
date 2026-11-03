@@ -15,34 +15,34 @@ ROOT = Path(__file__).resolve().parents[2]
 # Runs in the fresh venv: the installed wheel, one offline public function.
 _SMOKE = """
 import importlib
-import imgwtools
+import obserwator
 
-assert "site-packages" in imgwtools.__file__, imgwtools.__file__
+assert "site-packages" in obserwator.__file__, obserwator.__file__
 for extra_only in ("typer", "fastapi", "pyarrow", "pandas", "mcp"):
     try:
         importlib.import_module(extra_only)
     except ImportError:
         continue
     raise SystemExit(f"{extra_only} is installed: the venv is not extras-free")
-summary = imgwtools.list_commands(lang="en")
-assert summary["schema"] == "imgw-command-list/1", summary["schema"]
+summary = obserwator.list_commands(lang="en")
+assert summary["schema"] == "obserwator-command-list/1", summary["schema"]
 print("ok")
 """
 
 # A consumer of the library: strict mypy must use the package's own types.
 _CONSUMER = """
-import imgwtools
+import obserwator
 
-summary: dict[str, object] = imgwtools.list_commands(lang="en")
+summary: dict[str, object] = obserwator.list_commands(lang="en")
 print(summary["schema"])
 """
 
 # Same call with a wrong annotation: the error proves mypy read the types
 # (a package without py.typed is Any, and this line would pass).
 _CONSUMER_WRONG = """
-import imgwtools
+import obserwator
 
-summary: int = imgwtools.list_commands(lang="en")
+summary: int = obserwator.list_commands(lang="en")
 """
 
 
@@ -81,7 +81,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> _Installed:
     wheels = work / "wheels"
     venv = work / "venv"
     _uv("build", "--offline", "--wheel", "--out-dir", wheels, ROOT)
-    (wheel,) = wheels.glob("imgwtools-*.whl")
+    (wheel,) = wheels.glob("obserwator-*.whl")
     _uv(
         "sync",
         "--offline",
@@ -104,7 +104,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> _Installed:
 
 @pytest.mark.slow
 def test_wheel_imports_and_runs_without_extras(installed: _Installed) -> None:
-    """``imgwtools`` without an extra is a working library (every import is a core dependency)."""
+    """``obserwator`` without an extra is a working library (every import is a core dependency)."""
     result = subprocess.run(
         [installed.python, "-I", "-c", _SMOKE],
         capture_output=True,
@@ -149,7 +149,7 @@ def _mypy(installed: _Installed, name: str, source: str) -> tuple[int, str]:
 def test_wheel_ships_py_typed(installed: _Installed) -> None:
     """``Typing :: Typed`` (DEV-7.4) needs the PEP 561 marker inside the wheel."""
     with zipfile.ZipFile(installed.wheel) as archive:
-        assert "imgwtools/py.typed" in archive.namelist()
+        assert "obserwator/py.typed" in archive.namelist()
 
 
 @pytest.mark.slow

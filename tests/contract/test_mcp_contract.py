@@ -1,4 +1,4 @@
-"""Contract of the MCP adapter: tools answer like Python and ``imgw`` (spec 2026-10-19 §6, §9).
+"""Contract of the MCP adapter: tools answer like Python and ``obserwator`` (spec 2026-10-19 §6, §9).
 
 Every contract case of ``test_interface_contract.CASES`` (the commands with a REST
 route) runs through the tool of a stdio server in the SDK's in-memory client: the
@@ -25,13 +25,13 @@ import anyio
 from mcp import Client
 from mcp.types import CallToolResult
 
-from imgwtools import (
+from obserwator import (
     ERROR_CODES,
     check_command,
     run_command,
 )
-from imgwtools.mcp._tools import Mode
-from imgwtools.mcp.server import create_server
+from obserwator.mcp._tools import Mode
+from obserwator.mcp.server import create_server
 from tests.contract.support import (
     ANYWHERE,
     H2024,
@@ -74,7 +74,7 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
 
 def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
-    name = command_document(command)["x-imgw"]["operation_id"]
+    name = command_document(command)["x-obserwator"]["operation_id"]
 
     async def answer() -> CallToolResult:
         async with Client(create_server(mode=mode, allow_dirs=ANYWHERE)) as client:
@@ -84,7 +84,7 @@ def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolRes
 
 
 def writing(command: str) -> bool:
-    return bool(command_document(command)["x-imgw"]["writes"] != "none")
+    return bool(command_document(command)["x-obserwator"]["writes"] != "none")
 
 
 def run(command: str, options: dict[str, object]) -> CallToolResult:
@@ -112,7 +112,7 @@ def assert_stream(
     assert answered.is_error is False, mcp_text(answered)
     assert mcp_text(answered) == data
     assert answered.structured_content == {
-        "schema": "imgw-result/1",
+        "schema": "obserwator-result/1",
         "command": command,
         "check": False,
         "status": python.status,

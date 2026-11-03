@@ -1,12 +1,12 @@
-"""Contract: ``imgw`` prints the envelope ``run_command`` returns for every step.
+"""Contract: ``obserwator`` prints the envelope ``run_command`` returns for every step.
 
 A scenario of a store (spec §13.3: store, series, PMAXTP and flat download
 commands) runs twice on identical fresh inputs in the same directory, at a
 frozen clock and against the same recorded IMGW: through ``run_command`` and
-through the ``imgw`` CLI. Every printed line is the ``imgw-result/1`` envelope
+through the ``obserwator`` CLI. Every printed line is the ``obserwator-result/1`` envelope
 ``CommandResult.to_json(root)`` of the same step, the exit code follows its
 status (§13.6), trees and HTTP traffic are identical, and every slot of a result
-names a version ``current_version`` finds (§13.7). The installed ``imgw``
+names a version ``current_version`` finds (§13.7). The installed ``obserwator``
 executable reads offline in its own process like the Python API, and two
 processes building one series publish it once.
 """
@@ -17,13 +17,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from imgwtools import (
+from obserwator import (
     ERROR_CODES,
     command_schema,
     current_version,
     run_command,
 )
-from imgwtools.testing import build_fixture_store
+from obserwator.testing import build_fixture_store
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -38,7 +38,7 @@ from tests.contract.support import (
     cli_words,
     envelope_errors,
     load,
-    run_imgw,
+    run_obserwator,
     schema_errors,
     sha256,
     slots,
@@ -89,7 +89,7 @@ def scenario(work: Path, imgw, run) -> list[dict[str, Any]]:
     return steps
 
 
-def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
+def test_obserwator_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
     tmp_path, cli, imgw, frozen
 ):
     work = tmp_path / "work"
@@ -127,9 +127,9 @@ def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
 
     check, stale, fresh, synced, newer = returned[1:6]
     assert statuses(check) == statuses(fresh) == ["missing"]
-    # The plan file is the plan of the envelope (one imgw-plan/1 document).
+    # The plan file is the plan of the envelope (one obserwator-plan/1 document).
     assert load(work / "fresh.json") == fresh["result"]
-    assert schema_errors(fresh["result"], "imgw-plan/1") == []
+    assert schema_errors(fresh["result"], "obserwator-plan/1") == []
     assert statuses(stale) == ["stale_plan"]
     assert stale["status"] == "failed"  # no item done: exit code 11
     assert stale["result"]["series"][0]["status"] == "failed"
@@ -157,7 +157,7 @@ def test_imgw_scenario_prints_the_envelopes_of_run_command_and_writes_alike(
     assert sum(path.endswith(".meta.json") for path in tree) == 8
 
 
-def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
+def test_installed_obserwator_prints_the_envelopes_of_run_command_offline(
     tmp_path, fixture_root, imgw
 ):
     corrupt = build_fixture_store(tmp_path / "corrupt", variant="corrupt").root
@@ -175,7 +175,7 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
             {"root": root, "dataset": DAILY, "station": RABA, "output": target},
         ),
     ):
-        printed = run_imgw(*cli_words(command, options))
+        printed = run_obserwator(*cli_words(command, options))
         exported = target.read_bytes() if target.exists() else None
         target.unlink(missing_ok=True)
 
@@ -191,7 +191,7 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
         target.unlink(missing_ok=True)
     assert stamps(root) == before
 
-    refused = run_imgw(
+    refused = run_obserwator(
         "store", "check", "--root", root, "--datasets", DAILY, check=False
     )
     line = json.loads(refused.stderr.splitlines()[-1])
@@ -203,14 +203,16 @@ def test_installed_imgw_prints_the_envelopes_of_run_command_offline(
     assert (line["code"], line["details"]["option"]) == ("validation_error", "years")
 
 
-def test_two_imgw_processes_building_one_series_publish_it_once(tmp_path, fixture_root):
+def test_two_obserwator_processes_building_one_series_publish_it_once(
+    tmp_path, fixture_root
+):
     root = tmp_path / "store"
     shutil.copytree(fixture_root, root)
     slot = root / "series" / "versions" / "meteo_precip_daily"
     before = {path.name for path in slot.iterdir()}
 
     def build(_):
-        return run_imgw("series", "build", "--root", root, "--dataset", PRECIP)
+        return run_obserwator("series", "build", "--root", root, "--dataset", PRECIP)
 
     with ThreadPoolExecutor(2) as pool:
         envelopes = [json.loads(result.stdout) for result in pool.map(build, range(2))]

@@ -592,93 +592,6 @@ wheels = [
 ]
 
 [[package]]
-name = "imgwtools"
-version = "3.0.0"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "platformdirs" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-]
-
-[package.optional-dependencies]
-api = [
-    { name = "fastapi" },
-    { name = "jinja2" },
-    { name = "python-multipart" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-cli = [
-    { name = "rich" },
-    { name = "typer" },
-]
-full = [
-    { name = "fastapi" },
-    { name = "jinja2" },
-    { name = "mcp" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-    { name = "python-multipart" },
-    { name = "rich" },
-    { name = "typer" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-mcp = [
-    { name = "mcp" },
-    { name = "rich" },
-    { name = "typer" },
-]
-pandas = [
-    { name = "pandas" },
-]
-store = [
-    { name = "pyarrow" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pandas-stubs" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "respx" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.100" },
-    { name = "httpx", specifier = ">=0.25" },
-    { name = "imgwtools", extras = ["api", "cli", "mcp", "pandas", "store"], marker = "extra == 'full'" },
-    { name = "imgwtools", extras = ["cli"], marker = "extra == 'mcp'" },
-    { name = "jinja2", marker = "extra == 'api'", specifier = ">=3.1" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
-    { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0" },
-    { name = "platformdirs", specifier = ">=4" },
-    { name = "pyarrow", marker = "extra == 'store'", specifier = ">=15" },
-    { name = "pydantic", specifier = ">=2.10" },
-    { name = "pydantic-settings", specifier = ">=2.7" },
-    { name = "python-multipart", marker = "extra == 'api'", specifier = ">=0.0.6" },
-    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
-    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.9" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.24" },
-]
-provides-extras = ["api", "cli", "store", "pandas", "mcp", "full"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.19" },
-    { name = "pandas-stubs", specifier = ">=2.0" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-asyncio", specifier = ">=0.21" },
-    { name = "pytest-cov", specifier = ">=6" },
-    { name = "respx", specifier = ">=0.20" },
-    { name = "ruff", specifier = ">=0.15" },
-]
-
-[[package]]
 name = "iniconfig"
 version = "2.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1133,6 +1046,93 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/b5/4da41c328788f575838f97a098fe8ca691ebc6f6fd73ad4a262ee40b184d/numpy-2.5.4-cp315-cp315t-win32.whl", hash = "sha256:ad62a416ddcf863bf44bba76fbf6b53366ab0692e294f51cae4b5fbe0d246788", size = 6335804, upload-time = "2026-10-10T20:05:19.921Z" },
     { url = "https://files.pythonhosted.org/packages/98/94/6482ddfa3d312490cb9358f375bf2ad56427dbea8769187158e94d653753/numpy-2.5.4-cp315-cp315t-win_amd64.whl", hash = "sha256:38f47be9f74ab870d2633b5456ae519c43758a8d1fd05342f0ce4ecc034396ee", size = 12890095, upload-time = "2026-10-10T20:05:21.875Z" },
     { url = "https://files.pythonhosted.org/packages/48/7f/c2d1b436b6e7cfebac140c2579a298344b85f2991a2ce5c3615cefb29400/numpy-2.5.4-cp315-cp315t-win_arm64.whl", hash = "sha256:7a14a461d9340f1b46b8648578aed9cdb8b3b018a8fac6c1dde2c9192a01a87f", size = 10883718, upload-time = "2026-10-10T20:05:28.547Z" },
+]
+
+[[package]]
+name = "obserwator"
+version = "3.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "platformdirs" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.optional-dependencies]
+api = [
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "python-multipart" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+cli = [
+    { name = "rich" },
+    { name = "typer" },
+]
+full = [
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "mcp" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "python-multipart" },
+    { name = "rich" },
+    { name = "typer" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+mcp = [
+    { name = "mcp" },
+    { name = "rich" },
+    { name = "typer" },
+]
+pandas = [
+    { name = "pandas" },
+]
+store = [
+    { name = "pyarrow" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pandas-stubs" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.100" },
+    { name = "httpx", specifier = ">=0.25" },
+    { name = "jinja2", marker = "extra == 'api'", specifier = ">=3.1" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
+    { name = "obserwator", extras = ["api", "cli", "mcp", "pandas", "store"], marker = "extra == 'full'" },
+    { name = "obserwator", extras = ["cli"], marker = "extra == 'mcp'" },
+    { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0" },
+    { name = "platformdirs", specifier = ">=4" },
+    { name = "pyarrow", marker = "extra == 'store'", specifier = ">=15" },
+    { name = "pydantic", specifier = ">=2.10" },
+    { name = "pydantic-settings", specifier = ">=2.7" },
+    { name = "python-multipart", marker = "extra == 'api'", specifier = ">=0.0.6" },
+    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.9" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.24" },
+]
+provides-extras = ["api", "cli", "store", "pandas", "mcp", "full"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.19" },
+    { name = "pandas-stubs", specifier = ">=2.0" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.21" },
+    { name = "pytest-cov", specifier = ">=6" },
+    { name = "respx", specifier = ">=0.20" },
+    { name = "ruff", specifier = ">=0.15" },
 ]
 
 [[package]]

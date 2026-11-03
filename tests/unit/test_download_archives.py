@@ -5,10 +5,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.fetch import download_archives
-from imgwtools.store.types import Notice, Progress
+from obserwator.datasets import archive_files
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.fetch import download_archives
+from obserwator.store.types import Notice, Progress
 
 ARCHIVES = Path(__file__).parents[1] / "fixtures" / "store" / "archives"
 SEMIANNUAL = "pl.imgw.hydro_semiannual"
@@ -127,7 +127,7 @@ def test_write_failure_leaves_neither_file_nor_part(respx_mock, tmp_path, monkey
     def refuse(source, target):
         raise PermissionError("brak prawa zapisu")
 
-    monkeypatch.setattr("imgwtools.output.os.replace", refuse)
+    monkeypatch.setattr("obserwator.output.os.replace", refuse)
     report = download_archives(
         SEMIANNUAL, years=2024, params=["H"], output_dir=tmp_path
     )
@@ -194,7 +194,7 @@ def test_no_license_notice_when_nothing_downloaded(respx_mock, tmp_path):
 def test_invalid_options_fail_before_any_request_or_directory(
     respx_mock, tmp_path, dataset, options, option
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         download_archives(dataset, output_dir=tmp_path / "out", **options)
     assert error.value.details["option"] == option
     assert not respx_mock.calls and not (tmp_path / "out").exists()

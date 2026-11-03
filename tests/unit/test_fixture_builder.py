@@ -1,4 +1,4 @@
-"""Public offline fixture store builder (imgwtools.testing)."""
+"""Public offline fixture store builder (obserwator.testing)."""
 
 import hashlib
 import json
@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
-from imgwtools.exceptions import IMGWStoreError, IMGWValidationError
-from imgwtools.store import catalog, check_series, series, writer
-from imgwtools.testing import build_fixture_store, fixture_files
+from obserwator.exceptions import ObserwatorStoreError, ObserwatorValidationError
+from obserwator.store import catalog, check_series, series, writer
+from obserwator.testing import build_fixture_store, fixture_files
 
 TESTS_FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 HYDRO_SLOT = "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024"
@@ -46,7 +46,7 @@ def tree(root: Path) -> dict[str, str]:
 def test_complete_store_holds_recorded_versions_series_and_catalog(tmp_path):
     handle = build_fixture_store(tmp_path / "store")
     root = handle.root
-    assert handle.schema == "imgw-store/1"
+    assert handle.schema == "obserwator-store/1"
 
     hydro = sidecars(root, HYDRO_SLOT, "codz_2024.zip")
     assert [
@@ -162,10 +162,10 @@ def test_unknown_schema_variant_adds_unparsed_series_version(tmp_path):
     handle = build_fixture_store(tmp_path / "store", variant="unknown_schema")
     (unknown,) = (handle.root / "series/versions/hydro_daily").glob("2026-10-20_*")
     meta = json.loads((unknown / "series.json.meta.json").read_text(encoding="utf-8"))
-    assert meta["schema"] == "imgw-meta/2"
+    assert meta["schema"] == "obserwator-meta/2"
     assert (
         json.loads((unknown / "series.json").read_text(encoding="utf-8"))["schema"]
-        == "imgw-series/2"
+        == "obserwator-series/2"
     )
     assert (
         meta["sha256"]
@@ -177,12 +177,12 @@ def test_unknown_schema_variant_adds_unparsed_series_version(tmp_path):
 
 
 def test_rejects_unknown_variant_and_non_empty_root(tmp_path):
-    with pytest.raises(IMGWValidationError, match="Unknown fixture variant"):
+    with pytest.raises(ObserwatorValidationError, match="Unknown fixture variant"):
         build_fixture_store(tmp_path / "x", variant="partial")
     assert not (tmp_path / "x").exists()
     (tmp_path / "busy").mkdir()
     (tmp_path / "busy" / "file.txt").write_text("x")
-    with pytest.raises(IMGWStoreError, match="needs an empty directory"):
+    with pytest.raises(ObserwatorStoreError, match="needs an empty directory"):
         build_fixture_store(tmp_path / "busy")
 
 

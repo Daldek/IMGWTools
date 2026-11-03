@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for IMGWTools tests.
+Shared pytest fixtures for Obserwator tests.
 """
 
 import pytest
@@ -9,10 +9,10 @@ import pytest
 def isolated_reference_dir(tmp_path_factory, monkeypatch):
     """Point ``settings.data_dir`` at an empty directory for every test.
 
-    Local IMGW-PIB reference data (``python -m imgwtools.reference_data``) must not
+    Local IMGW-PIB reference data (``python -m obserwator.reference_data``) must not
     leak into tests; a test that needs such a file writes it into this directory.
     """
-    from imgwtools.config import settings
+    from obserwator.config import settings
 
     data_dir = tmp_path_factory.mktemp("data")
     monkeypatch.setattr(settings, "reference_dir", data_dir)

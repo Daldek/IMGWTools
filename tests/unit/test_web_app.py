@@ -7,10 +7,10 @@ import respx
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from imgwtools import archive_files, run_command, station_source_files
-from imgwtools.api.main import app
-from imgwtools.store.types import Page
-from imgwtools.web.app import router as web_router
+from obserwator import archive_files, run_command, station_source_files
+from obserwator.api.main import app
+from obserwator.store.types import Page
+from obserwator.web.app import router as web_router
 
 HYDRO_BASE = (
     "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_hydrologiczne"
@@ -82,7 +82,7 @@ def _assert_error_partial(response, status: int, code: str, *texts: str) -> None
     [
         (
             "/",
-            ["<h1>IMGWTools</h1>", "Wybierz typ danych", 'href="/download/archives"'],
+            ["<h1>Obserwator</h1>", "Wybierz typ danych", 'href="/download/archives"'],
         ),
         ("/download", ["<h1>Pobieranie danych</h1>", 'href="/download/archives"']),
         (
@@ -120,7 +120,7 @@ def test_web_app_pages_render_polish_html(client, path, labels):
 def test_web_app_page_title_uses_base_layout(client):
     response = client.get("/download/archives")
 
-    assert "<title>Dane archiwalne | IMGWTools</title>" in response.text
+    assert "<title>Dane archiwalne | Obserwator</title>" in response.text
 
 
 def test_web_app_pages_stay_out_of_the_openapi_document(client):

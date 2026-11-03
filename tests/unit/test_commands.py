@@ -12,8 +12,8 @@ import httpx
 import pytest
 import respx
 
-from imgwtools import fetch, store
-from imgwtools.commands import (
+from obserwator import fetch, store
+from obserwator.commands import (
     check_command,
     data_commands,
     format_command,
@@ -21,9 +21,13 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
-from imgwtools.datasets import archive_files, datasets
-from imgwtools.exceptions import IMGWCancelledError, IMGWError, IMGWValidationError
-from imgwtools.store.types import (
+from obserwator.datasets import archive_files, datasets
+from obserwator.exceptions import (
+    ObserwatorCancelledError,
+    ObserwatorError,
+    ObserwatorValidationError,
+)
+from obserwator.store.types import (
     CatalogReport,
     CommandCall,
     DownloadItem,
@@ -35,7 +39,7 @@ from imgwtools.store.types import (
     SeriesReport,
     StorePlan,
 )
-from imgwtools.testing import build_fixture_store
+from obserwator.testing import build_fixture_store
 from tests.contract.support import (
     H2023,
     H2024,
@@ -50,7 +54,7 @@ from tests.contract.support import (
 DAILY = "pl.imgw.hydro_daily"
 SEMIANNUAL = "pl.imgw.hydro_semiannual"
 RABA = "149190310"
-ROOT = "/data/imgw"
+ROOT = "/data/obserwator"
 SPEC_COMMANDS = [
     "datasets list",
     "datasets files",
@@ -85,13 +89,13 @@ SPEC_COMMANDS = [
 ]
 GROUPS = list(dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS))
 PUBLIC_MODULES = (
-    "imgwtools.datasets",
-    "imgwtools.fetch",
-    "imgwtools.stations",
-    "imgwtools.urls",
-    "imgwtools.store",
-    "imgwtools.commands",
-    "imgwtools.agent_guide",
+    "obserwator.datasets",
+    "obserwator.fetch",
+    "obserwator.stations",
+    "obserwator.urls",
+    "obserwator.store",
+    "obserwator.commands",
+    "obserwator.agent_guide",
 )
 # Valid options of every command in their JSON form (keys, numbers, arrays).
 VALID: dict[str, list[dict[str, object]]] = {
@@ -137,7 +141,7 @@ VALID: dict[str, list[dict[str, object]]] = {
             "version": "pmaxtp/versions/POT/751_317/v/cell.json",
         }
     ],
-    "store init": [{"root": "/data/imgw store"}],
+    "store init": [{"root": "/data/obserwator store"}],
     "store info": [{"root": ROOT}],
     "store scan": [{"root": ROOT, "kind": "problem", "offset": 0}],
     "store check": [
@@ -184,7 +188,7 @@ VALID: dict[str, list[dict[str, object]]] = {
             "end": "2024-01-31",
             "limit": 10,
         },
-        {"version": "/data/imgw/series/versions/hydro_daily/v", "station": RABA},
+        {"version": "/data/obserwator/series/versions/hydro_daily/v", "station": RABA},
     ],
     "series summary": [
         {"root": ROOT, "dataset": DAILY, "stations": [RABA]},
@@ -366,15 +370,15 @@ def test_each_option_name_has_one_type_and_each_short_alias_one_meaning():
     }
 
 
-def test_parse_command_takes_a_text_or_its_words_with_or_without_imgw():
+def test_parse_command_takes_a_text_or_its_words_with_or_without_obserwator():
     line = (
-        "imgw store sync --root '/data/imgw store' --datasets pl.imgw.hydro_daily "
+        "obserwator store sync --root '/data/obserwator store' --datasets pl.imgw.hydro_daily "
         "--years 2024 --check"
     )
     call = CommandCall(
         "store sync",
         {
-            "root": "/data/imgw store",
+            "root": "/data/obserwator store",
             "datasets": ["pl.imgw.hydro_daily"],
             "years": ["2024"],
         },
@@ -382,7 +386,7 @@ def test_parse_command_takes_a_text_or_its_words_with_or_without_imgw():
     )
 
     assert parse_command(line) == call
-    assert parse_command(line.removeprefix("imgw ")) == call
+    assert parse_command(line.removeprefix("obserwator ")) == call
     assert parse_command(shlex.split(line)) == call
 
 
@@ -390,16 +394,16 @@ def test_parse_command_takes_a_text_or_its_words_with_or_without_imgw():
     ("line", "details"),
     [
         ("", {"allowed": GROUPS}),
-        ("imgw config show", {"allowed": GROUPS}),
-        ("imgw store --help", {}),
-        ("imgw store info --help", {"command": "store info"}),
-        ("imgw store info --schema", {"command": "store info"}),
-        ("imgw store info -- --root /data", {"command": "store info"}),
-        ("imgw store info --root '/data", {}),
+        ("obserwator config show", {"allowed": GROUPS}),
+        ("obserwator store --help", {}),
+        ("obserwator store info --help", {"command": "store info"}),
+        ("obserwator store info --schema", {"command": "store info"}),
+        ("obserwator store info -- --root /data", {"command": "store info"}),
+        ("obserwator store info --root '/data", {}),
     ],
 )
 def test_parse_command_refuses_a_line_that_is_no_call_of_the_catalog(line, details):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         parse_command(line)
 
     assert error.value.code == "validation_error"
@@ -416,17 +420,17 @@ def test_format_command_writes_check_last_and_refuses_another_flag_of_a_run():
     words = f"--root {quoted('/s')} --plan {quoted('/p.json')}"
 
     assert format_command("store sync", options=plan, run={"check": True}) == (
-        f"imgw store sync {words} --check"
+        f"obserwator store sync {words} --check"
     )
     assert format_command("store sync", options=plan, run={"check": False}) == (
-        f"imgw store sync {words}"
+        f"obserwator store sync {words}"
     )
     for command, options, run, option in (
         ("store sync", plan, {"force": True}, "force"),
         ("store sync", plan, {"check": "yes"}, "check"),
         ("store info", {"root": "/s"}, {"check": True}, "check"),
     ):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             format_command(command, options=options, run=run)
         assert error.value.details["option"] == option
 
@@ -435,17 +439,17 @@ def test_format_command_quotes_and_writes_bools_as_flags():
     words = f"--root {quoted('/s')} --plan {quoted('/p.json')}"
     assert (
         format_command("store info", options={"root": "/a b/s"})
-        == f"imgw store info --root {quoted('/a b/s')}"
+        == f"obserwator store info --root {quoted('/a b/s')}"
     )
     assert format_command(
         "store sync", options={"root": "/s", "plan": "/p.json", "series": True}
-    ) == (f"imgw store sync {words}")
+    ) == (f"obserwator store sync {words}")
     assert format_command(
         "store sync", options={"root": "/s", "plan": "/p.json", "series": False}
-    ) == (f"imgw store sync {words} --no-series")
+    ) == (f"obserwator store sync {words} --no-series")
     assert (
         format_command("current hydro-states", options={"main_only": "true"})
-        == "imgw current hydro-states --main-only"
+        == "obserwator current hydro-states --main-only"
     )
 
 
@@ -572,7 +576,7 @@ def test_validate_command_normalizes_aliases_numbers_dates_years_and_paths(
 def test_validate_command_rejects_invalid_options_naming_the_option(
     command, options, option
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         validate_command(command, options=options)
     assert error.value.code == "validation_error"
     assert error.value.details["option"] == option
@@ -594,7 +598,7 @@ def test_an_output_in_a_store_passes_validation_so_that_the_plan_can_list_the_co
     assert options["output"] == target
     assert (plan.status, plan.result.actions[0].action) == ("ok", "conflict")
     assert plan.result.actions[0].reason == "output_in_store"
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         run_command("store export", options=options)
     assert (error.value.code, error.value.details["reason"]) == (
         "conflict",
@@ -620,7 +624,7 @@ def test_an_output_that_is_a_directory_is_rejected_offline(fixture_root, tmp_pat
         ),
         ("commands guide", {"output": tmp_path}),
     ):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             validate_command(command, options=options)
         assert error.value.details["option"] == "output"
 
@@ -640,7 +644,7 @@ def test_list_commands_page_after_counting_the_function_items(fixture_root):
     meteo = datasets(kind="meteo")
     page = run_command("datasets list", options={"kind": "meteo", "limit": 2}).result
     assert page == Page(meteo[:2], len(meteo), 2, 0)
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         scan(limit=0)
     assert error.value.details["option"] == "limit"
 
@@ -712,7 +716,7 @@ def _download(*statuses, cancelled=False):
 
 def _plan(*statuses):
     actions = tuple(PlanAction("store check", s, "") for s in statuses)
-    return StorePlan("imgw-plan/1", Path("/s"), FROZEN_AT, (), {}, actions)
+    return StorePlan("obserwator-plan/1", Path("/s"), FROZEN_AT, (), {}, actions)
 
 
 ARCHIVES = {"dataset": DAILY, "years": 2024}
@@ -819,7 +823,7 @@ def test_cancelled_error_gives_cancelled_envelope_with_notices_before_it(monkeyp
     def export(*args, on_notice=None, **kwargs):
         on_notice(notice)
         on_notice(notice)
-        raise IMGWCancelledError("The export was cancelled")
+        raise ObserwatorCancelledError("The export was cancelled")
 
     monkeypatch.setattr(store, "export_series", export)
     seen = []
@@ -954,7 +958,7 @@ def test_check_of_datasets_download_plans_each_target_as_write_replace_or_confli
     assert document[0]["action"] == "conflict"
     assert document[0]["path"] == str(target(files[0]))
     assert document[0]["reason"] == "output_exists"
-    assert not (output / ".imgw-incoming").exists()
+    assert not (output / ".obserwator-incoming").exists()
 
 
 def test_check_of_an_export_plans_its_one_file_as_write_replace_or_conflict(
@@ -998,7 +1002,7 @@ def test_check_of_an_export_plans_its_one_file_as_write_replace_or_conflict(
     assert [(a.action, a.path) for a in series.result.actions] == [("write", new)]
     assert existing.read_text(encoding="utf-8") == "old"
     assert not new.exists() and not inside.exists()
-    assert not (tmp_path / ".imgw-incoming").exists()
+    assert not (tmp_path / ".obserwator-incoming").exists()
 
 
 def test_check_of_datasets_download_into_the_store_says_what_it_holds(
@@ -1023,13 +1027,13 @@ def test_check_of_datasets_download_into_the_store_says_what_it_holds(
 def test_check_of_store_sync_with_a_plan_returns_it_for_the_same_store(
     tmp_path, fixture_root
 ):
-    saved = StorePlan("imgw-plan/1", fixture_root, FROZEN_AT, (), {}).to_json(
+    saved = StorePlan("obserwator-plan/1", fixture_root, FROZEN_AT, (), {}).to_json(
         tmp_path / "plan.json"
     )
     plan = check_command(
         "store sync", options={"root": fixture_root, "plan": saved}
     ).result
     assert plan == StorePlan.from_json(saved)
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         check_command("store sync", options={"root": tmp_path, "plan": saved})
     assert error.value.details["option"] == "plan"

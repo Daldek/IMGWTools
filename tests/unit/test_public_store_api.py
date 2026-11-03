@@ -12,11 +12,11 @@ from typing import Any
 
 import pytest
 
-import imgwtools
-import imgwtools.exceptions
-import imgwtools.stations
-import imgwtools.store
-import imgwtools.urls
+import obserwator
+import obserwator.exceptions
+import obserwator.stations
+import obserwator.store
+import obserwator.urls
 
 # Spec §2–10, §12 and §13.12 (and spec 2026-10-18 §9.1): every function, type and
 # exception a consumer may need; new functions take keyword-only options after the
@@ -145,14 +145,14 @@ SPEC_VALUES = (
     "IMGW_PMAXTP_URL",
 )
 SPEC_EXCEPTIONS = (
-    "IMGWError",
-    "IMGWConnectionError",
-    "IMGWDataError",
-    "IMGWValidationError",
-    "IMGWStoreError",
-    "IMGWStoreConflictError",
-    "IMGWStoreDependencyError",
-    "IMGWCancelledError",
+    "ObserwatorError",
+    "ObserwatorConnectionError",
+    "ObserwatorDataError",
+    "ObserwatorValidationError",
+    "ObserwatorStoreError",
+    "ObserwatorStoreConflictError",
+    "ObserwatorStoreDependencyError",
+    "ObserwatorCancelledError",
 )
 # 2.x names kept (signatures changed per spec §13.8 and §13.11).
 LEGACY_NAMES = (
@@ -179,9 +179,9 @@ LEGACY_NAMES = (
     "build_pmaxtp_url",
     "build_api_url",
 )
-# Spec §13.12: removed without aliases, also from imgwtools.urls.
+# Spec §13.12: removed without aliases, also from obserwator.urls.
 REMOVED_NAMES = (
-    "IMGWPlanStaleError",
+    "ObserwatorPlanStaleError",
     "HydroStation",
     "MeteoStation",
     "list_hydro_stations",
@@ -202,11 +202,11 @@ REMOVED_NAMES = (
     "PMaXTPMethod",
 )
 _MODULES = (
-    imgwtools,
-    imgwtools.urls,
-    imgwtools.store,
-    imgwtools.stations,
-    imgwtools.exceptions,
+    obserwator,
+    obserwator.urls,
+    obserwator.store,
+    obserwator.stations,
+    obserwator.exceptions,
 )
 # Legacy download_* keep their 2.x positional parameters (spec §2, D7).
 LEGACY_POSITIONAL = {
@@ -257,8 +257,8 @@ def test_all_is_exactly_the_spec_public_api() -> None:
         *LEGACY_NAMES,
     }
 
-    assert set(imgwtools.__all__) == expected
-    assert len(imgwtools.__all__) == len(set(imgwtools.__all__))
+    assert set(obserwator.__all__) == expected
+    assert len(obserwator.__all__) == len(set(obserwator.__all__))
 
 
 @pytest.mark.parametrize("name", REMOVED_NAMES)
@@ -269,29 +269,29 @@ def test_removed_name_is_absent_from_public_modules(name: str) -> None:
 
 def test_legacy_url_builder_module_is_gone() -> None:
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("imgwtools.core.url_builder")
+        importlib.import_module("obserwator.core.url_builder")
 
 
 def test_store_exports_are_the_same_objects_as_package_exports() -> None:
-    assert set(imgwtools.store.__all__) <= set(imgwtools.__all__)
-    for name in imgwtools.store.__all__:
-        assert getattr(imgwtools.store, name) is getattr(imgwtools, name), name
+    assert set(obserwator.store.__all__) <= set(obserwator.__all__)
+    for name in obserwator.store.__all__:
+        assert getattr(obserwator.store, name) is getattr(obserwator, name), name
 
 
 @pytest.mark.parametrize("name", SPEC_FUNCTIONS)
 def test_spec_function_is_real_implementation(name: str) -> None:
-    function = getattr(imgwtools, name)
+    function = getattr(obserwator, name)
 
     assert inspect.isfunction(function)
-    assert function.__module__ not in ("imgwtools", "imgwtools.store")
+    assert function.__module__ not in ("obserwator", "obserwator.store")
     assert not _is_stub(function), f"{name} jest zaślepką"
 
 
 @pytest.mark.parametrize(
-    "name", [n for n in SPEC_TYPES if inspect.isclass(getattr(imgwtools, n))]
+    "name", [n for n in SPEC_TYPES if inspect.isclass(getattr(obserwator, n))]
 )
 def test_spec_dataclass_is_frozen(name: str) -> None:
-    cls = getattr(imgwtools, name)
+    cls = getattr(obserwator, name)
     params = cls.__dict__.get("__dataclass_params__")
 
     assert dataclasses.is_dataclass(cls)
@@ -302,7 +302,7 @@ def test_spec_dataclass_is_frozen(name: str) -> None:
     "name", [n for n in SPEC_FUNCTIONS if n not in LEGACY_POSITIONAL]
 )
 def test_new_functions_are_keyword_only_after_first_object(name: str) -> None:
-    parameters = list(inspect.signature(getattr(imgwtools, name)).parameters.values())
+    parameters = list(inspect.signature(getattr(obserwator, name)).parameters.values())
     positional = [p for p in parameters if p.kind in _POSITIONAL]
 
     assert len(positional) <= 1, f"{name}: {[p.name for p in positional]}"
@@ -311,7 +311,7 @@ def test_new_functions_are_keyword_only_after_first_object(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(LEGACY_POSITIONAL))
 def test_legacy_downloads_keep_positional_parameters(name: str) -> None:
-    parameters = inspect.signature(getattr(imgwtools, name)).parameters
+    parameters = inspect.signature(getattr(obserwator, name)).parameters
     positional = tuple(n for n, p in parameters.items() if p.kind in _POSITIONAL)
 
     assert positional == LEGACY_POSITIONAL[name]
@@ -331,16 +331,16 @@ class _Block(importlib.abc.MetaPathFinder):
 
 
 sys.meta_path.insert(0, _Block())
-import imgwtools
-from imgwtools import *  # noqa: F403
+import obserwator
+from obserwator import *  # noqa: F403
 
-missing = [n for n in imgwtools.__all__ if n not in globals()]
+missing = [n for n in obserwator.__all__ if n not in globals()]
 assert not missing, missing
 # click comes with httpx's optional CLI when installed, so it is not checked.
 heavy = {"pyarrow", "fastapi", "starlette", "uvicorn", "typer"}
 loaded = sorted(m for m in sys.modules if m.split(".")[0] in heavy)
 assert not loaded, loaded
-assert "imgwtools.testing" not in sys.modules
+assert "obserwator.testing" not in sys.modules
 print("ok")
 """
 

@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 import respx
 
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.store import init_store, iter_store, sync_pmaxtp
-from imgwtools.store import reader as reader_module
-from imgwtools.testing import build_fixture_store
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.store import init_store, iter_store, sync_pmaxtp
+from obserwator.store import reader as reader_module
+from obserwator.testing import build_fixture_store
 from tests.unit.test_store_reader import (
     DAILY,
     DAILY_2024,
@@ -220,7 +220,7 @@ def test_skip_versions_must_map_directories_to_file_names(tmp_path, known):
     root = init_store(tmp_path / "store").root
 
     # Refused at the call, not at the first entry.
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         iter_store(root, skip_versions=known)
 
     assert error.value.details == {"option": "skip_versions"}

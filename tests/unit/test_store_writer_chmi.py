@@ -14,11 +14,11 @@ import httpx
 import pytest
 import respx
 
-from imgwtools._version import __version__
-from imgwtools.datasets import archive_files, get_provider, station_source_files
-from imgwtools.exceptions import IMGWCancelledError, IMGWDataError
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import (
+from obserwator._version import __version__
+from obserwator.datasets import archive_files, get_provider, station_source_files
+from obserwator.exceptions import ObserwatorCancelledError, ObserwatorDataError
+from obserwator.fetch import DownloadResult
+from obserwator.store import (
     current_version,
     init_store,
     iter_store,
@@ -26,9 +26,9 @@ from imgwtools.store import (
     write_archive,
     writer,
 )
-from imgwtools.store.content import content_sha256
-from imgwtools.store.pmaxtp import sync_pmaxtp
-from imgwtools.testing import build_fixture_store
+from obserwator.store.content import content_sha256
+from obserwator.store.pmaxtp import sync_pmaxtp
+from obserwator.testing import build_fixture_store
 from tests.contract.support import schema_errors
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -122,12 +122,12 @@ def test_chmi_sidecar_takes_country_provider_and_license_from_the_registry(root)
         f"{SLOT_DIR}/2026-05-21_{written.sha256[:8]}/H_{CODE}_DQ_2025.json"
     )
     meta = sidecar(written.path)
-    assert schema_errors(meta, "imgw-meta/1") == []
+    assert schema_errors(meta, "obserwator-meta/1") == []
     chmi = get_provider("CHMI")
     etag = f'"{int(PUBLISHED.timestamp()):x}-{len(FIRST):x}"'
     assert meta == {
-        "schema": "imgw-meta/1",
-        "producer": "imgwtools",
+        "schema": "obserwator-meta/1",
+        "producer": "obserwator",
         "producer_version": __version__,
         "dataset": "cz.chmi.hydro_daily",
         "country": "CZ",
@@ -230,10 +230,10 @@ def test_same_canonical_content_records_one_observation_per_signal(root, frozen)
     name = f"2026-10-20_{hashlib.sha256(signal.encode()).hexdigest()[:8]}.json"
     assert second.observation == root / SLOT_DIR / "observations" / name
     document = json.loads(second.observation.read_text(encoding="utf-8"))
-    assert schema_errors(document, "imgw-observation/1") == []
+    assert schema_errors(document, "obserwator-observation/1") == []
     assert document == {
-        "schema": "imgw-observation/1",
-        "producer": "imgwtools",
+        "schema": "obserwator-observation/1",
+        "producer": "obserwator",
         "producer_version": __version__,
         "dataset": "cz.chmi.hydro_daily",
         "seen_at": "2026-10-20T09:00:00Z",
@@ -397,7 +397,7 @@ def test_meteo_csv_has_no_content_fields_and_other_bytes_are_a_version(root):
         None,
     )
     meta = sidecar(second.path)
-    assert schema_errors(meta, "imgw-meta/1") == []
+    assert schema_errors(meta, "obserwator-meta/1") == []
     assert "content_sha256" not in meta and "content_form" not in meta
     assert meta["request"] == {
         "server_path": sra.server_path,
@@ -438,7 +438,7 @@ def test_bytes_violating_the_form_are_a_data_error_without_traces(root, data):
     )
     (other,) = archive_files("cz.chmi.hydro_daily", stations=[CODE], years=[2024])
     for archive in (HYDRO, other):
-        with pytest.raises(IMGWDataError) as error:
+        with pytest.raises(ObserwatorDataError) as error:
             write_archive(
                 root, archive=archive, response=response(archive, data, REGENERATED)
             )
@@ -456,7 +456,7 @@ def test_cancel_before_the_observation_is_published_leaves_no_trace(root):
     )
     # Polled before staging (go on), then before the observation (stop).
     answers = iter([False, True])
-    with pytest.raises(IMGWCancelledError):
+    with pytest.raises(ObserwatorCancelledError):
         write_archive(
             root,
             archive=HYDRO,

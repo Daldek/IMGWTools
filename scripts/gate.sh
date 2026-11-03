@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # --- project settings --------------------------------------------------------
-PACKAGE="imgwtools"                 # import name, measured by coverage
+PACKAGE="obserwator"                # import name, measured by coverage
 TYPED_PATHS=(src tests)             # mypy targets (DEV-7.3)
 # Marker expression of the gate (DEV-10.1); an `app` project without a local
 # database uses "not live and not db".

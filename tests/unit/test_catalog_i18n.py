@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from imgwtools.commands import command_schema, data_commands, validate_command
-from imgwtools.datasets import datasets
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.messages import Message, localize
+from obserwator.commands import command_schema, data_commands, validate_command
+from obserwator.datasets import datasets
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.messages import Message, localize
 
 
 def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
@@ -17,7 +17,7 @@ def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
     del copy["description"]
     for prop in copy["properties"].values():
         del prop["description"]
-    del copy["x-imgw"]["rules"]
+    del copy["x-obserwator"]["rules"]
     return copy
 
 
@@ -38,7 +38,7 @@ def texts(document: dict[str, Any]) -> list[str]:
     for schema in document["commands"]:
         found.append(schema["description"])
         found += [prop["description"] for prop in schema["properties"].values()]
-        found += schema["x-imgw"]["rules"]
+        found += schema["x-obserwator"]["rules"]
     return found + [error["title"] for error in document["errors"]]
 
 
@@ -101,7 +101,7 @@ def test_language_outside_pl_and_en_is_a_validation_error(lang):
         lambda: command_schema(lang=lang),
         lambda: validate_command("commands schema", options={"lang": lang}),
     ):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             call()
         assert error.value.details["option"] == "lang"
         assert error.value.details["allowed"] == ["en", "pl"]

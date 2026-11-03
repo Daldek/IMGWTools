@@ -1,4 +1,4 @@
-"""Offline scenarios for imgw-series/1 snapshots (check_series/build_series)."""
+"""Offline scenarios for obserwator-series/1 snapshots (check_series/build_series)."""
 
 import gc
 import hashlib
@@ -18,13 +18,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWStoreDependencyError, IMGWValidationError
-from imgwtools.fetch import DownloadResult
-from imgwtools.models import NormalizedRecord
-from imgwtools.store import current_version, init_store, write_archive
-from imgwtools.store import series as series_module
-from imgwtools.store.series import build_series, check_series
+from obserwator.datasets import archive_files
+from obserwator.exceptions import (
+    ObserwatorStoreDependencyError,
+    ObserwatorValidationError,
+)
+from obserwator.fetch import DownloadResult
+from obserwator.models import NormalizedRecord
+from obserwator.store import current_version, init_store, write_archive
+from obserwator.store import series as series_module
+from obserwator.store.series import build_series, check_series
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 HYDRO = "pl.imgw.hydro_daily"
@@ -134,7 +137,10 @@ def test_daily_hydro_snapshot_covers_every_day_and_all_stations(root):
         ).encode()
     )
     assert version_dir.name == f"2026-10-17_{hashlib.sha256(raw).hexdigest()[:8]}"
-    assert index["schema"] == "imgw-series/1" and index["year_type"] == "hydrological"
+    assert (
+        index["schema"] == "obserwator-series/1"
+        and index["year_type"] == "hydrological"
+    )
     assert index["periods"] == [
         ["2021-11-01", "2021-11-30"],
         ["2022-11-01", "2024-10-31"],
@@ -165,7 +171,7 @@ def test_daily_hydro_snapshot_covers_every_day_and_all_stations(root):
     ] == len(raw)
     assert (
         meta["extra"]["derived"] == "series"
-        and meta["extra"]["series_schema"] == "imgw-series/1"
+        and meta["extra"]["series_schema"] == "obserwator-series/1"
     )
     assert meta["extra"]["version"] == {"label": "2026-10-17", "label_source": "inputs"}
     assert "zostały przetworzone" in meta["license"]["attribution"]
@@ -211,7 +217,7 @@ def test_daily_hydro_snapshot_covers_every_day_and_all_stations(root):
         and schema.field("H_flag").type.value_type == pa.string()
     )
     assert set(table.column("H_flag").combine_chunks().dictionary.to_pylist()) == FLAGS
-    assert schema.metadata[b"imgw_schema"] == b"imgw-series/1"
+    assert schema.metadata[b"obserwator_schema"] == b"obserwator-series/1"
     assert schema.metadata[b"dataset"] == HYDRO.encode()
     assert json.loads(schema.metadata[b"units"]) == {
         "H": "cm",
@@ -348,9 +354,9 @@ def test_parsing_memory_does_not_grow_with_the_dataset(root, monkeypatch):
         put_csv(root, archive, f"{Path(archive.server_path).stem}.csv", rows)
     monkeypatch.setattr(series_module, "_SPILL_ROWS", 500)
     traced: list[int] = []
-    # Only blocks allocated by imgwtools code: interpreter-wide tables (e.g. the
+    # Only blocks allocated by obserwator code: interpreter-wide tables (e.g. the
     # interned-string dict pathlib grows) may resize at any point of a long run.
-    ours = [tracemalloc.Filter(True, "*/imgwtools/*")]
+    ours = [tracemalloc.Filter(True, "*/obserwator/*")]
 
     def progress(event):
         if event.unit == "archive":
@@ -523,13 +529,13 @@ def test_shared_measurements_keep_the_sign_of_zero(root):
 
 
 def test_validation_and_missing_pyarrow(root, monkeypatch):
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         build_series(root, dataset="pl.imgw.hydro_stations")
     assert build_series(root, dataset=HYDRO).status == "failed"
     monkeypatch.setitem(sys.modules, "pyarrow", None)
     monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
     with pytest.raises(
-        IMGWStoreDependencyError, match=r"pip install imgwtools\[store\]"
+        ObserwatorStoreDependencyError, match=r"pip install obserwator\[store\]"
     ):
         build_series(root, dataset=HYDRO)
 
@@ -537,7 +543,7 @@ def test_validation_and_missing_pyarrow(root, monkeypatch):
 def test_core_and_store_modules_import_without_pyarrow():
     script = (
         "import sys; sys.modules['pyarrow'] = None; sys.modules['pyarrow.parquet'] = None\n"
-        "import imgwtools, imgwtools.store.series, imgwtools.store.sync\n"
+        "import obserwator, obserwator.store.series, obserwator.store.sync\n"
         "print('ok')\n"
     )
     result = subprocess.run(
@@ -548,7 +554,7 @@ def test_core_and_store_modules_import_without_pyarrow():
         [
             sys.executable,
             "-c",
-            "import sys, imgwtools.store.series, imgwtools.store.sync; print('pyarrow' in sys.modules)",
+            "import sys, obserwator.store.series, obserwator.store.sync; print('pyarrow' in sys.modules)",
         ],
         capture_output=True,
         text=True,

@@ -23,10 +23,10 @@ htmlcov/
 # Data files
 /temp/
 *.txt
-# Derived guide for AI agents (imgw commands guide --format llms), kept in the repository
+# Derived guide for AI agents (obserwator commands guide --format llms), kept in the repository
 !/llms.txt
 
-# IMGW reference data — NOT shipped; fetch via `python -m imgwtools.reference_data`
+# IMGW reference data — NOT shipped; fetch via `python -m obserwator.reference_data`
 # (data is IMGW-PIB's, under its terms, not this project's MIT licence)
 /data/desc/
 /data/hydro_stations_names.csv

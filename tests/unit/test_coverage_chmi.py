@@ -9,10 +9,10 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from imgwtools.coverage import summarize_coverage
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.models import Measurement, NormalizedRecord
-from imgwtools.store import (
+from obserwator.coverage import summarize_coverage
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.models import Measurement, NormalizedRecord
+from obserwator.store import (
     build_series,
     init_store,
     read_archive,
@@ -166,7 +166,7 @@ def test_station_periods_are_validated_before_any_record(dataset, station_period
         raise AssertionError("rekordy nie mogą być czytane")
         yield
 
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         summarize_coverage(refused(), dataset=dataset, station_periods=station_periods)
     assert error.value.details["option"] == "station_periods"
 

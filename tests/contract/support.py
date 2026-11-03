@@ -1,8 +1,8 @@
 """Shared pieces of the offline contract suite: schemas, recorded IMGW, snapshots.
 
-Fixtures and recordings are read only through the public ``imgwtools.testing``
+Fixtures and recordings are read only through the public ``obserwator.testing``
 resources, the way a consumer of the store reads them. The interface helpers
-turn the JSON form of command options into ``imgw`` words and REST requests the
+turn the JSON form of command options into ``obserwator`` words and REST requests the
 way a user of each interface writes them (spec §13.2, §13.10).
 """
 
@@ -24,10 +24,10 @@ from urllib.parse import urlsplit
 import httpx
 import respx
 
-from imgwtools import archive_files, command_schema, current_version
-from imgwtools.datasets import ArchiveFile
-from imgwtools.messages import Lang
-from imgwtools.testing import fixture_files
+from obserwator import archive_files, command_schema, current_version
+from obserwator.datasets import ArchiveFile
+from obserwator.messages import Lang
+from obserwator.testing import fixture_files
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
@@ -399,7 +399,7 @@ def current_path(root: Path, slot: str) -> Path:
 
 
 def schema_errors(document: object, contract: str) -> list[str]:
-    """Violations of the JSON Schema ``contract`` (e.g. ``"imgw-meta/1"``)."""
+    """Violations of the JSON Schema ``contract`` (e.g. ``"obserwator-meta/1"``)."""
     return violations(document, SCHEMAS["schemas"][contract])
 
 
@@ -412,24 +412,24 @@ def violations(document: object, schema: dict[str, Any]) -> list[str]:
 
 def envelope_errors(document: Any) -> list[str]:
     """
-    Violations of the ``imgw-result/1`` envelope (spec §13.6).
+    Violations of the ``obserwator-result/1`` envelope (spec §13.6).
 
     The result of a list command must be a ``#/$defs/page`` and the result of
-    a check (``check=true``) an ``imgw-plan/1`` plan.
+    a check (``check=true``) an ``obserwator-plan/1`` plan.
     """
-    schema = SCHEMAS["schemas"]["imgw-result/1"]
+    schema = SCHEMAS["schemas"]["obserwator-result/1"]
     errors = violations(document, schema)
     if errors or document["result"] is None:
         return errors
     if document["check"]:
-        return schema_errors(document["result"], "imgw-plan/1")
-    if command_document(document["command"])["x-imgw"]["result"] == "list":
+        return schema_errors(document["result"], "obserwator-plan/1")
+    if command_document(document["command"])["x-obserwator"]["result"] == "list":
         _check(document["result"], {"$ref": "#/$defs/page"}, schema, "$.result", errors)
     return errors
 
 
 # --------------------------------------------------------------------------
-# Interfaces: options in the JSON form → imgw words and REST requests
+# Interfaces: options in the JSON form → obserwator words and REST requests
 # --------------------------------------------------------------------------
 
 
@@ -447,12 +447,12 @@ def in_json(text: str) -> str:
 
 def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     """
-    ``imgw`` arguments of ``options`` given in their JSON form (spec §13.10).
+    ``obserwator`` arguments of ``options`` given in their JSON form (spec §13.10).
 
     Every option takes its canonical flag from the catalog schema; a list is
     comma-separated text and a boolean is ``--x`` or ``--no-x``.
     """
-    flags = command_document(command)["x-imgw"]["cli"]["flags"]
+    flags = command_document(command)["x-obserwator"]["cli"]["flags"]
     words = command.split()
     for name, value in options.items():
         flag = flags[name][0]
@@ -480,7 +480,7 @@ def rest_request(command: str, options: Mapping[str, object]) -> dict[str, Any]:
     GET options are query parameters (a list repeats its parameter, a boolean
     is ``true``/``false``); POST options form the JSON body.
     """
-    rest = command_document(command)["x-imgw"]["rest"]
+    rest = command_document(command)["x-obserwator"]["rest"]
     if rest["method"] == "POST":
         return {"method": "POST", "url": rest["path"], "json": dict(options)}
     params = {name: _query(value) for name, value in options.items()}
@@ -517,23 +517,25 @@ def unversioned(value: object) -> Iterator[str]:
             yield from unversioned(item)
 
 
-def imgw_executable() -> list[str]:
-    """Command line of the installed ``imgw`` script (module run as a fallback)."""
+def obserwator_executable() -> list[str]:
+    """Command line of the installed ``obserwator`` script (module run as a fallback)."""
     script = Path(sys.executable).with_name(
-        "imgw.exe" if sys.platform == "win32" else "imgw"
+        "obserwator.exe" if sys.platform == "win32" else "obserwator"
     )
     if script.exists():
         return [str(script)]
-    return [sys.executable, "-m", "imgwtools.cli.main"]
+    return [sys.executable, "-m", "obserwator.cli.main"]
 
 
-def run_imgw(*args: object, check: bool = True) -> subprocess.CompletedProcess[str]:
-    """The installed ``imgw`` in a separate process whose proxies lead nowhere."""
+def run_obserwator(
+    *args: object, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    """The installed ``obserwator`` in a separate process whose proxies lead nowhere."""
     dead = "http://127.0.0.1:9"
-    env = {key: value for key, value in os.environ.items() if key != "IMGW_ROOT"}
+    env = {key: value for key, value in os.environ.items() if key != "OBSERWATOR_ROOT"}
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "ALL_PROXY": dead, "NO_PROXY": ""}
     result = subprocess.run(
-        [*imgw_executable(), *(str(arg) for arg in args)],
+        [*obserwator_executable(), *(str(arg) for arg in args)],
         capture_output=True,
         encoding="utf-8",
         env=env,

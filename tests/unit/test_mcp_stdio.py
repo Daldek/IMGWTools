@@ -1,8 +1,8 @@
-"""``imgw mcp``: the MCP server over stdio in its own process (spec 2026-10-19 §6.2, §9).
+"""``obserwator mcp``: the MCP server over stdio in its own process (spec 2026-10-19 §6.2, §9).
 
-The SDK client starts the installed ``imgw mcp`` the way a client configuration
-does (``"command": "imgw", "args": ["mcp"]``) and talks to it over stdin and
-stdout. Flags and environment variables choose the mode (IMGW_LANG is ignored: the
+The SDK client starts the installed ``obserwator mcp`` the way a client configuration
+does (``"command": "obserwator", "args": ["mcp"]``) and talks to it over stdin and
+stdout. Flags and environment variables choose the mode (OBSERWATOR_LANG is ignored: the
 server speaks English): the process lists the tools of the in-memory server of that
 mode and answers a call with the envelope of Python.
 """
@@ -22,19 +22,19 @@ from mcp import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from typer.testing import CliRunner
 
-from imgwtools import run_command
-from imgwtools.cli import main as cli_main
-from imgwtools.config import settings
-from imgwtools.mcp.server import create_server
-from tests.contract.support import imgw_executable
+from obserwator import run_command
+from obserwator.cli import main as cli_main
+from obserwator.config import settings
+from obserwator.mcp.server import create_server
+from tests.contract.support import obserwator_executable
 
 RUNNER = CliRunner()
 
 
 @pytest.fixture(autouse=True)
-def no_imgw_root(monkeypatch):
+def no_obserwator_root(monkeypatch):
     """The in-memory servers have no store and the default page, like the process."""
-    monkeypatch.delenv("IMGW_ROOT", raising=False)
+    monkeypatch.delenv("OBSERWATOR_ROOT", raising=False)
     monkeypatch.setattr(settings, "api_max_limit", 1000)
 
 
@@ -49,16 +49,20 @@ def dumped(tools) -> list[dict[str, Any]]:
     [
         pytest.param([], {}, "read", id="default"),
         pytest.param(["--allow-writes"], {}, "write", id="flags"),
-        pytest.param([], {"IMGW_MCP_ALLOW_WRITES": "true"}, "write", id="environment"),
-        pytest.param([], {"IMGW_LANG": "pl"}, "read", id="polish-setting-ignored"),
+        pytest.param(
+            [], {"OBSERWATOR_MCP_ALLOW_WRITES": "true"}, "write", id="environment"
+        ),
+        pytest.param(
+            [], {"OBSERWATOR_LANG": "pl"}, "read", id="polish-setting-ignored"
+        ),
     ],
 )
-async def test_imgw_mcp_serves_the_english_tools_of_its_mode_over_stdio(
+async def test_obserwator_mcp_serves_the_english_tools_of_its_mode_over_stdio(
     args, env, mode, tmp_path
 ):
     async with Client(create_server(mode=mode)) as memory:
         expected = (await memory.list_tools()).tools
-    command, *prefix = imgw_executable()
+    command, *prefix = obserwator_executable()
     server = StdioServerParameters(
         command=command, args=[*prefix, "mcp", *args], env=env, cwd=tmp_path
     )
@@ -67,10 +71,10 @@ async def test_imgw_mcp_serves_the_english_tools_of_its_mode_over_stdio(
     with (tmp_path / "stderr.log").open("w+", encoding="utf-8") as log:
         async with Client(stdio_client(server, errlog=log)) as client:
             tools = (await client.list_tools()).tools
-            answered = await client.call_tool("imgw_datasets_list", options)
+            answered = await client.call_tool("obserwator_datasets_list", options)
 
     assert dumped(tools) == dumped(expected)
-    sync = {tool.name: tool for tool in tools}["imgw_store_sync"]
+    sync = {tool.name: tool for tool in tools}["obserwator_store_sync"]
     check = sync.input_schema["properties"]["check"]
     assert check["default"] is True  # a writing command plans unless check: false
     assert ("const" in check) is (mode == "read")
@@ -82,13 +86,17 @@ async def test_imgw_mcp_serves_the_english_tools_of_its_mode_over_stdio(
     )
 
 
-def test_imgw_mcp_ends_cleanly_without_a_byte_on_stdout_when_stdin_closes(tmp_path):
+def test_obserwator_mcp_ends_cleanly_without_a_byte_on_stdout_when_stdin_closes(
+    tmp_path,
+):
     env = {
-        key: value for key, value in os.environ.items() if not key.startswith("IMGW_")
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("OBSERWATOR_")
     }
 
     finished = subprocess.run(
-        [*imgw_executable(), "mcp"],
+        [*obserwator_executable(), "mcp"],
         input=b"",
         capture_output=True,
         cwd=tmp_path,
@@ -104,8 +112,8 @@ NOISY_SERVER = """\
 import os
 import sys
 
-import imgwtools.mcp._calls as calls
-from imgwtools.cli.main import app
+import obserwator.mcp._calls as calls
+from obserwator.cli.main import app
 
 run_command = calls.run_command
 
@@ -117,12 +125,12 @@ def noisy(*args, **kwargs):
 
 
 calls.run_command = noisy
-sys.argv = ["imgw", "mcp"]
+sys.argv = ["obserwator", "mcp"]
 app()
 """
 
 
-def test_imgw_mcp_sends_stray_output_of_a_command_to_stderr_never_to_the_client(
+def test_obserwator_mcp_sends_stray_output_of_a_command_to_stderr_never_to_the_client(
     tmp_path,
 ):
     """A ``print`` or a write to descriptor 1 in a command adds no line to the
@@ -133,7 +141,7 @@ def test_imgw_mcp_sends_stray_output_of_a_command_to_stderr_never_to_the_client(
         key: value
         for key, value in os.environ.items()
         # clients start servers without PYTHONUNBUFFERED: stdout is block-buffered
-        if not key.startswith("IMGW_") and key != "PYTHONUNBUFFERED"
+        if not key.startswith("OBSERWATOR_") and key != "PYTHONUNBUFFERED"
     }
     process = subprocess.Popen(
         [sys.executable, str(script)],
@@ -174,7 +182,7 @@ def test_imgw_mcp_sends_stray_output_of_a_command_to_stderr_never_to_the_client(
                 "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "imgw_datasets_list",
+                    "name": "obserwator_datasets_list",
                     "arguments": {"kind": "hydro", "limit": 1},
                 },
             }
@@ -196,7 +204,7 @@ def test_imgw_mcp_sends_stray_output_of_a_command_to_stderr_never_to_the_client(
     assert process.returncode == 0
 
 
-def test_imgw_mcp_has_no_language_option():
+def test_obserwator_mcp_has_no_language_option():
     result = RUNNER.invoke(cli_main.app, ["mcp", "--lang", "en"])
 
     assert result.exit_code == 2

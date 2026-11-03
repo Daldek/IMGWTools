@@ -1,5 +1,5 @@
 """
-Unit tests for imgwtools.models module.
+Unit tests for obserwator.models module.
 """
 
 from dataclasses import FrozenInstanceError
@@ -7,8 +7,8 @@ from datetime import date
 
 import pytest
 
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.models import (
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.models import (
     HydroCurrentData,
     Measurement,
     MeteoCurrentData,
@@ -139,7 +139,7 @@ class TestPMaXTPData:
         """It is no absent value: the error names the 27 allowed percentages."""
         data = published_data()
 
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             getattr(data, accessor)(15, probability)
 
         assert error.value.code == "validation_error"
@@ -150,7 +150,7 @@ class TestPMaXTPData:
         assert "98, 98.5, 99, 99.5, 99.9" in error.value.detail
 
     def test_a_probability_is_checked_whatever_the_data_holds(self):
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             PMaXTPData().get_precipitation(15, 0.7)
 
     def test_get_confidence_bound(self, pmaxtp_api_response):

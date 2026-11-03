@@ -6,18 +6,18 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from imgwtools import StationListEntry, read_archive, read_station_list
-from imgwtools._parsing import normalize_archive
-from imgwtools.cli.main import app
-from imgwtools.datasets import archive_files, station_source_files
-from imgwtools.exceptions import (
+from obserwator import StationListEntry, read_archive, read_station_list
+from obserwator._parsing import normalize_archive
+from obserwator.cli.main import app
+from obserwator.datasets import archive_files, station_source_files
+from obserwator.exceptions import (
     ERROR_CODES,
-    IMGWDataError,
-    IMGWStoreError,
-    IMGWValidationError,
+    ObserwatorDataError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import init_store, write_archive
+from obserwator.fetch import DownloadResult
+from obserwator.store import init_store, write_archive
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 OLD = "Sat, 17 Oct 2026 12:00:00 GMT"
@@ -71,7 +71,7 @@ def test_station_list_reads_the_current_version_not_an_older_one(root):
 
 def test_missing_station_list_names_the_dataset_not_the_file(root):
     store_file(root, HYDRO_LIST)
-    with pytest.raises(IMGWStoreError, match="pl.imgw.meteo_stations") as error:
+    with pytest.raises(ObserwatorStoreError, match="pl.imgw.meteo_stations") as error:
         read_station_list(root, kind="meteo")
     assert "wykaz" not in str(error.value)
 
@@ -81,12 +81,12 @@ def test_station_list_with_tampered_bytes_is_rejected(root):
     data = bytearray(version.read_bytes())
     data[0] = ord("2")  # same size, different SHA-256
     version.write_bytes(bytes(data))
-    with pytest.raises(IMGWDataError, match="does not match the sidecar"):
+    with pytest.raises(ObserwatorDataError, match="does not match the sidecar"):
         read_station_list(root, kind="hydro")
 
 
 def test_station_list_kind_is_validated(root):
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         read_station_list(root, kind="synop")
 
 
@@ -109,14 +109,14 @@ def test_read_archive_detects_tampering_before_iteration(root):
     data = bytearray(version.read_bytes())
     data[-1] ^= 0xFF
     version.write_bytes(bytes(data))
-    with pytest.raises(IMGWDataError, match="does not match the sidecar"):
+    with pytest.raises(ObserwatorDataError, match="does not match the sidecar"):
         read_archive(version.parent)
 
 
 def test_read_archive_rejects_station_list_versions(root):
     version = store_file(root, METEO_LIST)
     with pytest.raises(
-        IMGWValidationError, match=r"read_station_list\(root, kind='meteo'\)"
+        ObserwatorValidationError, match=r"read_station_list\(root, kind='meteo'\)"
     ):
         read_archive(version.parent)
 

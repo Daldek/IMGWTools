@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from imgwtools.datasets import (
+from obserwator.datasets import (
     CATALOG_DATASET,
     DATASET_KEY_ALIASES,
     DATASET_KEY_PATTERN,
@@ -18,11 +18,11 @@ from imgwtools.datasets import (
     resolve_dataset_key,
     station_source_files,
 )
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.urls import IMGW_PUBLIC_DATA_URL
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.urls import IMGW_PUBLIC_DATA_URL
 
-# ``imgwtools.datasets`` as a module: the package attribute is the ``datasets`` function.
-DATASETS_MODULE = importlib.import_module("imgwtools.datasets")
+# ``obserwator.datasets`` as a module: the package attribute is the ``datasets`` function.
+DATASETS_MODULE = importlib.import_module("obserwator.datasets")
 _BASE = "https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne"
 
 # (key, kind, in_store, time_unit, year_type, first_year, legacy_alias) — spec §13.4.
@@ -146,7 +146,7 @@ def test_datasets_kind_filter():
         row[0] for row in _REGISTRY if row[1] == "hydro"
     ] + ["cz.chmi.hydro_daily", "cz.chmi.hydro_stations"]
     assert len(meteo) == 9
-    with pytest.raises(IMGWValidationError) as exc:
+    with pytest.raises(ObserwatorValidationError) as exc:
         datasets(kind="pmaxtp")
     assert exc.value.code == "validation_error"
 
@@ -161,7 +161,7 @@ def test_get_dataset_resolves_key_slug_and_legacy_alias(key):
 
 
 def test_get_dataset_unknown_lists_allowed_keys():
-    with pytest.raises(IMGWValidationError) as exc:
+    with pytest.raises(ObserwatorValidationError) as exc:
         get_dataset("hydro/tygodniowe")
     assert exc.value.code == "validation_error"
     assert exc.value.details["allowed"] == [row[0] for row in _REGISTRY] + _CHMI_KEYS
@@ -189,7 +189,7 @@ def test_renamed_key_resolves_to_the_current_key(monkeypatch):
     assert resolve_dataset_key("pl.imgw.hydro_day") == "pl.imgw.hydro_daily"
     assert get_dataset("pl.imgw.hydro_day") is get_dataset("pl.imgw.hydro_daily")
     assert resolve_dataset_key("pl.imgw.hydro_daily") == "pl.imgw.hydro_daily"
-    # Unknown keys, slugs and legacy input words are not keys IMGWTools knows.
+    # Unknown keys, slugs and legacy input words are not keys Obserwator knows.
     for value in ("sk.shmu.hydro_daily", "hydro_daily", "hydro/dobowe"):
         assert resolve_dataset_key(value) is None
 
@@ -203,7 +203,7 @@ def test_renamed_key_resolves_to_the_current_key(monkeypatch):
     ],
 )
 def test_aliases_without_descriptor_explain_reason(alias, reason):
-    with pytest.raises(IMGWValidationError) as exc:
+    with pytest.raises(ObserwatorValidationError) as exc:
         archive_files(alias, years=2023, months=1)
     assert exc.value.code == "validation_error"
     assert exc.value.details["reason"] == reason
@@ -278,7 +278,7 @@ def test_meteo_monthly_folder_archive_covers_whole_folder():
 
 
 def test_synop_monthly_starts_in_1960():
-    with pytest.raises(IMGWValidationError) as exc:
+    with pytest.raises(ObserwatorValidationError) as exc:
         archive_files("pl.imgw.meteo_synop_monthly", years=1955)
     assert exc.value.details["minimum"] == 1960
 
@@ -304,7 +304,7 @@ def test_years_forms_give_same_files_as_int_lists(years, expected):
     "years", [[], "", "2023-2020", "0", "10000", "20x", [True], 2023.0, [None], "2020,"]
 )
 def test_invalid_years_raise_validation_error(years):
-    with pytest.raises(IMGWValidationError) as exc:
+    with pytest.raises(ObserwatorValidationError) as exc:
         parse_years(years)
     assert exc.value.details["option"] == "years"
 
@@ -314,7 +314,7 @@ def test_months_forms():
     assert parse_months([12, "2"]) == (2, 12)
     assert parse_months(5) == (5,)
     for bad in (0, "13", "1-3", [], [True]):
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             parse_months(bad)
 
 
@@ -327,11 +327,11 @@ def test_params_narrow_semiannual_and_are_rejected_elsewhere():
         item.param
         for item in archive_files("pl.imgw.hydro_semiannual", years=2020, params="H")
     ] == ["H"]
-    with pytest.raises(IMGWValidationError) as exc:
+    with pytest.raises(ObserwatorValidationError) as exc:
         archive_files("pl.imgw.hydro_monthly", years=2020, params=["H"])
     assert exc.value.details["option"] == "params"
     for bad in ([], ["X"]):
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             archive_files("pl.imgw.hydro_semiannual", years=2020, params=bad)
 
 
@@ -425,5 +425,5 @@ def test_station_lists_are_real_csv_sources():
     ],
 )
 def test_invalid_choices_raise_validation_error(dataset, years, months):
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         archive_files(dataset, years=years, months=months)

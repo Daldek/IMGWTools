@@ -10,16 +10,16 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import (
-    IMGWDataError,
-    IMGWError,
-    IMGWStoreConflictError,
-    IMGWStoreDependencyError,
-    IMGWStoreError,
+from obserwator.datasets import archive_files
+from obserwator.exceptions import (
+    ObserwatorDataError,
+    ObserwatorError,
+    ObserwatorStoreConflictError,
+    ObserwatorStoreDependencyError,
+    ObserwatorStoreError,
 )
-from imgwtools.output import FileResult
-from imgwtools.store.types import (
+from obserwator.output import FileResult
+from obserwator.store.types import (
     CatalogReport,
     CommandOption,
     CommandResult,
@@ -46,17 +46,17 @@ from imgwtools.store.types import (
 @pytest.mark.parametrize(
     "error",
     [
-        IMGWStoreError,
-        IMGWStoreConflictError,
-        IMGWStoreDependencyError,
+        ObserwatorStoreError,
+        ObserwatorStoreConflictError,
+        ObserwatorStoreDependencyError,
     ],
 )
-def test_store_errors_extend_imgw_error(error):
-    assert issubclass(error, IMGWError)
+def test_store_errors_extend_obserwator_error(error):
+    assert issubclass(error, ObserwatorError)
 
 
 def test_dependency_error_instructs_install():
-    assert "pip install imgwtools[store]" in str(IMGWStoreDependencyError())
+    assert "pip install obserwator[store]" in str(ObserwatorStoreDependencyError())
 
 
 def test_frozen_contracts():
@@ -82,7 +82,7 @@ def test_frozen_contracts():
         CommandResult("store info", False, "ok", None, ()),
         PMaXTPStoreResult("unchanged", None, None, None, None),
         Meta(
-            "imgw-meta/1",
+            "obserwator-meta/1",
             "pl.imgw.hydro_daily",
             "pl.imgw.hydro_daily",
             "a" * 64,
@@ -111,7 +111,7 @@ def _plan(tmp_path):
         None,
     )
     return StorePlan(
-        "imgw-plan/1",
+        "obserwator-plan/1",
         tmp_path,
         datetime(2026, 10, 17, tzinfo=UTC),
         (item,),
@@ -136,8 +136,8 @@ def test_plan_roundtrip_cancelled_and_additive_fields(tmp_path):
     assert loaded.items[0].remote_etag == '"new"'
     assert loaded.series_state == {"hydro_daily": "outdated"}
     assert loaded.checked_at == plan.checked_at
-    with pytest.raises(IMGWDataError, match="plan"):
-        path.write_text('{"schema":"imgw-plan/2"}')
+    with pytest.raises(ObserwatorDataError, match="plan"):
+        path.write_text('{"schema":"obserwator-plan/2"}')
         StorePlan.from_json(path)
 
 
@@ -148,7 +148,9 @@ def test_plan_url_must_match_dataset_registry(tmp_path):
     payload = json.loads(path.read_text("utf-8"))
     payload["items"][0]["url"] = "http://127.0.0.1:22/x"
     path.write_text(json.dumps(payload))
-    with pytest.raises(IMGWDataError, match="does not match the dataset registry"):
+    with pytest.raises(
+        ObserwatorDataError, match="does not match the dataset registry"
+    ):
         StorePlan.from_json(path)
 
 
@@ -194,7 +196,7 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     local = envelope.to_json(root=root)
 
     assert list(local) == ["schema", "command", "check", "status", "result", "notices"]
-    assert local["schema"] == "imgw-result/1"
+    assert local["schema"] == "obserwator-result/1"
     assert local["result"] == {
         "mode": "store",
         "output_dir": None,
@@ -266,7 +268,7 @@ def test_to_json_keeps_relative_paths_relative_in_any_working_directory(
     assert documents[0]["result"]["file"] == parquet.as_posix()
 
 
-def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):
+def test_to_json_writes_a_plan_as_its_obserwator_plan_document(tmp_path):
     plan = _plan(tmp_path)
     envelope = CommandResult("store check", True, "ok", plan, ())
     saved = json.loads(plan.to_json(tmp_path / "plan.json").read_text("utf-8"))
@@ -357,7 +359,7 @@ def test_chmi_fields_default_so_3_0_constructors_keep_working():
     version = VersionResult("unchanged", Path("/s/a.json"), "a" * 64, "2026-05-21")
     (archive,) = archive_files("pl.imgw.hydro_daily", years=[2024])
     item = PlanItem(archive, "current", None, None, None, None, None, None)
-    plan = StorePlan("imgw-plan/1", Path("/s"), datetime.now(UTC), (item,), {})
+    plan = StorePlan("obserwator-plan/1", Path("/s"), datetime.now(UTC), (item,), {})
 
     assert (version.observed_sha256, version.observation) == (None, None)
     assert (item.station_code, item.signal, item.remote_listed_at) == (
@@ -373,7 +375,7 @@ def test_chmi_fields_default_so_3_0_constructors_keep_working():
 
 def test_fields_added_to_the_read_api_default_so_older_constructors_keep_working():
     meta = Meta(
-        "imgw-meta/1",
+        "obserwator-meta/1",
         "pl.imgw.hydro_daily",
         "pl.imgw.hydro_daily",
         "a" * 64,
@@ -385,7 +387,7 @@ def test_fields_added_to_the_read_api_default_so_older_constructors_keep_working
     )
 
     assert StoreInfo(Path("/s"), True, None, True, {}, ()).problem_codes == ()
-    assert (meta.producer, meta.producer_version) == ("imgwtools", None)
+    assert (meta.producer, meta.producer_version) == ("obserwator", None)
     assert StoreEntry("problem", None, None, None, "x", "Brak").skipped is False
 
 
@@ -408,7 +410,7 @@ def _chmi_plan(tmp_path):
         local_observation=Path("archives/versions/hydrology/observations/o.json"),
     )
     return StorePlan(
-        "imgw-plan/1",
+        "obserwator-plan/1",
         tmp_path,
         datetime(2026, 10, 19, tzinfo=UTC),
         (item,),
@@ -469,13 +471,13 @@ def test_plan_with_invalid_chmi_fields_is_a_data_error(tmp_path, change, text):
     payload = json.loads(path.read_text(encoding="utf-8"))
     change(payload)
     path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match=text):
+    with pytest.raises(ObserwatorDataError, match=text):
         StorePlan.from_json(path)
 
 
 def test_types_do_not_import_pyarrow():
     code = (
-        "import sys, imgwtools._jsonable, imgwtools.store.types; "
+        "import sys, obserwator._jsonable, obserwator.store.types; "
         "sys.exit('pyarrow' in sys.modules)"
     )
 

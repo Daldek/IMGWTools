@@ -2,10 +2,10 @@
 
 Spec 2026-10-18 §14 and §16 (C09). Every row of the acceptance table is a test
 whose name carries the row: the ``complete_pl_cz`` store of
-``imgwtools.testing`` (built at the frozen clock of the contract suite) and the
+``obserwator.testing`` (built at the frozen clock of the contract suite) and the
 recorded ČHMÚ answers of ``chmi_recordings.json``,
 ``chmi_catalog_recordings.json`` and ``chmi_builder_recordings.json``. The ČHMÚ
-commands answer alike in Python, ``imgw``, REST and MCP at a frozen clock
+commands answer alike in Python, ``obserwator``, REST and MCP at a frozen clock
 (IMGW-19 k1): canonical envelopes, the same requests to the recordings, the
 same SHA-256 of every written file and the same plan of every write. No request
 leaves the recordings.
@@ -28,8 +28,8 @@ from typing import Any
 import httpx
 import pytest
 
-from imgwtools import (
-    IMGWValidationError,
+from obserwator import (
+    ObserwatorValidationError,
     build_catalog,
     build_series,
     check_catalog,
@@ -47,8 +47,8 @@ from imgwtools import (
     store_info,
     sync_store,
 )
-from imgwtools.datasets import get_dataset
-from imgwtools.testing import build_fixture_store, fixture_files
+from obserwator.datasets import get_dataset
+from obserwator.testing import build_fixture_store, fixture_files
 from tests.contract.conftest import _CLOCKED, FROZEN_AT
 from tests.contract.support import (
     ANYWHERE,
@@ -247,25 +247,30 @@ def statuses(items: Iterator[Any] | tuple[Any, ...]) -> list[str]:
 def test_imgw_15_chmi_documents_meet_the_1_contracts_and_imgw_bytes_stay(
     pl_cz, complete, tmp_path, chmi, frozen
 ):
-    assert schema_errors(load(pl_cz / "imgw-store.json"), "imgw-store/1") == []
-    contracts = {"series.json": "imgw-series/1", "stations.geojson": "stations.geojson"}
+    assert (
+        schema_errors(load(pl_cz / "obserwator-store.json"), "obserwator-store/1") == []
+    )
+    contracts = {
+        "series.json": "obserwator-series/1",
+        "stations.geojson": "stations.geojson",
+    }
     found = sidecars(pl_cz)
     # 12 archives, 2 station lists, 3 series versions and the catalog.
     assert len(found) == 18
     for sidecar, meta in found.items():
-        assert schema_errors(meta, "imgw-meta/1") == [], sidecar
+        assert schema_errors(meta, "obserwator-meta/1") == [], sidecar
         main = sidecar.with_name(sidecar.name.removesuffix(".meta.json"))
         if main.name in contracts:
             assert schema_errors(load(main), contracts[main.name]) == [], main
     (observation,) = pl_cz.glob(f"{DAILY_DIR}/*/observations/*.json")
-    assert schema_errors(load(observation), "imgw-observation/1") == []
+    assert schema_errors(load(observation), "obserwator-observation/1") == []
 
     chmi.serve("hydro_listing_reserialized")
     plan = check_store(
         pl_cz, datasets=[HYDRO], stations=[S1], years=[2023], plan=tmp_path / "p.json"
     )
     assert plan.items[0].local_observation is not None
-    assert schema_errors(load(tmp_path / "p.json"), "imgw-plan/1") == []
+    assert schema_errors(load(tmp_path / "p.json"), "obserwator-plan/1") == []
 
     # The IMGW-PIB part of the store is the ``complete`` store, byte for byte.
     both, alone = snapshot(pl_cz), snapshot(complete)
@@ -545,7 +550,7 @@ def test_imgw_16_k3_the_plan_names_stations_files_sizes_and_requests(tmp_path, c
     assert ONLY_LISTED in plan.actions[0].detail
     assert plan.requests == {"made": 1, "planned": 8}
     document = load(tmp_path / "plan.json")
-    assert schema_errors(document, "imgw-plan/1") == []
+    assert schema_errors(document, "obserwator-plan/1") == []
     assert document["requests"] == {"made": 1, "planned": 8}
     assert {item["station_code"] for item in document["items"]} >= {S1, S2}
 
@@ -659,7 +664,7 @@ def test_imgw_17_k3_a_new_metadata_envelope_creates_no_version(
     assert _versions(root, LIST_DIR) == [listed]
     (seen,) = _register(root, LIST_DIR)
     observation = load(root / LIST_DIR / "observations" / seen)
-    assert schema_errors(observation, "imgw-observation/1") == []
+    assert schema_errors(observation, "obserwator-observation/1") == []
     assert observation["same_content_as"] == listed
     (unchanged,) = [notice for notice in notices if notice.code == "content_unchanged"]
     assert unchanged.level == "info"
@@ -922,7 +927,7 @@ def test_imgw_18_k3_the_same_inputs_reuse_the_series(pl_cz, tmp_path, chmi, froz
 
 
 # --------------------------------------------------------------------------
-# IMGW-19 k1: Python = imgw = REST = MCP for the ČHMÚ commands
+# IMGW-19 k1: Python = obserwator = REST = MCP for the ČHMÚ commands
 # --------------------------------------------------------------------------
 
 # Versions of the read-only store, resolved before the run.
@@ -1126,7 +1131,7 @@ def resolved(run: Run, root: Path | None, plan: Path | None) -> dict[str, object
 
 
 def rest_options(options: Mapping[str, object]) -> dict[str, object]:
-    """REST takes the plan as an ``imgw-plan/1`` object with root ``"."``."""
+    """REST takes the plan as an ``obserwator-plan/1`` object with root ``"."``."""
     if "plan" not in options:
         return dict(options)
     document = load(Path(str(options["plan"])))
@@ -1140,9 +1145,9 @@ def mcp_answer(
     import anyio
     from mcp import Client
 
-    from imgwtools.mcp.server import create_server
+    from obserwator.mcp.server import create_server
 
-    meta = command_document(command)["x-imgw"]
+    meta = command_document(command)["x-obserwator"]
     arguments = {
         name: str(value) if isinstance(value, Path) else value
         for name, value in options.items()
@@ -1171,7 +1176,7 @@ def assert_mcp_alike(
         default = command_document(command)["properties"]["format"]["default"]
         assert answered.content[0].text == data
         assert answered.structured_content == {
-            "schema": "imgw-result/1",
+            "schema": "obserwator-result/1",
             "command": command,
             "check": False,
             "status": python.status,
@@ -1332,7 +1337,7 @@ def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
 ):
     root = pl_cz if "root" in command_document(command)["properties"] else None
     monkeypatch.setattr(server, "root", root)
-    with pytest.raises(IMGWValidationError) as caught:
+    with pytest.raises(ObserwatorValidationError) as caught:
         run_command(command, options=rooted(options, root))
     error = caught.value
     expected = canonical([error.detail, dict(error.details)])

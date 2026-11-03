@@ -1,6 +1,6 @@
 """Contract of the versioned store through the public API (spec §3–§9, §11, §12).
 
-Offline end to end: the public ``imgwtools.testing`` store, the §11 JSON Schemas and
+Offline end to end: the public ``obserwator.testing`` store, the §11 JSON Schemas and
 SHA-256 chains of every contract file, a read-only scan of unknown schemas and
 problems, the HEAD → plan → stale/sync → series → coverage → catalog → CSV →
 relabel state machine, cancellation and concurrent writers.
@@ -22,11 +22,11 @@ from typing import Any
 import pyarrow.parquet as pq
 import pytest
 
-from imgwtools import (
+from obserwator import (
     DownloadResult,
-    IMGWCancelledError,
-    IMGWDataError,
-    IMGWStoreError,
+    ObserwatorCancelledError,
+    ObserwatorDataError,
+    ObserwatorStoreError,
     StorePlan,
     __version__,
     archive_files,
@@ -52,7 +52,7 @@ from imgwtools import (
     sync_store,
     write_archive,
 )
-from imgwtools.testing import build_fixture_store
+from obserwator.testing import build_fixture_store
 from tests.contract.support import (
     DAILY,
     H2023,
@@ -86,16 +86,16 @@ VERSION_DIR = re.compile(r"\d{4}-\d{2}-\d{2}(\+[0-9a-f]{8})?_[0-9a-f]{8}")
 
 def contract_of(main: Path) -> str:
     return {
-        "series.json": "imgw-series/1",
+        "series.json": "obserwator-series/1",
         "stations.geojson": "stations.geojson",
-        "cell.json": "imgw-pmaxtp/1",
+        "cell.json": "obserwator-pmaxtp/1",
     }.get(main.name, "")
 
 
 def assert_sidecar_contract(root: Path, sidecar: Path) -> dict[str, Any]:
     """Envelope §11.2, checksums of the main file, directory name and attribution §4."""
     meta: dict[str, Any] = load(sidecar)
-    assert schema_errors(meta, "imgw-meta/1") == [], sidecar
+    assert schema_errors(meta, "obserwator-meta/1") == [], sidecar
     main = sidecar.with_name(sidecar.name.removesuffix(".meta.json"))
     assert (meta["sha256"], meta["size_bytes"]) == (sha256(main), main.stat().st_size)
     label = meta["extra"]["version"]["label"]
@@ -165,8 +165,8 @@ def test_reader_enforces_required_sidecar_fields_and_tolerates_additions(
         document = copy.deepcopy(original)
         mutate(document)
         write(document)
-        assert schema_errors(document, "imgw-meta/1"), name
-        with pytest.raises(IMGWDataError):
+        assert schema_errors(document, "obserwator-meta/1"), name
+        with pytest.raises(ObserwatorDataError):
             read_meta(entry.version)
         problems = [e.problem_code for e in iter_store(root, kind="problem")]
         assert problems == ["invalid_meta"], name
@@ -175,15 +175,15 @@ def test_reader_enforces_required_sidecar_fields_and_tolerates_additions(
     additive["archiwista"] = {"indeks": "poza magazynem"}
     additive["extra"]["future"] = {"nowe": True}
     write(additive)
-    assert schema_errors(additive, "imgw-meta/1") == []
+    assert schema_errors(additive, "obserwator-meta/1") == []
     meta = read_meta(entry.version)
     assert meta.sha256 == original["sha256"] and meta.extra["future"] == {"nowe": True}
     assert list(iter_store(root, kind="problem")) == []
 
     future = copy.deepcopy(original)
-    future["schema"] = "imgw-meta/2"
+    future["schema"] = "obserwator-meta/2"
     write(future)
-    assert schema_errors(future, "imgw-meta/1")
+    assert schema_errors(future, "obserwator-meta/1")
     assert [e.problem_code for e in iter_store(root, kind="problem")] == [
         "unknown_schema"
     ]
@@ -191,7 +191,9 @@ def test_reader_enforces_required_sidecar_fields_and_tolerates_additions(
 
 def test_fixture_store_files_conform_to_section_11_and_checksum_chains(fixture_root):
     root = fixture_root
-    assert schema_errors(load(root / "imgw-store.json"), "imgw-store/1") == []
+    assert (
+        schema_errors(load(root / "obserwator-store.json"), "obserwator-store/1") == []
+    )
     sidecars = sorted(root.rglob("*.meta.json"))
     assert len(sidecars) == 11  # 7 archives, 3 series, 1 catalog
     metas = {sidecar: assert_sidecar_contract(root, sidecar) for sidecar in sidecars}
@@ -207,14 +209,14 @@ def test_fixture_store_files_conform_to_section_11_and_checksum_chains(fixture_r
             document, sort_keys=True, ensure_ascii=False, separators=(",", ":")
         )
         assert main.read_bytes() == (canonical + "\n").encode("utf-8")
-        if contract == "imgw-series/1":
+        if contract == "obserwator-series/1":
             assert document["dataset"] == meta["dataset"]
             for code, station in document["stations"].items():
                 parquet = main.parent / station["file"]
                 assert sha256(parquet) == station["sha256"]
                 assert pq.read_metadata(parquet).num_rows == station["rows"]
                 schema = pq.read_schema(parquet).metadata
-                assert schema[b"imgw_schema"] == b"imgw-series/1"
+                assert schema[b"obserwator_schema"] == b"obserwator-series/1"
                 assert schema[b"dataset"] == document["dataset"].encode()
                 assert parquet.name == f"{code}.parquet"
         if contract == "stations.geojson":
@@ -274,9 +276,9 @@ def test_every_kind_of_version_has_the_sidecar_core_of_dev_19_16(
         seen.add((KINDS[sidecar.relative_to(root).parts[0]], document["provider"]))
 
         assert set(CORE_FIELDS) <= set(document), where
-        assert document["schema"] == "imgw-meta/1", where
+        assert document["schema"] == "obserwator-meta/1", where
         # producer: the import name of the package that wrote the file
-        assert document["producer"] == "imgwtools", where
+        assert document["producer"] == "obserwator", where
         assert document["producer_version"] == __version__, where
         # dataset: <scope>.<provider>.<name> as written; country: capitals, the scope
         scope, key_provider, name = document["dataset"].split(".")
@@ -316,19 +318,19 @@ def test_every_kind_of_version_has_the_sidecar_core_of_dev_19_16(
 
 
 def test_the_marker_contract_has_the_fields_of_dev_19_12(fixture_root):
-    marker = load(fixture_root / "imgw-store.json")
+    marker = load(fixture_root / "obserwator-store.json")
 
     assert {"schema", "tool", "created_at", "producer_version"} <= set(marker)
-    assert schema_errors(marker, "imgw-store/1") == []
+    assert schema_errors(marker, "obserwator-store/1") == []
     for name in ("tool", "created_at", "producer_version"):
         without = {key: value for key, value in marker.items() if key != name}
-        assert schema_errors(without, "imgw-store/1"), name
+        assert schema_errors(without, "obserwator-store/1"), name
     # created_by is no field of the minimum: the writer keeps it, a reader never needs it
     optional = {key: value for key, value in marker.items() if key != "created_by"}
-    assert schema_errors(optional, "imgw-store/1") == []
-    # a marker of another tool is not an imgw store
-    assert schema_errors({**marker, "tool": "kartograf"}, "imgw-store/1")
-    assert schema_errors({**marker, "created_at": "yesterday"}, "imgw-store/1")
+    assert schema_errors(optional, "obserwator-store/1") == []
+    # a marker of another tool is not an obserwator store
+    assert schema_errors({**marker, "tool": "kartograf"}, "obserwator-store/1")
+    assert schema_errors({**marker, "created_at": "yesterday"}, "obserwator-store/1")
 
 
 def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root, imgw):
@@ -344,7 +346,7 @@ def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root
 
     stored = sync_pmaxtp(root, method="POT", latitude=52.23, longitude=21.01)
     assert (stored.status, stored.ind_x, stored.ind_y) == ("new", 751, 317)
-    assert schema_errors(load(stored.version), "imgw-pmaxtp/1") == []
+    assert schema_errors(load(stored.version), "obserwator-pmaxtp/1") == []
     meta = assert_sidecar_contract(root, Path(f"{stored.version}.meta.json"))
     assert meta["request"]["method"] == "POT" and meta["extra"]["derived"] == "pmaxtp"
     again = sync_pmaxtp(root, method="POT", latitude=52.2301, longitude=21.0101)
@@ -362,7 +364,7 @@ def test_cell_and_plans_of_every_check_conform_to_schemas(tmp_path, fixture_root
     assert stamps(root) == before and imgw.downloads() == []
     for name, plan in plans.items():
         document = load(plan.to_json(tmp_path / f"{name}.json"))
-        assert schema_errors(document, "imgw-plan/1") == [], name
+        assert schema_errors(document, "obserwator-plan/1") == [], name
         assert StorePlan.from_json(tmp_path / f"{name}.json") == plan
     items = {item.archive.server_path: item for item in plans["store"].items}
     assert {path: item.status for path, item in items.items()} == {
@@ -406,8 +408,9 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
     }
     future = tmp_path / "future"
     future.mkdir()
-    (future / "imgw-store.json").write_text(
-        '{"schema":"imgw-store/2","created_by":"imgwtools 4.0.0"}\n', encoding="utf-8"
+    (future / "obserwator-store.json").write_text(
+        '{"schema":"obserwator-store/2","created_by":"obserwator 4.0.0"}\n',
+        encoding="utf-8",
     )
     expected = {
         "complete": {"stale_incoming", "unknown_entry"},
@@ -423,7 +426,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
             info = store_info(root)
             assert (info.supported, info.schema, info.problems) == (
                 True,
-                "imgw-store/1",
+                "obserwator-store/1",
                 (),
             )
             entries = list(iter_store(root))
@@ -442,7 +445,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
                 assert read_meta(entry.version) == entry.meta
             for slot in sorted({entry.slot for entry in versions}):
                 if slot == broken_slots.get(name):
-                    with pytest.raises(IMGWDataError):
+                    with pytest.raises(ObserwatorDataError):
                         current_version(root, slot=slot)
                     continue
                 current = current_version(root, slot=slot)
@@ -465,32 +468,32 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
                     assert len(rows) == index.stations[station].rows
             if name == "unknown":
                 (problem,) = problems
-                with pytest.raises(IMGWDataError):
+                with pytest.raises(ObserwatorDataError):
                     read_series_index(problem.version)
         assert {name: stamps(root) for name, root in stores.items()} == before
 
         info = store_info(future)
         assert (info.exists, info.schema, info.supported) == (
             True,
-            "imgw-store/2",
+            "obserwator-store/2",
             False,
         )
         assert [(e.kind, e.problem_code) for e in iter_store(future)] == [
             ("problem", "unsupported_store")
         ]
-        with pytest.raises(IMGWStoreError):
+        with pytest.raises(ObserwatorStoreError):
             open_store(future)
-        with pytest.raises(IMGWStoreError):
+        with pytest.raises(ObserwatorStoreError):
             current_version(future, slot="series:pl.imgw.hydro_daily")
     finally:
         for root in [*stores.values(), future]:
             set_read_only(root, False)
     response = DownloadResult(OLD, H2024.url, V1["ETag"], V1["Last-Modified"], len(OLD))
-    with pytest.raises(IMGWStoreError):
+    with pytest.raises(ObserwatorStoreError):
         write_archive(future, archive=H2024, response=response)
-    with pytest.raises(IMGWStoreError):
+    with pytest.raises(ObserwatorStoreError):
         init_store(future)
-    assert sorted(path.name for path in future.iterdir()) == ["imgw-store.json"]
+    assert sorted(path.name for path in future.iterdir()) == ["obserwator-store.json"]
 
 
 def test_lifecycle_head_plan_stale_sync_series_catalog_csv_relabel(tmp_path, imgw):
@@ -510,7 +513,7 @@ def test_lifecycle_head_plan_stale_sync_series_catalog_csv_relabel(tmp_path, img
     assert plan.series_state == {"hydro_daily": "missing"}
     assert imgw.requests("HEAD") == [H2024.url] and imgw.downloads() == []
     plan_file = plan.to_json(tmp_path / "plan.json")
-    assert schema_errors(load(plan_file), "imgw-plan/1") == []
+    assert schema_errors(load(plan_file), "obserwator-plan/1") == []
     assert StorePlan.from_json(plan_file) == plan
     assert stamps(root) == untouched
 
@@ -680,7 +683,8 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
     ]
     document = load(plan.to_json(tmp_path / "plan.json"))
     assert (
-        document["cancelled"] is True and schema_errors(document, "imgw-plan/1") == []
+        document["cancelled"] is True
+        and schema_errors(document, "obserwator-plan/1") == []
     )
     assert imgw.downloads() == []
 
@@ -709,7 +713,7 @@ def test_cancellation_reports_done_items_and_never_publishes_partial_versions(
     assert snapshot(root) == before
     series = build_series(root, dataset=DAILY)
     target = tmp_path / "eksport.csv"
-    with pytest.raises(IMGWCancelledError):
+    with pytest.raises(ObserwatorCancelledError):
         export_series(
             series.version,
             station=RABA,

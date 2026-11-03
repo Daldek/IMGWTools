@@ -1,6 +1,6 @@
 """Contract: command lines read back into their calls (AGI-2.1, AGI-2.2).
 
-An example call of the catalog (``x-imgw.examples`` of `command_schema`) is a
+An example call of the catalog (``x-obserwator.examples`` of `command_schema`) is a
 canonical line: ``parse_command`` reads it into a call of its command whose options
 pass ``validate_command``, ``format_command`` writes that call as the same line in
 every environment (its POSIX paths absolute there, on Windows with the drive of the
@@ -11,7 +11,7 @@ A sample is a valid call of a catalog command: the options of every command in
 each also with ``--check`` where the command has it. Its line is the one
 ``format_command`` writes. ``parse_command`` reads that line into the same command
 and run and into options that validate to the same call, and ``format_command`` of
-that call writes the same line again, so a tool that exchanges ``imgw`` lines
+that call writes the same line again, so a tool that exchanges ``obserwator`` lines
 (Archiwista) compares them as text.
 """
 
@@ -24,16 +24,16 @@ from typing import Any, cast
 import pytest
 from pydantic import BaseModel
 
-import imgwtools
-from imgwtools import (
+import obserwator
+from obserwator import (
     command_schema,
     data_commands,
     format_command,
     parse_command,
     validate_command,
 )
-from imgwtools.output import OutputReport
-from imgwtools.store.types import Page, StorePlan
+from obserwator.output import OutputReport
+from obserwator.store.types import Page, StorePlan
 from tests.unit.test_commands import SAMPLES
 from tests.unit.test_commands_chmi import VALID as CHMI_SAMPLES
 
@@ -46,7 +46,7 @@ EXAMPLES = [
     for run in (({}, {"check": True}) if command in CHECKED else ({},))
 ]
 CATALOG = [
-    schema["x-imgw"]
+    schema["x-obserwator"]
     for schema in cast(list[dict[str, Any]], command_schema()["commands"])
 ]
 CATALOG_EXAMPLES = [
@@ -91,7 +91,7 @@ def test_every_catalog_example_call_is_a_canonical_line(
     meta, example, monkeypatch, tmp_path
 ):
     # The default store root differs per user: a canonical example never relies on it.
-    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
+    monkeypatch.setenv("OBSERWATOR_ROOT", str(tmp_path))
 
     call = parse_command(example["call"])
 
@@ -102,7 +102,7 @@ def test_every_catalog_example_call_is_a_canonical_line(
 
 
 def _fields(type_: type) -> set[str]:
-    """The keys of the JSON form of a result type (``imgwtools._jsonable``)."""
+    """The keys of the JSON form of a result type (``obserwator._jsonable``)."""
     if issubclass(type_, BaseModel):
         return set(type_.model_fields)
     assert dataclasses.is_dataclass(type_), type_
@@ -113,7 +113,7 @@ def _fields(type_: type) -> set[str]:
 def test_every_catalog_example_result_names_fields_of_the_result(meta, example):
     call = parse_command(example["call"])
     excerpt = example["result"]
-    item = getattr(imgwtools, meta["result_type"], None)
+    item = getattr(obserwator, meta["result_type"], None)
 
     if call.run.get("check"):
         assert set(excerpt) <= _fields(StorePlan)

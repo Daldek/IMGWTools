@@ -7,10 +7,10 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-import imgwtools
-from imgwtools import agent_guide
-from imgwtools.api.main import app, run_server
-from imgwtools.config import settings
+import obserwator
+from obserwator import agent_guide
+from obserwator.api.main import app, run_server
+from obserwator.config import settings
 
 
 @pytest.fixture
@@ -30,18 +30,18 @@ def uvicorn_calls(monkeypatch):
 def test_api_main_health_reports_package_version(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": imgwtools.__version__}
+    assert response.json() == {"status": "ok", "version": obserwator.__version__}
 
 
 def test_api_main_info_names_the_api_and_links_the_catalog_schema(client):
     response = client.get("/api/v1")
     assert response.status_code == 200
     body = response.json()
-    assert (body["name"], body["version"]) == ("IMGWTools API", imgwtools.__version__)
+    assert (body["name"], body["version"]) == ("Obserwator API", obserwator.__version__)
     schema = client.get(body["schema"])
-    assert schema.json()["result"]["schema"] == "imgw-commands/1"
+    assert schema.json()["result"]["schema"] == "obserwator-commands/1"
     openapi = client.get("/openapi.json").json()
-    assert openapi["info"]["version"] == imgwtools.__version__
+    assert openapi["info"]["version"] == obserwator.__version__
 
 
 @pytest.mark.parametrize(
@@ -111,7 +111,7 @@ def test_api_main_run_server_uses_settings(monkeypatch, uvicorn_calls, env, relo
     run_server()
     assert uvicorn_calls == [
         (
-            ("imgwtools.api.main:app",),
+            ("obserwator.api.main:app",),
             {"host": "127.0.0.5", "port": 8123, "reload": reload},
         )
     ]
@@ -119,6 +119,6 @@ def test_api_main_run_server_uses_settings(monkeypatch, uvicorn_calls, env, relo
 
 def test_api_main_module_entrypoint_starts_server(monkeypatch, uvicorn_calls):
     monkeypatch.setattr(settings, "env", "production")
-    monkeypatch.delitem(sys.modules, "imgwtools.api.main")
-    runpy.run_module("imgwtools.api.main", run_name="__main__")
-    assert [args for args, _ in uvicorn_calls] == [("imgwtools.api.main:app",)]
+    monkeypatch.delitem(sys.modules, "obserwator.api.main")
+    runpy.run_module("obserwator.api.main", run_name="__main__")
+    assert [args for args, _ in uvicorn_calls] == [("obserwator.api.main:app",)]

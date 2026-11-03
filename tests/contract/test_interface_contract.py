@@ -1,7 +1,7 @@
-"""Contract between interfaces: Python, ``imgw`` and REST answer every command alike.
+"""Contract between interfaces: Python, ``obserwator`` and REST answer every command alike.
 
 Spec §13 (ADR-002), plan U14. Every catalog command with a REST route runs on the
-fixture store against recorded IMGW answers through ``run_command``, the ``imgw``
+fixture store against recorded IMGW answers through ``run_command``, the ``obserwator``
 CLI and the REST API. The CLI prints ``CommandResult.to_json(root)`` and REST
 answers ``to_json(root, server=True)`` (the root as ``"."``), so the three documents
 are equal after a canonical JSON dump; writes leave identical trees after identical
@@ -9,7 +9,7 @@ requests. Every registered error code is reported with the code, exit code and H
 status of §13.5; every envelope and error document satisfies the §13.5–§13.6
 schemas of ``contract_schemas.json``; the same ``limit``/``offset`` gives the same
 page everywhere; slots and versions taken from answers work in ``current_version``
-and as ``imgw --version`` with ``--root``. No request leaves the recordings.
+and as ``obserwator --version`` with ``--root``. No request leaves the recordings.
 """
 
 import functools
@@ -24,10 +24,10 @@ from pathlib import Path
 import pytest
 import respx
 
-from imgwtools import (
+from obserwator import (
     ERROR_CODES,
-    IMGWCancelledError,
-    IMGWError,
+    ObserwatorCancelledError,
+    ObserwatorError,
     check_command,
     current_version,
     init_store,
@@ -35,8 +35,8 @@ from imgwtools import (
     store,
     sync_pmaxtp,
 )
-from imgwtools.exceptions import describe_os_error
-from imgwtools.messages import localize
+from obserwator.exceptions import describe_os_error
+from obserwator.messages import localize
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -61,16 +61,16 @@ from tests.contract.support import (
 CATALOG = command_document()
 EXIT_CODES = CATALOG["exit_codes"]
 ROUTES = {
-    schema["x-imgw"]["command"]: schema["x-imgw"]
+    schema["x-obserwator"]["command"]: schema["x-obserwator"]
     for schema in CATALOG["commands"]
-    if schema["x-imgw"]["rest"] is not None
+    if schema["x-obserwator"]["rest"] is not None
 }
 POST_COMMANDS = [
     name for name, meta in ROUTES.items() if meta["rest"]["method"] == "POST"
 ]
 INTERFACES = ("python", "cli", "rest")
 # Notice labels of the CLI stderr (spec §13.10); its lines are for a person, so they
-# are in the language of IMGW_LANG, Polish by default.
+# are in the language of OBSERWATOR_LANG, Polish by default.
 LABELS = {"info": "Informacja", "warning": "Ostrzeżenie", "error": "Błąd"}
 
 
@@ -257,11 +257,11 @@ def assert_alike(command, python, printed, answered, root):
         assert printed.stdout_bytes == data
         assert answered.status_code == 200, answered.text
         assert answered.content == data
-        assert answered.headers["x-imgw-status"] == python.status == "ok"
+        assert answered.headers["x-obserwator-status"] == python.status == "ok"
         notices = [
             {"level": n.level, "code": n.code, "text": n.text} for n in python.notices
         ]
-        assert json.loads(answered.headers["x-imgw-notices"]) == notices
+        assert json.loads(answered.headers["x-obserwator-notices"]) == notices
         # Data exports name the license of their provider; the guide is no data.
         exported = ROUTES[command]["function"].startswith("export_")
         assert ("license_terms" in {notice["code"] for notice in notices}) == exported
@@ -314,7 +314,7 @@ def test_every_rest_command_answers_alike_in_python_cli_and_rest(
         options = case.options if writes else resolved(case.options, root)
         local = options
         if ROUTES[command]["result"] == "list" and "limit" not in options:
-            # REST pages by IMGW_API_MAX_LIMIT when no limit is given (spec §13.6).
+            # REST pages by OBSERWATOR_API_MAX_LIMIT when no limit is given (spec §13.6).
             local = {"limit": server.api_max_limit, **options}
         given = {"python": local, "cli": local, "rest": options}
         before = stamps(served_root)
@@ -433,7 +433,7 @@ def test_same_limit_and_offset_give_the_same_page_in_every_interface(
 
 
 # --------------------------------------------------------------------------
-# Versions of REST answers as imgw --version with --root
+# Versions of REST answers as obserwator --version with --root
 # --------------------------------------------------------------------------
 
 # Kind of a scanned version → command reading it and its other options.
@@ -446,7 +446,7 @@ READERS = {
 STATION_LISTS = ("pl.imgw.hydro_stations", "pl.imgw.meteo_stations")
 
 
-def test_versions_answered_by_rest_work_as_imgw_version_with_root(
+def test_versions_answered_by_rest_work_as_obserwator_version_with_root(
     cli, rest, server, monkeypatch, served_root
 ):
     monkeypatch.setattr(server, "root", served_root)
@@ -561,7 +561,7 @@ def _io_error(setting: Setting) -> Scenario:
 
 
 def _cancelled(setting: Setting) -> Scenario:
-    cancelled = IMGWCancelledError("Anulowano budowę szeregu")
+    cancelled = ObserwatorCancelledError("Anulowano budowę szeregu")
     setting.raising(store, "build_series", cancelled)
     return Scenario("series build", {"dataset": PRECIP}, setting.store())
 
@@ -573,7 +573,7 @@ def _forbidden(setting: Setting) -> Scenario:
 def _unsupported(setting: Setting) -> Scenario:
     # No catalog command refuses a combination itself (command_for_version is
     # Python only); a refusal raised below a command is reported alike.
-    refusal = IMGWError(
+    refusal = ObserwatorError(
         "Komenda wersji nie do odtworzenia",
         code="unsupported",
         details={"reason": "command_not_rebuildable"},
@@ -587,8 +587,10 @@ def _method_not_allowed(setting: Setting) -> Scenario:
 
 
 def _internal_error(setting: Setting) -> Scenario:
-    registry = importlib.import_module("imgwtools.datasets")
-    setting.raising(registry, "datasets", IMGWError("Awaria testowa rejestru zbiorów"))
+    registry = importlib.import_module("obserwator.datasets")
+    setting.raising(
+        registry, "datasets", ObserwatorError("Awaria testowa rejestru zbiorów")
+    )
     return Scenario("datasets list", {})
 
 
@@ -643,15 +645,17 @@ def test_every_error_code_is_reported_alike_by_every_interface(
     if "python" in scenario.interfaces:
         try:
             envelope = run_command(scenario.command, options=options)
-        except (IMGWError, OSError) as exc:
+        except (ObserwatorError, OSError) as exc:
             raised = exc
         if code == "cancelled":  # an envelope without a report (spec §13.6)
             assert raised is None
             assert (envelope.status, envelope.result) == ("cancelled", None)
         elif code == "io_error":  # a plain OSError, mapped by every adapter
-            assert isinstance(raised, OSError) and not isinstance(raised, IMGWError)
+            assert isinstance(raised, OSError) and not isinstance(
+                raised, ObserwatorError
+            )
         else:
-            assert isinstance(raised, IMGWError) and raised.code == code
+            assert isinstance(raised, ObserwatorError) and raised.code == code
 
     if "cli" in scenario.interfaces:
         printed = cli(*cli_words(scenario.command, options))
@@ -666,7 +670,7 @@ def test_every_error_code_is_reported_alike_by_every_interface(
             line = json.loads(printed.stderr.splitlines()[-1])
             assert schema_errors(line, "cli-error") == []
             assert line["code"] == code
-            if isinstance(raised, IMGWError):
+            if isinstance(raised, ObserwatorError):
                 assert canonical([line["detail"], line["details"]]) == canonical(
                     [raised.detail, dict(raised.details)]
                 )
@@ -685,10 +689,10 @@ def test_every_error_code_is_reported_alike_by_every_interface(
         assert (body["code"], body["title"], body["type"], body["instance"]) == (
             reported.code,
             reported.title,
-            f"urn:imgwtools:error:{reported.code}",
+            f"urn:obserwator:error:{reported.code}",
             request["url"],
         )
-        if isinstance(raised, IMGWError):
+        if isinstance(raised, ObserwatorError):
             temporary = tmp_path_factory.getbasetemp()
             same_text(raised.detail, body["detail"], temporary)
             same_text(dict(raised.details), body["details"], temporary)
@@ -749,10 +753,10 @@ UNREADABLE = {
 
 def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
     """The library error, the CLI line and the REST problem report one io_error."""
-    with pytest.raises((IMGWError, OSError)) as caught:
+    with pytest.raises((ObserwatorError, OSError)) as caught:
         run_command(command, options=rooted(options, root))
     raised = caught.value
-    if isinstance(raised, IMGWError):
+    if isinstance(raised, ObserwatorError):
         assert raised.code == "io_error"
         expected = [raised.detail, dict(raised.details)]
     else:  # a plain OSError of a write, described by every adapter
@@ -803,14 +807,14 @@ def test_an_unreadable_version_is_an_io_error_in_every_interface(
     finally:
         target.chmod(0o644)
 
-    assert isinstance(raised, IMGWError)
+    assert isinstance(raised, ObserwatorError)
     assert (raised.detail, dict(raised.details)) == (
         f"File system error: permission denied: {target}",
         {"path": str(target)},
     )
 
 
-def test_a_failed_write_is_the_same_io_error_in_imgw_and_rest(
+def test_a_failed_write_is_the_same_io_error_in_obserwator_and_rest(
     cli, rest, writable, server, monkeypatch, tmp_path, fixture_root, imgw
 ):
     scenario = _io_error(Setting(tmp_path, fixture_root, imgw, monkeypatch))
@@ -825,7 +829,7 @@ def test_a_failed_write_is_the_same_io_error_in_imgw_and_rest(
         headers=writable,
     )
 
-    assert isinstance(raised, OSError) and not isinstance(raised, IMGWError)
+    assert isinstance(raised, OSError) and not isinstance(raised, ObserwatorError)
     assert raised.filename is not None
 
 
@@ -872,7 +876,7 @@ def test_rest_answers_every_refused_request_with_a_problem_document(
     ],
     ids=["unknown-flag", "missing-value", "unknown-group", "no-command"],
 )
-def test_imgw_ends_every_syntax_error_with_a_validation_error_line(args, cli):
+def test_obserwator_ends_every_syntax_error_with_a_validation_error_line(args, cli):
     printed = cli(*args)
 
     line = json.loads(printed.stderr.splitlines()[-1])
@@ -881,8 +885,10 @@ def test_imgw_ends_every_syntax_error_with_a_validation_error_line(args, cli):
     assert printed.exit_code == ERROR_CODES["validation_error"].exit_code
 
 
-def test_program_errors_are_internal_errors_in_imgw_and_rest(cli, rest, monkeypatch):
-    registry = importlib.import_module("imgwtools.datasets")
+def test_program_errors_are_internal_errors_in_obserwator_and_rest(
+    cli, rest, monkeypatch
+):
+    registry = importlib.import_module("obserwator.datasets")
     original = registry.datasets
 
     @functools.wraps(original)

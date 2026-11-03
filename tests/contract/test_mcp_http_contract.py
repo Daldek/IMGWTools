@@ -1,11 +1,11 @@
 """Contract of MCP over HTTP: a ``/mcp`` tool answers what its REST route answers.
 
 Spec 2026-10-19 §6.9 and §9 ("MCP stdio i HTTP"). The REST application of a server
-with ``IMGW_MCP_ENABLED=true`` serves ``/mcp``; every case of
+with ``OBSERWATOR_MCP_ENABLED=true`` serves ``/mcp``; every case of
 ``test_interface_contract.CASES`` runs through REST (the FastAPI test client) and
 through its tool on ``/mcp`` (the SDK client in process, ASGI). The structured
 content is the REST body and the text content its text; a stream is its text with
-the envelope of ``X-IMGW-Status`` and ``X-IMGW-Notices``; a POST route answers its
+the envelope of ``X-Obserwator-Status`` and ``X-Obserwator-Notices``; a POST route answers its
 plan of ``?check=true`` (a server without writes) and leaves the store as it was.
 Both send the same requests to the recorded sources. Every error scenario of the
 REST contract gives the problem document of REST as the error result of the tool:
@@ -64,16 +64,16 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
     default = command_document(command)["properties"]["format"]["default"]
     assert result.content[0].text == data.decode("utf-8")
     assert result.structured_content == {
-        "schema": "imgw-result/1",
+        "schema": "obserwator-result/1",
         "command": command,
         "check": False,
-        "status": answered.headers["x-imgw-status"],
+        "status": answered.headers["x-obserwator-status"],
         "result": {
             "format": options.get("format", default),
             "bytes": len(data),
             "lines": data.count(b"\n"),
         },
-        "notices": json.loads(answered.headers["x-imgw-notices"]),
+        "notices": json.loads(answered.headers["x-obserwator-notices"]),
     }
 
 

@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from imgwtools import (
+from obserwator import (
     CommandCall,
     check_command,
     command_for_version,
@@ -19,8 +19,8 @@ from imgwtools import (
     run_command,
     sync_pmaxtp,
 )
-from imgwtools.exceptions import IMGWError
-from imgwtools.testing import build_fixture_store
+from obserwator.exceptions import ObserwatorError
+from obserwator.testing import build_fixture_store
 
 RECORDINGS = Path(__file__).parents[1] / "fixtures" / "store" / "recordings.json"
 PMAXTP = next(
@@ -124,7 +124,7 @@ def planned(call):
 
 
 def refusal(code, version_, root):
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         command_for_version(version_, root=root)
     assert error.value.code == code
     return error.value
@@ -222,7 +222,7 @@ def test_version_is_its_directory_sidecar_or_absolute_path_and_root_defaults(
     relative = version(root, "archive", HYDRO)
     call = command_for_version(relative, root=root)
 
-    monkeypatch.setenv("IMGW_ROOT", str(root))
+    monkeypatch.setenv("OBSERWATOR_ROOT", str(root))
     assert command_for_version(relative.parent) == call
     assert command_for_version(sidecar(root, relative)) == call
     assert command_for_version(root / relative) == call

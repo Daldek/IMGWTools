@@ -1,0 +1,824 @@
+"""
+REST routes generated from the command catalog (spec §13.10, ADR-002 D10).
+
+Every catalog command with a REST method gets one route
+``/api/v1/<group>/<name>`` (method and path from `command_schema`). GET reads
+the options from the query string (a list option as repeated parameters or
+comma-separated text), POST from a JSON body checked by a model built with
+`pydantic.create_model` (``extra="forbid"``, loose JSON kinds: text, number,
+list, object). Values are normalized only by `validate_command`; the answer is
+the ``obserwator-result/1`` envelope of `run_command` (on POST with ``?check=true``
+of `check_command`) with the store root written as ``"."``, or a text stream
+for ``store export``, ``series export`` and ``commands guide``.
+
+Server rules: the store root comes only from ``OBSERWATOR_ROOT`` (503
+``store_unavailable`` when it is missing, relative or unsupported; ``store
+info`` and ``store scan`` answer diagnostically for an unsupported root);
+``version`` is a path relative to the root under the ``*/versions/`` directory
+of the command; ``user_locations`` is a file name from
+``OBSERWATOR_USER_LOCATIONS_DIR``; the ``store sync`` plan is an ``obserwator-plan/1``
+object. Server and local options in a request are refused. Writes (POST
+without ``?check=true``) need ``OBSERWATOR_STORE_WRITES_ENABLED``, a configured
+``OBSERWATOR_STORE_WRITE_TOKEN`` and a matching ``X-API-Key`` (constant-time
+comparison) and are checked before the root; list commands page by ``limit``
+(default and maximum ``OBSERWATOR_API_MAX_LIMIT``) and ``offset``. The catalog
+messages of an answer (notices, texts of failed items) and the texts of a command
+with a ``lang`` option are in the language of ``?lang=``, else of
+``Accept-Language`` (English by default, AGI-6.4); every answer names it in
+``Content-Language`` and adds ``Vary`` when the header decided. The OpenAPI
+document is English (AGI-9.2); ``operationId`` is ``x-obserwator.operation_id`` of the
+catalog.
+"""
+
+import hmac
+import inspect
+import json
+import shutil
+import tempfile
+from collections.abc import Iterator, Mapping
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path, PurePosixPath
+from typing import Annotated, Any, Literal, NoReturn, TypedDict, cast
+
+from fastapi import APIRouter, Body, Depends, Request, Security
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.security import APIKeyHeader
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    WithJsonSchema,
+    create_model,
+)
+
+import obserwator
+from obserwator._jsonable import jsonable
+from obserwator.api.errors import PROBLEM_RESPONSES, accept_language, hide_server_paths
+from obserwator.commands import (
+    check_command,
+    command_schema,
+    data_commands,
+    run_command,
+    validate_command,
+)
+from obserwator.config import settings
+from obserwator.datasets import ArchiveFile, License, ProviderDescriptor
+from obserwator.exceptions import (
+    ErrorCode,
+    ObserwatorDataError,
+    ObserwatorError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
+)
+from obserwator.messages import Lang, message
+from obserwator.models import PMaXTPResult
+from obserwator.store import store_info
+from obserwator.store.types import (
+    CommandOption,
+    CommandResult,
+    DataCommand,
+    Notice,
+    Page,
+    PlanAction,
+    StorePlan,
+)
+
+__all__ = ["PlanDocument", "PlanItemDocument", "catalog_routes", "router"]
+
+router = APIRouter()
+
+_API_KEY = APIKeyHeader(
+    name="X-API-Key",
+    scheme_name="StoreWriteToken",
+    description="Store write token (OBSERWATOR_STORE_WRITE_TOKEN of the server)",
+    auto_error=False,
+)
+# Store directory of the versions accepted by the version option of each group.
+_VERSION_DIRS = {"store": "archives", "series": "series", "pmaxtp": "pmaxtp"}
+# Commands answering diagnostically also for an unsupported store root.
+_DIAGNOSTIC = ("store info", "store scan")
+_MEDIA_TYPES = {
+    "csv": "text/csv; charset=utf-8",
+    "jsonl": "application/x-ndjson",
+    "agents": "text/markdown; charset=utf-8",
+    "llms": "text/markdown; charset=utf-8",
+}
+# File names of the guide streams of commands guide (spec 2026-10-19 §3.4).
+_GUIDE_FILES = {"agents": "AGENTS.md", "llms": "llms.txt"}
+# Option given in REST as an obserwator-plan/1 object instead of a file (spec §13.2).
+_PLAN = "plan"
+# Option chosen by Accept-Language when the request omits it (spec 2026-10-19 §4.2).
+_LANG = "lang"
+# Loose JSON kinds of POST body fields; `validate_command` normalizes values.
+_NUMBER = StrictInt | StrictFloat | StrictStr
+_LOOSE_TYPES: dict[str, Any] = {
+    "str": StrictStr,
+    "choice": StrictStr,
+    "path": StrictStr,
+    "date": StrictStr,
+    "int": _NUMBER,
+    "float": _NUMBER,
+    "bool": StrictBool | StrictStr,
+    "list": list[StrictInt | StrictStr] | StrictStr | StrictInt,
+}
+# Result dataclasses of obserwator.store.types annotate these names only for type
+# checkers; pydantic resolves them from here when it builds the OpenAPI schemas.
+_ANNOTATIONS: dict[str, Any] = {
+    "ArchiveFile": ArchiveFile,
+    "ErrorCode": ErrorCode,
+    "License": License,
+    "PMaXTPResult": PMaXTPResult,
+    "ProviderDescriptor": ProviderDescriptor,
+}
+
+
+class PlanItemDocument(TypedDict):
+    """Archive of an ``obserwator-plan/1`` plan (spec §11.5, spec 2026-10-18 §4.2)."""
+
+    dataset: str
+    server_path: str
+    url: str
+    year: int | None
+    month: int | None
+    param: str | None
+    year_type: Literal["hydrological", "calendar", "none"]
+    station_code: str | None
+    status: Literal["current", "newer", "missing", "unverifiable", "check_failed"]
+    signal: Literal["head", "listing"]
+    local_path: str | None
+    local_sha256: str | None
+    local_observation: str | None
+    remote_etag: str | None
+    remote_last_modified: str | None
+    remote_listed_at: str | None
+    content_length: int | None
+    error: str | None
+
+
+class PlanDocument(TypedDict):
+    """Plan ``obserwator-plan/1`` (spec §11.5); ``root`` is ``"."`` in REST answers."""
+
+    schema: Literal["obserwator-plan/1"]
+    root: str
+    checked_at: datetime
+    cancelled: bool
+    items: list[PlanItemDocument]
+    series_state: dict[str, Literal["current", "outdated", "missing"]]
+    actions: list[PlanAction]
+    requests: dict[str, int] | None
+
+
+class _Envelope(BaseModel):
+    """Envelope ``obserwator-result/1`` of a catalog command (spec §13.6)."""
+
+    schema_: Literal["obserwator-result/1"] = Field(alias="schema")
+    command: str = Field(description="Name of the catalog command")
+    check: bool = Field(
+        description="Whether the result is an obserwator-plan/1 plan (?check=true)"
+    )
+    status: Literal["ok", "partial", "failed", "cancelled"] = Field(
+        description="ok without failures, partial/failed when items of the report failed"
+    )
+    notices: list[Notice] = Field(
+        description="The distinct notices in order of first occurrence (e.g. license_terms)"
+    )
+
+
+@dataclass(frozen=True)
+class _Route:
+    """Catalog command served by one REST route."""
+
+    spec: DataCommand
+    group: str
+    method: Literal["GET", "POST"]
+    path: str
+    result_type: str
+    schema: Mapping[str, Any]
+
+    @property
+    def operation_id(self) -> str:
+        return cast(str, self.schema["x-obserwator"]["operation_id"])
+
+    @property
+    def params(self) -> tuple[CommandOption, ...]:
+        return tuple(option for option in self.spec.options if option.rest == "param")
+
+
+def _routes() -> tuple[_Route, ...]:
+    specs = {spec.name: spec for spec in data_commands()}
+    routes = []
+    # The OpenAPI document is machine output: English (AGI-9.2).
+    for schema in cast(list[dict[str, Any]], command_schema(lang="en")["commands"]):
+        meta = schema["x-obserwator"]
+        if meta["rest"] is not None:
+            routes.append(
+                _Route(
+                    specs[meta["command"]],
+                    meta["group"],
+                    meta["rest"]["method"],
+                    meta["rest"]["path"],
+                    meta["result_type"],
+                    schema,
+                )
+            )
+    return tuple(routes)
+
+
+def catalog_routes() -> list[dict[str, str]]:
+    """
+    List the REST routes of the command catalog.
+
+    Returns
+    -------
+    list of dict of str to str
+        ``command``, ``method`` and ``path`` of every catalog command with a
+        REST route, in catalog order.
+    """
+    return [
+        {"command": route.spec.name, "method": route.method, "path": route.path}
+        for route in _ROUTES
+    ]
+
+
+# --------------------------------------------------------------------------
+# Request options
+# --------------------------------------------------------------------------
+
+
+def _refuse(route: _Route, name: str) -> NoReturn:
+    option = next((o for o in route.spec.options if o.name == name), None)
+    details: dict[str, object] = {"option": name}
+    if option is not None and option.rest == "server":
+        detail = message("api.server_sets_option_obserwator_root", name=name)
+    elif option is not None and option.rest == "local":
+        detail = message(
+            "api.option_command_available_only_locally",
+            name=name,
+            name_2=route.spec.name,
+        )
+    elif route.method == "POST":
+        detail = message(
+            "api.unknown_query_parameter_options_command",
+            name=name,
+            name_2=route.spec.name,
+        )
+        details["allowed"] = ["check"]
+    else:
+        allowed = [option.name for option in route.params]
+        detail = message(
+            "api.unknown_parameter_command_available",
+            name=name,
+            name_2=route.spec.name,
+            allowed=", ".join(allowed) or message("common.none"),
+        )
+        details["allowed"] = allowed
+    raise ObserwatorValidationError(detail, details=details)
+
+
+def _query_options(route: _Route, request: Request) -> dict[str, object]:
+    """Options of a GET route: list options repeat, other options appear once."""
+    params = {option.name: option for option in route.params}
+    options: dict[str, object] = {}
+    for name, value in request.query_params.multi_items():
+        option = params.get(name)
+        if option is None:
+            _refuse(route, name)
+        if option.type == "list":
+            cast(list[str], options.setdefault(name, [])).append(value)
+        elif name in options:
+            raise ObserwatorValidationError(
+                message("api.parameter_given_more_than_once", name=name),
+                details={"option": name},
+            )
+        else:
+            options[name] = value
+    return options
+
+
+def _check_flag(request: Request) -> bool:
+    values = request.query_params.getlist("check")
+    if not values:
+        return False
+    text = values[0].strip().lower()
+    if len(values) > 1 or text not in ("true", "false"):
+        raise ObserwatorValidationError(
+            message("api.parameter_check_given_once_value", values=", ".join(values)),
+            details={
+                "option": "check",
+                "value": values[0],
+                "allowed": ["true", "false"],
+            },
+        )
+    return text == "true"
+
+
+def _forbidden(detail: str, reason: str) -> ObserwatorError:
+    return ObserwatorError(detail, code="forbidden", details={"reason": reason})
+
+
+def _write_access(request: Request, api_key: str | None = Security(_API_KEY)) -> bool:
+    """``?check=true`` flag of a POST route; without it the write must be allowed."""
+    check = _check_flag(request)
+    if check:
+        return True
+    if not settings.store_writes_enabled:
+        raise _forbidden(
+            message("api.writing_store_over_rest_disabled"),
+            "writes_disabled",
+        )
+    token = settings.store_write_token
+    secret = token.get_secret_value() if token is not None else ""
+    if not secret:
+        raise _forbidden(
+            message("api.writing_store_needs_configured_obserwator"),
+            "write_token_missing",
+        )
+    if api_key is None or not hmac.compare_digest(
+        api_key.encode("utf-8"), secret.encode("utf-8")
+    ):
+        raise _forbidden(message("api.missing_invalid_x_api_key"), "invalid_api_key")
+    return False
+
+
+# --------------------------------------------------------------------------
+# Server-side values: root, version, user locations, plan
+# --------------------------------------------------------------------------
+
+
+def _unavailable(detail: str, reason: str) -> ObserwatorStoreError:
+    return ObserwatorStoreError(detail, details={"reason": reason})
+
+
+def _server_root(route: _Route, options: Mapping[str, object]) -> Path | None:
+    """``OBSERWATOR_ROOT`` for a command with a root; 503 when it is unusable."""
+    if not any(option.name == "root" for option in route.spec.options):
+        return None
+    source = options.get("source")
+    if route.spec.name == "stations find" and not (
+        isinstance(source, str) and source.strip() == "store"
+    ):
+        return None
+    root = settings.root
+    if root is None:
+        raise _unavailable(
+            message("api.store_not_configured_set_obserwator"),
+            "not_configured",
+        )
+    if not root.is_absolute():
+        raise _unavailable(message("api.obserwator_root_must_absolute"), "root_invalid")
+    try:
+        info = store_info(root)
+    except ObserwatorError as exc:
+        raise _unavailable(
+            message("api.invalid_obserwator_root", detail=exc.detail), "root_invalid"
+        ) from exc
+    if not info.supported and route.spec.name not in _DIAGNOSTIC:
+        raise _unavailable(
+            message("api.store_unavailable", problems="; ".join(info.problems)),
+            "unsupported",
+        )
+    return info.root
+
+
+def _confine_version(route: _Route, root: Path, value: object) -> None:
+    """``version`` relative to the root under the command's ``*/versions/``."""
+    text = value if isinstance(value, str) else ""
+    details = {"option": "version", "value": text}
+    parts = text.split("/")
+    if (
+        "\\" in text
+        or "\0" in text
+        or PurePosixPath(text).is_absolute()
+        or any(part in ("", ".", "..") for part in parts)
+    ):
+        raise ObserwatorValidationError(
+            message("api.version_must_path_relative_store", text=text),
+            details=details,
+        )
+    kind = _VERSION_DIRS[route.group]
+    if len(parts) < 3 or parts[:2] != [kind, "versions"]:
+        raise ObserwatorValidationError(
+            message(
+                "api.version_command_must_lie_under",
+                name=route.spec.name,
+                kind=kind,
+                text=text,
+            ),
+            details=details,
+        )
+    path = root
+    for part in parts:
+        path = path / part
+        if path.is_symlink():
+            raise ObserwatorValidationError(
+                message("api.version_must_not_lead_through", text=text),
+                details=details,
+            )
+        if not path.exists():
+            raise ObserwatorStoreError(
+                message("api.no_version_store", text=text),
+                code="not_found",
+                details=details,
+            )
+
+
+def _user_locations(value: object) -> Path:
+    """File named by ``user_locations`` in ``OBSERWATOR_USER_LOCATIONS_DIR``."""
+    directory = settings.user_locations_dir
+    if directory is None or not directory.is_absolute() or not directory.is_dir():
+        raise _unavailable(
+            message("api.server_does_not_provide_user"),
+            "user_locations_dir_invalid",
+        )
+    name = value if isinstance(value, str) else ""
+    details = {"option": "user_locations", "value": name}
+    if name in ("", ".", "..") or "/" in name or "\\" in name or "\0" in name:
+        raise ObserwatorValidationError(
+            message("api.give_only_name_location_file", name=name),
+            details=details,
+        )
+    path = directory / name
+    if path.is_symlink():
+        raise ObserwatorValidationError(
+            message("api.location_file_must_not_link", name=name), details=details
+        )
+    if not path.is_file():
+        raise ObserwatorStoreError(
+            message("api.no_location_file", name=name),
+            code="not_found",
+            details=details,
+        )
+    return path
+
+
+def _scratch(root: Path) -> Path:
+    """New private temporary directory outside the store."""
+    base, store = Path(tempfile.gettempdir()).resolve(), root.resolve()
+    if base == store or store in base.parents:
+        raise ObserwatorError(message("api.temporary_directory_server_lies_obserwator"))
+    return Path(tempfile.mkdtemp(prefix="obserwator-rest-"))
+
+
+@contextmanager
+def _plan_file(document: object, root: Path) -> Iterator[Path]:
+    """``obserwator-plan/1`` object of the request written for this root outside the store."""
+    plan = cast(Mapping[str, object], document)
+    if plan.get("root") not in (".", str(root)):
+        raise ObserwatorValidationError(
+            message("api.plan_concerns_another_store_than"),
+            details={"option": "plan", "value": plan.get("root")},
+        )
+    directory = _scratch(root)
+    try:
+        path = directory / "plan.json"
+        path.write_text(
+            json.dumps({**plan, "root": str(root)}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        try:
+            StorePlan.from_json(path)
+        except ObserwatorDataError as exc:
+            raise ObserwatorValidationError(
+                message("api.invalid_obserwator_plan_1_plan", detail=exc.detail),
+                details={"option": "plan"},
+            ) from exc
+        yield path
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Dispatch and answers
+# --------------------------------------------------------------------------
+
+
+def _paged(options: dict[str, object]) -> None:
+    """REST page size: default and maximum ``OBSERWATOR_API_MAX_LIMIT``."""
+    maximum = settings.api_max_limit
+    limit = options.get("limit")
+    if limit is None:
+        options["limit"] = maximum
+    elif cast(int, limit) > maximum:
+        raise ObserwatorValidationError(
+            message(
+                "api.option_limit_may_most_obserwator", maximum=maximum, limit=limit
+            ),
+            details={"option": "limit", "value": limit, "maximum": maximum},
+        )
+
+
+def _stream_format(route: _Route, options: Mapping[str, object]) -> str:
+    """Format of a stream: the given option or its catalog default."""
+    default = next(o.default for o in route.spec.options if o.name == "format")
+    return cast(str, options.get("format", default))
+
+
+def _attachment(route: _Route, options: Mapping[str, object]) -> str:
+    """File name of an exported stream or of a guide."""
+    format_ = _stream_format(route, options)
+    if format_ in _GUIDE_FILES:
+        return _GUIDE_FILES[format_]
+    if route.spec.name == "series export":
+        return f"{options['station']}.csv"
+    version = cast(Path, options["version"])
+    name = version.name.removesuffix(".meta.json")
+    stem = version.parent.name if version.is_dir() else PurePosixPath(name).stem
+    return f"{stem}.{format_}"
+
+
+def _stream(
+    route: _Route,
+    envelope: CommandResult[object],
+    options: Mapping[str, object],
+    root: Path | None,
+    lang: Lang,
+) -> StreamingResponse:
+    lines = cast(Iterator[str], envelope.result)
+    notices = hide_server_paths(
+        jsonable(envelope.notices, root=root, server=True, lang=lang)
+    )
+    return StreamingResponse(
+        (line.encode("utf-8") for line in lines),
+        media_type=_MEDIA_TYPES[_stream_format(route, options)],
+        headers={
+            "Content-Disposition": f'attachment; filename="{_attachment(route, options)}"',
+            "X-Obserwator-Status": envelope.status,
+            "X-Obserwator-Notices": json.dumps(
+                notices, ensure_ascii=True, separators=(",", ":")
+            ),
+        },
+    )
+
+
+def _respond(
+    route: _Route, options: dict[str, object], *, check: bool, lang: Lang
+) -> Response:
+    root = _server_root(route, options)
+    if root is not None:
+        options["root"] = root
+        if "version" in options:
+            _confine_version(route, root, options["version"])
+    if "user_locations" in options:
+        options["user_locations"] = _user_locations(options["user_locations"])
+    with ExitStack() as stack:
+        document = options.pop(_PLAN, None)
+        if document is not None:
+            # Only store sync takes a plan; its root option always yields a root.
+            plan = _plan_file(document, cast(Path, root))
+            options[_PLAN] = stack.enter_context(plan)
+        normalized = validate_command(route.spec.name, options=options)
+        if check:
+            envelope: CommandResult[Any] = check_command(
+                route.spec.name, options=normalized
+            )
+        else:
+            if route.spec.result == "list":
+                _paged(normalized)
+            envelope = run_command(route.spec.name, options=normalized)
+    if envelope.status == "cancelled":
+        raise ObserwatorError(message("api.operation_was_interrupted_without_report"))
+    # The ``lang`` option of a command wins; else the language of the caller.
+    language = cast(Lang, normalized.get(_LANG, lang))
+    if route.spec.result == "stream" and not check:
+        response: Response = _stream(route, envelope, normalized, root, language)
+    else:
+        response = JSONResponse(
+            hide_server_paths(envelope.to_json(root=root, server=True, lang=language))
+        )
+    response.headers["Content-Language"] = language
+    return response
+
+
+class _Endpoint:
+    """
+    Endpoint of one catalog route; FastAPI reads the parameters from `__signature__`.
+
+    GET routes take only the request; POST routes also take the generated
+    body model and the ``?check=true`` flag resolved by the write guard. The
+    texts of the answer are in the language of ``?lang=`` (a command with a
+    ``lang`` option) or of ``Accept-Language`` (``Content-Language``, and ``Vary:
+    Accept-Language`` when the header decided).
+    """
+
+    def __init__(self, route: _Route, body: type[BaseModel] | None) -> None:
+        self._route = route
+        keyword = inspect.Parameter.KEYWORD_ONLY
+        parameters = [inspect.Parameter("request", keyword, annotation=Request)]
+        if body is not None:
+            parameters += [
+                # Optional body (no body = no options) documented as the model.
+                inspect.Parameter(
+                    "body", keyword, annotation=body, default=Body(default=None)
+                ),
+                inspect.Parameter(
+                    "check", keyword, annotation=bool, default=Depends(_write_access)
+                ),
+            ]
+        self.__signature__ = inspect.Signature(parameters)
+
+    def __call__(
+        self, *, request: Request, body: BaseModel | None = None, check: bool = False
+    ) -> Response:
+        route = self._route
+        if route.method == "GET":
+            options = _query_options(route, request)
+        else:
+            for name in request.query_params:
+                if name != "check":
+                    _refuse(route, name)
+            options = {} if body is None else body.model_dump(exclude_unset=True)
+        # The texts follow ``?lang=`` (a command with a ``lang`` option), else the
+        # ``Accept-Language`` of the request, which a cache must key on.
+        header = accept_language(request.headers.get("accept-language"))
+        negotiated = _LANG not in options
+        if negotiated and any(option.name == _LANG for option in route.params):
+            options[_LANG] = header
+        response = _respond(route, options, check=check, lang=header)
+        if negotiated:
+            response.headers.add_vary_header("Accept-Language")
+        return response
+
+
+# --------------------------------------------------------------------------
+# Route generation and OpenAPI
+# --------------------------------------------------------------------------
+
+
+def _option_schema(route: _Route, option: CommandOption) -> dict[str, Any]:
+    """JSON Schema of an option as the REST route accepts it."""
+    schema = dict(route.schema["properties"][option.name])
+    if option.name == "version":
+        kind = _VERSION_DIRS[route.group]
+        schema["description"] = (
+            f"{schema['description']}. REST: only a path relative to the store of "
+            f"the server under {kind}/versions/"
+        )
+    elif option.name == "user_locations":
+        schema = {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of a CSV file station_code,latitude,longitude[,source] "
+            "in the directory OBSERWATOR_USER_LOCATIONS_DIR of the server",
+        }
+    elif option.name == _PLAN:
+        schema = {
+            "type": "object",
+            "description": "The obserwator-plan/1 plan (the result of the command store "
+            'check or of ?check=true) with root "." (instead of datasets, years, '
+            "months and stations)",
+        }
+    elif option.name == "limit":
+        maximum = settings.api_max_limit
+        schema.update(default=maximum, maximum=maximum)
+        schema["description"] = (
+            f"{schema['description']} (default and at most OBSERWATOR_API_MAX_LIMIT)"
+        )
+    return schema
+
+
+def _description(route: _Route) -> str:
+    lines = [cast(str, route.schema["description"])]
+    rules = cast(list[str], route.schema["x-obserwator"]["rules"])
+    if rules:
+        lines += ["", "Rules:", *(f"- {rule}" for rule in rules)]
+    if route.method == "POST":
+        lines += [
+            "",
+            "Writing needs OBSERWATOR_STORE_WRITES_ENABLED, OBSERWATOR_STORE_WRITE_TOKEN and the "
+            "header X-API-Key; ?check=true returns the obserwator-plan/1 plan without "
+            "writing and without a token.",
+        ]
+    return "\n".join(lines)
+
+
+def _pascal(route: _Route) -> str:
+    """Name of the OpenAPI component models of a route, from the command name."""
+    words = route.spec.name.replace("-", " ").split()
+    return "".join(word.capitalize() for word in words)
+
+
+def _body_field(route: _Route, option: CommandOption) -> tuple[Any, None]:
+    """Loose, optional body field documented by the catalog schema of the option."""
+    loose = dict[str, Any] if option.name == _PLAN else _LOOSE_TYPES[option.type]
+    return Annotated[loose | None, WithJsonSchema(_option_schema(route, option))], None
+
+
+def _body_model(route: _Route) -> type[BaseModel]:
+    names = [option.name for option in route.params]
+    schema = route.schema
+    extra: dict[str, Any] = {}
+    required = [name for name in schema.get("required", ()) if name in names]
+    if required:
+        extra["required"] = required
+    if "oneOf" in schema:
+        extra["oneOf"] = [
+            {"required": [name for name in group["required"] if name in names]}
+            for group in schema["oneOf"]
+        ]
+    if "dependentRequired" in schema:
+        extra["dependentRequired"] = schema["dependentRequired"]
+    fields: dict[str, Any] = {
+        option.name: _body_field(route, option) for option in route.params
+    }
+    return create_model(
+        f"{_pascal(route)}Body",
+        __config__=ConfigDict(extra="forbid", json_schema_extra=extra or None),
+        __doc__=f"JSON body of the command {route.spec.name}; the server inserts root.",
+        **fields,
+    )
+
+
+def _result_type(route: _Route) -> Any:
+    """Annotation of the envelope ``result`` (``None`` for a cancelled run)."""
+    name = route.result_type
+    if name == "StorePlan":
+        result: Any = PlanDocument
+    elif name == "str":
+        result = str
+    elif name == "dict":
+        result = dict[str, Any]
+    else:
+        result = getattr(obserwator, name)
+    if route.spec.result == "list":
+        result = cast(Any, Page)[result]
+    if route.method == "POST":
+        result = result | PlanDocument
+    return result | None
+
+
+def _response_model(route: _Route) -> type[BaseModel]:
+    model = create_model(
+        f"{_pascal(route)}Result",
+        __base__=_Envelope,
+        __doc__=f"Envelope obserwator-result/1 of the command {route.spec.name}",
+        result=(
+            _result_type(route),
+            Field(description=f"Result of the function {route.spec.function}"),
+        ),
+    )
+    model.model_rebuild(_types_namespace=_ANNOTATIONS)
+    return model
+
+
+def _parameters(route: _Route) -> list[dict[str, Any]]:
+    required = route.schema.get("required", ())
+    parameters = []
+    for option in route.params:
+        parameter: dict[str, Any] = {
+            "name": option.name,
+            "in": "query",
+            "required": option.name in required,
+            "schema": _option_schema(route, option),
+        }
+        if option.type == "list":
+            parameter.update(style="form", explode=True)
+        parameters.append(parameter)
+    return parameters
+
+
+def _add_route(route: _Route) -> None:
+    responses = dict(PROBLEM_RESPONSES)
+    extra: dict[str, Any] = {}
+    body = None
+    if route.method == "GET":
+        extra["parameters"] = _parameters(route)
+    else:
+        body = _body_model(route)
+    if route.spec.result == "stream":
+        responses[200] = {
+            "description": "The data stream (an attachment) with the headers "
+            "X-Obserwator-Status and X-Obserwator-Notices",
+            "content": {
+                _MEDIA_TYPES[name]: {"schema": {"type": "string"}}
+                for name in route.schema["properties"]["format"]["enum"]
+            },
+        }
+    router.add_api_route(
+        route.path,
+        _Endpoint(route, body),
+        methods=[route.method],
+        name=route.operation_id,
+        operation_id=route.operation_id,
+        tags=[route.group],
+        summary=route.spec.name,
+        description=_description(route),
+        response_model=None
+        if route.spec.result == "stream"
+        else _response_model(route),
+        response_class=StreamingResponse
+        if route.spec.result == "stream"
+        else JSONResponse,
+        responses=responses,
+        openapi_extra=extra or None,
+    )
+
+
+_ROUTES = _routes()
+for _route in _ROUTES:
+    _add_route(_route)

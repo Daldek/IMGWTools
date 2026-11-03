@@ -17,11 +17,11 @@ import pyarrow.parquet as pq
 import pytest
 import respx
 
-from imgwtools.datasets import ArchiveFile, archive_files, get_dataset
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import current_version, init_store, write_archive
-from imgwtools.store.series import build_series, check_series
-from imgwtools.store.sync import check_store, sync_store
+from obserwator.datasets import ArchiveFile, archive_files, get_dataset
+from obserwator.fetch import DownloadResult
+from obserwator.store import current_version, init_store, write_archive
+from obserwator.store.series import build_series, check_series
+from obserwator.store.sync import check_store, sync_store
 from tests.unit.test_store_sync_chmi import (
     CASES,
     FIRST,
@@ -74,7 +74,7 @@ CHMI_LICENSE = {
 }
 # Spec 2026-10-18 §6.3 verbatim; its Parquet SHA-256 is a placeholder.
 EXAMPLE_900002 = (
-    '{"schema":"imgw-series/1","dataset":"cz.chmi.hydro_daily","year_type":"calendar",'
+    '{"schema":"obserwator-series/1","dataset":"cz.chmi.hydro_daily","year_type":"calendar",'
     '"periods":[["2004-01-01","2004-12-31"],["2006-01-01","2006-12-31"]],"stations":'
     '{"0-203-1-900002":{"file":"stations/0-203-1-900002.parquet","sha256":'
     '"0000000000000000000000000000000000000000000000000000000000000000","rows":1096,'
@@ -513,7 +513,7 @@ def test_imgw_series_keep_the_layout_of_3_0_0(root):
         for entry in index["stations"].values()
     )
     table = station_table(report, next(iter(index["stations"])))
-    assert set(table.schema.metadata) == {b"imgw_schema", b"dataset", b"units"}
+    assert set(table.schema.metadata) == {b"obserwator_schema", b"dataset", b"units"}
     assert not any(
         name.endswith(("_quality", "_source_flag")) for name in table.column_names
     )

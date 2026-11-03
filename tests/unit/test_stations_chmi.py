@@ -8,17 +8,17 @@ import httpx
 import pytest
 import respx
 
-from imgwtools._version import __version__
-from imgwtools.datasets import station_source_files
-from imgwtools.exceptions import (
-    IMGWConnectionError,
-    IMGWDataError,
-    IMGWStoreError,
-    IMGWValidationError,
+from obserwator._version import __version__
+from obserwator.datasets import station_source_files
+from obserwator.exceptions import (
+    ObserwatorConnectionError,
+    ObserwatorDataError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.stations import find_stations, find_stations_async
-from imgwtools.store import init_store, write_archive
+from obserwator.fetch import DownloadResult
+from obserwator.stations import find_stations, find_stations_async
+from obserwator.store import init_store, write_archive
 from tests.unit.test_store_catalog_chmi import BASE_URL, CASES, body, build, serve
 
 NOW = ("hydro_now_get", "meteo_now_listing", "meteo_now_get", "meteo_now_previous_get")
@@ -66,7 +66,7 @@ async def test_live_search_reads_the_current_metadata_and_finds_czech_names(rout
     ]
     assert not routes["meteo_now_previous_get"].called
     assert {call.request.headers["User-Agent"] for call in router.calls} == {
-        f"imgwtools/{__version__}"
+        f"obserwator/{__version__}"
     }
     assert await find_stations_async(provider="CHMI", query="spindleruv") == found
 
@@ -134,9 +134,9 @@ def test_without_provider_both_providers_are_searched_in_registry_order(router):
 async def test_unreachable_chmi_source_is_source_unavailable_naming_it(router):
     serve(router, "hydro_now_outage")
 
-    with pytest.raises(IMGWConnectionError) as error:
+    with pytest.raises(ObserwatorConnectionError) as error:
         find_stations(provider="CHMI", kind="hydro")
-    with pytest.raises(IMGWConnectionError) as async_error:
+    with pytest.raises(ObserwatorConnectionError) as async_error:
         await find_stations_async(provider="CHMI", kind="hydro")
 
     for raised in (error.value, async_error.value):
@@ -152,7 +152,7 @@ async def test_unreachable_chmi_source_is_source_unavailable_naming_it(router):
 def test_network_error_of_the_listing_is_source_unavailable(router):
     router.get(METEO_LISTING).mock(side_effect=httpx.ConnectError("brak sieci"))
 
-    with pytest.raises(IMGWConnectionError) as error:
+    with pytest.raises(ObserwatorConnectionError) as error:
         find_stations(provider="CHMI", kind="meteo")
 
     assert error.value.details == {"url": METEO_LISTING, "reason": "network"}
@@ -162,16 +162,16 @@ def test_listing_without_dated_metadata_is_a_data_error(router):
     listing = body("meteo_now_listing").replace(b"meta1-", b"meta5-")
     router.get(METEO_LISTING).respond(content=listing)
 
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         find_stations(provider="CHMI", kind="meteo")
 
     assert error.value.details == {"url": METEO_LISTING}
 
 
 async def test_unknown_provider_is_a_validation_error_without_requests(router):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         find_stations(provider="SHMU")
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         await find_stations_async(provider="SHMU")
 
     assert error.value.details["option"] == "provider"
@@ -213,9 +213,9 @@ def test_store_without_lists_of_a_named_provider_is_not_found(tmp_path):
     build(store)
     empty = init_store(tmp_path / "empty")
 
-    with pytest.raises(IMGWStoreError) as named:
+    with pytest.raises(ObserwatorStoreError) as named:
         find_stations(source="store", root=store.root, provider="IMGW-PIB")
-    with pytest.raises(IMGWStoreError) as nothing:
+    with pytest.raises(ObserwatorStoreError) as nothing:
         find_stations(source="store", root=empty.root)
 
     assert named.value.code == nothing.value.code == "not_found"
@@ -235,7 +235,7 @@ def test_provider_with_only_some_stored_lists_is_not_skipped(tmp_path):
     )
 
     found = find_stations(source="store", root=store.root, kind="hydro")
-    with pytest.raises(IMGWStoreError) as error:
+    with pytest.raises(ObserwatorStoreError) as error:
         find_stations(source="store", root=store.root)
 
     # Without a catalog the stored list keeps its own coordinates.

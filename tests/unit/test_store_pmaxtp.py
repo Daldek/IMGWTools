@@ -8,9 +8,13 @@ import httpx
 import pytest
 import respx
 
-from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
-from imgwtools.store import init_store, iter_store
-from imgwtools.store.pmaxtp import check_pmaxtp, read_pmaxtp, sync_pmaxtp
+from obserwator.exceptions import (
+    ObserwatorDataError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
+)
+from obserwator.store import init_store, iter_store
+from obserwator.store.pmaxtp import check_pmaxtp, read_pmaxtp, sync_pmaxtp
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
@@ -63,7 +67,7 @@ def test_cell_key_comes_from_api_response(store):
     assert relative.parent.name.endswith("_" + hashlib.sha256(raw).hexdigest()[:8])
     cell = json.loads(raw)
     assert cell == {
-        "schema": "imgw-pmaxtp/1",
+        "schema": "obserwator-pmaxtp/1",
         "method": "POT",
         "ind_x": 751,
         "ind_y": 317,
@@ -164,7 +168,7 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
     with respx.mock as router:
         route = recorded(router, FIRST)
         recorded(router, outside)
-        with pytest.raises(IMGWValidationError, match="751_317"):
+        with pytest.raises(ObserwatorValidationError, match="751_317"):
             sync_pmaxtp(
                 store,
                 method="POT",
@@ -173,13 +177,13 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
                 ind_x=750,
                 ind_y=317,
             )
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01, ind_x=751)
-        with pytest.raises(IMGWValidationError, match="outside the PMAXTP grid"):
+        with pytest.raises(ObserwatorValidationError, match="outside the PMAXTP grid"):
             sync_pmaxtp(store, method="POT", latitude=54.9, longitude=23.9)
         for payload in (empty, no_index):
             route.mock(return_value=httpx.Response(200, json=payload))
-            with pytest.raises(IMGWDataError):
+            with pytest.raises(ObserwatorDataError):
                 sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01)
         assert not (store.root / "pmaxtp").exists()
         route.mock(return_value=httpx.Response(200, json=FIRST["json"]))
@@ -192,8 +196,8 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
-        ("Brak pliku, pradopodobnie poza obszarem PL", IMGWValidationError),
-        ("Wewnętrzny błąd serwera", IMGWDataError),
+        ("Brak pliku, pradopodobnie poza obszarem PL", ObserwatorValidationError),
+        ("Wewnętrzny błąd serwera", ObserwatorDataError),
     ],
 )
 def test_api_error_maps_outside_grid_to_validation_and_writes_nothing(
@@ -235,7 +239,7 @@ def test_check_pmaxtp_makes_no_request_and_writes_nothing(store):
     assert plan.actions[0].status == "unverifiable"
     assert created.version.relative_to(store.root).as_posix() in plan.actions[0].detail
     assert tree(store.root) == after
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         check_pmaxtp(store, method="XYZ", latitude=52.23, longitude=21.01)
 
 
@@ -269,13 +273,13 @@ def test_read_pmaxtp_offline_current_and_explicit_version(store):
             52.234416666667,
             21.007098333333,
         )
-        with pytest.raises(IMGWStoreError) as missing:
+        with pytest.raises(ObserwatorStoreError) as missing:
             read_pmaxtp(store, method="AMP", ind_x=751, ind_y=317)
         assert missing.value.code == "not_found"
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             read_pmaxtp(store, method="POT", ind_x=1, ind_y=2, version=old.version)
         absent = old.version.parents[1] / "2026-01-01_00000000"
-        with pytest.raises(IMGWStoreError) as missing_version:
+        with pytest.raises(ObserwatorStoreError) as missing_version:
             read_pmaxtp(store, ind_x=751, ind_y=317, version=absent)
         assert missing_version.value.code == "not_found"
 
@@ -295,6 +299,6 @@ def test_method_defaults_to_pot_in_check_sync_and_read(store):
 
 
 def test_unknown_method_names_the_option(store):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         check_pmaxtp(store, latitude=52.23, longitude=21.01, method="XYZ")
     assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}

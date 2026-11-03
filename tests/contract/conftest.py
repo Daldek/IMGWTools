@@ -1,7 +1,7 @@
 """Fixtures of the offline contract suite: no network, frozen clock, recorded IMGW.
 
 The three interfaces run in this process: Python through ``run_command``, the
-``imgw`` CLI through Click's runner and REST through the FastAPI test client.
+``obserwator`` CLI through Click's runner and REST through the FastAPI test client.
 """
 
 import importlib
@@ -16,22 +16,22 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from typer.testing import CliRunner, Result
 
-from imgwtools.api.main import app as rest_app
-from imgwtools.cli.main import app as cli_app
-from imgwtools.config import settings
-from imgwtools.testing import build_fixture_store
+from obserwator.api.main import app as rest_app
+from obserwator.cli.main import app as cli_app
+from obserwator.config import settings
+from obserwator.testing import build_fixture_store
 from tests.contract.support import FakeImgw
 
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 WRITE_TOKEN = "kontrakt-token"
 # Modules that stamp versions and plans with the current time.
 _CLOCKED = (
-    "imgwtools.store.writer",
-    "imgwtools.store.series",
-    "imgwtools.store.catalog",
-    "imgwtools.store.sync",
-    "imgwtools.store.pmaxtp",
-    "imgwtools.commands",
+    "obserwator.store.writer",
+    "obserwator.store.series",
+    "obserwator.store.catalog",
+    "obserwator.store.sync",
+    "obserwator.store.pmaxtp",
+    "obserwator.commands",
 )
 
 
@@ -69,9 +69,9 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_imgw_root(monkeypatch):
-    """The developer's IMGW_ROOT must not reach the commands under test."""
-    monkeypatch.delenv("IMGW_ROOT", raising=False)
+def no_obserwator_root(monkeypatch):
+    """The developer's OBSERWATOR_ROOT must not reach the commands under test."""
+    monkeypatch.delenv("OBSERWATOR_ROOT", raising=False)
 
 
 @pytest.fixture
@@ -97,7 +97,7 @@ def imgw():
 
 @pytest.fixture(scope="session")
 def fixture_root(tmp_path_factory):
-    """``complete`` store of ``imgwtools.testing`` built once; tests copy it to mutate."""
+    """``complete`` store of ``obserwator.testing`` built once; tests copy it to mutate."""
     return build_fixture_store(tmp_path_factory.mktemp("contract") / "store").root
 
 
@@ -131,7 +131,7 @@ def rest(server):
 
 @pytest.fixture
 def cli() -> Callable[..., Result]:
-    """``imgw`` in process: the Click result of the given arguments."""
+    """``obserwator`` in process: the Click result of the given arguments."""
     runner = CliRunner()
 
     def invoke(*args: object) -> Result:
