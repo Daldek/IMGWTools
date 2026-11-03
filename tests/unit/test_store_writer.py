@@ -4,6 +4,7 @@ import errno
 import hashlib
 import json
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -234,9 +235,9 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
     assert old.exists()  # no operation began, so nothing was cleaned
     write_archive(root, archive=ARCHIVE, response=response())
     assert not old.exists() and new.exists()
-    assert (
-        len(fsynced) >= 4
-    )  # marker, archive, sidecar, stage directory, published parent
+    # The archive and its sidecar; the stage directory and the published parent
+    # too, except on Windows, which cannot open a directory for fsync.
+    assert len(fsynced) >= (2 if sys.platform == "win32" else 4)
 
 
 def test_sidecar_failure_cannot_publish_half_version(tmp_path, monkeypatch):

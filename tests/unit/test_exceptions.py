@@ -138,7 +138,8 @@ def _raise_in_worker() -> None:
 
 
 def test_error_crosses_a_process_boundary():
-    context = multiprocessing.get_context("fork")
+    # spawn exists on every system (Windows has no fork) and starts a fresh process.
+    context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
         future = pool.submit(_raise_in_worker)
         with pytest.raises(IMGWStoreError) as caught:
