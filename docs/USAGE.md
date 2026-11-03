@@ -1,6 +1,6 @@
 # IMGWTools — Usage Guide
 
-A detailed guide to the IMGWTools interfaces (Python library, CLI, REST, Web GUI, MCP server), configuration, the versioned store and the 3.0.0 changes, moved without content changes from [README.md](../README.md) (Nogat standard 2.1, DOC-2.2). For developers: [CODEBASE.md](CODEBASE.md) (project structure) and [TESTING.md](TESTING.md) (tests).
+A detailed guide to the IMGWTools interfaces (Python library, CLI, REST, Web GUI, MCP server), configuration, the versioned store and the 3.0.0 changes, moved without content changes from [README.md](../README.md) (Nogat standard 1.0, DOC-2.2). For developers: [CODEBASE.md](CODEBASE.md) (project structure) and [TESTING.md](TESTING.md) (tests).
 
 ## Contents
 

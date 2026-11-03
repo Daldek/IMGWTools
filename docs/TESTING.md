@@ -1,6 +1,6 @@
 # IMGWTools — Testing
 
-Test layout, markers and how to run the tests, moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 2.1, DOC-3.2). Test strategy and plan: [TEST_PLAN.md](TEST_PLAN.md).
+Test layout, markers and how to run the tests, moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 1.0, DOC-3.2). Test strategy and plan: [TEST_PLAN.md](TEST_PLAN.md).
 
 The project includes unit and contract tests for the public API, CLI, REST, MCP and web GUI; all run offline (`respx` mocks or packaged recordings).
 

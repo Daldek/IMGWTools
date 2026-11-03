@@ -1,6 +1,6 @@
 # IMGWTools — Codebase Reference
 
-Code and module reference moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 2.1, DOC-3.2): package tree, public library API, command catalog, data sources and formats, deployment, versioned store. Architecture and component diagrams: [ARCHITECTURE.md](ARCHITECTURE.md); tests: [TESTING.md](TESTING.md); task-oriented usage: [USAGE.md](USAGE.md).
+Code and module reference moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard 1.0, DOC-3.2): package tree, public library API, command catalog, data sources and formats, deployment, versioned store. Architecture and component diagrams: [ARCHITECTURE.md](ARCHITECTURE.md); tests: [TESTING.md](TESTING.md); task-oriented usage: [USAGE.md](USAGE.md).
 
 ## Package Tree
 

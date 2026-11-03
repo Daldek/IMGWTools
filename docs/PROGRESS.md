@@ -1,6 +1,6 @@
 # IMGWTools - Progress Tracker
 
-Current state of the project (Nogat standard 2.1, DOC-6.1). Release history, cross-project analysis, closed backlog items and working notes: [docs/HISTORY.md](HISTORY.md). Full list of changes: [CHANGELOG.md](CHANGELOG.md).
+Current state of the project (Nogat standard 1.0, DOC-6.1). Release history, cross-project analysis, closed backlog items and working notes: [docs/HISTORY.md](HISTORY.md). Full list of changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Status
 
@@ -8,7 +8,7 @@ Current state of the project (Nogat standard 2.1, DOC-6.1). Release history, cro
 |------|---------|
 | **Version** | 3.0.0 |
 | **Date** | 2026-11-03 |
-| **Working branch** | `develop` (formerly `slave`, ECO-008). On 2026-11-03 the finished `feature/archiwista-projects` stack `0e0bc3a` (tree as after the green gate `8cd6844c`) was merged into it (`--no-ff`, the author's decision, without a pull request): projects moved to Archiwista and `command_for_version` (ADR-008), data output (`feature/data-output`, ADR-007), Nogat standard 2.1 (`chore/nogat-2.1`), Archiwista compatibility fixes (`fix/archiwista-compat-2`), and earlier `feature/chmi-agents` (ADR-003, ADR-004) and `feature/versioned-store` (ADR-001, ADR-002); these branches were deleted locally and on GitHub. Remaining: `main` (releases, v2.1.1); `fix/archiwista-compat` — superseded by `fix/archiwista-compat-2` (`e77a6f9` and `c280088` cherry-picked over), but `e9d8886` (publication without hard links, rejected in favour of `cb6af4f`) and `2e78eb6` are not in any other branch, so its deletion awaits the author's decision; the local `backup/versioned-store-master-base` `7263212` (a copy of `feature/versioned-store` from before the rework, 8 commits not present elsewhere, not on GitHub) — also the author's decision. Next: merge `develop` → `main` and tag 3.0.0 with the author's approval |
+| **Working branch** | `develop` (formerly `slave`, ECO-008). On 2026-11-03 the finished `feature/archiwista-projects` stack `0e0bc3a` (tree as after the green gate `8cd6844c`) was merged into it (`--no-ff`, the author's decision, without a pull request): projects moved to Archiwista and `command_for_version` (ADR-008), data output (`feature/data-output`, ADR-007), Nogat standard 1.0 (`chore/nogat-2.1`), Archiwista compatibility fixes (`fix/archiwista-compat-2`), and earlier `feature/chmi-agents` (ADR-003, ADR-004) and `feature/versioned-store` (ADR-001, ADR-002); these branches were deleted locally and on GitHub. Remaining: `main` (releases, v2.1.1); `fix/archiwista-compat` — superseded by `fix/archiwista-compat-2` (`e77a6f9` and `c280088` cherry-picked over), but `e9d8886` (publication without hard links, rejected in favour of `cb6af4f`) and `2e78eb6` are not in any other branch, so its deletion awaits the author's decision; the local `backup/versioned-store-master-base` `7263212` (a copy of `feature/versioned-store` from before the rework, 8 commits not present elsewhere, not on GitHub) — also the author's decision. Next: merge `develop` → `main` and tag 3.0.0 with the author's approval |
 | **Python** | >=3.12 |
 
 | Component | State | Notes |
@@ -19,7 +19,7 @@ Current state of the project (Nogat standard 2.1, DOC-6.1). Release history, cro
 | AI agent support, MCP server (ADR-004) | done (3.0.0) | agent surfaces in English (ADR-006): done, entry in [HISTORY.md](HISTORY.md) |
 | Web GUI (HTMX + Jinja2) | done | ČHMÚ data and GeoJSON layer: planned |
 | API key enforcement, per-key limits | planned | backlog in "Next" |
-| Compliance with Nogat standard 2.1 (`chore/nogat-2.1`, merged into `develop`) | in progress | done and to do: below and in "Next" |
+| Compliance with Nogat standard 1.0 (`chore/nogat-2.1`, merged into `develop`) | in progress | done and to do: below and in "Next" |
 | Data output: plain mode, store, default root (ADR-007, DEV §19) | done (`develop`) | code, tests and documents finished; for consumers: [CHANGELOG "Migration guide: data output"](CHANGELOG.md) |
 | Store reading: Archiwista's requests of 2026-10-25 (ADR-007 erratum) | done (`develop`) | `StoreInfo.problem_codes`, `Meta.producer` and `Meta.producer_version`, `iter_store(skip_versions=)` with `StoreEntry.skipped` (incremental scan, Python only) and a marker without `created_by` readable by the reader; all optional in `/1`, details in [CHANGELOG "Unreleased"](CHANGELOG.md). Archiwista after the pin change: codes instead of text matching, `producer*` from `Meta` instead of the `PACKAGE` constant, `known_versions` as `skip_versions`; requests to Nogat remain (registry edge) |
 | Write refusals: directory inside the store and a root with foreign files (ADR-007 erratum, Nogat decisions R1 and R2) | done (`develop`) | `output_dir` inside the store rejected before the first request with `details.paths` = the directory (store only below it: the target path); `--check` lists `not_empty` like `nested_store` as a single root `conflict` action, and reports `store_unavailable` and an unreadable marker (`data_error`) as an error; details in [CHANGELOG "Unreleased"](CHANGELOG.md) |
@@ -30,7 +30,7 @@ Current state of the project (Nogat standard 2.1, DOC-6.1). Release history, cro
 | Command of a saved version `command_for_version` (ADR-008 D5; Nogat plan 2026-10-31, step 3, item 3) | done (`develop`) | from the sidecar and the store layout, offline: IMGW-PIB and ČHMÚ archives → `store sync`, station lists and catalogs → `store catalog`, series → `series build`, PMAXTP → `pmaxtp sync`; refusal `unsupported`/`command_not_rebuildable` (new Nogat registry code, exit 15, HTTP 422), `not_found`, `data_error`; test `tests/unit/test_command_for_version.py`; Archiwista (pin `8cd6844c`) uses it to check and restore the IMGW pins; Retman also pins `8cd6844c` (both pins are in `develop`) |
 | CI with an ubuntu/macos/windows matrix | planned | writing on macOS and Windows has not been run on a real system |
 
-### Compliance with Nogat standard 2.1 (`chore/nogat-2.1`)
+### Compliance with Nogat standard 1.0 (`chore/nogat-2.1`)
 
 **Done:** pyright → mypy `strict` (ECO-010; tests without annotations are a DEV-7.3 deviation in `CLAUDE.md`), `scripts/gate.sh` + `check-commits.sh`, `uv.lock`, the `live` marker instead of `IMGW_LIVE=1`, coverage ≥ 80% (DEV-7.5), CI/Dependabot from the Nogat templates (they work after the branch rename), `forbidden` with exit code 12 (ERR §4), erratum to ADR-001 D1 (hard links), MCP prefix `imgw_` = the catalog `operation_id` = the OpenAPI `operationId`, the full set of MCP annotations with `idempotentHint`, the `commands list` command (ECO-018, AGI-5.2, AGI-5.4, AGI-5.9, AGI-6.2; ADR-004 erratum of 2026-10-24); user environment DEV-18: `nogat.toml` via `tomllib`, `NOGAT_*`, `cache_dir`, `IMGW_DATA_DIR` → `IMGW_REFERENCE_DIR` (breaking change), `imgw config show --json`, 18 variables in README and `.env.example` (ADR-005).
 

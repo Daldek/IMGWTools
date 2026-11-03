@@ -312,7 +312,7 @@ An agent learns IMGWTools from a single source consistent with the code (`AGENTS
 
 **2026-10-19 — D10, spec §7 (A04).** Spec corrected by an erratum in the description of task A04: the repeated message scan after C08 added four items to the list of fixes (help and metavalues of `imgw admin`, the Click usage-line symbols `[OPTIONS]`/`COMMAND [ARGS]...` and the message "Aborted." in the Polish CLI help, the wget script header in the web GUI, the type markers of `imgw server`), and to the "kept" category — English docstrings of public result types visible as schema descriptions in `/openapi.json` (code documentation is in English, OpenAPI is not translated), pydantic field titles, the `<str>` marker of Typer arguments and the Click prompt `[y/N]`. The text of D10 is unchanged.
 
-**2026-10-24 — D2, D6, D7 (Nogat standard 2.1: ECO-018, AGI-5.2, AGI-5.4, AGI-5.9, AGI-6.2).** The MCP tool name and the REST `operationId` are `x-imgw.operation_id` = `imgw_<group>_<command>` (e.g. `imgw_store_sync`, previously `store_sync`); routes outside the catalog get `imgw_system_<function>`. The tool annotations from D7 have the full set of five fields: `title`, `readOnlyHint`, `destructiveHint` (`false` for reads), `idempotentHint` (new catalog field `DataCommand.idempotent`, published as `x-imgw.idempotent`) and `openWorldHint`. The catalog counts 38 commands: `commands list` (`list_commands`, document `imgw-command-list/1`, `GET /api/v1/commands/list`, tool `imgw_commands_list`) is the list of commands that precedes `commands schema`. A breaking change allowed before the tag (ECO-020). The text of D2, D6 and D7 is unchanged.
+**2026-10-24 — D2, D6, D7 (Nogat standard 1.0: ECO-018, AGI-5.2, AGI-5.4, AGI-5.9, AGI-6.2).** The MCP tool name and the REST `operationId` are `x-imgw.operation_id` = `imgw_<group>_<command>` (e.g. `imgw_store_sync`, previously `store_sync`); routes outside the catalog get `imgw_system_<function>`. The tool annotations from D7 have the full set of five fields: `title`, `readOnlyHint`, `destructiveHint` (`false` for reads), `idempotentHint` (new catalog field `DataCommand.idempotent`, published as `x-imgw.idempotent`) and `openWorldHint`. The catalog counts 38 commands: `commands list` (`list_commands`, document `imgw-command-list/1`, `GET /api/v1/commands/list`, tool `imgw_commands_list`) is the list of commands that precedes `commands schema`. A breaking change allowed before the tag (ECO-020). The text of D2, D6 and D7 is unchanged.
 
 **2026-10-24 — D2, D3 (superseded by ADR-006).** ADR-006 makes the machine output English and puts every text of the catalog and the registries (`help`, `description`, `rules`, group titles, dataset titles) into the message catalog with English first; D2 ("Polish text by default") and D3 (`help_en`, `description_en`, `rules_en`, `_GROUPS_EN`, `title_en`) no longer describe the code. The Polish variants stay as `lang="pl"`, `--lang pl`, `Accept-Language: pl` and the CLI help.
 
@@ -326,7 +326,7 @@ An agent learns IMGWTools from a single source consistent with the code (`AGENTS
 
 **Date:** 2026-10-24  
 **Status:** Accepted  
-**Standard:** Nogat 2.1, DEV-18.1–DEV-18.6, ECO-028; the `data-output` convention (Z2)  
+**Standard:** Nogat 1.0, DEV-18.1–DEV-18.6, ECO-028; the `data-output` convention (Z2)  
 
 ### Context and options
 
@@ -357,7 +357,7 @@ The user has one place for settings shared with the other Nogat tools and one co
 
 **Date:** 2026-10-24  
 **Status:** Accepted  
-**Standard:** Nogat 2.1, AGI-9.1, AGI-9.2, AGI-6.4, DEV-2.1, DEV-2.3, ECO-042; ADR-004 D2–D3 (the limits it recorded)  
+**Standard:** Nogat 1.0, AGI-9.1, AGI-9.2, AGI-6.4, DEV-2.1, DEV-2.3, ECO-042; ADR-004 D2–D3 (the limits it recorded)  
 
 ### Context and options
 
@@ -410,7 +410,7 @@ An agent reads the same English text whatever the user's setting, and a Polish u
 
 **Date:** 2026-10-24  
 **Status:** Accepted (the author approved the Nogat convention on 2026-10-24; this ADR applies it to IMGWTools); the project parts of D2 and D8 superseded by ADR-008 (2026-10-31)  
-**Standard:** Nogat 2.1, DEV-19.1 to DEV-19.20, DEV-18.2, AGI-3.4, AGI-5.8, ERR-1, ECO-051; changes D3 and Q3 of ADR-001  
+**Standard:** Nogat 1.0, DEV-19.1 to DEV-19.20, DEV-18.2, AGI-3.4, AGI-5.8, ERR-1, ECO-051; changes D3 and Q3 of ADR-001  
 
 ### Context and options
 
