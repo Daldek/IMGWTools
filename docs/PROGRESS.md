@@ -40,9 +40,9 @@ Current state of the project (Nogat standard 1.0, DOC-6.1). Release history, cro
 
 Dependency order; unfinished work first. The backlog is the single source of truth for things to do — add new tasks only here (consolidation 2026-08-02: the former "Planned"/"Implemented" sections and section 11 of `PRD.md`).
 
-1. **Translating the documentation to English (ECO-005, phase 3):** `README.md`, `docs/USAGE.md`, `docs/CODEBASE.md`, `docs/TESTING.md`, `docs/PROGRESS.md`, `docs/HISTORY.md`, part of `docs/CHANGELOG.md` and `docs/DECISIONS.md`. Moving content out because of the budgets left facts in two languages side by side — the project tree (README ↔ `CODEBASE.md` "Package Tree"), test instructions (README ↔ `TESTING.md`), "Source data structure" (`USAGE.md`) ↔ "Data Structure" (`CODEBASE.md`), the store layout (`CODEBASE.md` ↔ `ARCHITECTURE.md` §8); merge them during translation. The README summary (400 characters, DOC-1.7) and the DOC-2.1 section order have not been checked.
+1. **Documentation in English (ECO-005, phase 3) — translated 2026-11-03;** `docs/DEVELOPMENT_STANDARDS.md` removed in favour of the Nogat standard (DEV-1.3), the CHANGELOG folded into one `[Unreleased]` against v2.1.1. Open: facts that the budget moves left in two places — the project tree (README ↔ `CODEBASE.md` "Package Tree"), test instructions (README ↔ `TESTING.md`), "Source data structure" (`USAGE.md`) ↔ "Data Structure" (`CODEBASE.md`), the store layout (`CODEBASE.md` ↔ `ARCHITECTURE.md` §8) — still to be merged; the README summary (400 characters, DOC-1.7) and the DOC-2.1 section order have not been checked. `docs/superpowers/` (specs and plans of 3.0.0) stays Polish.
 2. **Consumers after the pin changes (ADR-005 D2, ADR-006, ADR-007, ADR-008):** Retman switched to `IMGW_REFERENCE_DIR` and the data output mode names and pins `8cd6844c` with a green gate; Archiwista has an IMGW adapter and pins `8cd6844c`. List of changes for further consumers: [CHANGELOG "Migration guide: data output"](CHANGELOG.md).
-3. **Data output — open:** a smoke test with the real network (no live test covers plain mode), review by the author, and folding the "Unreleased" entries and the older `[3.0.0]` entries in `docs/CHANGELOG.md` (they still name `IMGW_STORE_ROOT`, `--path` and `.part`) at the 3.0.0 tag.
+3. **Data output — open:** review by the author. The smoke test with the real network passed on 2026-11-03 (release audit, code of `0045bac`): IMGW-PIB and ČHMÚ `datasets download` with `output_dir` through Python, CLI, REST and MCP; `imgw store sync … -o` and `imgw pmaxtp sync … -o`; an existing file refused with `conflict` (exit 4, `output_exists`) and replaced with `--force`. No live test covers plain mode yet.
 
 Further open backlog items (priority in the text):
 
@@ -183,7 +183,7 @@ Decisions waiting for the author (remove once resolved):
 
 - [ ] Owner's decision: whether the public server enables `/mcp` (`IMGW_MCP_ENABLED`) — ADR-004, open question 2. Priority: medium.
 
-**For the author (outside the agent's reach):** renaming the branches `master`/`slave` → `main`/`develop` and the default branch on GitHub (ECO-008); then the `raw.githubusercontent.com/.../master/` links in `llms.txt` and the `_data/agents/llms.*.md` templates, and the `slave` names in this file and in `docs/DECISIONS.md`; branch/tag rulesets, Dependabot security updates, `SECURITY.md` and private vulnerability reporting (DEV-3.6, DEV-13.7); rewriting the history and author identities (phase 1; 58 commits by `Claude <agent@local>` in the history); the CLA text. The first CI run will also be the first on macOS and Windows.
+**For the author (outside the agent's reach):** branch/tag rulesets, Dependabot security updates, `SECURITY.md` and private vulnerability reporting (DEV-3.6, DEV-13.7); the CLA text. Done on 2026-11-03: the branches renamed `master`/`slave` → `main`/`develop` on GitHub (rename API; `main` is the default branch) and locally, with the links in the docs and `llms.*` (ECO-008); the history and author identities rewritten (phase 1).
 
 ---
 
