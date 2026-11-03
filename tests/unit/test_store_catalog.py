@@ -14,17 +14,21 @@ import httpx
 import pytest
 import respx
 
-from imgwtools.datasets import archive_files, station_source_files
-from imgwtools.exceptions import IMGWConnectionError, IMGWDataError, IMGWValidationError
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import (
+from obserwator.datasets import archive_files, station_source_files
+from obserwator.exceptions import (
+    ObserwatorConnectionError,
+    ObserwatorDataError,
+    ObserwatorValidationError,
+)
+from obserwator.fetch import DownloadResult
+from obserwator.store import (
     build_series,
     catalog,
     init_store,
     read_station_list,
     write_archive,
 )
-from imgwtools.store.catalog import build_catalog, check_catalog
+from obserwator.store.catalog import build_catalog, check_catalog
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
@@ -122,7 +126,7 @@ def test_lists_are_archived_first_and_all_codes_are_kept(store):
     with respx.mock(assert_all_called=False) as router:
         routes = mock_sources(router, meteo_csv=meteo_with_history)
         routes["meteo_api"].mock(side_effect=httpx.ConnectError("brak sieci"))
-        with pytest.raises(IMGWConnectionError):
+        with pytest.raises(ObserwatorConnectionError):
             build_catalog(store)
         # Both station lists were committed as archive versions before the API failure.
         for archive in (HYDRO_LIST, METEO_LIST):
@@ -255,7 +259,12 @@ def test_user_file_source_column_is_optional(store, tmp_path):
 @pytest.mark.parametrize(
     "static_text, user_text, option, hint",
     [
-        ("id,X,Y\n149190312,19.9512,50.0512\n", None, None, "imgwtools.reference_data"),
+        (
+            "id,X,Y\n149190312,19.9512,50.0512\n",
+            None,
+            None,
+            "obserwator.reference_data",
+        ),
         (
             None,
             "station_code,lon,lat,source\n149190312,19.9512,50.0512,a\n",
@@ -278,7 +287,7 @@ def test_old_location_headers_are_rejected_before_any_download(
         user.write_text(user_text, encoding="utf-8")
     before = tree(store.root)
     with respx.mock as router:  # any request would fail the test
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             build_catalog(store, user_locations=user)
         assert not router.calls
     assert error.value.code == "validation_error"
@@ -555,7 +564,7 @@ def test_border_check_needs_no_gis_packages():
     script = (
         "import sys\n"
         "for name in ('pyproj', 'shapefile', 'osgeo', 'shapely', 'pandas'): sys.modules[name] = None\n"
-        "from imgwtools.store.catalog import _evaluate\n"
+        "from obserwator.store.catalog import _evaluate\n"
         "assert _evaluate('14.5617', '52.3492')[0] == (14.5617, 52.3492)\n"
         "assert _evaluate('21.505574', '54.396162') == 'outside_country'\n"
     )
@@ -654,7 +663,7 @@ def test_geojson_is_rfc7946_and_sidecar_records_sources(store, isolated_referenc
         )
     )
     assert (
-        meta["schema"] == "imgw-meta/1"
+        meta["schema"] == "obserwator-meta/1"
         and meta["sha256"] == hashlib.sha256(raw).hexdigest()
     )
     assert meta["size_bytes"] == len(raw)
@@ -798,7 +807,7 @@ def test_code_in_both_families_is_a_data_error(store):
     ]
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router, meteo_api=meteo_api)
-        with pytest.raises(IMGWDataError, match="149190310"):
+        with pytest.raises(ObserwatorDataError, match="149190310"):
             build_catalog(store)
     assert not (store.root / "stations").exists()
 

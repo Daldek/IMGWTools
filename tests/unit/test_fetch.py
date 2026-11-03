@@ -1,5 +1,5 @@
 """
-Unit tests for the archive downloads of imgwtools.fetch (respx-mocked HTTP).
+Unit tests for the archive downloads of obserwator.fetch (respx-mocked HTTP).
 
 Live reads are covered by test_fetch_live.py, ``download_archives`` by
 test_download_archives.py.
@@ -11,12 +11,12 @@ import zipfile
 import httpx
 import pytest
 
-from imgwtools.exceptions import (
-    IMGWConnectionError,
-    IMGWDataError,
-    IMGWValidationError,
+from obserwator.exceptions import (
+    ObserwatorConnectionError,
+    ObserwatorDataError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import (
+from obserwator.fetch import (
     DownloadResult,
     download_hydro_data,
     download_hydro_data_async,
@@ -124,7 +124,7 @@ def test_redirect_is_followed_and_final_url_reported(respx_mock):
 def test_ambiguous_legacy_arguments_are_validation_errors(
     respx_mock, function, arguments, option
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         function(*arguments)
     assert error.value.code == "validation_error"
     assert error.value.details["option"] == option
@@ -142,16 +142,16 @@ def test_ambiguous_legacy_arguments_are_validation_errors(
 async def test_unpublished_meteo_combinations_fail_before_request(
     respx_mock, arguments, reason
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         download_meteo_data(*arguments)
     assert error.value.details["reason"] == reason
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         await download_meteo_data_async(*arguments)
     assert not respx_mock.calls
 
 
 def test_unknown_interval_lists_registry_keys(respx_mock):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         download_hydro_data("roczne", 2020)
     assert "pl.imgw.hydro_daily" in error.value.details["allowed"]
 
@@ -167,9 +167,9 @@ def test_unknown_interval_lists_registry_keys(respx_mock):
 )
 async def test_download_failure_is_source_unavailable(respx_mock, mock, reason, status):
     respx_mock.get(METEO_MONTHLY).mock(**mock)
-    with pytest.raises(IMGWConnectionError) as sync_error:
+    with pytest.raises(ObserwatorConnectionError) as sync_error:
         download_meteo_data("miesieczne", "klimat", 2023)
-    with pytest.raises(IMGWConnectionError) as async_error:
+    with pytest.raises(ObserwatorConnectionError) as async_error:
         await download_meteo_data_async("miesieczne", "klimat", 2023)
     for error in (sync_error.value, async_error.value):
         assert error.code == "source_unavailable"
@@ -194,6 +194,6 @@ async def test_download_failure_is_source_unavailable(respx_mock, mock, reason, 
 )
 def test_corrupt_download_is_data_error(respx_mock, response, message):
     respx_mock.get(HYDRO_DAILY).mock(return_value=response)
-    with pytest.raises(IMGWDataError, match=message) as error:
+    with pytest.raises(ObserwatorDataError, match=message) as error:
         download_hydro_data("dobowe", 2020, 3)
     assert error.value.code == "data_error"

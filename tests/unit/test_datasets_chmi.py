@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from imgwtools.datasets import (
+from obserwator.datasets import (
     STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
@@ -18,8 +18,8 @@ from imgwtools.datasets import (
     providers,
     station_source_files,
 )
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.store.content import CONTENT_FORMS
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.store.content import CONTENT_FORMS
 
 HYDRO = "cz.chmi.hydro_daily"
 METEO = "cz.chmi.meteo_daily"
@@ -101,7 +101,7 @@ def test_provider_lookup_by_id_or_key_prefix():
     assert get_provider("cz.chmi") is get_provider("CHMI")
     assert get_provider("pl.imgw") is get_provider("IMGW-PIB")
     for unknown in ("ČHMÚ", "chmi", "sk.shmu", None):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             get_provider(unknown)
         assert error.value.details["option"] == "provider"
         assert error.value.details["allowed"] == ["IMGW-PIB", "CHMI"]
@@ -220,7 +220,7 @@ def test_chmi_descriptors_follow_the_spec_table():
             "http",
             True,
         )
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         datasets(provider="SHMU")
     assert error.value.details["option"] == "provider"
 
@@ -301,7 +301,7 @@ def test_meteo_files_are_four_elements_per_station():
     ],
 )
 def test_file_options_follow_the_provider_rules(dataset, options, option):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         archive_files(dataset, **options)
     assert error.value.details["option"] == option
     if options.get("years") == 1886:
@@ -309,7 +309,7 @@ def test_file_options_follow_the_provider_rules(dataset, options, option):
 
 
 def test_station_code_errors_name_the_rejected_codes():
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         archive_files(HYDRO, stations=[A, "149190310", "0-203-1-x"], years=2024)
     assert error.value.details["value"] == ["149190310", "0-203-1-x"]
 
@@ -326,7 +326,7 @@ def test_station_lists_of_each_provider():
     )
     assert (hydro.year, hydro.year_type, hydro.station_code) == (None, "none", None)
     assert station_source_files() == station_source_files(provider="pl.imgw")
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         station_source_files(provider="SHMU")
 
 

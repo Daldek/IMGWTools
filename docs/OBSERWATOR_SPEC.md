@@ -1,6 +1,6 @@
 # Obserwator — Technical specification (future major release, working version 4.0.0)
 
-**Status:** Draft for review · **Date:** 2026-08-11 · **Updated:** 2026-10-18 (partly superseded: §7 by ADR-001, the ČHMÚ part by ADR-003)
+**Status:** Draft for review · **Date:** 2026-08-11 · **Updated:** 2026-11-03 (partly superseded: §7 by ADR-001, the ČHMÚ part by ADR-003, the release of the rename by ADR-009)
 **Basis:** `docs/OBSERWATOR_RESEARCH.md` (feasibility study of 2026-08-11)
 
 > **Note (owner decision of 2026-10-17):** release **3.0.0** of the `imgwtools` package is the versioned data store according to ADR-001 (`docs/DECISIONS.md`, `docs/CHANGELOG.md`), not Obserwator. This causes two changes to this draft:
@@ -12,6 +12,8 @@
 > **Note (2026-10-18, ADR-003 — proposal):** the ČHMÚ part of this draft is superseded by `docs/DECISIONS.md` ADR-003 ("ČHMÚ provider in the IMGW store") and `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`. ČHMÚ enters as the second provider within the 3.x contracts (release 3.1.0, without renaming the package): in the dataset registry (`cz.chmi.*`), the store, the ADR-002 command catalog and the `IMGWError` error codes. For ČHMÚ, the following are superseded: §6 in full (kept below as a historical record with an erratum), the provider interface and registry from §3.2–§3.4 and the `provider=` facade from §4 (replaced by `ProviderDescriptor` and the `provider` option of the command catalog), the ČHMÚ commands from §8, the `/api/v2/{provider}` routes from §9, the ČHMÚ state map from §10, stage 7 from §12, the ČHMÚ risks from §13 and item 3 from §14. The ČHMÚ scope is the daily hydro archives (H, Q, T) and meteo archives (precipitation, air temperature) with the station catalog; ČHMÚ current data, CAP warnings and monthly archives are out of scope. The rename to Obserwator remains a future decision.
 
 > **Note (2026-10-31, ADR-008):** projects moved to Archiwista (`archiwista-project/1`); the project manifest was removed from the list of contracts in item 2 above, and the `project` command group from §8. Obserwator, like IMGWTools, has no projects of its own.
+
+> **Note (2026-11-03, ADR-009 — supersedes the rename part of item 2 of the note of 2026-10-17):** the tool is renamed Obserwator in release **3.0.0**, not in a later major release: the distribution and import package `obserwator`, the command `obserwator`, `OBSERWATOR_<KEY>`, `obserwator-<kind>/1`, `obserwator-store.json` and `ObserwatorError` with its subclasses (`ObserwatorConnectionError`, `ObserwatorDataError`, … — not the `Source*Error` names of §2), without aliases (`docs/DECISIONS.md` ADR-009, Nogat ECO-057). Only the names change; the provider layer, the English API and the other proposals of this draft stay proposals for a later release. The sections below keep the names of their day.
 
 ---
 

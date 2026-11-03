@@ -15,7 +15,7 @@ from email.utils import parsedate_to_datetime
 
 import pytest
 
-from imgwtools.store import (
+from obserwator.store import (
     catalog,
     check_series,
     current_version,
@@ -24,7 +24,7 @@ from imgwtools.store import (
     series,
     writer,
 )
-from imgwtools.testing import build_fixture_store, fixture_files
+from obserwator.testing import build_fixture_store, fixture_files
 
 DAILY = "archives/versions/hydrology/historical/data/daily"
 HYDRO, METEO = "cz.chmi.hydro_daily", "cz.chmi.meteo_daily"

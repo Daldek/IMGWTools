@@ -1,7 +1,7 @@
 {
-  "description": "JSON Schema Draft 2020-12 kontraktów IMGW (spec 2026-10-17-versioned-store-design.md §11 magazyn z dziedzinami /1 i rejestrem obserwacji imgw-observation/1 według ADR-003, spec 2026-10-18-chmi-provider-design.md §3.2 i §11; §13.5 błędy problem+json i CLI, §13.6 koperta imgw-result/1) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
+  "description": "JSON Schema Draft 2020-12 kontraktów Obserwatora (spec 2026-10-17-versioned-store-design.md §11 magazyn z dziedzinami /1 i rejestrem obserwacji obserwator-observation/1 według ADR-003, spec 2026-10-18-chmi-provider-design.md §3.2 i §11; §13.5 błędy problem+json i CLI, §13.6 koperta obserwator-result/1) i przykłady ze specyfikacji; przykłady nie są fixturą sum kontrolnych.",
   "schemas": {
-    "imgw-store/1": {
+    "obserwator-store/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "required": [
@@ -12,10 +12,10 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-store/1"
+          "const": "obserwator-store/1"
         },
         "tool": {
-          "const": "imgw"
+          "const": "obserwator"
         },
         "created_at": {
           "type": "string",
@@ -32,7 +32,7 @@
       },
       "additionalProperties": true
     },
-    "imgw-meta/1": {
+    "obserwator-meta/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "required": [
@@ -51,10 +51,10 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-meta/1"
+          "const": "obserwator-meta/1"
         },
         "producer": {
-          "const": "imgwtools"
+          "const": "obserwator"
         },
         "producer_version": {
           "type": "string"
@@ -214,7 +214,7 @@
       },
       "additionalProperties": true
     },
-    "imgw-series/1": {
+    "obserwator-series/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "required": [
@@ -226,7 +226,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-series/1"
+          "const": "obserwator-series/1"
         },
         "dataset": {
           "type": "string",
@@ -534,7 +534,7 @@
       },
       "additionalProperties": true
     },
-    "imgw-plan/1": {
+    "obserwator-plan/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "required": [
@@ -547,7 +547,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-plan/1"
+          "const": "obserwator-plan/1"
         },
         "root": {
           "type": "string"
@@ -706,7 +706,7 @@
       },
       "additionalProperties": true
     },
-    "imgw-pmaxtp/1": {
+    "obserwator-pmaxtp/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "required": [
@@ -719,7 +719,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-pmaxtp/1"
+          "const": "obserwator-pmaxtp/1"
         },
         "method": {
           "enum": [
@@ -787,9 +787,9 @@
       },
       "additionalProperties": true
     },
-    "imgw-observation/1": {
+    "obserwator-observation/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "imgw-observation/1",
+      "$id": "obserwator-observation/1",
       "type": "object",
       "required": [
         "schema",
@@ -808,7 +808,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-observation/1"
+          "const": "obserwator-observation/1"
         },
         "producer": {
           "type": "string",
@@ -867,9 +867,9 @@
       },
       "additionalProperties": true
     },
-    "imgw-result/1": {
+    "obserwator-result/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "imgw-result/1",
+      "title": "obserwator-result/1",
       "type": "object",
       "required": [
         "schema",
@@ -881,7 +881,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "imgw-result/1"
+          "const": "obserwator-result/1"
         },
         "command": {
           "type": "string",
@@ -968,7 +968,7 @@
     },
     "problem+json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "problem+json IMGWTools",
+      "title": "problem+json Obserwator",
       "type": "object",
       "required": [
         "type",
@@ -981,7 +981,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "pattern": "^urn:imgwtools:error:[a-z_]+$"
+          "pattern": "^urn:obserwator:error:[a-z_]+$"
         },
         "title": {
           "type": "string",
@@ -1023,7 +1023,7 @@
     },
     "cli-error": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "błąd CLI IMGWTools (ostatnia linia stderr)",
+      "title": "błąd CLI Obserwatora (ostatnia linia stderr)",
       "type": "object",
       "required": [
         "code",
@@ -1058,16 +1058,16 @@
     }
   },
   "examples": {
-    "imgw-store/1": {
-      "schema": "imgw-store/1",
-      "tool": "imgw",
+    "obserwator-store/1": {
+      "schema": "obserwator-store/1",
+      "tool": "obserwator",
       "created_at": "2026-10-17T12:00:00Z",
       "producer_version": "3.0.0",
-      "created_by": "imgwtools 3.0.0"
+      "created_by": "obserwator 3.0.0"
     },
-    "imgw-meta/1": {
-      "schema": "imgw-meta/1",
-      "producer": "imgwtools",
+    "obserwator-meta/1": {
+      "schema": "obserwator-meta/1",
+      "producer": "obserwator",
       "producer_version": "3.0.0",
       "dataset": "pl.imgw.hydro_daily",
       "country": "PL",
@@ -1106,8 +1106,8 @@
         }
       }
     },
-    "imgw-series/1": {
-      "schema": "imgw-series/1",
+    "obserwator-series/1": {
+      "schema": "obserwator-series/1",
       "dataset": "pl.imgw.hydro_daily",
       "year_type": "hydrological",
       "periods": [
@@ -1174,9 +1174,9 @@
         }
       ]
     },
-    "imgw-plan/1": {
-      "schema": "imgw-plan/1",
-      "root": "/srv/imgw",
+    "obserwator-plan/1": {
+      "schema": "obserwator-plan/1",
+      "root": "/srv/obserwator",
       "checked_at": "2026-10-17T12:00:00Z",
       "cancelled": false,
       "items": [
@@ -1202,8 +1202,8 @@
       },
       "actions": []
     },
-    "imgw-pmaxtp/1": {
-      "schema": "imgw-pmaxtp/1",
+    "obserwator-pmaxtp/1": {
+      "schema": "obserwator-pmaxtp/1",
       "method": "POT",
       "ind_x": 751,
       "ind_y": 317,
@@ -1229,9 +1229,9 @@
         }
       }
     },
-    "imgw-observation/1": {
-      "schema": "imgw-observation/1",
-      "producer": "imgwtools",
+    "obserwator-observation/1": {
+      "schema": "obserwator-observation/1",
+      "producer": "obserwator",
       "producer_version": "3.1.0",
       "dataset": "cz.chmi.hydro_daily",
       "seen_at": "2026-10-19T06:00:00Z",
@@ -1244,8 +1244,8 @@
       "content_form": "chmi-json/1",
       "same_content_as": "2026-05-21_00000000"
     },
-    "imgw-result/1": {
-      "schema": "imgw-result/1",
+    "obserwator-result/1": {
+      "schema": "obserwator-result/1",
       "command": "store sync",
       "check": false,
       "status": "partial",
@@ -1288,7 +1288,7 @@
       ]
     },
     "problem+json": {
-      "type": "urn:imgwtools:error:validation_error",
+      "type": "urn:obserwator:error:validation_error",
       "title": "Nieprawidłowe dane wejściowe",
       "status": 400,
       "detail": "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)",

@@ -1,11 +1,11 @@
 """
-One real ``imgw`` command in this process, against a source that stops mid-transfer.
+One real ``obserwator`` command in this process, against a source that stops mid-transfer.
 
 Used by ``tests/unit/test_cli_interrupt.py``; it is not a test. Usage::
 
-    python interrupt_driver.py download|export READY RELEASE IMGW_ARGUMENT...
+    python interrupt_driver.py download|export READY RELEASE OBSERWATOR_ARGUMENT...
 
-The command is the installed one (``imgwtools.cli.main.app``, its argument
+The command is the installed one (``obserwator.cli.main.app``, its argument
 parsing, signal handlers, staging directory and exit codes); only its source
 is replaced. ``download`` answers the HTTP requests for the three archives of
 ``pl.imgw.hydro_semiannual`` 2024 in this process, the second one in two
@@ -27,10 +27,10 @@ from unittest import mock
 import httpx
 import respx
 
-from imgwtools.cli.main import app
-from imgwtools.datasets import archive_files
-from imgwtools.models import NormalizedRecord
-from imgwtools.store import export, read_archive
+from obserwator.cli.main import app
+from obserwator.datasets import archive_files
+from obserwator.models import NormalizedRecord
+from obserwator.store import export, read_archive
 
 DATASET = "pl.imgw.hydro_semiannual"
 # httpx hands over 64 KiB chunks: the first half reaches the staged file before the stop.
@@ -70,10 +70,10 @@ class HalfStream(httpx.SyncByteStream):
 
 
 def run(arguments: list[str]) -> None:
-    """Run ``imgw`` with a fresh process's signal handlers, as a shell would start it."""
+    """Run ``obserwator`` with a fresh process's signal handlers, as a shell would start it."""
     signal.signal(signal.SIGINT, signal.default_int_handler)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    sys.argv = ["imgw", *arguments]
+    sys.argv = ["obserwator", *arguments]
     app()
 
 

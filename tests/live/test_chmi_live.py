@@ -9,9 +9,9 @@ A small selection only: one hydrological station (``0-203-1-001000``,
 Špindlerův Mlýn) with the years 2024-2026 (2026 is not published yet) and one
 climate station (``0-203-0-11799``, four small CSV files). The run reuses the
 machinery of ``test_interfaces_live``: a fresh temporary store restored from
-snapshots before every interface, ``run_command``, the installed ``imgw`` and
-the REST API of ``imgw server`` (writes enabled by a test token), answers
-compared after the same tolerance rules, and ``imgw mcp`` for the reads that
+snapshots before every interface, ``run_command``, the installed ``obserwator`` and
+the REST API of ``obserwator server`` (writes enabled by a test token), answers
+compared after the same tolerance rules, and ``obserwator mcp`` for the reads that
 ask the source (not for the hydro check, whose listing weighs 5.3 MB).
 
 The seed reads each server listing once: the hydro check (1 listing) and the
@@ -23,10 +23,10 @@ listings, rebuild the catalog, read series, export, search stations live and in
 the store and download flat files (2026 → ``not_published``).
 
 Every httpx request of the run — Python in this process, the CLI, the REST
-server and ``imgw mcp`` in theirs (a ``sitecustomize`` on ``PYTHONPATH``) — is
+server and ``obserwator mcp`` in theirs (a ``sitecustomize`` on ``PYTHONPATH``) — is
 written to a request log: each interface of a case must ask ČHMÚ the same
 requests as Python, and the report lists the requests and bytes of every
-interface (``IMGW_LIVE_REPORT=<file>`` writes it as JSON; ``-s`` prints the
+interface (``OBSERWATOR_LIVE_REPORT=<file>`` writes it as JSON; ``-s`` prints the
 totals). Requests run one at a time.
 """
 
@@ -44,7 +44,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from imgwtools import (
+from obserwator import (
     build_catalog,
     check_store,
     current_version,
@@ -53,9 +53,9 @@ from imgwtools import (
     read_meta,
     sync_store,
 )
-from imgwtools.fetch import _IDENTIFY, _archive_slot
-from imgwtools.store.types import StorePlan
-from tests.contract.support import imgw_executable
+from obserwator.fetch import _IDENTIFY, _archive_slot
+from obserwator.store.types import StorePlan
+from tests.contract.support import obserwator_executable
 from tests.live.test_interfaces_live import (
     CALL_TIMEOUT,
     DATA_DIR,
@@ -99,7 +99,7 @@ JOURNAL_ENV = "LIVE_HTTP_JOURNAL"
 ATTRIBUTION = "Źródło danych: Český hydrometeorologický ústav (ČHMÚ)"
 INTERFACES = ("python", "cli", "rest", "mcp")
 
-# List commands name their page: REST pages by IMGW_API_MAX_LIMIT without a limit.
+# List commands name their page: REST pages by OBSERWATOR_API_MAX_LIMIT without a limit.
 CASES: dict[str, list[Case]] = {
     "datasets list": [Case({"provider": "CHMI", "limit": 10})],
     "datasets files": [
@@ -169,7 +169,7 @@ CASES: dict[str, list[Case]] = {
         ),
     ],
 }
-# Reads asking ČHMÚ through imgw mcp: the station search and the meteo check.
+# Reads asking ČHMÚ through obserwator mcp: the station search and the meteo check.
 MCP_CASES = [("stations find", 0), ("stations find", 1), ("store check", 1)]
 
 
@@ -241,7 +241,7 @@ def _journal(path: str) -> tuple[Any, Any]:
     Log method, URL, status and body size of every httpx request to ``path``.
 
     Self-contained: its source is also the ``sitecustomize`` of the CLI, the
-    REST server and ``imgw mcp``. Requests to the local REST server are not
+    REST server and ``obserwator mcp``. Requests to the local REST server are not
     logged. Returns the original transport methods.
     """
     import json
@@ -369,7 +369,7 @@ def _asked(entries: list[dict[str, Any]]) -> list[tuple[str, str]]:
 
 
 class CountedMcp:
-    """``imgw mcp`` whose calls keep the requests they made in the log."""
+    """``obserwator mcp`` whose calls keep the requests they made in the log."""
 
     def __init__(self, server: McpServer, session: "ChmiLive") -> None:
         self.server = server
@@ -455,7 +455,7 @@ class ChmiLive(Live):
     def call(self, interface: str, command: str, options: Mapping[str, object]) -> Any:
         """The answer of one interface; its ČHMÚ requests are kept per case."""
         if interface == "rest" and isinstance(options.get("plan"), str):
-            # REST takes the plan as an imgw-plan/1 object with root ".".
+            # REST takes the plan as an obserwator-plan/1 object with root ".".
             plan = json.loads(Path(str(options["plan"])).read_text(encoding="utf-8"))
             options = {**options, "plan": {**plan, "root": "."}}
         mark = self.journal.mark()
@@ -531,7 +531,7 @@ class ChmiLive(Live):
 
 @pytest.fixture(scope="module")
 def chmi(tmp_path_factory) -> Iterator[ChmiLive]:
-    """Fresh temporary store seeded from ČHMÚ, ``imgw server`` and the request log."""
+    """Fresh temporary store seeded from ČHMÚ, ``obserwator server`` and the request log."""
     started = datetime.now(UTC)
     base = tmp_path_factory.mktemp("chmi-live")
     work = base / "praca"
@@ -541,18 +541,20 @@ def chmi(tmp_path_factory) -> Iterator[ChmiLive]:
     hook.mkdir()
     (hook / "sitecustomize.py").write_text(SITECUSTOMIZE, encoding="utf-8")
     env = {
-        key: value for key, value in os.environ.items() if not key.startswith("IMGW_")
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("OBSERWATOR_")
     }
     paths = [str(hook), *filter(None, [env.get("PYTHONPATH")])]
     env |= {
-        "IMGW_REFERENCE_DIR": DATA_DIR,
+        "OBSERWATOR_REFERENCE_DIR": DATA_DIR,
         "PYTHONPATH": os.pathsep.join(paths),
         JOURNAL_ENV: str(journal.path),
     }
     served = env | {
-        "IMGW_ROOT": str(base / "magazyn"),
-        "IMGW_STORE_WRITES_ENABLED": "true",
-        "IMGW_STORE_WRITE_TOKEN": TOKEN,
+        "OBSERWATOR_ROOT": str(base / "magazyn"),
+        "OBSERWATOR_STORE_WRITES_ENABLED": "true",
+        "OBSERWATOR_STORE_WRITE_TOKEN": TOKEN,
     }
     originals = _journal(str(journal.path))
     try:
@@ -572,24 +574,24 @@ def chmi(tmp_path_factory) -> Iterator[ChmiLive]:
     print(
         f"\nŻądania do ČHMÚ (liczba, bajty): {json.dumps(totals, ensure_ascii=False)}"
     )
-    if path := os.environ.get("IMGW_LIVE_REPORT"):
+    if path := os.environ.get("OBSERWATOR_LIVE_REPORT"):
         session.report(started, path)
 
 
 @pytest.fixture(scope="module")
 def chmi_mcp(chmi: ChmiLive) -> Iterator[CountedMcp]:
-    """``imgw mcp`` started once, as an MCP client starts it, in the CLI's directory."""
+    """``obserwator mcp`` started once, as an MCP client starts it, in the CLI's directory."""
     pytest.importorskip("mcp")
     from anyio.from_thread import start_blocking_portal
     from mcp import Client
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
-    command, *prefix = imgw_executable()
+    command, *prefix = obserwator_executable()
     server = StdioServerParameters(
         command=command, args=[*prefix, "mcp"], env=chmi.env, cwd=chmi.work
     )
     with (
-        (chmi.base / "imgw-mcp.log").open("w", encoding="utf-8") as log,
+        (chmi.base / "obserwator-mcp.log").open("w", encoding="utf-8") as log,
         start_blocking_portal() as portal,
         portal.wrap_async_context_manager(
             Client(stdio_client(server, errlog=log), read_timeout_seconds=CALL_TIMEOUT)
@@ -604,7 +606,7 @@ def chmi_mcp(chmi: ChmiLive) -> Iterator[CountedMcp]:
 
 
 def test_the_chmi_run_takes_only_catalog_commands():
-    names = [schema["x-imgw"]["command"] for schema in COMMANDS["commands"]]
+    names = [schema["x-obserwator"]["command"] for schema in COMMANDS["commands"]]
     assert set(CASES) <= set(names)
     indices = {
         (name, index) for name, cases in CASES.items() for index in range(len(cases))
@@ -613,7 +615,9 @@ def test_the_chmi_run_takes_only_catalog_commands():
 
 
 @pytest.mark.parametrize("command", list(CASES))
-def test_every_chmi_case_answers_alike_live_in_python_imgw_and_rest(command, chmi):
+def test_every_chmi_case_answers_alike_live_in_python_obserwator_and_rest(
+    command, chmi
+):
     found: dict[str, list[str]] = {}
     for index, case in enumerate(CASES[command]):
         for interface, lines in chmi.run_case(command, index, case).items():
@@ -631,7 +635,9 @@ def test_every_chmi_case_answers_alike_live_in_python_imgw_and_rest(command, chm
 
 
 @pytest.mark.parametrize(("command", "index"), MCP_CASES)
-def test_chmi_reads_answer_alike_in_python_and_imgw_mcp(command, index, chmi, chmi_mcp):
+def test_chmi_reads_answer_alike_in_python_and_obserwator_mcp(
+    command, index, chmi, chmi_mcp
+):
     assert chmi.run_mcp_case(command, index, CASES[command][index], chmi_mcp) == {}
 
 

@@ -15,14 +15,19 @@ import respx
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
-from imgwtools.api.main import app
-from imgwtools.commands import check_command, command_schema, data_commands, run_command
-from imgwtools.config import Settings, settings, store_root
-from imgwtools.exceptions import ERROR_CODES
-from imgwtools.messages import localize
-from imgwtools.stations import HYDRO_MAP_API_URL
-from imgwtools.store import current_version, init_store
-from imgwtools.testing import build_fixture_store
+from obserwator.api.main import app
+from obserwator.commands import (
+    check_command,
+    command_schema,
+    data_commands,
+    run_command,
+)
+from obserwator.config import Settings, settings, store_root
+from obserwator.exceptions import ERROR_CODES
+from obserwator.messages import localize
+from obserwator.stations import HYDRO_MAP_API_URL
+from obserwator.store import current_version, init_store
+from obserwator.testing import build_fixture_store
 from tests.contract.support import (
     DAILY,
     H2023,
@@ -129,7 +134,7 @@ def problem(response, status, code):
         "details",
     }
     assert (body["type"], body["code"], body["status"]) == (
-        f"urn:imgwtools:error:{code}",
+        f"urn:obserwator:error:{code}",
         code,
         status,
     )
@@ -212,12 +217,12 @@ def frozen(monkeypatch):
             return FROZEN_AT.astimezone(tz)
 
     for name in (
-        "imgwtools.store.writer",
-        "imgwtools.store.series",
-        "imgwtools.store.catalog",
-        "imgwtools.store.sync",
-        "imgwtools.store.pmaxtp",
-        "imgwtools.commands",
+        "obserwator.store.writer",
+        "obserwator.store.series",
+        "obserwator.store.catalog",
+        "obserwator.store.sync",
+        "obserwator.store.pmaxtp",
+        "obserwator.commands",
     ):
         monkeypatch.setattr(importlib.import_module(name), "datetime", Frozen)
 
@@ -254,7 +259,7 @@ def relative(entry, root):
 def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
     expected = {}
     for schema in command_schema()["commands"]:
-        rest = schema["x-imgw"]["rest"]
+        rest = schema["x-obserwator"]["rest"]
         if rest is not None:
             expected[(rest["method"], rest["path"])] = schema
 
@@ -273,7 +278,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for route in client.get("/api/v1").json()["routes"]
     ] == list(expected)
     for key, schema in expected.items():
-        operation, meta = served[key], schema["x-imgw"]
+        operation, meta = served[key], schema["x-obserwator"]
         assert operation["operationId"] == meta["operation_id"]
         assert operation["tags"] == [meta["group"]]
         assert "422" not in operation["responses"]
@@ -306,15 +311,17 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for operation in operations.values()
     ]
     assert len(set(operation_ids)) == len(operation_ids)
-    assert all(re.fullmatch(r"imgw_[a-z0-9_]{1,43}", name) for name in operation_ids)
+    assert all(
+        re.fullmatch(r"obserwator_[a-z0-9_]{1,37}", name) for name in operation_ids
+    )
 
 
-def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
-    monkeypatch.setenv("IMGW_STORE_WRITES_ENABLED", "true")
-    monkeypatch.setenv("IMGW_STORE_WRITE_TOKEN", TOKEN)
-    monkeypatch.setenv("IMGW_USER_LOCATIONS_DIR", str(tmp_path))
-    monkeypatch.setenv("IMGW_API_MAX_LIMIT", "50")
+def test_api_settings_come_from_obserwator_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("OBSERWATOR_ROOT", str(tmp_path))
+    monkeypatch.setenv("OBSERWATOR_STORE_WRITES_ENABLED", "true")
+    monkeypatch.setenv("OBSERWATOR_STORE_WRITE_TOKEN", TOKEN)
+    monkeypatch.setenv("OBSERWATOR_USER_LOCATIONS_DIR", str(tmp_path))
+    monkeypatch.setenv("OBSERWATOR_API_MAX_LIMIT", "50")
 
     configured = Settings(_env_file=None)
 
@@ -324,7 +331,7 @@ def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
     assert configured.store_write_token.get_secret_value() == TOKEN
     assert configured.api_max_limit == 50
     assert Settings(_env_file=None, api_max_limit=1000).api_max_limit == 1000
-    monkeypatch.setenv("IMGW_API_MAX_LIMIT", "0")
+    monkeypatch.setenv("OBSERWATOR_API_MAX_LIMIT", "0")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
 
@@ -424,7 +431,7 @@ def test_api_get_route_answers_the_run_command_envelope(
     options = dict(query)
     if rooted:
         options["root"] = served
-    if command_schema(command)["x-imgw"]["result"] == "list":
+    if command_schema(command)["x-obserwator"]["result"] == "list":
         options.setdefault("limit", 1000)
 
     response = client.get(path_of(command), params=query)
@@ -518,7 +525,7 @@ def test_api_check_true_plans_every_write_without_token_or_writes(
         root=root, server=True
     )
     assert document["result"]["root"] == "."
-    assert schema_errors(document["result"], "imgw-plan/1") == []
+    assert schema_errors(document["result"], "obserwator-plan/1") == []
     assert stamps(root) == before
     assert imgw.downloads() == []
 
@@ -543,7 +550,7 @@ def test_api_checked_plan_syncs_and_a_stale_item_makes_the_envelope_partial(
         "/api/v1/store/sync", json={"plan": plan, "series": False}, headers=writable
     )
 
-    assert schema_errors(plan, "imgw-plan/1") == []
+    assert schema_errors(plan, "obserwator-plan/1") == []
     assert plan["root"] == "."
     assert response.status_code == 200
     body = response.json()
@@ -560,11 +567,14 @@ def test_api_checked_plan_syncs_and_a_stale_item_makes_the_envelope_partial(
 @pytest.mark.parametrize(
     ("plan", "fragment"),
     [
-        ({"schema": "imgw-plan/1", "root": "/elsewhere"}, "another store"),
-        ({"schema": "imgw-plan/9", "root": "."}, "Invalid imgw-plan/1 plan"),
+        ({"schema": "obserwator-plan/1", "root": "/elsewhere"}, "another store"),
         (
-            {"schema": "imgw-plan/1", "root": ".", "items": [{"archive": {}}]},
-            "Invalid imgw-plan/1 plan",
+            {"schema": "obserwator-plan/9", "root": "."},
+            "Invalid obserwator-plan/1 plan",
+        ),
+        (
+            {"schema": "obserwator-plan/1", "root": ".", "items": [{"archive": {}}]},
+            "Invalid obserwator-plan/1 plan",
         ),
     ],
 )
@@ -635,8 +645,8 @@ def test_api_exports_stream_the_cli_lines_with_status_and_notice_headers(
     assert response.headers["content-disposition"] == (
         f'attachment; filename="{filename}"'
     )
-    assert response.headers["x-imgw-status"] == "ok"
-    notices = response.headers["x-imgw-notices"]
+    assert response.headers["x-obserwator-status"] == "ok"
+    notices = response.headers["x-obserwator-notices"]
     assert notices.isascii()
     assert json.loads(notices) == [
         {"level": n.level, "code": n.code, "text": n.text} for n in expected.notices
@@ -678,10 +688,10 @@ def test_api_stream_notices_follow_accept_language_and_the_data_does_not(
 
     assert english.text == polish.text == lines
     notices = {
-        "en": json.loads(english.headers["x-imgw-notices"]),
-        "pl": json.loads(polish.headers["x-imgw-notices"]),
+        "en": json.loads(english.headers["x-obserwator-notices"]),
+        "pl": json.loads(polish.headers["x-obserwator-notices"]),
     }
-    assert polish.headers["x-imgw-notices"].isascii()
+    assert polish.headers["x-obserwator-notices"].isascii()
     assert notices["pl"] == [
         {"level": n.level, "code": n.code, "text": localize(n.text, "pl")}
         for n in expected.notices
@@ -762,7 +772,7 @@ def test_api_store_commands_without_a_valid_root_are_503(
 
     body = problem(response, 503, "store_unavailable")
     assert body["details"] == {"reason": reason}
-    assert "IMGW_ROOT" in body["detail"]
+    assert "OBSERWATOR_ROOT" in body["detail"]
 
 
 def test_api_unsupported_root_is_described_only_by_store_info_and_scan(
@@ -858,7 +868,7 @@ def test_api_missing_pyarrow_is_503(client, served, monkeypatch):
 @pytest.mark.parametrize(
     ("error", "status", "code"),
     [
-        (PermissionError("Brak dostępu do /srv/imgw/x"), 500, "io_error"),
+        (PermissionError("Brak dostępu do /srv/obserwator/x"), 500, "io_error"),
         (RuntimeError("błąd programu"), 500, "internal_error"),
     ],
 )
@@ -866,7 +876,7 @@ def test_api_file_system_and_program_errors_are_problem_documents(
     monkeypatch, error, status, code
 ):
     raising(
-        monkeypatch, importlib.import_module("imgwtools.datasets"), "datasets", error
+        monkeypatch, importlib.import_module("obserwator.datasets"), "datasets", error
     )
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -886,7 +896,7 @@ def test_api_file_system_and_program_errors_are_problem_documents(
     [
         ("series summary", "/etc/passwd", 400),
         ("series summary", "../store/series/versions/hydro_daily", 400),
-        ("series summary", "series/versions/../../imgw-store.json", 400),
+        ("series summary", "series/versions/../../obserwator-store.json", 400),
         ("series summary", "series/versions/hydro_daily/./x", 400),
         ("series summary", "series//versions/hydro_daily", 400),
         ("series summary", "series\\versions\\hydro_daily", 400),
@@ -1021,9 +1031,11 @@ def test_api_a_write_without_a_configured_root_never_goes_to_the_default_root(
 ):
     (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
     monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
-    monkeypatch.delenv("IMGW_ROOT", raising=False)
-    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
-    assert store_root().root == tmp_path / "data" / "imgw"  # where the CLI would write
+    monkeypatch.delenv("OBSERWATOR_ROOT", raising=False)
+    monkeypatch.setenv("OBSERWATOR_DATA_DIR", str(tmp_path / "data"))
+    assert (
+        store_root().root == tmp_path / "data" / "obserwator"
+    )  # where the CLI would write
 
     response = client.post(path_of(command), json=body, headers=writable)
 
@@ -1037,7 +1049,7 @@ def test_api_a_write_goes_to_the_configured_root_and_not_to_the_default_root(
 ):
     (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
     monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
-    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OBSERWATOR_DATA_DIR", str(tmp_path / "data"))
     imgw.publish_pmaxtp("pmaxtp_pot_first")
 
     response = client.post(

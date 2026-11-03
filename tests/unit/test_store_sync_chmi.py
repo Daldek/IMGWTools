@@ -16,17 +16,17 @@ import httpx
 import pytest
 import respx
 
-from imgwtools._parsing.chmi import parse_listing
-from imgwtools._version import __version__
-from imgwtools.datasets import archive_files, get_provider
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import current_version, init_store, write_archive
-from imgwtools.store import sync as sync_module
-from imgwtools.store.content import content_sha256
-from imgwtools.store.sync import check_store, sync_store
-from imgwtools.store.types import PlanAction, SeriesReport, StorePlan
-from imgwtools.urls import IMGW_PUBLIC_DATA_URL
+from obserwator._parsing.chmi import parse_listing
+from obserwator._version import __version__
+from obserwator.datasets import archive_files, get_provider
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.fetch import DownloadResult
+from obserwator.store import current_version, init_store, write_archive
+from obserwator.store import sync as sync_module
+from obserwator.store.content import content_sha256
+from obserwator.store.sync import check_store, sync_store
+from obserwator.store.types import PlanAction, SeriesReport, StorePlan
+from obserwator.urls import IMGW_PUBLIC_DATA_URL
 from tests.contract.support import schema_errors
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
@@ -335,7 +335,7 @@ def test_plan_of_listing_items_round_trips_and_meets_the_contract(
     )
 
     document = json.loads((tmp_path / "plan.json").read_text(encoding="utf-8"))
-    assert schema_errors(document, "imgw-plan/1") == []
+    assert schema_errors(document, "obserwator-plan/1") == []
     assert StorePlan.from_json(tmp_path / "plan.json") == plan
     observed, published = document["items"]
     assert {key: observed[key] for key in observed if key != "local_path"} == {
@@ -382,7 +382,7 @@ def test_first_publication_heads_then_gets_and_writes_chmi_sidecars(root, server
         for method in ("HEAD", "GET")
     ]
     assert {call.request.headers["User-Agent"] for call in server.calls} == {
-        f"imgwtools/{__version__}"
+        f"obserwator/{__version__}"
     }
     assert [(item.slot, item.status) for item in report.items] == [
         (f"archive:{HYDRO}:H_{S1}_DQ_2023.json", "new"),
@@ -393,11 +393,11 @@ def test_first_publication_heads_then_gets_and_writes_chmi_sidecars(root, server
     version = report.items[0].version
     assert version.read_bytes() == data
     meta = json.loads(Path(f"{version}.meta.json").read_text(encoding="utf-8"))
-    assert schema_errors(meta, "imgw-meta/1") == []
+    assert schema_errors(meta, "obserwator-meta/1") == []
     license_ = get_provider("CHMI").license
     assert {key: value for key, value in meta.items() if key != "downloaded_at"} == {
-        "schema": "imgw-meta/1",
-        "producer": "imgwtools",
+        "schema": "obserwator-meta/1",
+        "producer": "obserwator",
         "producer_version": __version__,
         "dataset": HYDRO,
         "country": "CZ",
@@ -634,7 +634,7 @@ def test_other_content_under_the_same_canonical_form_is_one_observation(root, se
     assert versions(root, H1_2023) == [current.parent.name]
     (observation,) = register(root, H1_2023)
     recorded = json.loads(observation.read_text(encoding="utf-8"))
-    assert schema_errors(recorded, "imgw-observation/1") == []
+    assert schema_errors(recorded, "obserwator-observation/1") == []
     headers = CASES["h900001_2023_reserialized_get"]["headers"]
     assert {
         key: recorded[key]
@@ -840,18 +840,18 @@ def test_cancel_before_the_listing_and_between_files(root, server):
 )
 def test_selectors_are_validated_before_any_request(root, server, options, option):
     for function in (check_store, sync_store):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             function(root, **options)
         assert error.value.details["option"] == option
     assert not server.calls
 
 
 def test_invalid_station_code_is_named_and_plan_excludes_stations(root, server):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         check_store(root, datasets=[METEO], stations=[FULL, "0-203-0-ab"])
     assert error.value.details["value"] == ["0-203-0-ab"]
-    plan = StorePlan("imgw-plan/1", root, datetime.now(UTC), (), {})
-    with pytest.raises(IMGWValidationError):
+    plan = StorePlan("obserwator-plan/1", root, datetime.now(UTC), (), {})
+    with pytest.raises(ObserwatorValidationError):
         sync_store(root, plan=plan, stations=[S1])
     assert not server.calls
 

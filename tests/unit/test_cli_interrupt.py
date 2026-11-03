@@ -1,7 +1,7 @@
 """SIGINT and SIGTERM during a real plain write (DEV-19.7, ADR-007 D3).
 
 A plain write leaves no partial target and no staging directory when the
-process is interrupted. These tests start the installed ``imgw`` command in its
+process is interrupted. These tests start the installed ``obserwator`` command in its
 own process (``interrupt_driver.py``: the command is real, its source stops in
 the middle of a transfer), send the signal and look at the exit code and at what
 is left on disk: ``datasets download --output-dir`` after the first file and
@@ -24,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools import current_version
-from imgwtools.datasets import archive_files
-from imgwtools.testing import build_fixture_store
+from obserwator import current_version
+from obserwator.datasets import archive_files
+from obserwator.testing import build_fixture_store
 from tests.unit.interrupt_driver import DATASET, payload
 
 pytestmark = pytest.mark.skipif(
@@ -42,7 +42,7 @@ EXIT = {"sigterm": 143, "sigint_twice": 130, "sigint_once": 130}
 
 
 class Command:
-    """The driver running ``imgw`` in a process of its own."""
+    """The driver running ``obserwator`` in a process of its own."""
 
     def __init__(self, tmp_path: Path, scenario: str, *arguments: object) -> None:
         self.ready, self.release = tmp_path / "ready", tmp_path / "release"
@@ -52,11 +52,11 @@ class Command:
         env = {
             key: value
             for key, value in os.environ.items()
-            if key not in ("IMGW_ROOT", "IMGW_LANG")
+            if key not in ("OBSERWATOR_ROOT", "OBSERWATOR_LANG")
         }
         env |= {
-            "IMGW_LANG": "en",
-            "IMGW_DATA_DIR": str(tmp_path / "data"),
+            "OBSERWATOR_LANG": "en",
+            "OBSERWATOR_DATA_DIR": str(tmp_path / "data"),
             "NOGAT_CONFIG": str(tmp_path / "nogat.toml"),
             "HTTP_PROXY": dead,
             "HTTPS_PROXY": dead,
@@ -91,7 +91,9 @@ class Command:
             ended = self.process.poll() is not None
             if ended or time.monotonic() > deadline:
                 state = "ended before it could" if ended else "did not"
-                raise AssertionError(f"imgw {state} {what}\nstderr:\n{self.errors()}")
+                raise AssertionError(
+                    f"obserwator {state} {what}\nstderr:\n{self.errors()}"
+                )
             time.sleep(0.02)
 
     def interrupt(self) -> None:
@@ -117,7 +119,7 @@ class Command:
             return self.process.wait(timeout=LIMIT)
         except subprocess.TimeoutExpired:
             raise AssertionError(
-                f"imgw did not end\nstderr:\n{self.errors()}"
+                f"obserwator did not end\nstderr:\n{self.errors()}"
             ) from None
 
     def error_line(self) -> dict[str, object]:
@@ -167,7 +169,7 @@ def test_an_interrupted_plain_download_leaves_no_staging_and_no_partial_target(
 
     complete = payload()
     assert status == EXIT[how], command.errors()
-    assert not (tmp_path / "out" / ".imgw-incoming").exists()
+    assert not (tmp_path / "out" / ".obserwator-incoming").exists()
     assert first.read_bytes() == complete  # the file before the stop is whole
     assert not third.exists()  # the file after it was never requested
     # the interrupted file is whole: the old one, or (once let go) the new one
@@ -206,7 +208,7 @@ def test_an_interrupted_export_leaves_no_staging_and_the_old_file(
     status = command.interrupted(how)
 
     assert status == EXIT[how], command.errors()
-    assert not (target.parent / ".imgw-incoming").exists()
+    assert not (target.parent / ".obserwator-incoming").exists()
     assert sorted(path.name for path in target.parent.iterdir()) == ["hydro.csv"]
     assert target.read_bytes() == OLD  # even once let go: the Ctrl+C asked to stop
     if how == "sigint_once":  # cancelled on request: the envelope without a result

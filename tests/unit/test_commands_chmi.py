@@ -13,10 +13,10 @@ import respx
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from imgwtools import (
+from obserwator import (
     ERROR_CODES,
     STATION_CODE_PATTERN,
-    IMGWValidationError,
+    ObserwatorValidationError,
     check_command,
     command_schema,
     data_commands,
@@ -24,11 +24,11 @@ from imgwtools import (
     run_command,
     validate_command,
 )
-from imgwtools._jsonable import jsonable
-from imgwtools.api.main import app as rest_app
-from imgwtools.cli.main import app as cli_app
-from imgwtools.config import settings
-from imgwtools.store import init_store
+from obserwator._jsonable import jsonable
+from obserwator.api.main import app as rest_app
+from obserwator.cli.main import app as cli_app
+from obserwator.config import settings
+from obserwator.store import init_store
 from tests.contract.support import canonical, cli_words, rest_request, violations
 from tests.unit.test_store_catalog_chmi import SOURCES, build
 from tests.unit.test_store_catalog_chmi import serve as serve_catalog
@@ -38,16 +38,16 @@ from tests.unit.test_store_sync_chmi import serve as serve_files
 HYDRO, METEO = "cz.chmi.hydro_daily", "cz.chmi.meteo_daily"
 S1, S2 = "0-203-1-900001", "0-203-1-900002"
 FULL = "0-203-0-90001"
-ROOT = "/data/imgw"
+ROOT = "/data/obserwator"
 HYDRO_NOW = BASE + "hydrology/now/metadata/meta1.json"
 METEO_LISTING = BASE + "meteorology/climate/now/metadata/"
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
-def no_imgw_root(monkeypatch):
-    """The developer's IMGW_ROOT must not reach the CLI under test."""
-    monkeypatch.delenv("IMGW_ROOT", raising=False)
+def no_obserwator_root(monkeypatch):
+    """The developer's OBSERWATOR_ROOT must not reach the CLI under test."""
+    monkeypatch.delenv("OBSERWATOR_ROOT", raising=False)
 
 
 @pytest.fixture
@@ -72,9 +72,9 @@ def frozen(monkeypatch):
             return FROZEN_AT.astimezone(tz)
 
     for name in (
-        "imgwtools.commands",
-        "imgwtools.store.sync",
-        "imgwtools.store.catalog",
+        "obserwator.commands",
+        "obserwator.store.sync",
+        "obserwator.store.catalog",
     ):
         monkeypatch.setattr(importlib.import_module(name), "datetime", Frozen)
 
@@ -127,15 +127,18 @@ def test_command_schema_publishes_provider_stations_and_their_rules():
         assert schema["properties"]["stations"]["items"]["pattern"] == (
             STATION_CODE_PATTERN
         )
-        assert schema["x-imgw"]["cli"]["flags"]["stations"] == ["--stations", "-s"]
+        assert schema["x-obserwator"]["cli"]["flags"]["stations"] == [
+            "--stations",
+            "-s",
+        ]
         # Years depend on the dataset, so the schema leaves them to the rules.
         assert "years" not in schema.get("required", [])
-        rules = schema["x-imgw"]["rules"]
+        rules = schema["x-obserwator"]["rules"]
         assert any("stations" in rule and "cz.chmi" in rule for rule in rules)
         assert any("years" in rule and METEO in rule for rule in rules)
     archive = command_schema("datasets files")["properties"]["dataset"]["enum"]
     assert len(archive) == 12 and {HYDRO, METEO} <= set(archive)
-    meta = command_schema("datasets providers")["x-imgw"]
+    meta = command_schema("datasets providers")["x-obserwator"]
     assert (meta["function"], meta["result"], meta["result_type"]) == (
         "providers",
         "list",
@@ -173,7 +176,7 @@ def test_chmi_view_of_the_catalog_drops_imgw_only_commands_and_narrows_choices()
     )
     # The whole catalog still validates: provider stays optional there.
     assert validate_command("stations find", options={}) == {}
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         data_commands(provider="SHMU")
     assert error.value.details["option"] == "provider"
 
@@ -261,7 +264,7 @@ REJECTED = [
 def test_validate_command_applies_the_rules_of_the_dataset_provider(
     command, options, option
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         validate_command(command, options=options)
 
     assert error.value.code == "validation_error"
@@ -413,7 +416,7 @@ def test_source_unavailable_title_is_neutral_and_the_detail_names_chmi(server):
 
 
 # --------------------------------------------------------------------------
-# Python = imgw = REST for the new and changed commands
+# Python = obserwator = REST for the new and changed commands
 # --------------------------------------------------------------------------
 
 

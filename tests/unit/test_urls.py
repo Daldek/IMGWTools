@@ -1,11 +1,11 @@
 """
-Unit tests for imgwtools.urls module (URL builders).
+Unit tests for obserwator.urls module (URL builders).
 """
 
 import pytest
 
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.urls import (
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.urls import (
     IMGW_API_URL,
     IMGW_PMAXTP_URL,
     build_api_url,
@@ -37,7 +37,7 @@ class TestBuildPmaxtpUrl:
             build_pmaxtp_url(52.23, 21.01, "AMP")
 
     def test_unknown_method_is_validation_error(self):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             build_pmaxtp_url(52.23, 21.01, method="XYZ")
         assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}
 

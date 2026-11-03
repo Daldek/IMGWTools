@@ -1,4 +1,4 @@
-# IMGWTools — Working rules and standards
+# Obserwator — Working rules and standards
 
 ## 1. Code style and quality
 - style: **PEP8**
@@ -10,7 +10,7 @@
 
 ## 2. Tests
 - **unit and contract tests** — required, status: 2446 tests in `tests/unit` and `tests/contract` (2026-10-31), all offline
-- **live tests** — 67 tests in `tests/live` (marker `live`, outside the gate: `pytest -m live`): 45 against IMGW-PIB servers (30 commands × Python/CLI/REST, live errors, MCP leg `-k imgw_mcp`) and 22 against opendata.chmi.cz (ČHMÚ provider)
+- **live tests** — 67 tests in `tests/live` (marker `live`, outside the gate: `pytest -m live`): 45 against IMGW-PIB servers (30 commands × Python/CLI/REST, live errors, MCP leg `-k obserwator_mcp`) and 22 against opendata.chmi.cz (ČHMÚ provider)
 - coverage: last measurement **94.37%** (2026-10-25), gate threshold **80%**
 - a change of the command catalog, CLI, REST, MCP or web must keep the Python = CLI = REST = MCP contract (`tests/contract/test_interface_contract.py`, `test_mcp_contract.py`, `test_mcp_http_contract.py`)
 - a change of catalog texts, registries (datasets, providers, error codes) or guide templates regenerates `AGENTS.md` and `llms.txt` in the same change (drift test in `tests/unit/test_agent_guide.py`)

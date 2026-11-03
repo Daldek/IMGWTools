@@ -1,4 +1,4 @@
-# IMGWTools Docker image: REST API, web GUI and MCP over HTTP (/mcp)
+# Obserwator Docker image: REST API, web GUI and MCP over HTTP (/mcp)
 FROM python:3.12-slim
 
 # Set environment variables
@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
 
-# REST API server with the MCP extra (/mcp needs IMGW_MCP_ENABLED=true)
+# REST API server with the MCP extra (/mcp needs OBSERWATOR_MCP_ENABLED=true)
 RUN pip install --no-cache-dir ".[api,mcp]"
 
 # Create non-root user
@@ -36,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application (one worker: MCP sessions live in the process)
-CMD ["uvicorn", "imgwtools.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "obserwator.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

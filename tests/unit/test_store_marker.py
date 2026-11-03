@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools._version import __version__
-from imgwtools.commands import check_command, run_command
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import (
-    IMGWDataError,
-    IMGWError,
-    IMGWStoreConflictError,
-    IMGWStoreError,
+from obserwator._version import __version__
+from obserwator.commands import check_command, run_command
+from obserwator.datasets import archive_files
+from obserwator.exceptions import (
+    ObserwatorDataError,
+    ObserwatorError,
+    ObserwatorStoreConflictError,
+    ObserwatorStoreError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import (
+from obserwator.fetch import DownloadResult
+from obserwator.store import (
     check_store,
     current_version,
     init_store,
@@ -25,13 +25,13 @@ from imgwtools.store import (
     store_info,
     write_archive,
 )
-from imgwtools.store.types import StorePlan
-from imgwtools.store.writer import lenient_store, prepare_store
+from obserwator.store.types import StorePlan
+from obserwator.store.writer import lenient_store, prepare_store
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 ARCHIVE = archive_files("pl.imgw.hydro_daily", years=[2024])[0]
 DATA = (FIXTURES / "archives" / ARCHIVE.server_path).read_bytes()
-MARKER = "imgw-store.json"
+MARKER = "obserwator-store.json"
 
 
 def marker(root):
@@ -53,11 +53,11 @@ def test_the_marker_has_the_minimum_fields_of_the_convention(tmp_path):
     init_store(tmp_path / "s", created_at=datetime(2026, 10, 24, 8, 0, tzinfo=UTC))
 
     assert marker(tmp_path / "s") == {
-        "schema": "imgw-store/1",
-        "tool": "imgw",
+        "schema": "obserwator-store/1",
+        "tool": "obserwator",
         "created_at": "2026-10-24T08:00:00Z",
         "producer_version": __version__,
-        "created_by": f"imgwtools {__version__}",
+        "created_by": f"obserwator {__version__}",
     }
 
 
@@ -73,7 +73,7 @@ def test_the_first_write_into_a_new_root_creates_the_marker(tmp_path):
     written = write_archive(root, archive=ARCHIVE, response=response())
 
     assert written.status == "new"
-    assert marker(root)["tool"] == "imgw"
+    assert marker(root)["tool"] == "obserwator"
     assert store_info(root).supported
     created = marker(root)["created_at"]
     write_archive(root, archive=ARCHIVE, response=response())
@@ -81,7 +81,7 @@ def test_the_first_write_into_a_new_root_creates_the_marker(tmp_path):
 
 
 def test_a_root_with_only_the_server_state_is_still_new(tmp_path):
-    root = tmp_path / "imgw"
+    root = tmp_path / "obserwator"
     root.mkdir()
     (root / "api_keys.json").write_text("{}", encoding="utf-8")
 
@@ -96,7 +96,7 @@ def test_a_root_with_other_files_is_not_taken_over(tmp_path):
     (tmp_path / "docs" / "notes.txt").write_text("mine", encoding="utf-8")
 
     for call in (prepare_store, init_store):
-        with pytest.raises(IMGWStoreConflictError) as error:
+        with pytest.raises(ObserwatorStoreConflictError) as error:
             call(tmp_path / "docs")
         assert error.value.details["reason"] == "not_empty"
     assert not (tmp_path / "docs" / MARKER).exists()
@@ -106,14 +106,18 @@ def test_an_older_marker_gains_the_missing_fields_on_the_next_write(tmp_path):
     root = tmp_path / "s"
     root.mkdir()
     (root / MARKER).write_text(
-        '{"schema": "imgw-store/1", "created_by": "imgwtools 2.9"}', encoding="utf-8"
+        '{"schema": "obserwator-store/1", "created_by": "obserwator 2.9"}',
+        encoding="utf-8",
     )
 
     prepare_store(root)
 
     completed = marker(root)
-    assert completed["created_by"] == "imgwtools 2.9"
-    assert (completed["tool"], completed["producer_version"]) == ("imgw", __version__)
+    assert completed["created_by"] == "obserwator 2.9"
+    assert (completed["tool"], completed["producer_version"]) == (
+        "obserwator",
+        __version__,
+    )
     assert completed["created_at"].endswith("Z")
     assert store_info(root).supported
 
@@ -122,30 +126,30 @@ def test_an_older_marker_gains_the_missing_fields_on_the_next_write(tmp_path):
 # fields of DEV-19.12 are what a writer writes (an older marker is completed on the next
 # write), so a marker lacking created_by, or any other field, is a supported store.
 ACCEPTED = {
-    "the schema alone": '{"schema": "imgw-store/1"}',
+    "the schema alone": '{"schema": "obserwator-store/1"}',
     "an older marker with created_by": (
-        '{"schema": "imgw-store/1", "created_by": "imgwtools 2.9"}'
+        '{"schema": "obserwator-store/1", "created_by": "obserwator 2.9"}'
     ),
     "the minimum of DEV-19.12 without created_by": json.dumps(
         {
-            "schema": "imgw-store/1",
-            "tool": "imgw",
+            "schema": "obserwator-store/1",
+            "tool": "obserwator",
             "created_at": "2026-10-24T08:00:00Z",
             "producer_version": "3.0.0",
         }
     ),
-    "a created_by of the wrong type": '{"schema": "imgw-store/1", "created_by": 7}',
+    "a created_by of the wrong type": '{"schema": "obserwator-store/1", "created_by": 7}',
 }
 # The text of a marker the reader refuses, with the code it gives (StoreInfo.problem_codes,
 # StoreEntry.problem_code).
 REFUSED = {
     "another store schema": (
-        '{"schema": "imgw-store/2", "created_by": "imgwtools 9"}',
+        '{"schema": "obserwator-store/2", "created_by": "obserwator 9"}',
         "unsupported_store",
     ),
-    "no schema": ('{"created_by": "imgwtools 3"}', "invalid_marker"),
+    "no schema": ('{"created_by": "obserwator 3"}', "invalid_marker"),
     "a schema of the wrong type": (
-        '{"schema": 1, "created_by": "imgwtools 3"}',
+        '{"schema": 1, "created_by": "obserwator 3"}',
         "invalid_marker",
     ),
     "no object": ("[]", "invalid_marker"),
@@ -185,12 +189,12 @@ def test_a_marker_the_reader_refuses_is_refused_by_the_writer_too(tmp_path, text
         info.problems[0],
     )
     # An unreadable marker is `data_error`, another schema `store_unavailable` (DEV-19.10).
-    with pytest.raises(IMGWError) as refused:
+    with pytest.raises(ObserwatorError) as refused:
         open_store(root)
     assert refused.value.code == (
         "store_unavailable" if code == "unsupported_store" else "data_error"
     )
-    with pytest.raises(IMGWStoreError):
+    with pytest.raises(ObserwatorStoreError):
         current_version(root, slot="catalog:pl.imgw.stations")
 
 
@@ -214,7 +218,7 @@ def test_a_root_that_is_no_store_has_the_code_of_what_is_missing(tmp_path):
 
 
 def test_store_info_gives_the_codes_in_the_document_of_every_interface(tmp_path):
-    root = root_with_marker(tmp_path, '{"schema": "imgw-store/2"}')
+    root = root_with_marker(tmp_path, '{"schema": "obserwator-store/2"}')
 
     outcome = run_command("store info", options={"root": root})
 
@@ -229,7 +233,7 @@ def test_store_info_gives_the_codes_in_the_document_of_every_interface(tmp_path)
 def test_a_marker_without_created_by_stays_readable_after_the_writer_completes_it(
     tmp_path,
 ):
-    root = root_with_marker(tmp_path, '{"schema": "imgw-store/1"}')
+    root = root_with_marker(tmp_path, '{"schema": "obserwator-store/1"}')
 
     prepare_store(root)
 
@@ -252,7 +256,7 @@ def test_a_plan_opens_a_new_root_without_creating_anything(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def layout(root, schema="imgw-meta/1"):
+def layout(root, schema="obserwator-meta/1"):
     version = root / "archives" / "versions" / "d" / "a" / "2026-10-17_aaaaaaaa"
     version.mkdir(parents=True)
     (version / "a.zip").write_bytes(b"x")
@@ -267,12 +271,12 @@ def layout(root, schema="imgw-meta/1"):
 def test_a_layout_without_a_marker_is_unavailable_with_the_hint_to_init(tmp_path, call):
     layout(tmp_path / "s")
 
-    with pytest.raises(IMGWStoreError) as error:
+    with pytest.raises(ObserwatorStoreError) as error:
         call(tmp_path / "s")
 
     assert error.value.code == "store_unavailable"
     assert error.value.details["reason"] == "no_marker"
-    assert f"imgw store init --root {tmp_path / 's'}" in error.value.detail
+    assert f"obserwator store init --root {tmp_path / 's'}" in error.value.detail
     assert not (tmp_path / "s" / MARKER).exists()
 
 
@@ -282,7 +286,7 @@ def test_a_layout_without_a_marker_is_reported_by_store_info_with_the_hint(tmp_p
     info = store_info(tmp_path / "s")
 
     assert not info.supported
-    assert "imgw store init --root" in info.problems[0]
+    assert "obserwator store init --root" in info.problems[0]
 
 
 def test_store_init_verifies_the_layout_and_writes_the_marker(tmp_path):
@@ -290,14 +294,14 @@ def test_store_init_verifies_the_layout_and_writes_the_marker(tmp_path):
 
     init_store(tmp_path / "s")
 
-    assert marker(tmp_path / "s")["schema"] == "imgw-store/1"
+    assert marker(tmp_path / "s")["schema"] == "obserwator-store/1"
     assert store_info(tmp_path / "s").supported
 
 
 def test_store_init_refuses_a_layout_with_a_foreign_sidecar(tmp_path):
     layout(tmp_path / "s", schema="kartograf-meta/1")
 
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         init_store(tmp_path / "s")
 
     assert error.value.details["reason"] == "invalid_layout"
@@ -305,10 +309,10 @@ def test_store_init_refuses_a_layout_with_a_foreign_sidecar(tmp_path):
     assert not (tmp_path / "s" / MARKER).exists()
 
 
-def test_a_kartograf_layout_is_not_an_imgw_layout(tmp_path):
+def test_a_kartograf_layout_is_not_an_obserwator_layout(tmp_path):
     (tmp_path / "k" / "versions").mkdir(parents=True)
 
-    with pytest.raises(IMGWStoreConflictError) as error:
+    with pytest.raises(ObserwatorStoreConflictError) as error:
         init_store(tmp_path / "k")
 
     assert error.value.details["reason"] == "not_empty"
@@ -319,37 +323,37 @@ def test_a_kartograf_layout_is_not_an_imgw_layout(tmp_path):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["imgw-store.json", "kartograf-store.json"])
+@pytest.mark.parametrize("name", ["obserwator-store.json", "kartograf-store.json"])
 def test_a_store_does_not_nest_in_a_store_of_any_tool(tmp_path, name):
     (tmp_path / "outer" / "inner").mkdir(parents=True)
     (tmp_path / "outer" / name).write_text('{"schema": "x/1"}', encoding="utf-8")
 
     for call in (prepare_store, init_store):
-        with pytest.raises(IMGWStoreConflictError) as error:
+        with pytest.raises(ObserwatorStoreConflictError) as error:
             call(tmp_path / "outer" / "inner")
         assert error.value.details["reason"] == "nested_store"
         assert name in error.value.detail
 
 
-def test_the_root_of_another_tool_is_not_an_imgw_store(tmp_path):
+def test_the_root_of_another_tool_is_not_an_obserwator_store(tmp_path):
     root = tmp_path / "k"
     root.mkdir()
     (root / "kartograf-store.json").write_text('{"schema": "k/1"}', encoding="utf-8")
 
-    with pytest.raises(IMGWStoreConflictError) as error:
+    with pytest.raises(ObserwatorStoreConflictError) as error:
         prepare_store(root)
 
     assert error.value.details["reason"] == "nested_store"
     assert "kartograf-store.json" in error.value.detail
 
 
-@pytest.mark.parametrize("name", ["imgw-store.json", "kartograf-store.json"])
+@pytest.mark.parametrize("name", ["obserwator-store.json", "kartograf-store.json"])
 def test_a_root_does_not_contain_a_store_of_any_tool(tmp_path, name):
     (tmp_path / "outer" / "inner").mkdir(parents=True)
     (tmp_path / "outer" / "inner" / name).write_text("{}", encoding="utf-8")
 
     for call in (prepare_store, init_store):
-        with pytest.raises(IMGWStoreConflictError) as error:
+        with pytest.raises(ObserwatorStoreConflictError) as error:
             call(tmp_path / "outer")
         assert error.value.details["reason"] == "nested_store"
 
@@ -450,7 +454,7 @@ def test_the_plan_of_a_store_write_lists_the_nested_store_as_a_conflict(
 def test_the_run_refuses_the_root_that_its_plan_lists_as_a_conflict(tmp_path, command):
     root = nested_root(tmp_path, "inside")
 
-    with pytest.raises(IMGWStoreConflictError) as error:
+    with pytest.raises(ObserwatorStoreConflictError) as error:
         run_command(command, options={"root": root, **STORE_WRITES[command]})
 
     assert error.value.details["reason"] == "nested_store"
@@ -465,7 +469,7 @@ def test_the_plan_of_a_sync_into_a_nested_store_is_saved_without_a_request(
     def refuse(*args, **kwargs):
         raise AssertionError("the nested store is refused before any request")
 
-    monkeypatch.setattr("imgwtools.store.sync.httpx.Client", refuse)
+    monkeypatch.setattr("obserwator.store.sync.httpx.Client", refuse)
     plan = check_store(root, datasets=[DAILY], years=[2024], plan=saved)
 
     (action,) = plan.actions
@@ -524,7 +528,7 @@ def test_the_run_refuses_the_busy_root_that_its_plan_lists_as_a_conflict(
     root = busy_root(tmp_path, "directory")
 
     # respx_mock answers no request: the refusal comes before any.
-    with pytest.raises(IMGWStoreConflictError) as error:
+    with pytest.raises(ObserwatorStoreConflictError) as error:
         run_command(command, options={"root": root, **STORE_WRITES[command]})
 
     assert error.value.details["reason"] == "not_empty"
@@ -536,7 +540,7 @@ def test_the_plan_of_a_store_write_with_a_layout_and_no_marker_raises_store_unav
     layout(tmp_path / "s")
 
     for command in sorted(set(STORE_WRITES) - {"store init"}):
-        with pytest.raises(IMGWStoreError) as error:
+        with pytest.raises(ObserwatorStoreError) as error:
             check_command(
                 command, options={"root": tmp_path / "s", **STORE_WRITES[command]}
             )
@@ -552,7 +556,7 @@ def test_the_plan_of_a_store_write_with_an_unreadable_marker_raises_data_error(
 ):
     root = root_with_marker(tmp_path, "{")
 
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         check_command(command, options={"root": root, **STORE_WRITES[command]})
 
     assert error.value.code == "data_error"

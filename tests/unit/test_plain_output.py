@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools import (
+from obserwator import (
     check_command,
     init_store,
     run_command,
@@ -22,10 +22,10 @@ from imgwtools import (
     sync_store,
     validate_command,
 )
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWError, IMGWValidationError
-from imgwtools.fetch import download_archives
-from imgwtools.testing import build_fixture_store
+from obserwator.datasets import archive_files
+from obserwator.exceptions import ObserwatorError, ObserwatorValidationError
+from obserwator.fetch import download_archives
+from obserwator.testing import build_fixture_store
 from tests.contract.support import V1, FakeImgw
 
 ARCHIVES = Path(__file__).parents[1] / "fixtures" / "store" / "archives"
@@ -51,12 +51,12 @@ def names(directory: Path) -> list[str]:
 
 @pytest.fixture
 def home(monkeypatch, tmp_path):
-    """No IMGW_ROOT, an empty nogat.toml and a data directory of the test."""
-    for name in ("IMGW_ROOT", "NOGAT_DATA_DIR"):
+    """No OBSERWATOR_ROOT, an empty nogat.toml and a data directory of the test."""
+    for name in ("OBSERWATOR_ROOT", "NOGAT_DATA_DIR"):
         monkeypatch.delenv(name, raising=False)
     (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
     monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
-    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OBSERWATOR_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -84,7 +84,7 @@ def test_a_plain_download_lists_what_it_wrote_with_the_hash_of_the_bytes(
         )
     # Ordinary files only: no sidecar, no staging directory left behind.
     assert names(tmp_path / "out") == sorted(a.server_path for a in FILES)
-    assert not (tmp_path / "out" / ".imgw-incoming").exists()
+    assert not (tmp_path / "out" / ".obserwator-incoming").exists()
 
 
 def test_an_existing_target_refuses_the_whole_call_before_any_request(
@@ -96,7 +96,7 @@ def test_an_existing_target_refuses_the_whole_call_before_any_request(
     before = names(out)
     requests = respx_mock.calls.call_count
 
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         download_archives(SEMIANNUAL, years=2024, output_dir=out)
 
     assert error.value.code == "conflict"
@@ -132,7 +132,7 @@ def test_a_directory_that_is_or_lies_in_a_store_is_refused_before_any_request(
     requests = respx_mock.calls.call_count
 
     for output in (store, store / "archives"):
-        with pytest.raises(IMGWError) as error:
+        with pytest.raises(ObserwatorError) as error:
             download_archives(SEMIANNUAL, years=2024, output_dir=output)
         assert error.value.code == "conflict"
         assert error.value.details == {
@@ -141,7 +141,7 @@ def test_a_directory_that_is_or_lies_in_a_store_is_refused_before_any_request(
         }
         assert "--root" in error.value.detail
     assert respx_mock.calls.call_count == requests
-    assert not (store / ".imgw-incoming").exists()
+    assert not (store / ".obserwator-incoming").exists()
 
 
 def test_a_pmaxtp_sync_into_a_store_is_refused_before_the_request_that_names_the_cell(
@@ -151,7 +151,7 @@ def test_a_pmaxtp_sync_into_a_store_is_refused_before_the_request_that_names_the
     init_store(store)
 
     # No indices are given, so the names come from the answer: the directory is refused first.
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         sync_pmaxtp(output_dir=store / "plain", latitude=52.0, longitude=20.0)
 
     assert error.value.details == {
@@ -167,7 +167,7 @@ def test_a_marker_of_kartograf_counts_as_a_store_too(respx_mock, tmp_path):
     foreign.mkdir()
     (foreign / "kartograf-store.json").write_text("{}", encoding="utf-8")
 
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         download_archives(SEMIANNUAL, years=2024, output_dir=foreign / "plain")
 
     assert error.value.details["reason"] == "output_in_store"
@@ -200,7 +200,7 @@ def test_a_cancelled_download_leaves_no_staging_directory(respx_mock, tmp_path):
 
     assert report.cancelled is True
     assert [file.status for file in report.files] == ["written"]
-    assert not (tmp_path / "out" / ".imgw-incoming").exists()
+    assert not (tmp_path / "out" / ".obserwator-incoming").exists()
 
 
 # --------------------------------------------------------------------------
@@ -223,7 +223,7 @@ def test_output_dir_and_root_exclude_each_other(tmp_path):
             },
         ),
     ):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             call()
         assert error.value.details["reason"] == "exclusive_options"
         assert error.value.details["options"] == ["output_dir", "root"]
@@ -240,13 +240,13 @@ def test_without_a_target_the_download_goes_to_the_store_of_the_default_root(
         "datasets download", options={"dataset": SEMIANNUAL, "years": 2024}
     )
 
-    root = home / "data" / "imgw"
+    root = home / "data" / "obserwator"
     assert outcome.status == "ok"
     assert (outcome.result.mode, outcome.result.root) == ("store", root)
-    assert (root / "imgw-store.json").is_file()
+    assert (root / "obserwator-store.json").is_file()
     assert {file.status for file in outcome.result.files} == {"new"}
     assert all(file.path.is_relative_to(root) for file in outcome.result.files)
-    assert not (home / "data").joinpath("imgw", ".imgw-incoming").exists()
+    assert not (home / "data").joinpath("obserwator", ".obserwator-incoming").exists()
 
 
 def test_a_store_download_reports_versions_and_never_overwrites(respx_mock, tmp_path):
@@ -273,7 +273,7 @@ def test_a_dataset_that_is_download_only_has_no_place_in_the_store(
     )
     options = {"dataset": PHENOMENA, "years": 2024}
 
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         run_command("datasets download", options={**options, "root": tmp_path / "s"})
     assert error.value.details["reason"] == "not_in_store"
     assert error.value.details["option"] == "dataset"
@@ -306,7 +306,7 @@ def test_a_plain_sync_writes_the_selected_archives_without_a_freshness_check(
     assert outcome.result.series == ()
     assert names(tmp_path / "out") == sorted(a.server_path for a in FILES)
 
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         run_command("store sync", options=options)
     assert error.value.details["reason"] == "output_exists"
     assert len(error.value.details["paths"]) == 3
@@ -328,12 +328,12 @@ def test_options_that_act_on_versions_name_root_when_given_with_output_dir(
     if option == "plan":
         del options["datasets"], options["years"]
 
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         validate_command("store sync", options=options)
     assert error.value.details["reason"] == "store_only_option"
     assert error.value.details["option"] == option
 
-    with pytest.raises(IMGWValidationError) as direct:
+    with pytest.raises(ObserwatorValidationError) as direct:
         sync_store(
             output_dir=tmp_path / "out",
             datasets=[SEMIANNUAL],
@@ -369,12 +369,12 @@ def test_a_plain_pmaxtp_sync_writes_the_cell_and_the_raw_answer(respx_mock, tmp_
             hashlib.sha256(data).hexdigest(),
             "written",
         )
-    assert not (out / ".imgw-incoming").exists()
+    assert not (out / ".obserwator-incoming").exists()
 
     known = {**point, "ind_x": 751, "ind_y": 317, "output_dir": out}
     planned = check_command("pmaxtp sync", options=known)
     assert {a.action for a in planned.result.actions} == {"conflict"}
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         sync_pmaxtp(output_dir=out, ind_x=751, ind_y=317, **point)
     assert error.value.details["reason"] == "output_exists"
     assert len(error.value.details["paths"]) == 2
@@ -409,7 +409,7 @@ def test_the_store_reports_list_their_versions_as_files(respx_mock, tmp_path):
 
 
 def test_a_store_sync_without_a_target_uses_the_default_root(home, respx_mock):
-    init_store(home / "data" / "imgw")
+    init_store(home / "data" / "obserwator")
     imgw = FakeImgw(respx_mock)
     for archive in FILES:
         imgw.publish(archive, V1, (ARCHIVES / archive.server_path).read_bytes())
@@ -421,6 +421,6 @@ def test_a_store_sync_without_a_target_uses_the_default_root(home, respx_mock):
     assert outcome.status == "ok"
     assert {file.status for file in outcome.result.files} == {"new"}
     assert all(
-        file.path.is_relative_to(home / "data" / "imgw")
+        file.path.is_relative_to(home / "data" / "obserwator")
         for file in outcome.result.files
     )

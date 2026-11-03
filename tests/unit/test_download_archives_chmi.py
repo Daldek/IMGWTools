@@ -11,12 +11,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from imgwtools._version import __version__
-from imgwtools.commands import _status
-from imgwtools.datasets import archive_files, get_provider
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.fetch import download_archives
-from imgwtools.store.types import Notice, Progress
+from obserwator._version import __version__
+from obserwator.commands import _status
+from obserwator.datasets import archive_files, get_provider
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.fetch import download_archives
+from obserwator.store.types import Notice, Progress
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDING = json.loads((FIXTURES / "chmi_recordings.json").read_text(encoding="utf-8"))
@@ -89,7 +89,7 @@ def test_unpublished_year_is_a_successful_not_published_item(respx_mock, tmp_pat
     (notice,) = [event for event in events if isinstance(event, Notice)]
     assert notice.text == f"{provider.license.attribution}. {provider.notice}"
     assert {call.request.headers["User-Agent"] for call in respx_mock.calls} == {
-        f"imgwtools/{__version__}"
+        f"obserwator/{__version__}"
     }
 
 
@@ -181,7 +181,7 @@ def test_cancel_reports_the_remaining_candidates(respx_mock, tmp_path):
 def test_invalid_options_fail_before_any_request_or_directory(
     respx_mock, tmp_path, dataset, options, option
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         download_archives(dataset, output_dir=tmp_path / "out", **options)
     assert error.value.details["option"] == option
     assert not respx_mock.calls and not (tmp_path / "out").exists()

@@ -8,15 +8,19 @@ from pathlib import Path
 import pytest
 import respx
 
-from imgwtools.datasets import archive_files, providers
-from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
-from imgwtools.fetch import DownloadResult
-from imgwtools.parsers import (
+from obserwator.datasets import archive_files, providers
+from obserwator.exceptions import (
+    ObserwatorDataError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
+)
+from obserwator.fetch import DownloadResult
+from obserwator.parsers import (
     parse_chmi_hydro_daily,
     parse_chmi_meteo_daily,
     parse_chmi_stations,
 )
-from imgwtools.store import (
+from obserwator.store import (
     current_version,
     init_store,
     iter_store,
@@ -26,8 +30,8 @@ from imgwtools.store import (
     store_info,
     write_archive,
 )
-from imgwtools.store.catalog import build_catalog
-from imgwtools.testing import build_fixture_store
+from obserwator.store.catalog import build_catalog
+from obserwator.testing import build_fixture_store
 from tests.unit.test_store_catalog import mock_sources
 from tests.unit.test_store_catalog_chmi import (
     ARCHIVES,
@@ -108,7 +112,7 @@ def test_scan_names_the_provider_of_each_entry_and_filters_by_provider(tmp_path)
         ("catalog:pl.imgw.stations", "IMGW-PIB"),
         ("catalog:cz.chmi.stations", "CHMI"),
     ]
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         iter_store(root, provider="SHMU")
     assert error.value.details["allowed"] == ["IMGW-PIB", "CHMI"]
 
@@ -124,7 +128,7 @@ def test_provider_catalogs_lie_in_named_directories_of_the_catalog_slot(tmp_path
     assert chmi.version.parent.parent == root / "stations/versions/chmi_stations"
     assert (imgw.provider, chmi.provider) == ("IMGW-PIB", "CHMI")
     assert (chmi.meta.dataset_key, chmi.meta.provider) == ("cz.chmi.stations", "CHMI")
-    with pytest.raises(IMGWValidationError, match="cz.chmi.stations"):
+    with pytest.raises(ObserwatorValidationError, match="cz.chmi.stations"):
         current_version(root, slot="catalog:sk.shmu.stations")
 
     nested = root / "stations/versions/chmi_stations"
@@ -148,7 +152,7 @@ def test_provider_catalogs_lie_in_named_directories_of_the_catalog_slot(tmp_path
     (root / "stations/versions/obce").rmdir()
     # Broken versions of a nested catalog never touch the IMGW-PIB catalog slot.
     assert current_version(root, slot="catalog:pl.imgw.stations") == imgw
-    with pytest.raises(IMGWDataError, match="catalog:cz.chmi.stations"):
+    with pytest.raises(ObserwatorDataError, match="catalog:cz.chmi.stations"):
         current_version(root, slot="catalog:cz.chmi.stations")
 
 
@@ -163,7 +167,7 @@ def test_read_catalog_reads_a_version_or_the_current_catalog_of_each_provider(
     thresholds = {station.station_code: station.properties for station in chmi}
     assert thresholds["0-203-1-900001"]["thresholds"]["source"] == "chmi_hydro_now"
     assert "thresholds" not in thresholds["0-203-0-90001"]
-    with pytest.raises(IMGWStoreError) as missing:
+    with pytest.raises(ObserwatorStoreError) as missing:
         read_catalog(root=root, provider="IMGW-PIB")
     assert missing.value.code == "not_found"
 
@@ -182,9 +186,9 @@ def test_read_catalog_reads_a_version_or_the_current_catalog_of_each_provider(
         lambda: read_catalog(version, root=root),
         lambda: read_catalog(root=root, provider="SHMU"),
     ):
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             call()
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         read_catalog(version, provider="CHMI")
     assert error.value.details["option"] == "provider"
 
@@ -215,13 +219,13 @@ def test_only_the_thresholds_property_may_be_an_object(tmp_path):
         ("deep", lambda p: p["thresholds"]["H"].update(unit={"cm": 1})),
         ("name", lambda p: p.update(name={"cs": "Špindlerův Mlýn"})),
     ):
-        with pytest.raises(IMGWDataError, match="must be simple values"):
+        with pytest.raises(ObserwatorDataError, match="must be simple values"):
             read_catalog(variant(name, change))
 
 
 def test_read_station_list_reads_the_stored_chmi_metadata(tmp_path):
     root = init_store(tmp_path / "store").root
-    with pytest.raises(IMGWStoreError) as missing:
+    with pytest.raises(ObserwatorStoreError) as missing:
         read_station_list(root, kind="hydro", provider="CHMI")
     assert missing.value.code == "not_found"
     assert "cz.chmi.hydro_stations" in str(missing.value)
@@ -255,9 +259,9 @@ def test_read_station_list_reads_the_stored_chmi_metadata(tmp_path):
     observe_regenerated_list(root)
     assert (root / LIST_SLOT / "observations").is_dir()
     assert read_station_list(root, kind="hydro", provider="CHMI") == hydro
-    with pytest.raises(IMGWStoreError, match="pl.imgw.hydro_stations"):
+    with pytest.raises(ObserwatorStoreError, match="pl.imgw.hydro_stations"):
         read_station_list(root, kind="hydro")
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         read_station_list(root, kind="hydro", provider="SHMU")
 
 
@@ -282,14 +286,14 @@ def test_read_archive_normalizes_chmi_versions(tmp_path):
     stored_list = current_version(
         root, slot="archive:cz.chmi.hydro_stations:meta1.json"
     ).version
-    with pytest.raises(IMGWValidationError, match="provider='CHMI'"):
+    with pytest.raises(ObserwatorValidationError, match="provider='CHMI'"):
         read_archive(stored_list)
 
     sidecar = Path(f"{write_chmi(root, HYDRO_2023).path}.meta.json")
     meta = json.loads(sidecar.read_text(encoding="utf-8"))
     meta["request"]["station_code"] = "0-203-1-900002"
     sidecar.write_text(json.dumps(meta), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="request.station_code"):
+    with pytest.raises(ObserwatorDataError, match="request.station_code"):
         read_archive(sidecar)
 
 

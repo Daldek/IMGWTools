@@ -14,17 +14,17 @@ import httpx
 import pytest
 import respx
 
-from imgwtools._parsing import normalize_archive
-from imgwtools._version import __version__
-from imgwtools.datasets import archive_files, get_dataset, station_source_files
-from imgwtools.exceptions import (
-    IMGWDataError,
-    IMGWStoreDependencyError,
-    IMGWStoreError,
-    IMGWValidationError,
+from obserwator._parsing import normalize_archive
+from obserwator._version import __version__
+from obserwator.datasets import archive_files, get_dataset, station_source_files
+from obserwator.exceptions import (
+    ObserwatorDataError,
+    ObserwatorStoreDependencyError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import (
+from obserwator.fetch import DownloadResult
+from obserwator.store import (
     build_catalog,
     build_series,
     check_catalog,
@@ -45,12 +45,12 @@ from imgwtools.store import (
     sync_pmaxtp,
     write_archive,
 )
-from imgwtools.store.reader import _reference_signal
-from imgwtools.store.types import Observation, SeriesSelection
+from obserwator.store.reader import _reference_signal
+from obserwator.store.types import Observation, SeriesSelection
 from tests.contract.support import schema_errors
 
-# ``imgwtools.datasets`` as a module: the package attribute is the ``datasets`` function.
-DATASETS_MODULE = importlib.import_module("imgwtools.datasets")
+# ``obserwator.datasets`` as a module: the package attribute is the ``datasets`` function.
+DATASETS_MODULE = importlib.import_module("obserwator.datasets")
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
     item["case"]: item
@@ -69,8 +69,8 @@ CONTENT = {"content_sha256": "1" * 64, "content_form": "chmi-json/1"}
 # Fictional ČHMÚ sidecar (spec 2026-10-18 §3; codes 0-203-1-9… are not published).
 CHMI_PATH = "hydrology/historical/data/daily/H_0-203-1-900001_DQ_2025.json"
 CHMI_META = {
-    "schema": "imgw-meta/1",
-    "producer": "imgwtools",
+    "schema": "obserwator-meta/1",
+    "producer": "obserwator",
     "producer_version": "3.1.0",
     "dataset": "cz.chmi.hydro_daily",
     "country": "CZ",
@@ -114,8 +114,8 @@ def observe(version, *, seen_at="2026-10-19T06:00:00Z", etag='"v2"', **changes):
     """Write an observation of ``version`` named by spec §3.2 into its slot register."""
     meta = json.loads(Path(f"{version}.meta.json").read_text(encoding="utf-8"))
     document = {
-        "schema": "imgw-observation/1",
-        "producer": "imgwtools",
+        "schema": "obserwator-observation/1",
+        "producer": "obserwator",
         "producer_version": "3.1.0",
         "dataset": meta["dataset"],
         "seen_at": seen_at,
@@ -246,13 +246,13 @@ def test_every_reader_works_on_read_only_store_without_writes_or_network(
     info = store_info(root)
     assert (info.exists, info.schema, info.supported, info.problems) == (
         True,
-        "imgw-store/1",
+        "obserwator-store/1",
         True,
         (),
     )
     assert (
-        info.contracts["series"] == "imgw-series/1"
-        and info.contracts["pmaxtp"] == "imgw-pmaxtp/1"
+        info.contracts["series"] == "obserwator-series/1"
+        and info.contracts["pmaxtp"] == "obserwator-pmaxtp/1"
     )
 
     entries = list(iter_store(root))
@@ -433,7 +433,7 @@ def test_series_index_needs_no_pyarrow_but_series_does(complete, monkeypatch):
     assert index.stations[STATION].file == Path(f"stations/{STATION}.parquet")
     coverage = index.stations["149190311"].variables["Q"]
     assert (coverage.first, coverage.with_value, coverage.period) == (None, 0, None)
-    with pytest.raises(IMGWStoreDependencyError):
+    with pytest.raises(ObserwatorStoreDependencyError):
         read_series(reports[DAILY].version, station=STATION, variables=["H"])
 
 
@@ -452,23 +452,23 @@ def test_series_validation_and_tampered_parquet(root):
             "end": date(2024, 1, 1),
         },
     ):
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             read_series(version, **kwargs)
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         read_series_index(version.with_name("other.json"))
 
     parquet = version.parent / "stations" / f"{STATION}.parquet"
     parquet.write_bytes(parquet.read_bytes() + b"\0")
-    with pytest.raises(IMGWDataError, match="checksum"):
+    with pytest.raises(ObserwatorDataError, match="checksum"):
         read_series(version, station=STATION, variables=["H"])
     parquet.unlink()
-    with pytest.raises(IMGWDataError, match="a missing file"):
+    with pytest.raises(ObserwatorDataError, match="a missing file"):
         read_series_index(version)
 
     index = json.loads(version.read_text(encoding="utf-8"))
-    index["schema"] = "imgw-series/2"
+    index["schema"] = "obserwator-series/2"
     version.write_text(json.dumps(index), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="checksum"):
+    with pytest.raises(ObserwatorDataError, match="checksum"):
         read_series_index(version)
 
 
@@ -480,7 +480,7 @@ def test_unknown_series_schema_is_a_scan_problem_not_a_version(root, offline):
     shutil.copytree(version.parent, later)
     sidecar["extra"]["version"]["label"] = "2099-01-01"
     sidecar["downloaded_at"] = "2099-01-01T00:00:00+00:00"
-    sidecar["extra"]["series_schema"] = "imgw-series/2"
+    sidecar["extra"]["series_schema"] = "obserwator-series/2"
     (later / f"{version.name}.meta.json").write_text(
         json.dumps(sidecar), encoding="utf-8"
     )
@@ -491,7 +491,7 @@ def test_unknown_series_schema_is_a_scan_problem_not_a_version(root, offline):
     }
     assert problems == {(later, "unknown_schema")}
     assert [entry.version for entry in iter_store(root, kind="series")] == [version]
-    with pytest.raises(IMGWDataError, match="an unsupported series schema"):
+    with pytest.raises(ObserwatorDataError, match="an unsupported series schema"):
         current_version(root, slot=SERIES_DAILY)
 
 
@@ -503,7 +503,7 @@ def test_catalog_is_verified_against_sidecar(complete, tmp_path):
     data = json.loads((copy / "stations.geojson").read_text(encoding="utf-8"))
     data["features"] = data["features"][:1]
     (copy / "stations.geojson").write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="checksum"):
+    with pytest.raises(ObserwatorDataError, match="checksum"):
         read_catalog(copy)
 
 
@@ -534,7 +534,7 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
 
     Path(f"{middle.path}.meta.json").write_text("{broken", encoding="utf-8")
     old_meta = json.loads(Path(f"{oldest.path}.meta.json").read_text(encoding="utf-8"))
-    old_meta["schema"] = "imgw-meta/2"
+    old_meta["schema"] = "obserwator-meta/2"
     Path(f"{oldest.path}.meta.json").write_text(json.dumps(old_meta), encoding="utf-8")
 
     (root / "junk").mkdir()
@@ -564,16 +564,16 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
     assert valid.version == newest.path and valid.meta.extra["future"] is True
     assert read_meta(newest.path).sha256 == newest.sha256
 
-    with pytest.raises(IMGWDataError, match="A corrupt version"):
+    with pytest.raises(ObserwatorDataError, match="A corrupt version"):
         current_version(root, slot=DAILY_2024)
     with pytest.raises(
-        IMGWDataError, match="unknown_schema|an unsupported sidecar schema"
+        ObserwatorDataError, match="unknown_schema|an unsupported sidecar schema"
     ):
         read_meta(oldest.path)
-    with pytest.raises(IMGWStoreError, match="No sidecar") as missing:
+    with pytest.raises(ObserwatorStoreError, match="No sidecar") as missing:
         read_meta(no_sidecar / "codz_2024.zip")
     assert missing.value.code == "not_found"
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         list(iter_store(root, kind="archives"))
     assert tree(root) == before
 
@@ -632,29 +632,35 @@ def test_current_version_follows_last_modified_rule(root):
     ],
 )
 def test_current_version_rejects_slots_outside_the_grammar(root, slot):
-    with pytest.raises(IMGWValidationError, match="expected archive:<key>") as error:
+    with pytest.raises(
+        ObserwatorValidationError, match="expected archive:<key>"
+    ) as error:
         current_version(root, slot=slot)
     assert error.value.code == "validation_error"
     assert error.value.details == {"option": "slot", "value": slot}
 
 
 def test_current_version_rejects_unsafe_archive_selector(root):
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         current_version(root, slot="archive:pl.imgw.hydro_daily:../2024/x.zip")
 
 
 def test_unknown_store_version_is_reported_not_raised(tmp_path):
     future = tmp_path / "future"
     future.mkdir()
-    (future / "imgw-store.json").write_text(
-        '{"schema":"imgw-store/2","created_by":"imgwtools 9"}', encoding="utf-8"
+    (future / "obserwator-store.json").write_text(
+        '{"schema":"obserwator-store/2","created_by":"obserwator 9"}', encoding="utf-8"
     )
     info = store_info(future)
-    assert (info.exists, info.schema, info.supported) == (True, "imgw-store/2", False)
-    assert "imgw-store/2" in info.problems[0]
+    assert (info.exists, info.schema, info.supported) == (
+        True,
+        "obserwator-store/2",
+        False,
+    )
+    assert "obserwator-store/2" in info.problems[0]
     (problem,) = iter_store(future)
     assert (problem.kind, problem.problem_code) == ("problem", "unsupported_store")
-    with pytest.raises(IMGWStoreError) as unsupported:
+    with pytest.raises(ObserwatorStoreError) as unsupported:
         current_version(future, slot="catalog:pl.imgw.stations")
     assert unsupported.value.code == "store_unavailable"
 
@@ -679,7 +685,7 @@ def test_read_meta_rejects_wrong_required_field_types(root):
         ("request", []),
     ):
         sidecar.write_text(json.dumps({**original, key: value}), encoding="utf-8")
-        with pytest.raises(IMGWDataError):
+        with pytest.raises(ObserwatorDataError):
             read_meta(written.path)
     assert hashlib.sha256(written.path.read_bytes()).hexdigest() == written.sha256
 
@@ -690,7 +696,7 @@ def test_meta_has_the_producer_and_version_the_sidecar_names_not_the_running_one
     (written,) = store_archives(root, DAILY, [2024])
     sidecar = Path(f"{written.path}.meta.json")
     document = json.loads(sidecar.read_text(encoding="utf-8"))
-    assert read_meta(written.path).producer == document["producer"] == "imgwtools"
+    assert read_meta(written.path).producer == document["producer"] == "obserwator"
     assert read_meta(written.path).producer_version == __version__
 
     # A version written by an earlier release keeps that release's number.
@@ -706,7 +712,7 @@ def test_meta_has_the_producer_and_version_the_sidecar_names_not_the_running_one
         entry.meta,
         current_version(root, slot=DAILY_2024).meta,
     ):
-        assert (meta.producer, meta.producer_version) == ("imgwtools", older)
+        assert (meta.producer, meta.producer_version) == ("obserwator", older)
 
 
 @pytest.mark.parametrize(
@@ -731,7 +737,7 @@ def test_a_sidecar_without_its_producer_or_version_is_refused_not_filled_in(
             document[key] = value
     sidecar.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(IMGWDataError):
+    with pytest.raises(ObserwatorDataError):
         read_meta(written.path)
     (problem,) = iter_store(root, kind="problem")
     assert (problem.slot, problem.problem_code) == (DAILY_2024, "invalid_meta")
@@ -776,9 +782,9 @@ def test_series_readers_need_version_or_root_with_dataset(complete, given, kwarg
     root, reports, _, _ = complete
     args = (reports[DAILY].version,) if given else ()
     options = {**kwargs, **({"root": root} if kwargs.get("root") else {})}
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         read_series(*args, station=STATION, **options)
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         summarize_series(*args, **options)
 
 
@@ -789,7 +795,7 @@ def test_missing_series_or_station_list_is_not_found(root):
         lambda: select_series(root, dataset=DAILY, stations=[STATION]),
         lambda: read_station_list(root, kind="hydro"),
     ):
-        with pytest.raises(IMGWStoreError) as error:
+        with pytest.raises(ObserwatorStoreError) as error:
             call()
         assert error.value.code == "not_found"
 
@@ -840,7 +846,7 @@ def test_summarize_series_equals_index_without_pyarrow(complete, monkeypatch):
         {"stations": STATION},
         {"variables": ["Tmax"]},
     ):
-        with pytest.raises(IMGWValidationError):
+        with pytest.raises(ObserwatorValidationError):
             summarize_series(reports[HALF].version, **kwargs)
 
 
@@ -882,7 +888,7 @@ def test_select_series_matches_series_select_semantics(complete, offline):
         (HALF, {"stations": [STATION], "year_type": "calendar"}, "year_type"),
         ("pl.imgw.pmaxtp", {"stations": [STATION]}, "dataset"),
     ):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             select_series(root, dataset=dataset, **kwargs)
         assert error.value.details["option"] == option
 
@@ -891,7 +897,7 @@ def test_chmi_sidecar_meets_the_widened_meta_contract_with_optional_content(tmp_
     sidecar = tmp_path / "H_0-203-1-900001_DQ_2025.json.meta.json"
     with_content = {**CHMI_META, **CONTENT}
     for document in (CHMI_META, with_content):
-        assert schema_errors(document, "imgw-meta/1") == []
+        assert schema_errors(document, "obserwator-meta/1") == []
         sidecar.write_text(json.dumps(document), encoding="utf-8")
         meta = read_meta(sidecar)
         assert (meta.dataset, meta.license.id) == ("cz.chmi.hydro_daily", "CC-BY-4.0")
@@ -906,9 +912,9 @@ def test_chmi_sidecar_meets_the_widened_meta_contract_with_optional_content(tmp_
         {**with_content, "content_sha256": None},
         {**with_content, "content_form": ""},
     ):
-        assert schema_errors(document, "imgw-meta/1")
+        assert schema_errors(document, "obserwator-meta/1")
         sidecar.write_text(json.dumps(document), encoding="utf-8")
-        with pytest.raises(IMGWDataError, match="content_"):
+        with pytest.raises(ObserwatorDataError, match="content_"):
             read_meta(sidecar)
 
 
@@ -932,20 +938,20 @@ def test_scan_enforces_content_pair_and_registry_origin_of_known_datasets(
         {**original, "content_form": "chmi-json/1"},
         {**original, **CONTENT, "content_sha256": "X" * 64},
     ):
-        assert schema_errors(document, "imgw-meta/1")
+        assert schema_errors(document, "obserwator-meta/1")
         assert scan(document) == [("problem", DAILY_2024, "invalid_meta")]
     # The schema knows no registry: a pl.imgw.* sidecar of another provider is valid
-    # JSON of imgw-meta/1, but the reader rejects it.
+    # JSON of obserwator-meta/1, but the reader rejects it.
     for change in ({"provider": "CHMI"}, {"country": "CZ"}):
         document = {**original, **change}
-        assert schema_errors(document, "imgw-meta/1") == []
+        assert schema_errors(document, "obserwator-meta/1") == []
         assert scan(document) == [("problem", DAILY_2024, "invalid_meta")]
-        with pytest.raises(IMGWDataError, match="the registry gives the dataset"):
+        with pytest.raises(ObserwatorDataError, match="the registry gives the dataset"):
             read_meta(written.path)
 
 
 def test_valid_sidecar_of_an_unknown_dataset_is_an_unknown_entry(root, offline):
-    # A provider IMGWTools does not know (since C02 ČHMÚ is a registered one).
+    # A provider Obserwator does not know (since C02 ČHMÚ is a registered one).
     stem = "H_0-703-1-900001_DQ_2025"
     server_path = f"hydrologia/denne/{stem}.json"
     version = (
@@ -1012,7 +1018,7 @@ def test_read_meta_gives_no_dataset_key_for_an_unknown_well_formed_key(root, off
     ]
     assert (sidecar.read_bytes(), sidecar.stat().st_mtime_ns) == before
     _rewrite_dataset(written.path, "pl.imgw.Hydro_day")
-    with pytest.raises(IMGWDataError, match="must be a dataset key"):
+    with pytest.raises(ObserwatorDataError, match="must be a dataset key"):
         read_meta(written.path)
 
 
@@ -1048,15 +1054,15 @@ def test_series_index_reads_wigos_station_codes_without_pyarrow(
         )
         return document
 
-    assert schema_errors(index_with("0-203-1-CB900003"), "imgw-series/1") == []
+    assert schema_errors(index_with("0-203-1-CB900003"), "obserwator-series/1") == []
     index = read_series_index(moved)
     assert STATION not in index.stations
     assert index.stations["0-203-1-CB900003"].file == Path(
         "stations/0-203-1-CB900003.parquet"
     )
     for code in ("0-203-1-cb900003", "12345678"):
-        assert schema_errors(index_with(code), "imgw-series/1")
-        with pytest.raises(IMGWDataError, match="an invalid station code"):
+        assert schema_errors(index_with(code), "obserwator-series/1")
+        with pytest.raises(ObserwatorDataError, match="an invalid station code"):
             read_series_index(moved)
 
 
@@ -1085,7 +1091,7 @@ def test_observation_is_a_scan_entry_of_its_archive_slot_not_a_version(root, off
         written.path.parent.name,
     )
     assert current_version(root, slot=DAILY_2024) == before
-    assert store_info(root).contracts["observation"] == "imgw-observation/1"
+    assert store_info(root).contracts["observation"] == "obserwator-observation/1"
 
 
 def test_observation_register_reports_each_broken_element(root, tmp_path, offline):
@@ -1099,7 +1105,7 @@ def test_observation_register_reports_each_broken_element(root, tmp_path, offlin
     linked.rename(tmp_path / linked.name)
     linked.symlink_to(tmp_path / linked.name)
     (register / "2026-10-19_bbbbbbbb.json").write_text("{zepsuty", encoding="utf-8")
-    future = observe(written.path, etag='"v4"', schema="imgw-observation/2")
+    future = observe(written.path, etag='"v4"', schema="obserwator-observation/2")
     dated = observe(written.path, etag='"v5"')
     dated = dated.rename(dated.with_name(f"2026-10-18{dated.name[10:]}"))
     signed = observe(written.path, etag='"v6"')
@@ -1187,11 +1193,11 @@ def test_reference_signal_is_the_newest_observation_of_the_current_version(
 
     broken = observe(newer.path, seen_at="2026-10-22T06:00:00Z", etag='"v5"')
     broken.write_text("{zepsuty", encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="corrupt observation"):
+    with pytest.raises(ObserwatorDataError, match="corrupt observation"):
         _reference_signal(root, slot=DAILY_2024)
     broken.unlink()
     observe(newer.path, etag='"v6"', content_sha256="3" * 64)
-    with pytest.raises(IMGWDataError, match="the content fields differ"):
+    with pytest.raises(ObserwatorDataError, match="the content fields differ"):
         _reference_signal(root, slot=DAILY_2024)
     assert (
         _reference_signal(root, slot="archive:pl.imgw.hydro_daily:2030/x.zip") is None

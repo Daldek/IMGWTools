@@ -5,7 +5,7 @@ runs through ``run_command``: a command declaring ``network=False`` sends no
 request, a command declaring ``writes="none"`` leaves the store and the working
 directory as they were, a command declaring ``writes="add"`` keeps every
 existing file, and every option declaring a write creates (or replaces) its
-file. The declarations are the §3.2 table, published in ``x-imgw``.
+file. The declarations are the §3.2 table, published in ``x-obserwator``.
 """
 
 import re
@@ -17,15 +17,15 @@ from typing import Any, cast
 import pytest
 import respx
 
-from imgwtools import init_store, run_command, sync_pmaxtp
-from imgwtools.commands import command_schema, data_commands
-from imgwtools.testing import build_fixture_store
+from obserwator import init_store, run_command, sync_pmaxtp
+from obserwator.commands import command_schema, data_commands
+from obserwator.testing import build_fixture_store
 from tests.contract.support import H2024, NEW, V3, FakeImgw, snapshot, stamps
 from tests.contract.test_interface_contract import CASES, Case, resolved, rooted
 
 SPECS = {spec.name: spec for spec in data_commands()}
 # MCP tool names (AGI-5.2): the project prefix and at most 48 characters of [a-z0-9_].
-TOOL_NAME = re.compile(r"imgw_[a-z0-9_]{1,43}")
+TOOL_NAME = re.compile(r"obserwator_[a-z0-9_]{1,37}")
 # Spec 2026-10-19 §3.2: command → (writes, network, writing options).
 EFFECTS = {
     "datasets list": ("none", False, {}),
@@ -155,24 +155,26 @@ def test_catalog_declares_the_effects_of_spec_section_3_2():
     commands = command_schema()["commands"]
     assert {
         schema["title"]: (
-            schema["x-imgw"]["writes"],
-            schema["x-imgw"]["network"],
+            schema["x-obserwator"]["writes"],
+            schema["x-obserwator"]["network"],
             {
-                name: prop["x-imgw-writes"]
+                name: prop["x-obserwator-writes"]
                 for name, prop in schema["properties"].items()
-                if "x-imgw-writes" in prop
+                if "x-obserwator-writes" in prop
             },
         )
         for schema in commands
     } == EFFECTS
-    names = [schema["x-imgw"]["operation_id"] for schema in commands]
+    names = [schema["x-obserwator"]["operation_id"] for schema in commands]
     assert names == [
-        "imgw_" + schema["title"].replace(" ", "_").replace("-", "_")
+        "obserwator_" + schema["title"].replace(" ", "_").replace("-", "_")
         for schema in commands
     ]
     assert len(set(names)) == len(names)
     assert all(TOOL_NAME.fullmatch(name) for name in names)
-    assert all(isinstance(schema["x-imgw"]["idempotent"], bool) for schema in commands)
+    assert all(
+        isinstance(schema["x-obserwator"]["idempotent"], bool) for schema in commands
+    )
 
 
 def test_every_write_can_be_planned_by_a_check_twin():

@@ -5,4 +5,4 @@
 # responses, store fixtures and the golden CSV exports (CRLF of the csv
 # module), which tests compare byte for byte or by sha256.
 tests/fixtures/** -text
-src/imgwtools/_data/fixtures/** -text
+src/obserwator/_data/fixtures/** -text

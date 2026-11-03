@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-import imgwtools
-from imgwtools.exceptions import IMGWError
-from imgwtools.messages import (
+import obserwator
+from obserwator.exceptions import ObserwatorError
+from obserwator.messages import (
     DEFAULT_LANG,
     LANGS,
     Message,
@@ -24,7 +24,7 @@ from imgwtools.messages import (
     valid_key,
 )
 
-SRC = Path(imgwtools.__file__).parent
+SRC = Path(obserwator.__file__).parent
 # Polish diacritics or words that no English text uses (also for Polish text that
 # has no diacritics, such as "Nieczytelny znacznik").
 POLISH = re.compile(
@@ -183,7 +183,7 @@ def test_polish_literals_stay_only_in_the_catalog():
             for node in string_values(tree)
         )
     )
-    assert found == [], "a Polish text belongs in imgwtools.messages"
+    assert found == [], "a Polish text belongs in obserwator.messages"
 
 
 # --------------------------------------------------------------------------
@@ -242,7 +242,7 @@ def test_reason_keeps_the_message_of_an_exception_translatable_and_stringifies_o
     text = message("errors.file_system", reason=reason(ValueError(nested)))
 
     assert reason(ValueError(nested)) is nested
-    assert reason(IMGWError(nested)) is nested
+    assert reason(ObserwatorError(nested)) is nested
     assert text.localized("pl") == "Błąd systemu plików: brak miejsca na urządzeniu"
     assert reason(OSError(2, "No such file")) == "[Errno 2] No such file"
     assert type(reason(ValueError("plain"))) is str

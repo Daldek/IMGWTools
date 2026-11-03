@@ -2,9 +2,9 @@
 
 from datetime import date
 
-from imgwtools.coverage import summarize_coverage
-from imgwtools.models import Measurement, NormalizedRecord
-from imgwtools.store.types import StationCoverage
+from obserwator.coverage import summarize_coverage
+from obserwator.models import Measurement, NormalizedRecord
+from obserwator.store.types import StationCoverage
 
 
 def row(dataset, when, measurements, *, station="123456789", period=None):

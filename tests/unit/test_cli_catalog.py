@@ -1,4 +1,4 @@
-"""``imgw`` generated from the command catalog (spec §13.10): envelope, errors, flags."""
+"""``obserwator`` generated from the command catalog (spec §13.10): envelope, errors, flags."""
 
 import functools
 import hashlib
@@ -20,10 +20,10 @@ import respx
 import typer
 from typer.testing import CliRunner
 
-from imgwtools import store
-from imgwtools.cli import _dispatch
-from imgwtools.cli.main import app
-from imgwtools.commands import (
+from obserwator import store
+from obserwator.cli import _dispatch
+from obserwator.cli.main import app
+from obserwator.commands import (
     check_command,
     command_schema,
     data_commands,
@@ -32,10 +32,10 @@ from imgwtools.commands import (
     run_command,
     validate_command,
 )
-from imgwtools.config import settings
-from imgwtools.exceptions import ERROR_CODES, IMGWError
-from imgwtools.messages import localize, message
-from imgwtools.store.types import (
+from obserwator.config import settings
+from obserwator.exceptions import ERROR_CODES, ObserwatorError
+from obserwator.messages import localize, message
+from obserwator.store.types import (
     CommandCall,
     CommandResult,
     Notice,
@@ -43,8 +43,8 @@ from imgwtools.store.types import (
     SeriesReport,
     SyncReport,
 )
-from imgwtools.testing import build_fixture_store
-from imgwtools.urls import IMGW_API_URL
+from obserwator.testing import build_fixture_store
+from obserwator.urls import IMGW_API_URL
 from tests.contract.support import (
     DAILY,
     H2023,
@@ -73,7 +73,7 @@ EXIT_CODES = CATALOG["exit_codes"]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
 INSTALLED = Path(sys.executable).with_name(
-    "imgw.exe" if sys.platform == "win32" else "imgw"
+    "obserwator.exe" if sys.platform == "win32" else "obserwator"
 )
 # Last stderr line of a failed command (spec §13.5).
 CLI_ERROR = {
@@ -104,10 +104,10 @@ CLI_ERROR = {
 
 
 @pytest.fixture(autouse=True)
-def no_imgw_root(monkeypatch):
-    """The developer's IMGW_ROOT and IMGW_LANG must not reach the commands."""
-    monkeypatch.delenv("IMGW_ROOT", raising=False)
-    monkeypatch.delenv("IMGW_LANG", raising=False)
+def no_obserwator_root(monkeypatch):
+    """The developer's OBSERWATOR_ROOT and OBSERWATOR_LANG must not reach the commands."""
+    monkeypatch.delenv("OBSERWATOR_ROOT", raising=False)
+    monkeypatch.delenv("OBSERWATOR_LANG", raising=False)
 
 
 @pytest.fixture(scope="module")
@@ -138,12 +138,12 @@ def frozen(monkeypatch):
             return FROZEN_AT.astimezone(tz)
 
     for name in (
-        "imgwtools.store.writer",
-        "imgwtools.store.series",
-        "imgwtools.store.catalog",
-        "imgwtools.store.sync",
-        "imgwtools.store.pmaxtp",
-        "imgwtools.commands",
+        "obserwator.store.writer",
+        "obserwator.store.series",
+        "obserwator.store.catalog",
+        "obserwator.store.sync",
+        "obserwator.store.pmaxtp",
+        "obserwator.commands",
     ):
         monkeypatch.setattr(importlib.import_module(name), "datetime", Frozen)
 
@@ -212,23 +212,23 @@ def raising(monkeypatch, module, name, error):
 
 def run_installed(*args, lang=None, **kwargs):
     """
-    The installed ``imgw`` in its own process, without IMGW_ROOT or network.
+    The installed ``obserwator`` in its own process, without OBSERWATOR_ROOT or network.
 
-    ``lang`` is the IMGW_LANG of the process (unset by default).
+    ``lang`` is the OBSERWATOR_LANG of the process (unset by default).
     """
     command = [str(INSTALLED)] if INSTALLED.exists() else [sys.executable, "-m"]
     if not INSTALLED.exists():
-        command.append("imgwtools.cli.main")
+        command.append("obserwator.cli.main")
     dead = "http://127.0.0.1:9"
     env = {
         key: value
         for key, value in os.environ.items()
-        if key not in ("IMGW_ROOT", "IMGW_LANG")
+        if key not in ("OBSERWATOR_ROOT", "OBSERWATOR_LANG")
     }
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "NO_PROXY": ""}
     env |= PLAIN_TERMINAL
     if lang is not None:
-        env["IMGW_LANG"] = lang
+        env["OBSERWATOR_LANG"] = lang
     return subprocess.run(
         [*command, *map(str, args)], env=env, timeout=120, check=False, **kwargs
     )
@@ -239,8 +239,8 @@ def shown(text):
     return " ".join(text.replace("│", " ").split())
 
 
-def tree(command, path=("imgw",)):
-    """Words and Click command of every command of the ``imgw`` tree."""
+def tree(command, path=("obserwator",)):
+    """Words and Click command of every command of the ``obserwator`` tree."""
     yield path, command
     for name, sub in getattr(command, "commands", {}).items():
         yield from tree(sub, (*path, name))
@@ -338,7 +338,7 @@ def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
     "args",
     [
         (
-            *("store", "sync", "-r/data/imgw", f"--datasets={DAILY}"),
+            *("store", "sync", "-r/data/obserwator", f"--datasets={DAILY}"),
             *("-y", "2023", "-y", "2024,2025", "--no-series", "--force", "--check"),
             "--",
         ),
@@ -364,7 +364,7 @@ def test_cli_catalog_schema_flag_prints_the_commands_schema_envelope(spec):
     )
 
 
-# --- język: IMGW_LANG i --lang ---------------------------------------------------------------
+# --- język: OBSERWATOR_LANG i --lang ---------------------------------------------------------
 
 
 def test_cli_help_of_every_command_is_polish_by_default():
@@ -382,11 +382,11 @@ def test_cli_help_of_every_command_is_polish_by_default():
         assert element in store_sync
     listed = shown(invoke("--help").output)
     assert "─ Komendy ─" in listed
-    assert "Użycie: imgw [OPCJE] KOMENDA [ARGUMENTY]..." in listed
+    assert "Użycie: obserwator [OPCJE] KOMENDA [ARGUMENTY]..." in listed
     assert "─ Argumenty ─" in shown(invoke("admin", "delete", "--help").output)
 
 
-def test_cli_help_follows_imgw_lang_en():
+def test_cli_help_follows_obserwator_lang_en():
     spec = SPECS["store sync"]
 
     printed = run_installed(
@@ -400,7 +400,7 @@ def test_cli_help_follows_imgw_lang_en():
     for option in spec.options:
         assert str(option.help) in text, option.name
     for element in (
-        "Usage: imgw store sync [OPTIONS]",
+        "Usage: obserwator store sync [OPTIONS]",
         "─ Options ─",
         "Show this message and exit.",
         "PATH",
@@ -410,12 +410,12 @@ def test_cli_help_follows_imgw_lang_en():
         assert word not in text
     roots = shown(listed.stdout)
     assert "─ Commands ─" in roots
-    assert "Usage: imgw [OPTIONS] COMMAND [ARGS]..." in roots
+    assert "Usage: obserwator [OPTIONS] COMMAND [ARGS]..." in roots
     for group, description in command_schema(lang="en")["groups"].items():
         assert f"{group} {description}" in roots
 
 
-def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
+def test_cli_obserwator_lang_outside_pl_and_en_ends_every_call_with_validation_error(
     monkeypatch,
 ):
     result = run_installed("datasets", "list", lang="de", capture_output=True)
@@ -423,7 +423,7 @@ def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
     line = json.loads(result.stderr.decode("utf-8").splitlines()[-1])
     assert line["code"] == "validation_error"
     assert line["details"] == {
-        "option": "IMGW_LANG",
+        "option": "OBSERWATOR_LANG",
         "value": "de",
         "allowed": ["en", "pl"],
     }
@@ -431,7 +431,7 @@ def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
     monkeypatch.setattr(settings, "lang", "english")
     for args in (("--help",), ("version",), ("admin", "keys"), ("store", "info")):
         document = error_line(invoke(*args), "validation_error")
-        assert document["details"]["option"] == "IMGW_LANG"
+        assert document["details"]["option"] == "OBSERWATOR_LANG"
 
 
 def test_cli_commands_schema_is_english_and_polish_only_on_request():
@@ -441,8 +441,8 @@ def test_cli_commands_schema_is_english_and_polish_only_on_request():
     assert envelope(invoke("commands", "schema"))["result"] == english
     assert envelope(invoke("commands", "schema", "--lang", "en"))["result"] == english
     assert envelope(invoke("commands", "schema", "--lang", "pl"))["result"] == polish
-    # IMGW_LANG is the language of the human lines, not of the machine output.
-    by_variable = invoke("commands", "schema", env={"IMGW_LANG": "pl"})
+    # OBSERWATOR_LANG is the language of the human lines, not of the machine output.
+    by_variable = invoke("commands", "schema", env={"OBSERWATOR_LANG": "pl"})
     assert envelope(by_variable)["result"] == english
     flag = run_installed("store", "sync", "--schema", lang="pl", capture_output=True)
     assert flag.returncode == 0, flag.stderr
@@ -526,7 +526,10 @@ def test_cli_catalog_check_flag_prints_the_plan_without_writing(
     assert stamps(root) == before
     expected = check_command("series build", options={"root": root, "dataset": PRECIP})
     assert printed == expected.to_json(root=root)
-    assert (printed["check"], printed["result"]["schema"]) == (True, "imgw-plan/1")
+    assert (printed["check"], printed["result"]["schema"]) == (
+        True,
+        "obserwator-plan/1",
+    )
 
 
 def test_cli_catalog_streams_print_only_the_data_lines(tmp_path, fixture_root, offline):
@@ -547,7 +550,7 @@ def test_cli_catalog_streams_print_only_the_data_lines(tmp_path, fixture_root, o
         assert result.exit_code == 0, result.output
         # stdout_bytes: Result.stdout folds the CSV CRLF row ends to LF.
         assert result.stdout_bytes == "".join(lines).encode("utf-8")
-        assert b"imgw-result/1" not in result.stdout_bytes
+        assert b"obserwator-result/1" not in result.stdout_bytes
         assert "Informacja: Źródłem pochodzenia danych jest" in result.stderr
     target = tmp_path / "opad.csv"
     printed = envelope(
@@ -597,7 +600,7 @@ def test_cli_catalog_prints_each_distinct_notice_once(monkeypatch, tmp_path):
     ("lang", "label", "text"),
     [("pl", "Ostrzeżenie", "brak wersji"), ("en", "Warning", "no version")],
 )
-def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english(
+def test_cli_catalog_stderr_lines_follow_obserwator_lang_while_the_envelope_is_english(
     monkeypatch, tmp_path, lang, label, text
 ):
     monkeypatch.setattr(_dispatch, "_LANG", lang)
@@ -617,13 +620,13 @@ def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english
     assert [notice["text"] for notice in envelope(result)["notices"]] == ["no version"]
 
 
-# --- --root z IMGW_ROOT ----------------------------------------------------------------
+# --- --root z OBSERWATOR_ROOT ----------------------------------------------------------
 
 
-def test_cli_catalog_root_falls_back_to_imgw_root(
+def test_cli_catalog_root_falls_back_to_obserwator_root(
     monkeypatch, tmp_path, fixture_root, offline
 ):
-    env = {"IMGW_ROOT": str(fixture_root)}
+    env = {"OBSERWATOR_ROOT": str(fixture_root)}
     info = run_command("store info", options={"root": fixture_root})
     assert envelope(invoke("store", "info", env=env)) == info.to_json(root=fixture_root)
     other = tmp_path / "inny"
@@ -713,7 +716,7 @@ def _io_error(tmp_path, root, router, monkeypatch):
 
 def _forbidden(tmp_path, root, router, monkeypatch):
     # No CLI path refuses a write itself; a refusal raised below reaches exit 12.
-    refusal = IMGWError(
+    refusal = ObserwatorError(
         "Write refused", code="forbidden", details={"reason": "writes_disabled"}
     )
     raising(monkeypatch, store, "store_info", refusal)
@@ -722,7 +725,7 @@ def _forbidden(tmp_path, root, router, monkeypatch):
 
 def _unsupported(tmp_path, root, router, monkeypatch):
     # No catalog command refuses a combination itself; a refusal below reaches exit 15.
-    refusal = IMGWError(
+    refusal = ObserwatorError(
         "Not rebuildable", code="unsupported", details={"reason": "test"}
     )
     raising(monkeypatch, store, "store_info", refusal)
@@ -778,7 +781,7 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     assert document["details"].get("option") == option
     assert document["details"]["click"]
     # parse_command refuses the same words as a mistake of the line.
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         parse_command([str(arg) for arg in args])
     assert (error.value.code, error.value.details["reason"]) == (
         "validation_error",
@@ -787,8 +790,8 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     assert error.value.details.get("option") == option
 
 
-def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_imgw_lang():
-    detail = "Unknown option --colour of the command imgw datasets list"
+def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_obserwator_lang():
+    detail = "Unknown option --colour of the command obserwator datasets list"
     document = error_line(
         invoke("datasets", "list", "--colour", "red"), "validation_error"
     )
@@ -870,10 +873,10 @@ def test_cli_catalog_second_ctrl_c_aborts_with_the_cancelled_error_line(
     error_line(result, "cancelled")
 
 
-# --- zainstalowany imgw ----------------------------------------------------------------------
+# --- zainstalowany obserwator ----------------------------------------------------------------
 
 
-def test_cli_catalog_installed_imgw_reports_the_error_line_of_the_spec():
+def test_cli_catalog_installed_obserwator_reports_the_error_line_of_the_spec():
     result = run_installed(
         "pmaxtp", "fetch", "--latitude", "1", "--longitude", "1", capture_output=True
     )
@@ -887,7 +890,7 @@ def test_cli_catalog_installed_imgw_reports_the_error_line_of_the_spec():
     assert json.loads(unknown.stderr.splitlines()[-1])["code"] == "validation_error"
 
 
-def test_cli_catalog_installed_imgw_prints_the_envelope_of_run_command():
+def test_cli_catalog_installed_obserwator_prints_the_envelope_of_run_command():
     result = run_installed(
         "datasets", "list", "-k", "meteo", "--limit", 2, capture_output=True
     )
@@ -896,7 +899,7 @@ def test_cli_catalog_installed_imgw_prints_the_envelope_of_run_command():
     assert json.loads(result.stdout) == expected.to_json()
 
 
-def test_cli_catalog_installed_imgw_writes_utf8_whatever_the_locale(monkeypatch):
+def test_cli_catalog_installed_obserwator_writes_utf8_whatever_the_locale(monkeypatch):
     # cp1252 is the encoding of a pipe on Windows; it has no "ł", and its "–"
     # is another byte than in UTF-8.
     monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
@@ -926,7 +929,7 @@ def test_cli_streams_are_utf8_with_lf_like_on_windows(monkeypatch):
         assert stream.buffer.getvalue() == '{"detail":"ł"}\n'.encode()
 
 
-def test_cli_catalog_installed_imgw_stream_ends_quietly_when_the_reader_leaves(
+def test_cli_catalog_installed_obserwator_stream_ends_quietly_when_the_reader_leaves(
     fixture_root,
 ):
     version = store.current_version(

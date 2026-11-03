@@ -1,4 +1,4 @@
-"""command_schema (spec §13.8): JSON Schema 2020-12 of every command and imgw-commands/1."""
+"""command_schema (spec §13.8): JSON Schema 2020-12 of every command and obserwator-commands/1."""
 
 import json
 
@@ -6,20 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from imgwtools import __version__
-from imgwtools._jsonable import jsonable
-from imgwtools.api.main import app as rest_app
-from imgwtools.cli.main import app as cli_app
-from imgwtools.commands import (
+from obserwator import __version__
+from obserwator._jsonable import jsonable
+from obserwator.api.main import app as rest_app
+from obserwator.cli.main import app as cli_app
+from obserwator.commands import (
     command_schema,
     list_commands,
     run_command,
     validate_command,
 )
-from imgwtools.config import settings
-from imgwtools.datasets import datasets
-from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
-from imgwtools.store import init_store
+from obserwator.config import settings
+from obserwator.datasets import datasets
+from obserwator.exceptions import ERROR_CODES, ObserwatorValidationError
+from obserwator.store import init_store
 from tests.contract.support import canonical, cli_words, rest_request, violations
 from tests.unit.test_commands import DAILY, REJECTED, ROOT, SAMPLES, SPEC_COMMANDS
 from tests.unit.test_store_reader import observe, store_archives, with_content
@@ -45,7 +45,7 @@ def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes()
         document["version"],
         document["lang"],
         document["result_schema"],
-    ) == ("imgw-commands/1", __version__, "en", "imgw-result/1")
+    ) == ("obserwator-commands/1", __version__, "en", "obserwator-result/1")
     assert [schema["title"] for schema in document["commands"]] == SPEC_COMMANDS
     assert list(document["groups"]) == list(
         dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS)
@@ -70,7 +70,7 @@ def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes()
 
 
 def test_unknown_command_is_a_validation_error_listing_the_commands():
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         command_schema("store delete")
     assert error.value.details["option"] == "command"
     assert error.value.details["allowed"] == SPEC_COMMANDS
@@ -93,8 +93,8 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "source": {"enum": ["live", "store"], "default": "live"},
         "root": {
             "type": "string",
-            "x-imgw-type": "path",
-            "x-imgw-path-role": "root",
+            "x-obserwator-type": "path",
+            "x-obserwator-path-role": "root",
         },
         "limit": {"type": "integer", "minimum": 1},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
@@ -102,12 +102,12 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
     }
     meta = {
         key: value
-        for key, value in find["x-imgw"].items()
+        for key, value in find["x-obserwator"].items()
         if key not in ("rules", "examples")
     }
     assert meta == {
         "command": "stations find",
-        "operation_id": "imgw_stations_find",
+        "operation_id": "obserwator_stations_find",
         "group": "stations",
         "function": "find_stations",
         "check": "check_command",
@@ -117,7 +117,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "network": True,
         "idempotent": True,
         "cli": {
-            "command": "imgw stations find",
+            "command": "obserwator stations find",
             "flags": {
                 "kind": ["--kind", "-k"],
                 "query": ["--query", "-q"],
@@ -152,14 +152,17 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
     sync = command_schema("pmaxtp sync")
     assert sync["dependentRequired"] == {"ind_x": ["ind_y"], "ind_y": ["ind_x"]}
     assert sync["properties"]["latitude"]["minimum"] == 49.0
-    assert sync["x-imgw"]["rest"]["method"] == "POST"
+    assert sync["x-obserwator"]["rest"]["method"] == "POST"
     store_sync = command_schema("store sync")
     assert store_sync["oneOf"] == [
         {"required": ["plan"]},
         {"required": ["datasets"]},
     ]
     assert store_sync["properties"]["series"]["default"] is True
-    assert store_sync["x-imgw"]["cli"]["flags"]["series"] == ["--series", "--no-series"]
+    assert store_sync["x-obserwator"]["cli"]["flags"]["series"] == [
+        "--series",
+        "--no-series",
+    ]
     read = command_schema("series read")
     assert read["properties"]["start"]["format"] == "date"
     assert read["oneOf"] == [
@@ -174,12 +177,14 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
 
 def test_rest_routes_cover_exactly_the_non_local_commands():
     commands = command_schema()["commands"]
-    local = [schema["title"] for schema in commands if schema["x-imgw"]["rest"] is None]
+    local = [
+        schema["title"] for schema in commands if schema["x-obserwator"]["rest"] is None
+    ]
     assert local == ["datasets download", "store init"]
     posts = [
         schema["title"]
         for schema in commands
-        if (schema["x-imgw"]["rest"] or {}).get("method") == "POST"
+        if (schema["x-obserwator"]["rest"] or {}).get("method") == "POST"
     ]
     assert posts == ["pmaxtp sync", "store sync", "store catalog", "series build"]
 
@@ -197,7 +202,7 @@ def test_invalid_options_fail_both_the_schema_and_validate_command(
     command, options, option
 ):
     assert violations(options, command_schema(command)) != []
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         validate_command(command, options=options)
     assert error.value.details["option"] == option
 
@@ -224,7 +229,7 @@ def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
         "stations": ["149190310", "0-203-1-CB900003"],
     }
     assert violations(mixed, command_schema("series select")) == []
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         validate_command("series select", options=mixed)
     assert error.value.details["option"] == "stations"
     for command, options, option in (
@@ -247,7 +252,7 @@ def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
         ("current meteo", {"station": "0-203-0-11573"}, "station"),
     ):
         assert violations(options, command_schema(command)) != []
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             validate_command(command, options=options)
         assert error.value.details["option"] == option
 
@@ -294,14 +299,14 @@ def test_command_list_summarizes_every_command_of_the_catalog(lang):
 
     assert json.loads(json.dumps(document)) == document
     assert (document["schema"], document["version"], document["lang"]) == (
-        "imgw-command-list/1",
+        "obserwator-command-list/1",
         __version__,
         lang,
     )
     assert document["groups"] == catalog["groups"]
     assert [entry["command"] for entry in document["commands"]] == SPEC_COMMANDS
     for entry, schema in zip(document["commands"], catalog["commands"], strict=True):
-        meta = schema["x-imgw"]
+        meta = schema["x-obserwator"]
         assert entry == {
             "command": meta["command"],
             "operation_id": meta["operation_id"],
@@ -330,7 +335,7 @@ def test_command_list_stays_within_the_default_page_budget():
 
 
 def test_command_list_rejects_a_language_outside_the_catalog():
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         list_commands(lang="de")
     assert (error.value.details["option"], error.value.details["allowed"]) == (
         "lang",
@@ -342,13 +347,17 @@ def test_every_path_option_has_a_role_and_the_write_targets_exclude_each_other()
     commands = {schema["title"]: schema for schema in command_schema()["commands"]}
     for title, schema in commands.items():
         for name, option in schema["properties"].items():
-            if option.get("x-imgw-type") == "path":
-                assert option.get("x-imgw-path-role") in ("input", "output", "root"), (
+            if option.get("x-obserwator-type") == "path":
+                assert option.get("x-obserwator-path-role") in (
+                    "input",
+                    "output",
+                    "root",
+                ), (
                     title,
                     name,
                 )
     download = commands["datasets download"]
-    assert download["properties"]["output_dir"]["x-imgw-path-role"] == "output"
-    assert download["properties"]["root"]["x-imgw-path-role"] == "root"
-    assert download["x-imgw"]["exclusive"] == [["output_dir", "root"]]
-    assert "exclusive" not in commands["datasets files"]["x-imgw"]
+    assert download["properties"]["output_dir"]["x-obserwator-path-role"] == "output"
+    assert download["properties"]["root"]["x-obserwator-path-role"] == "root"
+    assert download["x-obserwator"]["exclusive"] == [["output_dir", "root"]]
+    assert "exclusive" not in commands["datasets files"]["x-obserwator"]

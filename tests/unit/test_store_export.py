@@ -7,19 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import (
-    IMGWCancelledError,
-    IMGWError,
-    IMGWStoreError,
-    IMGWValidationError,
+from obserwator.datasets import archive_files
+from obserwator.exceptions import (
+    ObserwatorCancelledError,
+    ObserwatorError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.models import NormalizedRecord
-from imgwtools.store import export_archive, init_store, write_archive
+from obserwator.fetch import DownloadResult
+from obserwator.models import NormalizedRecord
+from obserwator.store import export_archive, init_store, write_archive
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
-# Golden files: output of the former ``imgw store read`` command, saved before the change.
+# Golden files: output of the former ``obserwator store read`` command, saved before the change.
 GOLDEN_DIR = FIXTURES.parent / "export_golden"
 GOLDEN = {
     "hydro_daily_2024": ("pl.imgw.hydro_daily", [2024], None),
@@ -87,7 +87,7 @@ def test_an_existing_output_is_a_conflict_that_force_replaces(root, tmp_path):
     target.write_bytes(b"previous")
     neighbour.write_bytes(b"mine")
 
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         export_archive(version, output=target)
 
     assert error.value.code == "conflict"
@@ -114,7 +114,7 @@ def test_an_output_in_a_store_of_any_tool_is_a_conflict_without_writing(root, tm
     (foreign / "kartograf-store.json").write_text("{}", encoding="utf-8")
 
     for target in (version.parent / "export.csv", foreign / "deeper" / "export.csv"):
-        with pytest.raises(IMGWError) as error:
+        with pytest.raises(ObserwatorError) as error:
             export_archive(version, output=target)
 
         assert error.value.code == "conflict"
@@ -125,7 +125,7 @@ def test_an_output_in_a_store_of_any_tool_is_a_conflict_without_writing(root, tm
         # An export has no store mode: the hint says so instead of naming --root.
         assert "--root" not in error.value.detail
         assert not target.exists()
-    assert not (version.parent / ".imgw-incoming").exists()
+    assert not (version.parent / ".obserwator-incoming").exists()
     assert not (foreign / "deeper").exists()
 
 
@@ -135,7 +135,7 @@ def test_a_missing_directory_is_created_and_a_directory_is_no_file(root, tmp_pat
     report = export_archive(version, output=tmp_path / "new" / "deeper" / "out.csv")
 
     assert report.output.is_file()
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         export_archive(version, output=tmp_path)
     assert error.value.details["option"] == "output"
 
@@ -143,7 +143,7 @@ def test_a_missing_directory_is_created_and_a_directory_is_no_file(root, tmp_pat
 def test_force_without_output_has_nothing_to_replace(root):
     version = stored(root, "hydro_daily_2024")
 
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         export_archive(version, force=True)
 
     assert error.value.details == {"option": "output"}
@@ -151,13 +151,13 @@ def test_force_without_output_has_nothing_to_replace(root):
 
 def test_unknown_format_lists_the_allowed_ones(root):
     version = stored(root, "hydro_daily_2024")
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         export_archive(version, format="parquet")
     assert error.value.details["allowed"] == ["csv", "jsonl"]
 
 
 def test_missing_version_is_not_found(root):
-    with pytest.raises(IMGWStoreError) as error:
+    with pytest.raises(ObserwatorStoreError) as error:
         export_archive(root / "archives" / "missing.zip")
     assert error.value.code == "not_found"
 
@@ -173,11 +173,11 @@ def test_cancel_leaves_the_target_untouched_without_staging_files(root, tmp_path
         return len(calls) >= 2
 
     for cancel in (lambda: True, cancel_on_second_check):
-        with pytest.raises(IMGWCancelledError) as error:
+        with pytest.raises(ObserwatorCancelledError) as error:
             export_archive(version, output=target, force=True, cancel=cancel)
         assert error.value.code == "cancelled"
     assert len(calls) == 2
     assert target.read_bytes() == b"previous"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["out.csv", "store"]
-    with pytest.raises(IMGWCancelledError):
+    with pytest.raises(ObserwatorCancelledError):
         export_archive(version, cancel=lambda: True)

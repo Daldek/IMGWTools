@@ -1,4 +1,4 @@
-"""Offline scenarios for check_store/sync_store and the imgw-plan/1 document."""
+"""Offline scenarios for check_store/sync_store and the obserwator-plan/1 document."""
 
 import json
 from datetime import UTC, datetime
@@ -8,14 +8,17 @@ import httpx
 import pytest
 import respx
 
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWStoreConflictError, IMGWValidationError
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import init_store, write_archive
-from imgwtools.store import sync as sync_module
-from imgwtools.store.sync import check_store, sync_store
-from imgwtools.store.types import SeriesReport, StorePlan
-from imgwtools.urls import IMGW_PUBLIC_DATA_URL
+from obserwator.datasets import archive_files
+from obserwator.exceptions import (
+    ObserwatorStoreConflictError,
+    ObserwatorValidationError,
+)
+from obserwator.fetch import DownloadResult
+from obserwator.store import init_store, write_archive
+from obserwator.store import sync as sync_module
+from obserwator.store.sync import check_store, sync_store
+from obserwator.store.types import SeriesReport, StorePlan
+from obserwator.urls import IMGW_PUBLIC_DATA_URL
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 RECORDINGS = {
@@ -172,7 +175,7 @@ def test_plan_json_round_trip_including_cancellation(root, server, tmp_path):
 
     saved = plan.to_json(tmp_path / "plan.json")
     payload = json.loads(saved.read_text(encoding="utf-8"))
-    assert payload["schema"] == "imgw-plan/1" and payload["cancelled"] is True
+    assert payload["schema"] == "obserwator-plan/1" and payload["cancelled"] is True
     assert StorePlan.from_json(saved) == plan
 
     target = tmp_path / "full.json"
@@ -184,11 +187,11 @@ def test_plan_json_round_trip_including_cancellation(root, server, tmp_path):
 
 def test_plan_file_inside_store_is_rejected_before_any_request(root, server, tmp_path):
     for target in (root / "plan.json", root / "archives" / "plan.json", root):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             check_store(root, datasets=[HYDRO], years=[2024], plan=target)
         assert error.value.details["option"] == "plan"
         assert not target.is_file()
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         check_store(
             root, datasets=[HYDRO], years=[2024], plan=tmp_path / "absent" / "p.json"
         )
@@ -375,17 +378,19 @@ def test_series_is_built_only_from_complete_inputs(root, server, monkeypatch):
 
 
 def test_selector_validation(root, tmp_path):
-    plan = StorePlan("imgw-plan/1", root, datetime.now(UTC), (), {})
-    with pytest.raises(IMGWValidationError):
+    plan = StorePlan("obserwator-plan/1", root, datetime.now(UTC), (), {})
+    with pytest.raises(ObserwatorValidationError):
         sync_store(root, plan=plan, years=[2024])
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         sync_store(root, datasets=[HYDRO])
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         sync_store(
             root,
-            plan=StorePlan("imgw-plan/1", tmp_path / "other", plan.checked_at, (), {}),
+            plan=StorePlan(
+                "obserwator-plan/1", tmp_path / "other", plan.checked_at, (), {}
+            ),
         )
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         check_store(root, datasets=["pl.imgw.hydro_stations"], years=[2024])
     (tmp_path / "foreign").mkdir()
     (tmp_path / "foreign" / "notes.txt").write_text("mine")
@@ -394,5 +399,5 @@ def test_selector_validation(root, tmp_path):
         tmp_path / "foreign", datasets=[HYDRO], years=[2024]
     ).actions
     assert (action.action, action.reason) == ("conflict", "not_empty")
-    with pytest.raises(IMGWStoreConflictError):
+    with pytest.raises(ObserwatorStoreConflictError):
         sync_store(tmp_path / "foreign", datasets=[HYDRO], years=[2024])

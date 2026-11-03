@@ -6,8 +6,8 @@ import struct
 
 import pytest
 
-from imgwtools.exceptions import IMGWDataError, IMGWValidationError
-from imgwtools.store.content import CONTENT_FORMS, ContentForm, content_sha256
+from obserwator.exceptions import ObserwatorDataError, ObserwatorValidationError
+from obserwator.store.content import CONTENT_FORMS, ContentForm, content_sha256
 
 FORM = "chmi-json/1"
 # Envelope of a ČHMÚ metadata file (fictional values, spec §1.1 "Koperta").
@@ -195,12 +195,12 @@ def test_numbers_follow_rfc8785_appendix_b(bits, expected):
     ],
 )
 def test_bytes_violating_the_form_are_a_data_error(data):
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         content_sha256(data, form=FORM)
     assert error.value.code == "data_error"
 
 
 def test_unknown_form_is_a_validation_error():
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         content_sha256(b"{}", form="chmi-json/9")
     assert error.value.details["allowed"] == ["chmi-json/1"]

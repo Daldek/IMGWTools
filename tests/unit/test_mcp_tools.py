@@ -15,10 +15,10 @@ pytest.importorskip("mcp")
 import httpx
 from mcp import Client
 
-from imgwtools.config import Settings, settings
-from imgwtools.exceptions import IMGWValidationError
-from imgwtools.mcp._tools import Mode
-from imgwtools.mcp.server import create_server, http_app
+from obserwator.config import Settings, settings
+from obserwator.exceptions import ObserwatorValidationError
+from obserwator.mcp._tools import Mode
+from obserwator.mcp.server import create_server, http_app
 from tests.contract.support import command_document
 
 STDIO = ("read", "write")
@@ -27,7 +27,7 @@ _LISTINGS: dict[tuple[str, int], list[dict[str, Any]]] = {}
 
 
 async def listing(mode: Mode) -> list[dict[str, Any]]:
-    """Tools of a server without IMGW_ROOT as JSON (``tools/list`` on the wire)."""
+    """Tools of a server without OBSERWATOR_ROOT as JSON (``tools/list`` on the wire)."""
     key = (mode, settings.api_max_limit)
     if key not in _LISTINGS:
         async with Client(create_server(mode=mode)) as client:
@@ -45,7 +45,7 @@ def catalog() -> list[dict[str, Any]]:
 
 
 def by_command(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    return {tool["_meta"]["imgwtools/command"]: tool for tool in tools}
+    return {tool["_meta"]["obserwator/command"]: tool for tool in tools}
 
 
 def keywords(value: object) -> set[str]:
@@ -63,18 +63,18 @@ def removed(schema: dict[str, Any], mode: str) -> set[str]:
         return {
             name
             for name, prop in schema["properties"].items()
-            if "x-imgw-writes" in prop
+            if "x-obserwator-writes" in prop
         }
     if mode == "http":
-        rest = schema["x-imgw"]["rest"]
+        rest = schema["x-obserwator"]["rest"]
         return set(rest["server_options"]) | set(rest["local_options"])
     return set()
 
 
 @pytest.fixture(autouse=True)
-def no_imgw_root(monkeypatch):
-    """Servers of these tests have no IMGW_ROOT unless a test sets one."""
-    monkeypatch.delenv("IMGW_ROOT", raising=False)
+def no_obserwator_root(monkeypatch):
+    """Servers of these tests have no OBSERWATOR_ROOT unless a test sets one."""
+    monkeypatch.delenv("OBSERWATOR_ROOT", raising=False)
     monkeypatch.setattr(settings, "api_max_limit", 1000)
 
 
@@ -88,21 +88,21 @@ async def test_stdio_tools_are_every_catalog_command_in_catalog_order(mode):
     tools = await listing(mode)
 
     assert [tool["name"] for tool in tools] == [
-        schema["x-imgw"]["operation_id"] for schema in catalog()
+        schema["x-obserwator"]["operation_id"] for schema in catalog()
     ]
     for tool, schema in zip(tools, catalog(), strict=True):
-        command = schema["x-imgw"]["command"]
-        assert tool["title"] == f"imgw {command}"
-        assert tool["_meta"] == {"imgwtools/command": command}
+        command = schema["x-obserwator"]["command"]
+        assert tool["title"] == f"obserwator {command}"
+        assert tool["_meta"] == {"obserwator/command": command}
 
 
 async def test_http_tools_are_the_commands_with_a_rest_route():
     tools = await listing("http")
 
     assert [tool["name"] for tool in tools] == [
-        schema["x-imgw"]["operation_id"]
+        schema["x-obserwator"]["operation_id"]
         for schema in catalog()
-        if schema["x-imgw"]["rest"] is not None
+        if schema["x-obserwator"]["rest"] is not None
     ]
 
 
@@ -111,7 +111,7 @@ async def test_texts_are_english(mode):
     tools = by_command(await listing(mode))
 
     for schema in catalog():
-        meta = schema["x-imgw"]
+        meta = schema["x-obserwator"]
         tool = tools.get(meta["command"])
         if tool is None:
             continue
@@ -135,12 +135,12 @@ async def test_mode_sentence_tells_whether_a_writing_command_plans_or_writes():
     write = by_command(await listing("write"))
 
     for schema in catalog():
-        command = schema["x-imgw"]["command"]
-        if schema["x-imgw"]["writes"] == "none":
+        command = schema["x-obserwator"]["command"]
+        if schema["x-obserwator"]["writes"] == "none":
             continue
         planning = read[command]["description"].split("\n\n")[-1]
         writing = write[command]["description"].split("\n\n")[-1]
-        assert "imgw-plan/1" in planning and "check=false" in writing
+        assert "obserwator-plan/1" in planning and "check=false" in writing
         assert planning != writing
 
 
@@ -154,7 +154,7 @@ async def test_input_schema_is_the_command_schema_of_the_offered_options(mode):
     tools = by_command(await listing(mode))
 
     for schema in catalog():
-        tool = tools.get(schema["x-imgw"]["command"])
+        tool = tools.get(schema["x-obserwator"]["command"])
         if tool is None:
             continue
         given = tool["inputSchema"]
@@ -163,8 +163,8 @@ async def test_input_schema_is_the_command_schema_of_the_offered_options(mode):
         ]
         twin = "check" in given["properties"]
         assert list(given["properties"]) == offered + ["check"] * twin
-        assert not {key for key in keywords(given) if key.startswith("x-imgw")}
-        assert {"$schema", "title", "description", "x-imgw"}.isdisjoint(given)
+        assert not {key for key in keywords(given) if key.startswith("x-obserwator")}
+        assert {"$schema", "title", "description", "x-obserwator"}.isdisjoint(given)
         assert given["type"] == "object"
         assert given["additionalProperties"] is False
         assert given.get("required", []) == [
@@ -174,7 +174,7 @@ async def test_input_schema_is_the_command_schema_of_the_offered_options(mode):
             expected = {
                 key: value
                 for key, value in schema["properties"][name].items()
-                if not key.startswith("x-imgw")
+                if not key.startswith("x-obserwator")
             }
             prop = given["properties"][name]
             if name == "root" and mode != "http":  # the note of the default store
@@ -190,14 +190,14 @@ async def test_input_schema_is_the_command_schema_of_the_offered_options(mode):
                 continue  # as the REST route takes it (next test)
             if name == "limit":
                 expected.update(default=50, maximum=settings.api_max_limit)
-            assert prop == expected, (schema["x-imgw"]["command"], name)
+            assert prop == expected, (schema["x-obserwator"]["command"], name)
 
 
 async def test_http_options_are_those_of_the_rest_route():
     tools = by_command(await listing("http"))
 
     plan = tools["store sync"]["inputSchema"]["properties"]["plan"]
-    assert plan["type"] == "object"  # an imgw-plan/1 object, not a server file
+    assert plan["type"] == "object"  # an obserwator-plan/1 object, not a server file
     for tool in tools.values():
         names = set(tool["inputSchema"]["properties"])
         assert not names & {"root", "output", "output_dir", "force"}
@@ -225,15 +225,17 @@ async def test_removed_options_leave_the_required_groups():
 
 
 @pytest.mark.parametrize("mode", STDIO)
-async def test_imgw_root_makes_root_optional_on_stdio(mode, monkeypatch, tmp_path):
+async def test_obserwator_root_makes_root_optional_on_stdio(
+    mode, monkeypatch, tmp_path
+):
     plain = {tool["name"]: tool["inputSchema"] for tool in await listing(mode)}
-    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
+    monkeypatch.setenv("OBSERWATOR_ROOT", str(tmp_path))
     async with Client(create_server(mode=mode)) as client:
         rooted = {
             tool.name: tool.input_schema for tool in (await client.list_tools()).tools
         }
 
-    commands = {schema["x-imgw"]["operation_id"]: schema for schema in catalog()}
+    commands = {schema["x-obserwator"]["operation_id"]: schema for schema in catalog()}
     for name, given in rooted.items():
         if "root" not in given["properties"]:
             assert given == plain[name]
@@ -244,23 +246,23 @@ async def test_imgw_root_makes_root_optional_on_stdio(mode, monkeypatch, tmp_pat
         description = given["properties"]["root"]["description"]
         assert description.startswith(plain[name]["properties"]["root"]["description"])
         assert description.endswith("the MCP server's store")
-        when = commands[name]["x-imgw"]["command"] == "stations find"
+        when = commands[name]["x-obserwator"]["command"] == "stations find"
         assert ("source=store" in description.rsplit(";", 1)[1]) is when
-    assert rooted["imgw_series_read"]["oneOf"] == [
+    assert rooted["obserwator_series_read"]["oneOf"] == [
         {"required": ["version"]},
         {"required": ["dataset"]},
     ]
 
 
-async def test_list_pages_follow_imgw_api_max_limit(monkeypatch):
+async def test_list_pages_follow_obserwator_api_max_limit(monkeypatch):
     monkeypatch.setattr(settings, "api_max_limit", 20)
 
     tools = by_command(await listing("read"))
 
     for schema in catalog():
-        tool = tools[schema["x-imgw"]["command"]]
+        tool = tools[schema["x-obserwator"]["command"]]
         limit = tool["inputSchema"]["properties"].get("limit")
-        if schema["x-imgw"]["result"] == "list":
+        if schema["x-obserwator"]["result"] == "list":
             assert (limit["default"], limit["maximum"]) == (20, 20)
         else:
             assert limit is None
@@ -271,9 +273,9 @@ async def test_lang_option_defaults_to_english():
 
     with_lang = [tool for tool in tools if "lang" in tool["inputSchema"]["properties"]]
     assert [tool["name"] for tool in with_lang] == [
-        "imgw_commands_list",
-        "imgw_commands_schema",
-        "imgw_commands_guide",
+        "obserwator_commands_list",
+        "obserwator_commands_schema",
+        "obserwator_commands_guide",
     ]
     for tool in with_lang:
         assert tool["inputSchema"]["properties"]["lang"]["default"] == "en"
@@ -289,7 +291,7 @@ async def test_check_exists_exactly_for_commands_with_a_twin(mode):
     tools = by_command(await listing(mode))
 
     for schema in catalog():
-        meta = schema["x-imgw"]
+        meta = schema["x-obserwator"]
         check = tools[meta["command"]]["inputSchema"]["properties"].get("check")
         if meta["check"] is None:
             assert check is None, meta["command"]
@@ -306,7 +308,7 @@ async def test_http_plans_only_through_post_routes():
     tools = by_command(await listing("http"))
 
     for schema in catalog():
-        meta = schema["x-imgw"]
+        meta = schema["x-obserwator"]
         if meta["rest"] is None:
             continue
         check = tools[meta["command"]]["inputSchema"]["properties"].get("check")
@@ -321,20 +323,20 @@ async def test_annotations_follow_the_effects_of_the_catalog(mode):
     tools = by_command(await listing(mode))
 
     for schema in catalog():
-        meta = schema["x-imgw"]
+        meta = schema["x-obserwator"]
         tool = tools.get(meta["command"])
         if tool is None:
             continue
         properties = tool["inputSchema"]["properties"]
         writing = [
-            prop["x-imgw-writes"]
+            prop["x-obserwator-writes"]
             for name, prop in schema["properties"].items()
-            if "x-imgw-writes" in prop and name in properties
+            if "x-obserwator-writes" in prop and name in properties
         ]
         fixed = properties.get("check", {}).get("const") is True
         writable = (meta["writes"] != "none" and not fixed) or bool(writing)
         expected = {
-            "title": f"imgw {meta['command']}",
+            "title": f"obserwator {meta['command']}",
             "readOnlyHint": not writable,
             "destructiveHint": writable
             and (meta["writes"] == "replace" or "replace" in writing),
@@ -349,15 +351,15 @@ async def test_annotations_follow_the_effects_of_the_catalog(mode):
 async def test_store_sync_of_a_server_without_writes_matches_spec_example(
     monkeypatch, tmp_path
 ):
-    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
+    monkeypatch.setenv("OBSERWATOR_ROOT", str(tmp_path))
     async with Client(create_server(mode="read")) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-    tool = tools["imgw_store_sync"].model_dump(
+    tool = tools["obserwator_store_sync"].model_dump(
         mode="json", by_alias=True, exclude_none=True
     )
     given = tool["inputSchema"]
-    assert tool["title"] == "imgw store sync"
+    assert tool["title"] == "obserwator store sync"
     assert list(given["properties"]) == [
         "root",
         "plan",
@@ -374,14 +376,14 @@ async def test_store_sync_of_a_server_without_writes_matches_spec_example(
     assert given["oneOf"] == [{"required": ["plan"]}, {"required": ["datasets"]}]
     assert "required" not in given
     assert tool["annotations"] == {
-        "title": "imgw store sync",
+        "title": "obserwator store sync",
         "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
         "openWorldHint": True,
     }
     assert tool["description"].endswith(
-        "The MCP server runs without writes: a call returns the imgw-plan/1 plan (check)."
+        "The MCP server runs without writes: a call returns the obserwator-plan/1 plan (check)."
     )
 
 
@@ -391,7 +393,7 @@ async def test_store_sync_of_a_server_without_writes_matches_spec_example(
 
 
 def test_unknown_mode_is_a_validation_error():
-    with pytest.raises(IMGWValidationError) as caught:
+    with pytest.raises(ObserwatorValidationError) as caught:
         create_server(mode="admin")
 
     assert caught.value.details["option"] == "mode"
@@ -400,14 +402,14 @@ def test_unknown_mode_is_a_validation_error():
 
 def test_allowed_hosts_are_comma_separated(monkeypatch):
     monkeypatch.setenv(
-        "IMGW_MCP_ALLOWED_HOSTS", "mcp.example.com, api.example.com:8443,"
+        "OBSERWATOR_MCP_ALLOWED_HOSTS", "mcp.example.com, api.example.com:8443,"
     )
 
     assert Settings(_env_file=None).mcp_allowed_hosts == [
         "mcp.example.com",
         "api.example.com:8443",
     ]
-    monkeypatch.delenv("IMGW_MCP_ALLOWED_HOSTS")
+    monkeypatch.delenv("OBSERWATOR_MCP_ALLOWED_HOSTS")
     assert Settings(_env_file=None).mcp_allowed_hosts == ["127.0.0.1", "localhost"]
 
 

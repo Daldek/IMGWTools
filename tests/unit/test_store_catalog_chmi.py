@@ -9,16 +9,16 @@ import httpx
 import pytest
 import respx
 
-from imgwtools._version import __version__
-from imgwtools.datasets import archive_files, get_dataset
-from imgwtools.exceptions import (
-    IMGWConnectionError,
-    IMGWDataError,
-    IMGWValidationError,
+from obserwator._version import __version__
+from obserwator.datasets import archive_files, get_dataset
+from obserwator.exceptions import (
+    ObserwatorConnectionError,
+    ObserwatorDataError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import init_store, read_meta, write_archive
-from imgwtools.store.catalog import (
+from obserwator.fetch import DownloadResult
+from obserwator.store import init_store, read_meta, write_archive
+from obserwator.store.catalog import (
     CZECHIA_BORDER_RESOURCE,
     _evaluate,
     build_catalog,
@@ -133,7 +133,7 @@ def plant_series(root, dataset, codes):
     data = (
         json.dumps(
             {
-                "schema": "imgw-series/1",
+                "schema": "obserwator-series/1",
                 "dataset": dataset,
                 "stations": {code: {} for code in codes},
             }
@@ -147,14 +147,14 @@ def plant_series(root, dataset, codes):
     version.mkdir(parents=True)
     (version / "series.json").write_bytes(data)
     meta = {
-        "schema": "imgw-meta/1",
+        "schema": "obserwator-meta/1",
         "dataset": dataset,
         "downloaded_at": "2026-10-19T12:00:00Z",
         "sha256": sha,
         "size_bytes": len(data),
         "extra": {
             "version": {"label": "2026-10-19", "label_source": "inputs"},
-            "series_schema": "imgw-series/1",
+            "series_schema": "obserwator-series/1",
             "source_files": [],
         },
     }
@@ -422,7 +422,7 @@ def test_sidecar_records_both_sums_of_every_source_and_the_chmi_license(tmp_path
     )
     assert first.version.read_bytes() == second.version.read_bytes()
     meta, other = sidecar(first), sidecar(second)
-    assert schema_errors(meta, "imgw-meta/1") == []
+    assert schema_errors(meta, "obserwator-meta/1") == []
     assert (meta["dataset"], meta["country"], meta["provider"]) == (
         "cz.chmi.stations",
         "CZ",
@@ -622,7 +622,7 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
     with respx.mock(assert_all_called=False) as router:
         serve(router, *SOURCES)
         hydro, meteo = check_catalog(store, provider="CHMI").items
-        with pytest.raises(IMGWDataError) as error:
+        with pytest.raises(ObserwatorDataError) as error:
             build_catalog(store, provider="CHMI")
     assert hydro.status == "check_failed" and "corrupt observation" in hydro.error
     assert meteo.status == "current"
@@ -632,10 +632,10 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
 @pytest.mark.parametrize(
     ("change", "error", "reason"),
     [
-        ({"hydro_now_get": None}, IMGWConnectionError, "HTTP error 503"),
+        ({"hydro_now_get": None}, ObserwatorConnectionError, "HTTP error 503"),
         (
             {"hydro_meta3_get": b'{"zaznamID":"a","zaznamID":"b"}'},
-            IMGWDataError,
+            ObserwatorDataError,
             "a repeated key",
         ),
         (
@@ -646,12 +646,12 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
                     if b"meta1-" not in line
                 )
             },
-            IMGWDataError,
+            ObserwatorDataError,
             "no file meta1-<YYYYMMDD>.json",
         ),
         (
             {"hydro_now_get": body("hydro_now_get").replace(b'"CM"', b'"MM"')},
-            IMGWDataError,
+            ObserwatorDataError,
             "SPAH_UNIT: unknown unit 'MM'",
         ),
         (
@@ -660,7 +660,7 @@ def test_broken_observation_of_a_list_fails_its_check_and_the_build(store):
                     b'"0-203-0-90001"', b'"0-203-1-900001"'
                 )
             },
-            IMGWDataError,
+            ObserwatorDataError,
             "both the hydro and the meteo family: 0-203-1-900001",
         ),
     ],
@@ -674,7 +674,7 @@ def test_source_errors_publish_no_catalog(store, change, error, reason):
     with pytest.raises(error, match=reason) as raised:
         build(store, *cases, **bodies)
     assert raised.value.code == (
-        "source_unavailable" if error is IMGWConnectionError else "data_error"
+        "source_unavailable" if error is ObserwatorConnectionError else "data_error"
     )
     assert not (store.root / "stations").exists()
 
@@ -687,7 +687,7 @@ def test_newest_meteo_now_file_is_read_and_cancel_publishes_nothing(store):
         assert routes["meteo_now_get"].called
         assert not routes["meteo_now_previous_get"].called
         request = routes["meteo_now_get"].calls.last.request
-        assert request.headers["User-Agent"] == f"imgwtools/{__version__}"
+        assert request.headers["User-Agent"] == f"obserwator/{__version__}"
     assert (report.status, report.version, report.provider) == (
         "cancelled",
         None,
@@ -698,7 +698,7 @@ def test_newest_meteo_now_file_is_read_and_cancel_publishes_nothing(store):
 
 def test_provider_is_validated_and_key_prefix_names_it(store):
     for call in (build_catalog, check_catalog):
-        with pytest.raises(IMGWValidationError) as error:
+        with pytest.raises(ObserwatorValidationError) as error:
             call(store, provider="SHMU")
         assert error.value.details["allowed"] == ["IMGW-PIB", "CHMI"]
     with respx.mock(assert_all_called=False) as router:
@@ -709,7 +709,7 @@ def test_provider_is_validated_and_key_prefix_names_it(store):
 def test_czech_outline_validates_points_of_czechia_only():
     ring = json.loads(
         (
-            Path(__file__).parents[2] / "src/imgwtools/_data" / CZECHIA_BORDER_RESOURCE
+            Path(__file__).parents[2] / "src/obserwator/_data" / CZECHIA_BORDER_RESOURCE
         ).read_text(encoding="utf-8")
     )["features"][0]["geometry"]["coordinates"][0]
     west_lon, west_lat = min(ring)

@@ -5,13 +5,13 @@ import json
 import httpx
 import pytest
 
-from imgwtools.datasets import station_source_files
-from imgwtools.exceptions import (
-    IMGWConnectionError,
-    IMGWDataError,
-    IMGWValidationError,
+from obserwator.datasets import station_source_files
+from obserwator.exceptions import (
+    ObserwatorConnectionError,
+    ObserwatorDataError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import (
+from obserwator.fetch import (
     fetch_hydro_current,
     fetch_hydro_current_async,
     fetch_meteo_current,
@@ -23,8 +23,8 @@ from imgwtools.fetch import (
     fetch_warnings,
     fetch_warnings_async,
 )
-from imgwtools.models import PMaXTPData, PMaXTPResult
-from imgwtools.stations import (
+from obserwator.models import PMaXTPData, PMaXTPResult
+from obserwator.stations import (
     fetch_hydro_states,
     fetch_hydro_states_async,
     find_stations,
@@ -155,9 +155,9 @@ async def test_live_read_failure_is_source_unavailable_with_url_and_reason(
     respx_mock, sync, asynchronous, kwargs, url, body, mock, reason, status
 ):
     respx_mock.get(url).mock(**mock)
-    with pytest.raises(IMGWConnectionError) as sync_error:
+    with pytest.raises(ObserwatorConnectionError) as sync_error:
         sync(**kwargs)
-    with pytest.raises(IMGWConnectionError) as async_error:
+    with pytest.raises(ObserwatorConnectionError) as async_error:
         await asynchronous(**kwargs)
 
     expected = {"url": url, "reason": reason}
@@ -190,9 +190,9 @@ async def test_live_read_non_json_body_is_data_error(
     respx_mock, sync, asynchronous, kwargs, url, body
 ):
     respx_mock.get(url).respond(200, text="<html>przerwa</html>")
-    with pytest.raises(IMGWDataError, match="Invalid JSON response"):
+    with pytest.raises(ObserwatorDataError, match="Invalid JSON response"):
         sync(**kwargs)
-    with pytest.raises(IMGWDataError, match="Invalid JSON response"):
+    with pytest.raises(ObserwatorDataError, match="Invalid JSON response"):
         await asynchronous(**kwargs)
 
 
@@ -207,7 +207,7 @@ async def test_live_read_non_json_body_is_data_error(
 @pytest.mark.parametrize("body", [["149190310"], 42])
 def test_current_reads_reject_non_record_bodies(respx_mock, function, url, body):
     respx_mock.get(url).respond(json=body)
-    with pytest.raises(IMGWDataError, match="a list of objects was expected"):
+    with pytest.raises(ObserwatorDataError, match="a list of objects was expected"):
         function()
 
 
@@ -236,7 +236,7 @@ def test_fetch_pmaxtp_method_is_keyword_only(respx_mock):
 
 
 def test_fetch_pmaxtp_unknown_method_is_validation_error(respx_mock):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         fetch_pmaxtp(52.23, 21.01, method="MAX")
     assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}
     assert not respx_mock.calls
@@ -263,20 +263,20 @@ def test_fetch_pmaxtp_latitude_bounds_are_inclusive(respx_mock, latitude):
 async def test_fetch_pmaxtp_rejects_coords_outside_poland_before_request(
     respx_mock, latitude, longitude, word, option, value
 ):
-    with pytest.raises(IMGWValidationError, match=word) as error:
+    with pytest.raises(ObserwatorValidationError, match=word) as error:
         fetch_pmaxtp(latitude, longitude)
-    with pytest.raises(IMGWValidationError, match=word):
+    with pytest.raises(ObserwatorValidationError, match=word):
         await fetch_pmaxtp_async(latitude, longitude)
     assert error.value.details == {"option": option, "value": value}
     assert not respx_mock.calls
 
 
 def test_fetch_pmaxtp_outside_box_matches_sync_pmaxtp(tmp_path):
-    from imgwtools.store import init_store, sync_pmaxtp
+    from obserwator.store import init_store, sync_pmaxtp
 
-    with pytest.raises(IMGWValidationError) as live:
+    with pytest.raises(ObserwatorValidationError) as live:
         fetch_pmaxtp(40.0, 21.01)
-    with pytest.raises(IMGWValidationError) as stored:
+    with pytest.raises(ObserwatorValidationError) as stored:
         sync_pmaxtp(
             init_store(tmp_path / "store"), method="POT", latitude=40.0, longitude=21.01
         )
@@ -297,12 +297,12 @@ def test_fetch_pmaxtp_validate_coords_false_sends_request(respx_mock):
     [
         (
             {"data": {}, "error": "Brak pliku, pradopodobnie poza obszarem PL"},
-            IMGWValidationError,
+            ObserwatorValidationError,
             "outside the PMAXTP grid",
         ),
-        ({"data": {}, "error": "Awaria"}, IMGWDataError, "Awaria"),
-        ({"data": {}}, IMGWDataError, "has no data"),
-        ({"data": {"ks": "zle"}}, IMGWDataError, "Invalid PMAXTP response"),
+        ({"data": {}, "error": "Awaria"}, ObserwatorDataError, "Awaria"),
+        ({"data": {}}, ObserwatorDataError, "has no data"),
+        ({"data": {"ks": "zle"}}, ObserwatorDataError, "Invalid PMAXTP response"),
     ],
 )
 async def test_fetch_pmaxtp_error_bodies_are_not_results(
@@ -436,9 +436,9 @@ def test_fetch_warnings_without_warnings_is_empty(respx_mock, body):
 
 
 async def test_fetch_warnings_unknown_kind_is_validation_error(respx_mock):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         fetch_warnings(kind="synop")
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         await fetch_warnings_async(kind="synop")
     assert error.value.details == {"option": "kind", "allowed": ["hydro", "meteo"]}
     assert not respx_mock.calls

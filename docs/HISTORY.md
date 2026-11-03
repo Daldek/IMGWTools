@@ -1,4 +1,4 @@
-# IMGWTools - Release history and closed work
+# IMGWTools (now Obserwator) - Release history and closed work
 
 Archive: release history, cross-project analysis, closed backlog items and working notes moved from [PROGRESS.md](PROGRESS.md) with unchanged content (Nogat standard 1.0, DOC-6.1: PROGRESS holds only the current state). Full list of changes: [CHANGELOG.md](CHANGELOG.md).
 

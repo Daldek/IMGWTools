@@ -1,6 +1,6 @@
 """MCP over Streamable HTTP in the REST application (spec 2026-10-19 §6.2, §6.9, §9).
 
-``imgw server`` serves ``/mcp`` only with ``IMGW_MCP_ENABLED=true`` and the ``mcp``
+``obserwator server`` serves ``/mcp`` only with ``OBSERWATOR_MCP_ENABLED=true`` and the ``mcp``
 extra: these tests import the REST application again under the settings of the
 test, run its lifespan (which runs the session manager of the SDK) and talk to
 ``/mcp`` with the SDK client in process (ASGI, no network). The parity of every
@@ -29,12 +29,12 @@ from fastapi.testclient import TestClient
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
-import imgwtools.api
-import imgwtools.api.main
-from imgwtools import ERROR_CODES
-from imgwtools.config import settings
-from imgwtools.mcp._calls import STREAM_LIMIT
-from imgwtools.mcp.server import create_server
+import obserwator.api
+import obserwator.api.main
+from obserwator import ERROR_CODES
+from obserwator.config import settings
+from obserwator.mcp._calls import STREAM_LIMIT
+from obserwator.mcp.server import create_server
 from tests.contract.support import command_document
 
 HOST = "127.0.0.1:8000"
@@ -51,19 +51,19 @@ INITIALIZE = {
 }
 # Tools with a REST route, in catalog order (spec §6.3, mode http).
 ROUTES = [
-    schema["x-imgw"]["operation_id"]
+    schema["x-obserwator"]["operation_id"]
     for schema in command_document(lang="en")["commands"]
-    if schema["x-imgw"]["rest"] is not None
+    if schema["x-obserwator"]["rest"] is not None
 ]
 
 
 # The module of agent_guide (the package exports the function under its name).
-GUIDE = importlib.import_module("imgwtools.agent_guide")
+GUIDE = importlib.import_module("obserwator.agent_guide")
 
 
 @pytest.fixture(autouse=True)
 def server(monkeypatch):
-    """A REST server without a store, MCP off, IMGW_LANG Polish, default hosts and page."""
+    """A REST server without a store, MCP off, OBSERWATOR_LANG Polish, default hosts and page."""
     for name, value in (
         ("root", None),
         ("store_writes_enabled", False),
@@ -77,14 +77,14 @@ def server(monkeypatch):
 
 
 def reimported(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """``imgwtools.api.main`` imported anew under the current settings."""
-    monkeypatch.setattr(imgwtools.api, "main", imgwtools.api.main)
-    monkeypatch.delitem(sys.modules, "imgwtools.api.main")
-    return importlib.import_module("imgwtools.api.main")
+    """``obserwator.api.main`` imported anew under the current settings."""
+    monkeypatch.setattr(obserwator.api, "main", obserwator.api.main)
+    monkeypatch.delitem(sys.modules, "obserwator.api.main")
+    return importlib.import_module("obserwator.api.main")
 
 
 def enabled(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    """The REST application of a server with ``IMGW_MCP_ENABLED=true``."""
+    """The REST application of a server with ``OBSERWATOR_MCP_ENABLED=true``."""
     monkeypatch.setattr(settings, "mcp_enabled", True)
     app: FastAPI = reimported(monkeypatch).app
     return app
@@ -135,12 +135,12 @@ async def post_initialize(app: FastAPI, host: str, **headers: str) -> httpx.Resp
 
 
 # --------------------------------------------------------------------------
-# /mcp of imgw server: tools, language, lifespan
+# /mcp of obserwator server: tools, language, lifespan
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("client_mode", ["auto", "legacy"])
-async def test_mcp_serves_the_rest_routes_as_english_tools_whatever_imgw_lang_says(
+async def test_mcp_serves_the_rest_routes_as_english_tools_whatever_obserwator_lang_says(
     client_mode, monkeypatch
 ):
     app = enabled(monkeypatch)
@@ -149,12 +149,12 @@ async def test_mcp_serves_the_rest_routes_as_english_tools_whatever_imgw_lang_sa
 
     async with connected(app, mode=client_mode) as client:
         tools = (await client.list_tools()).tools
-        answered = await client.call_tool("imgw_datasets_providers", {})
+        answered = await client.call_tool("obserwator_datasets_providers", {})
 
     assert [tool.name for tool in tools] == ROUTES
     assert dumped(tools) == dumped(expected)
     english = {
-        schema["x-imgw"]["operation_id"]: schema["description"]
+        schema["x-obserwator"]["operation_id"]: schema["description"]
         for schema in command_document(lang="en")["commands"]
     }
     assert all(tool.description.startswith(english[tool.name]) for tool in tools)
@@ -171,7 +171,7 @@ async def test_a_problem_of_rest_is_the_english_error_result(monkeypatch):
     arguments = {"latitude": "1", "longitude": 21.01}
 
     async with connected(app) as client:
-        result = await client.call_tool("imgw_pmaxtp_fetch", arguments)
+        result = await client.call_tool("obserwator_pmaxtp_fetch", arguments)
 
     problem = TestClient(app).get(
         "/api/v1/pmaxtp/fetch", params=arguments, headers={"Accept-Language": "en"}
@@ -194,7 +194,7 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
 
     async with connected(app) as client:
         result = await client.call_tool(
-            "imgw_store_sync",
+            "obserwator_store_sync",
             {"datasets": ["pl.imgw.hydro_daily"], "years": [2024], "check": False},
         )
 
@@ -206,14 +206,14 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
 @pytest.mark.parametrize(
     ("tool", "arguments", "option"),
     [
-        ("imgw_store_info", {"root": "/srv/imgw"}, "root"),
+        ("obserwator_store_info", {"root": "/srv/obserwator"}, "root"),
         (
-            "imgw_store_export",
+            "obserwator_store_export",
             {"version": "archives/x.zip", "output": "wynik.csv"},
             "output",
         ),
         (
-            "imgw_store_export",
+            "obserwator_store_export",
             {"version": "archives/x.zip", "force": True},
             "force",
         ),
@@ -254,7 +254,7 @@ async def test_a_stream_over_256_kib_is_refused_and_rest_stops_producing_it(
 
     with anyio.fail_after(60):  # an endless stream nobody stops never answers
         async with connected(app) as client:
-            result = await client.call_tool("imgw_commands_guide", {})
+            result = await client.call_tool("obserwator_commands_guide", {})
 
     document = error_of(result)
     assert document["code"] == "validation_error"
@@ -289,7 +289,7 @@ async def test_mcp_answers_only_the_allowed_hosts(allowed, host, status, monkeyp
         assert browser.status_code == 403  # browser clients are not served
 
 
-def test_without_imgw_mcp_enabled_mcp_is_an_unknown_route(monkeypatch):
+def test_without_obserwator_mcp_enabled_mcp_is_an_unknown_route(monkeypatch):
     app = reimported(monkeypatch).app
 
     with TestClient(app) as client:
@@ -304,19 +304,19 @@ def test_without_the_mcp_extra_an_enabled_mcp_is_an_unknown_route_and_a_warning(
     monkeypatch, caplog
 ):
     monkeypatch.setitem(sys.modules, "mcp", None)  # the extra is not installed
-    for name in [name for name in sys.modules if name.startswith("imgwtools.mcp.")]:
+    for name in [name for name in sys.modules if name.startswith("obserwator.mcp.")]:
         monkeypatch.delitem(sys.modules, name)
 
-    with caplog.at_level(logging.WARNING, logger="imgwtools.api.main"):
+    with caplog.at_level(logging.WARNING, logger="obserwator.api.main"):
         app = enabled(monkeypatch)
     with TestClient(app) as client:
         response = client.post("/mcp", json=INITIALIZE)
 
     assert (response.status_code, response.json()["code"]) == (404, "not_found")
-    assert "pip install imgwtools[mcp]" in caplog.text
+    assert "pip install obserwator[mcp]" in caplog.text
 
 
-async def test_an_enabled_mcp_does_not_read_imgw_lang(monkeypatch):
+async def test_an_enabled_mcp_does_not_read_obserwator_lang(monkeypatch):
     monkeypatch.setattr(
         settings, "lang", "de"
     )  # the CLI refuses it, /mcp does not care

@@ -7,11 +7,11 @@ Marked ``live``; the gate leaves them out and ``-m live`` runs them::
 
 Every catalog command runs on a small selection (one month of one year, one
 station, one PMAXTP cell, ``limit``) through ``run_command``, the installed
-``imgw`` and the REST API of ``imgw server`` started on a free localhost port
+``obserwator`` and the REST API of ``obserwator server`` started on a free localhost port
 with store writes enabled by a test token. The store is a fresh temporary
 directory restored from snapshots before every interface, so each interface
 starts from the same state; requests to IMGW run one at a time. Local commands
-(no REST route) run through Python and ``imgw``, and REST must answer them 404.
+(no REST route) run through Python and ``obserwator``, and REST must answer them 404.
 
 Compared with the Python envelope (CLI: ``to_json(root)``, REST:
 ``to_json(root, server=True)``): status and exit code, every key, slot and
@@ -23,12 +23,12 @@ shows up as a difference. Live errors — coordinates outside Poland, a point
 outside the PMAXTP grid, missing versions and an unsupported root — must give
 the same code, exit code and HTTP status in every interface.
 
-The MCP leg (spec 2026-10-19 §9) starts ``imgw mcp`` once, as an MCP client
+The MCP leg (spec 2026-10-19 §9) starts ``obserwator mcp`` once, as an MCP client
 does, in the working directory of the CLI and calls the tool of every read
-command that asks the live sources (``x-imgw``: ``writes`` none, ``network``)
+command that asks the live sources (``x-obserwator``: ``writes`` none, ``network``)
 with the options of Python, ``root`` included: the structured content must be
 the Python envelope ``to_json(root)`` and the text content its JSON. Run it
-alone with ``-k imgw_mcp``.
+alone with ``-k obserwator_mcp``.
 
 Tolerated differences, because live sources change between the calls:
 
@@ -44,7 +44,7 @@ network or HTTP error: ``source_unavailable``, ``check_failed``) cannot be
 compared, so it is repeated after 20 s and again after 60 s; the last run is
 compared and the report counts the attempts.
 
-``IMGW_LIVE_REPORT=<file>`` writes the run report (date, versions, times,
+``OBSERWATOR_LIVE_REPORT=<file>`` writes the run report (date, versions, times,
 attempts, outcomes and tolerated differences of every interface) as JSON.
 """
 
@@ -67,11 +67,11 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from imgwtools import (
+from obserwator import (
     ERROR_CODES,
     CommandResult,
     ErrorCode,
-    IMGWError,
+    ObserwatorError,
     __version__,
     build_catalog,
     current_version,
@@ -80,14 +80,14 @@ from imgwtools import (
     sync_pmaxtp,
     sync_store,
 )
-from imgwtools.config import settings
+from obserwator.config import settings
 from tests.contract.support import (
     canonical,
     cli_words,
     command_document,
     current_path,
     envelope_errors,
-    imgw_executable,
+    obserwator_executable,
     rest_request,
     schema_errors,
     slots,
@@ -100,10 +100,11 @@ pytestmark = pytest.mark.live
 CATALOG = command_document()
 EXIT_CODES: dict[str, int] = CATALOG["exit_codes"]
 SPECS: dict[str, dict[str, Any]] = {
-    schema["x-imgw"]["command"]: schema["x-imgw"] for schema in CATALOG["commands"]
+    schema["x-obserwator"]["command"]: schema["x-obserwator"]
+    for schema in CATALOG["commands"]
 }
 ROOTED = {
-    schema["x-imgw"]["command"]
+    schema["x-obserwator"]["command"]
     for schema in CATALOG["commands"]
     if "root" in schema["properties"]
 }
@@ -208,7 +209,7 @@ class PythonAnswer:
 
 @dataclass(frozen=True)
 class McpAnswer:
-    """A tool result of ``imgw mcp``: structured content, text and the error flag."""
+    """A tool result of ``obserwator mcp``: structured content, text and the error flag."""
 
     document: dict[str, Any]
     text: str
@@ -463,7 +464,7 @@ def unavailable(answers: Iterable[Any]) -> bool:
     """Whether IMGW failed the run of any interface (spec §13.5 source_unavailable)."""
     for answer in answers:
         if isinstance(answer, PythonAnswer):
-            if isinstance(answer.error, IMGWError):
+            if isinstance(answer.error, ObserwatorError):
                 if answer.error.code == _SOURCE.code:
                     return True
                 continue
@@ -492,7 +493,7 @@ def _patiently[T](step: Callable[[], T]) -> T:
     for pause in PAUSES:
         try:
             result = step()
-        except IMGWError as exc:
+        except ObserwatorError as exc:
             if exc.code != _SOURCE.code:
                 raise
         else:
@@ -519,15 +520,22 @@ def _repeated(run: Callable[[], Round]) -> tuple[int, Round]:
 
 @contextmanager
 def _server(base: Path, work: Path, env: Mapping[str, str]) -> Iterator[str]:
-    """``imgw server`` on a free localhost port; its URL once /health answers."""
+    """``obserwator server`` on a free localhost port; its URL once /health answers."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     url = f"http://127.0.0.1:{port}"
-    log_path = base / "imgw-server.log"
+    log_path = base / "obserwator-server.log"
     with log_path.open("wb") as log:
         process = subprocess.Popen(
-            [*imgw_executable(), "server", "--host", "127.0.0.1", "--port", str(port)],
+            [
+                *obserwator_executable(),
+                "server",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
             cwd=work,
             env=dict(env),
             stdout=log,
@@ -538,7 +546,7 @@ def _server(base: Path, work: Path, env: Mapping[str, str]) -> Iterator[str]:
             while True:
                 if process.poll() is not None:
                     raise RuntimeError(
-                        f"imgw server zakończył się kodem {process.returncode}: "
+                        f"obserwator server zakończył się kodem {process.returncode}: "
                         + log_path.read_text(encoding="utf-8", errors="replace")
                     )
                 try:
@@ -549,7 +557,9 @@ def _server(base: Path, work: Path, env: Mapping[str, str]) -> Iterator[str]:
                 except httpx.TransportError:
                     pass
                 if time.monotonic() > deadline:
-                    raise TimeoutError(f"imgw server nie odpowiada na {url}/health")
+                    raise TimeoutError(
+                        f"obserwator server nie odpowiada na {url}/health"
+                    )
                 time.sleep(0.25)
             yield url
         finally:
@@ -584,7 +594,7 @@ class Live:
         with pytest.MonkeyPatch.context() as patch:
             patch.chdir(self.work)
             patch.setattr(settings, "reference_dir", Path(DATA_DIR))
-            patch.delenv("IMGW_ROOT", raising=False)
+            patch.delenv("OBSERWATOR_ROOT", raising=False)
             yield
 
     def save(self, name: str, source: Path) -> None:
@@ -659,7 +669,7 @@ class Live:
     # --- interfaces -------------------------------------------------------------
 
     def call(self, interface: str, command: str, options: Mapping[str, object]) -> Any:
-        """The answer of one interface (Python, the installed imgw or REST)."""
+        """The answer of one interface (Python, the installed obserwator or REST)."""
         if interface == "python":
             with self.local():
                 try:
@@ -667,12 +677,12 @@ class Live:
                     data = None
                     if isinstance(envelope.result, Iterator):
                         data = "".join(envelope.result).encode("utf-8")
-                except (IMGWError, OSError) as exc:
+                except (ObserwatorError, OSError) as exc:
                     return PythonAnswer(None, None, exc)
             return PythonAnswer(envelope, data, None)
         if interface == "cli":
             return subprocess.run(
-                [*imgw_executable(), *cli_words(command, options)],
+                [*obserwator_executable(), *cli_words(command, options)],
                 cwd=self.work,
                 env=self.env,
                 capture_output=True,
@@ -694,7 +704,11 @@ class Live:
             if answer.envelope is not None:
                 return answer.envelope.status
             error = answer.error
-            return error.code if isinstance(error, IMGWError) else type(error).__name__
+            return (
+                error.code
+                if isinstance(error, ObserwatorError)
+                else type(error).__name__
+            )
         if isinstance(answer, subprocess.CompletedProcess):
             return f"exit {answer.returncode}"
         if isinstance(answer, McpAnswer):
@@ -786,7 +800,7 @@ class Live:
     def run_mcp_case(
         self, command: str, index: int, case: Case, mcp: McpServer
     ) -> dict[str, list[str]]:
-        """Run one case in Python and through the tool of ``imgw mcp``; problems."""
+        """Run one case in Python and through the tool of ``obserwator mcp``; problems."""
         options = self.resolve(case.options)
         assert isinstance(options, dict)
         rooted = case.store is not None and command in ROOTED
@@ -859,7 +873,7 @@ class Live:
         for slot in sorted(set(slots(document)) - set(unversioned(document))):
             try:
                 entry = current_version(self.root, slot=slot)
-            except IMGWError as exc:
+            except ObserwatorError as exc:
                 missing.append(f"slot {slot}: {exc.code}")
             else:
                 if entry is None or entry.slot != slot:
@@ -952,12 +966,12 @@ class Live:
             problems["rest"].append(
                 f"strumień {len(answered.content)} B zamiast {len(data)} B Pythona"
             )
-        if answered.headers.get("x-imgw-status") != envelope.status:
+        if answered.headers.get("x-obserwator-status") != envelope.status:
             problems["rest"].append(
-                f"X-IMGW-Status {answered.headers.get('x-imgw-status')}"
+                f"X-Obserwator-Status {answered.headers.get('x-obserwator-status')}"
             )
-        if json.loads(answered.headers.get("x-imgw-notices", "null")) != notices:
-            problems["rest"].append("X-IMGW-Notices inne niż komunikaty Pythona")
+        if json.loads(answered.headers.get("x-obserwator-notices", "null")) != notices:
+            problems["rest"].append("X-Obserwator-Notices inne niż komunikaty Pythona")
 
     def no_route(self, command: str, problems: list[str]) -> str:
         """A local command has no REST route: 404 not_found problem document."""
@@ -996,7 +1010,7 @@ class Live:
         problems: dict[str, list[str]] = {interface: [] for interface in INTERFACES}
 
         error = answers["python"].error
-        if not isinstance(error, IMGWError) or error.code != failure.code:
+        if not isinstance(error, ObserwatorError) or error.code != failure.code:
             problems["python"].append(f"zamiast {failure.code}: {answers['python']}")
             error = None
 
@@ -1058,7 +1072,7 @@ class Live:
         document = {
             "date": started.isoformat(),
             "seconds": round((datetime.now(UTC) - started).total_seconds(), 1),
-            "imgwtools": __version__,
+            "obserwator": __version__,
             "python": platform.python_version(),
             "platform": platform.platform(),
             "rows": self.rows,
@@ -1069,7 +1083,7 @@ class Live:
 
 
 class McpServer:
-    """``imgw mcp`` of the live run, called through the SDK client from sync tests."""
+    """``obserwator mcp`` of the live run, called through the SDK client from sync tests."""
 
     def __init__(self, portal: Any, client: Any) -> None:
         self.portal = portal
@@ -1083,19 +1097,21 @@ class McpServer:
 
 @pytest.fixture(scope="module")
 def live(tmp_path_factory) -> Iterator[Live]:
-    """Fresh temporary store, ``imgw server`` on it and the seeded snapshots."""
+    """Fresh temporary store, ``obserwator server`` on it and the seeded snapshots."""
     started = datetime.now(UTC)
-    base = tmp_path_factory.mktemp("imgw-live")
+    base = tmp_path_factory.mktemp("obserwator-live")
     work = base / "praca"
     work.mkdir()
     env = {
-        key: value for key, value in os.environ.items() if not key.startswith("IMGW_")
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("OBSERWATOR_")
     }
-    env["IMGW_REFERENCE_DIR"] = DATA_DIR
+    env["OBSERWATOR_REFERENCE_DIR"] = DATA_DIR
     served = env | {
-        "IMGW_ROOT": str(base / "magazyn"),
-        "IMGW_STORE_WRITES_ENABLED": "true",
-        "IMGW_STORE_WRITE_TOKEN": TOKEN,
+        "OBSERWATOR_ROOT": str(base / "magazyn"),
+        "OBSERWATOR_STORE_WRITES_ENABLED": "true",
+        "OBSERWATOR_STORE_WRITE_TOKEN": TOKEN,
     }
     with (
         _server(base, work, served) as url,
@@ -1104,24 +1120,24 @@ def live(tmp_path_factory) -> Iterator[Live]:
         session = Live(base, work, env, client)
         session.seed()
         yield session
-    if path := os.environ.get("IMGW_LIVE_REPORT"):
+    if path := os.environ.get("OBSERWATOR_LIVE_REPORT"):
         session.report(started, path)
 
 
 @pytest.fixture(scope="module")
 def mcp_server(live: Live) -> Iterator[McpServer]:
-    """``imgw mcp`` started once as an MCP client starts it, in the CLI's directory."""
+    """``obserwator mcp`` started once as an MCP client starts it, in the CLI's directory."""
     pytest.importorskip("mcp")
     from anyio.from_thread import start_blocking_portal
     from mcp import Client
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
-    command, *prefix = imgw_executable()
+    command, *prefix = obserwator_executable()
     server = StdioServerParameters(
         command=command, args=[*prefix, "mcp"], env=live.env, cwd=live.work
     )
     with (
-        (live.base / "imgw-mcp.log").open("w", encoding="utf-8") as log,
+        (live.base / "obserwator-mcp.log").open("w", encoding="utf-8") as log,
         start_blocking_portal() as portal,
         portal.wrap_async_context_manager(
             Client(stdio_client(server, errlog=log), read_timeout_seconds=CALL_TIMEOUT)
@@ -1137,12 +1153,12 @@ def mcp_server(live: Live) -> Iterator[McpServer]:
 
 def test_the_live_run_covers_every_catalog_command():
     assert list(CASES) == [
-        schema["x-imgw"]["command"] for schema in CATALOG["commands"]
+        schema["x-obserwator"]["command"] for schema in CATALOG["commands"]
     ]
 
 
 @pytest.mark.parametrize("command", list(CASES))
-def test_every_command_answers_alike_live_in_python_imgw_and_rest(command, live):
+def test_every_command_answers_alike_live_in_python_obserwator_and_rest(command, live):
     found = {
         f"{index}:{interface}": lines
         for index, case in enumerate(CASES[command])
@@ -1157,7 +1173,9 @@ def test_live_errors_have_the_same_code_exit_code_and_http_status(name, live):
 
 
 @pytest.mark.parametrize("command", MCP_READS)
-def test_live_reads_answer_alike_in_python_and_imgw_mcp(command, live, mcp_server):
+def test_live_reads_answer_alike_in_python_and_obserwator_mcp(
+    command, live, mcp_server
+):
     found = {
         f"{index}:{interface}": lines
         for index, case in enumerate(CASES[command])

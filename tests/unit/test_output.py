@@ -9,8 +9,8 @@ import time
 
 import pytest
 
-from imgwtools.exceptions import IMGWError
-from imgwtools.output import (
+from obserwator.exceptions import ObserwatorError
+from obserwator.output import (
     STAGING,
     STORE_MARKERS,
     Staging,
@@ -64,7 +64,7 @@ def test_refuse_lists_every_offending_path_under_the_first_reason(tmp_path):
     (tmp_path / "b.zip").write_bytes(b"2")
     entries = plan_plain(tmp_path, ["a.zip", "b.zip", "c.zip", "c.zip"], force=False)
 
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         refuse(entries)
 
     assert error.value.code == "conflict"
@@ -78,7 +78,7 @@ def test_existing_targets_alone_are_output_exists_with_all_paths(tmp_path):
     for name in ("a.zip", "b.zip"):
         (tmp_path / name).write_bytes(b"1")
 
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         refuse(plan_plain(tmp_path, ["a.zip", "b.zip", "c.zip"], force=False))
 
     assert error.value.details["reason"] == "output_exists"
@@ -107,7 +107,7 @@ def test_a_directory_that_is_or_lies_in_a_store_of_any_tool_is_refused(
     for directory in (tmp_path / "store", tmp_path / "store" / "deep" / "er"):
         entries = plan_plain(directory, ["a.zip"], force=True)
         assert states(entries) == [("a.zip", "conflict", "output_in_store")]
-        with pytest.raises(IMGWError) as error:
+        with pytest.raises(ObserwatorError) as error:
             refuse(entries)
         assert error.value.details["reason"] == "output_in_store"
         assert "--root" in error.value.detail
@@ -115,7 +115,7 @@ def test_a_directory_that_is_or_lies_in_a_store_of_any_tool_is_refused(
 
 def test_a_subdirectory_the_write_would_enter_must_not_hold_a_marker(tmp_path):
     (tmp_path / "out" / "inner").mkdir(parents=True)
-    (tmp_path / "out" / "inner" / "imgw-store.json").write_text("{}")
+    (tmp_path / "out" / "inner" / "obserwator-store.json").write_text("{}")
 
     entering = plan_plain(tmp_path / "out", ["inner/x.zip"], force=False)
     beside = plan_plain(tmp_path / "out", ["other/x.zip"], force=False)
@@ -125,15 +125,15 @@ def test_a_subdirectory_the_write_would_enter_must_not_hold_a_marker(tmp_path):
 
 
 def test_a_directory_with_a_store_elsewhere_below_it_is_a_fine_output(tmp_path):
-    # <data_dir> holds the default store <data_dir>/imgw; writing files to <data_dir> is not
+    # <data_dir> holds the default store <data_dir>/obserwator; writing files to <data_dir> is not
     # writing into that store.
-    (tmp_path / "imgw").mkdir()
-    (tmp_path / "imgw" / "imgw-store.json").write_text("{}")
+    (tmp_path / "obserwator").mkdir()
+    (tmp_path / "obserwator" / "obserwator-store.json").write_text("{}")
 
     assert states(plan_plain(tmp_path, ["a.zip"], force=False)) == [
         ("a.zip", "write", None)
     ]
-    assert store_below(tmp_path) == tmp_path / "imgw"
+    assert store_below(tmp_path) == tmp_path / "obserwator"
     assert store_around(tmp_path) is None
 
 
@@ -145,7 +145,7 @@ def test_a_store_as_the_output_directory_is_refused_by_the_directory_alone(
     (tmp_path / "store" / marker).write_text("{}")
 
     for directory in (tmp_path / "store", tmp_path / "store" / "deep" / "er"):
-        with pytest.raises(IMGWError) as error:
+        with pytest.raises(ObserwatorError) as error:
             refuse_directory(directory)
         assert error.value.code == "conflict"
         assert error.value.details == {
@@ -160,10 +160,10 @@ def test_a_store_only_below_the_output_directory_is_reported_for_its_targets(
 ):
     for folder in ("a", "b"):
         (tmp_path / "out" / folder).mkdir(parents=True)
-    (tmp_path / "out" / "a" / "imgw-store.json").write_text("{}")
+    (tmp_path / "out" / "a" / "obserwator-store.json").write_text("{}")
 
     refuse_directory(tmp_path / "out")  # no store is, or holds, the directory
-    with pytest.raises(IMGWError) as error:
+    with pytest.raises(ObserwatorError) as error:
         refuse(plan_plain(tmp_path / "out", ["a/x.zip", "b/y.zip"], force=False))
 
     assert error.value.details == {

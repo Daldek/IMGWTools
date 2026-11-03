@@ -1,4 +1,4 @@
-"""Offline tests for ``python -m imgwtools.reference_data``."""
+"""Offline tests for ``python -m obserwator.reference_data``."""
 
 import runpy
 import warnings
@@ -6,9 +6,9 @@ import warnings
 import httpx
 import pytest
 
-from imgwtools import reference_data
-from imgwtools.datasets import get_provider, station_source_files
-from imgwtools.stations import HYDRO_MAP_API_URL
+from obserwator import reference_data
+from obserwator.datasets import get_provider, station_source_files
+from obserwator.stations import HYDRO_MAP_API_URL
 
 HYDRO_STATIONS_CSV_URL, METEO_STATIONS_CSV_URL = (
     file.url for file in station_source_files()
@@ -166,12 +166,12 @@ def test_reference_data_main_invalid_map_json_reports_error(
 
     assert reference_data.main() == 1
 
-    # The line is for a person: in the language of IMGW_LANG (Polish by default).
+    # The line is for a person: in the language of OBSERWATOR_LANG (Polish by default).
     assert "Niepoprawna odpowiedź JSON" in capsys.readouterr().err
     assert not (isolated_reference_dir / "hydro_stations_locations.csv").exists()
 
 
-def test_reference_data_lines_follow_imgw_lang(
+def test_reference_data_lines_follow_obserwator_lang(
     respx_mock, isolated_reference_dir, capsys, monkeypatch
 ):
     monkeypatch.setattr(reference_data, "_LANG", "en")
@@ -212,7 +212,7 @@ def test_reference_data_run_as_module_exits_with_main_status(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         with pytest.raises(SystemExit) as exit_info:
-            runpy.run_module("imgwtools.reference_data", run_name="__main__")
+            runpy.run_module("obserwator.reference_data", run_name="__main__")
 
     assert exit_info.value.code == code
     assert (

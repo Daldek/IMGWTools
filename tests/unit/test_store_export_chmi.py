@@ -11,8 +11,8 @@ from datetime import date
 
 import pytest
 
-from imgwtools.models import Measurement
-from imgwtools.store import (
+from obserwator.models import Measurement
+from obserwator.store import (
     build_series,
     export_archive,
     export_series,

@@ -3,17 +3,21 @@
 import pytest
 import respx
 
-from imgwtools.datasets import station_source_files
-from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
-from imgwtools.stations import (
+from obserwator.datasets import station_source_files
+from obserwator.exceptions import (
+    ObserwatorDataError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
+)
+from obserwator.stations import (
     HYDRO_MAP_API_URL,
     fetch_hydro_states,
     fetch_hydro_states_async,
     find_stations,
     find_stations_async,
 )
-from imgwtools.store import init_store
-from imgwtools.testing import build_fixture_store
+from obserwator.store import init_store
+from obserwator.testing import build_fixture_store
 
 HYDRO_URL, METEO_URL = (file.url for file in station_source_files())
 HYDRO_CSV = (
@@ -123,9 +127,9 @@ async def test_find_stations_kind_requests_only_its_list(respx_mock):
 async def test_find_stations_invalid_options_are_validation_errors(
     respx_mock, kwargs, option
 ):
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         find_stations(**kwargs)
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         await find_stations_async(**kwargs)
 
     assert error.value.code == "validation_error"
@@ -176,7 +180,7 @@ def test_find_stations_store_filters_like_live(fixture_store):
 
 def test_find_stations_store_without_lists_is_store_error(tmp_path):
     root = init_store(tmp_path / "store").root
-    with pytest.raises(IMGWStoreError, match="has no station list"):
+    with pytest.raises(ObserwatorStoreError, match="has no station list"):
         find_stations(source="store", root=root)
 
 
@@ -200,7 +204,7 @@ async def test_fetch_hydro_states_sends_headers_and_main_only(
         request = call.request
         assert request.url.params["onlyMainStations"] == only_main
         assert request.headers["Referer"] == "https://hydro.imgw.pl/"
-        assert request.headers["User-Agent"].startswith("IMGWTools/")
+        assert request.headers["User-Agent"].startswith("Obserwator/")
 
 
 def test_fetch_hydro_states_reads_river_and_skips_invalid_stations(respx_mock):
@@ -244,5 +248,5 @@ def test_fetch_hydro_states_accepts_list_and_empty_wrapper(
 
 def test_fetch_hydro_states_rejects_non_list_stations(respx_mock):
     respx_mock.get(HYDRO_MAP_API_URL).respond(json={"stations": "brak"})
-    with pytest.raises(IMGWDataError, match="a list of stations was expected"):
+    with pytest.raises(ObserwatorDataError, match="a list of stations was expected"):
         fetch_hydro_states()

@@ -13,16 +13,16 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools._version import __version__
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import (
-    IMGWCancelledError,
-    IMGWStoreConflictError,
-    IMGWStoreError,
-    IMGWValidationError,
+from obserwator._version import __version__
+from obserwator.datasets import archive_files
+from obserwator.exceptions import (
+    ObserwatorCancelledError,
+    ObserwatorStoreConflictError,
+    ObserwatorStoreError,
+    ObserwatorValidationError,
 )
-from imgwtools.fetch import DownloadResult
-from imgwtools.store import (
+from obserwator.fetch import DownloadResult
+from obserwator.store import (
     current_version,
     init_store,
     iter_store,
@@ -30,7 +30,7 @@ from imgwtools.store import (
     write_archive,
     writer,
 )
-from imgwtools.store.types import Observation
+from obserwator.store.types import Observation
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "store"
 ARCHIVE = archive_files("pl.imgw.hydro_daily", years=[2024])[0]
@@ -39,8 +39,8 @@ CHANGED = (FIXTURES / "variants" / "codz_2024_changed.zip").read_bytes()
 DAILY_2024 = "archive:pl.imgw.hydro_daily:2024/codz_2024.zip"
 # Observation example of spec 2026-10-18 §3.2 (arbitrary sums).
 OBSERVATION = {
-    "schema": "imgw-observation/1",
-    "producer": "imgwtools",
+    "schema": "obserwator-observation/1",
+    "producer": "obserwator",
     "producer_version": "3.1.0",
     "dataset": "cz.chmi.hydro_daily",
     "seen_at": "2026-10-19T06:00:00Z",
@@ -75,7 +75,7 @@ def test_archive_provenance_relabel_and_unchanged(tmp_path):
     meta = json.loads(
         first.path.with_name(first.path.name + ".meta.json").read_text("utf-8")
     )
-    assert meta["schema"] == "imgw-meta/1"
+    assert meta["schema"] == "obserwator-meta/1"
     assert meta["sha256"] == hashlib.sha256(DATA).hexdigest()
     assert meta["size_bytes"] == len(DATA)
     assert meta["extra"]["http"]["etag"] == '"hydro-v1"'
@@ -153,7 +153,7 @@ def test_interrupted_publication_with_other_bytes_is_never_replaced(tmp_path):
     target = _version_dir(root)
     target.mkdir(parents=True)
     (target / "codz_2024.zip").write_bytes(CHANGED)
-    with pytest.raises(IMGWStoreConflictError, match="collision"):
+    with pytest.raises(ObserwatorStoreConflictError, match="collision"):
         write_archive(root, archive=ARCHIVE, response=response())
     assert [p.name for p in target.iterdir()] == ["codz_2024.zip"]
     assert (target / "codz_2024.zip").read_bytes() == CHANGED
@@ -205,7 +205,7 @@ def test_file_system_without_hard_links_is_explicit(tmp_path, monkeypatch):
         raise OSError(errno.EXDEV, os.strerror(errno.EXDEV))
 
     monkeypatch.setattr(writer.os, "link", no_links)
-    with pytest.raises(IMGWStoreConflictError, match="hard links") as error:
+    with pytest.raises(ObserwatorStoreConflictError, match="hard links") as error:
         write_archive(root, archive=ARCHIVE, response=response())
     assert error.value.details == {"reason": "not_atomic"}
     assert not list((root.root / "archives").rglob("*.zip"))
@@ -230,7 +230,7 @@ def test_abort_cleanup_and_fsync(tmp_path, monkeypatch):
         return original(fd)
 
     monkeypatch.setattr(writer.os, "fsync", record)
-    with pytest.raises(IMGWCancelledError, match="cancelled"):
+    with pytest.raises(ObserwatorCancelledError, match="cancelled"):
         write_archive(root, archive=ARCHIVE, response=response(), cancel=lambda: True)
     assert old.exists()  # no operation began, so nothing was cleaned
     write_archive(root, archive=ARCHIVE, response=response())
@@ -260,14 +260,16 @@ def test_nested_kartograf_detection_by_marker_name_without_import(tmp_path):
     foreign = tmp_path / "kartograf"
     foreign.mkdir()
     (foreign / "kartograf-store.json").write_text('{"schema": "kartograf-store/1"}')
-    with pytest.raises(IMGWStoreConflictError, match="kartograf-store.json") as inside:
-        init_store(foreign / "results" / "imgw")
+    with pytest.raises(
+        ObserwatorStoreConflictError, match="kartograf-store.json"
+    ) as inside:
+        init_store(foreign / "results" / "obserwator")
     assert inside.value.details == {"reason": "nested_store"}
     assert init_store(tmp_path / "separate").root.exists()
     other = tmp_path / "outer"
     (other / "child").mkdir(parents=True)
     (other / "child" / "kartograf-store.json").write_text("{}")
-    with pytest.raises(IMGWStoreConflictError, match="kartograf-store.json"):
+    with pytest.raises(ObserwatorStoreConflictError, match="kartograf-store.json"):
         init_store(other)
     # The sidecars and manifests of the old probe are no marker: nothing nests.
     legacy = tmp_path / "legacy"
@@ -276,19 +278,21 @@ def test_nested_kartograf_detection_by_marker_name_without_import(tmp_path):
     (legacy / "versions" / "item" / "sample.meta.json").write_text(
         '{"schema":"kartograf-meta/1"}'
     )
-    assert init_store(legacy / "results" / "imgw").root.exists()
+    assert init_store(legacy / "results" / "obserwator").root.exists()
 
 
 def test_foreign_or_nested_store_and_path_escape(tmp_path):
     root = init_store(tmp_path / "store")
-    with pytest.raises(IMGWStoreError) as inside:
+    with pytest.raises(ObserwatorStoreError) as inside:
         init_store(root.root / "nested")
-    with pytest.raises(IMGWStoreError) as around:
+    with pytest.raises(ObserwatorStoreError) as around:
         init_store(tmp_path)
     busy = tmp_path / "busy"
     busy.mkdir()
     (busy / "notes.txt").write_text("x")
-    with pytest.raises(IMGWStoreError, match="not an empty IMGW store") as not_empty:
+    with pytest.raises(
+        ObserwatorStoreError, match="not an empty Obserwator store"
+    ) as not_empty:
         init_store(busy)
     for error, reason in (
         (inside, "nested_store"),
@@ -309,7 +313,7 @@ def test_symbolic_link_in_store_path_is_a_validation_error(tmp_path):
         lambda: init_store(tmp_path / "link" / "inner"),
         lambda: open_store(tmp_path / "link"),
     ):
-        with pytest.raises(IMGWStoreError, match="symbolic link") as error:
+        with pytest.raises(ObserwatorStoreError, match="symbolic link") as error:
             call()
         assert error.value.code == "validation_error"
 
@@ -335,7 +339,7 @@ def test_archive_sidecar_without_http_is_conflict(tmp_path):
     meta = json.loads(sidecar.read_text("utf-8"))
     del meta["extra"]["http"]
     sidecar.write_text(json.dumps(meta))
-    with pytest.raises(IMGWStoreConflictError, match="A corrupt archive version"):
+    with pytest.raises(ObserwatorStoreConflictError, match="A corrupt archive version"):
         write_archive(root, archive=ARCHIVE, response=response())
 
 
@@ -399,7 +403,9 @@ def test_a_kartograf_store_inside_a_store_is_detected_before_a_write(tmp_path):
     foreign = root.root / "foreign"
     foreign.mkdir()
     (foreign / "kartograf-store.json").write_text('{"schema": "kartograf-store/1"}')
-    with pytest.raises(IMGWStoreConflictError, match="kartograf-store.json") as error:
+    with pytest.raises(
+        ObserwatorStoreConflictError, match="kartograf-store.json"
+    ) as error:
         write_archive(root, archive=ARCHIVE, response=response())
     assert error.value.details == {"reason": "nested_store"}
     assert not list(root.root.rglob("codz_2024.zip"))
@@ -411,11 +417,11 @@ def test_marker_without_hard_links_is_store_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(writer.os, "link", refuse)
     path = tmp_path / "store"
-    with pytest.raises(IMGWStoreError, match="a hard link") as error:
+    with pytest.raises(ObserwatorStoreError, match="a hard link") as error:
         init_store(path)
     assert error.value.code == "conflict"
-    assert not (path / "imgw-store.json").exists()
-    assert not list(path.glob(".imgw-store.json.*.tmp"))
+    assert not (path / "obserwator-store.json").exists()
+    assert not list(path.glob(".obserwator-store.json.*.tmp"))
 
 
 def test_publish_observation_writes_the_spec_example_once_without_traces(tmp_path):
@@ -450,14 +456,14 @@ def test_publish_observation_writes_the_spec_example_once_without_traces(tmp_pat
         (CHMI_SLOT, replace(observation, etag='"inny"')),
         (fresh, observation),
     ):
-        with pytest.raises(IMGWCancelledError):
+        with pytest.raises(ObserwatorCancelledError):
             writer._publish_observation(
                 root, slot=slot, observation=item, cancel=lambda: True
             )
     assert list(path.parent.iterdir()) == [path]
     assert list((root / fresh).iterdir()) == []
     assert list((root / ".incoming").iterdir()) == []
-    with pytest.raises(IMGWValidationError, match="YYYY-MM-DDTHH:MM:SSZ"):
+    with pytest.raises(ObserwatorValidationError, match="YYYY-MM-DDTHH:MM:SSZ"):
         writer._publish_observation(
             root,
             slot=fresh,

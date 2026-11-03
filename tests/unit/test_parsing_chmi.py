@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from imgwtools._parsing.chmi import (
+from obserwator._parsing.chmi import (
     parse_listing,
     read_metadata,
     station_coordinates,
     station_rows,
 )
-from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWDataError, IMGWValidationError
-from imgwtools.models import Measurement
-from imgwtools.parsers import (
+from obserwator.datasets import archive_files
+from obserwator.exceptions import ObserwatorDataError, ObserwatorValidationError
+from obserwator.models import Measurement
+from obserwator.parsers import (
     normalize_archive,
     parse_chmi_hydro_daily,
     parse_chmi_meteo_daily,
@@ -177,7 +177,7 @@ def test_hydro_duplicate_date_keeps_equal_value_and_rejects_different_one():
         ("HD", "CM", [["2024-01-05T00:00:00Z", 90]]),
         ("HD", "CM", [["2024-01-05T00:00:00Z", 91]]),
     )
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         list(parse_chmi_hydro_daily(other, filename=H2024))
     assert error.value.details["location"] == "tsList[1].tsData.data.values[0]"
 
@@ -254,7 +254,7 @@ def _with_rows(*rows):
     ],
 )
 def test_hydro_malformed_content_names_file_and_json_path(content, location):
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         list(parse_chmi_hydro_daily(content, filename=f"{DAILY}/{H2024}"))
 
     assert error.value.code == "data_error"
@@ -276,13 +276,13 @@ def test_hydro_malformed_content_names_file_and_json_path(content, location):
     ids=["syntax", "duplicate-key", "nan", "utf8"],
 )
 def test_hydro_invalid_json_is_a_data_error_with_position(content, fragment):
-    with pytest.raises(IMGWDataError, match=fragment) as error:
+    with pytest.raises(ObserwatorDataError, match=fragment) as error:
         list(parse_chmi_hydro_daily(content, filename=H2024))
     assert error.value.details["file"] == H2024
 
 
 def test_hydro_rejects_a_name_that_is_not_a_daily_hydro_file():
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         list(parse_chmi_hydro_daily(b"{}", filename="H_0-203-1-900001_HQ_2024.json"))
     assert error.value.details["option"] == "filename"
 
@@ -432,7 +432,7 @@ def test_meteo_temperatures_are_values_even_at_zero():
 )
 def test_meteo_malformed_content_names_file_and_line(content, line):
     path = f"{CSV_DAILY}/precipitation/{SRA_NAME}"
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         list(parse_chmi_meteo_daily(content, filename=path))
 
     assert error.value.code == "data_error"
@@ -450,7 +450,7 @@ def test_meteo_malformed_content_names_file_and_line(content, line):
     ],
 )
 def test_meteo_timefunc_must_fit_the_element(element, row):
-    with pytest.raises(IMGWDataError, match="TIMEFUNC"):
+    with pytest.raises(ObserwatorDataError, match="TIMEFUNC"):
         list(
             parse_chmi_meteo_daily(
                 meteo_file(row), filename=f"dly-0-203-0-90001-{element}.csv"
@@ -459,7 +459,7 @@ def test_meteo_timefunc_must_fit_the_element(element, row):
 
 
 def test_meteo_rejects_elements_outside_the_dataset():
-    with pytest.raises(IMGWValidationError) as error:
+    with pytest.raises(ObserwatorValidationError) as error:
         list(
             parse_chmi_meteo_daily(METEO_HEADER, filename="dly-0-203-0-90001-API30.csv")
         )
@@ -658,14 +658,14 @@ def test_read_metadata_keeps_published_decimal_notation():
 def test_stations_malformed_metadata_is_a_data_error_with_place(
     content, kind, location
 ):
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         list(parse_chmi_stations(content, kind=kind))
     assert error.value.code == "data_error"
     assert error.value.details["location"] == location
 
 
 def test_stations_reject_an_unknown_kind():
-    with pytest.raises(IMGWValidationError):
+    with pytest.raises(ObserwatorValidationError):
         list(parse_chmi_stations(b"{}", kind="synop"))
 
 
@@ -763,7 +763,9 @@ def test_listing_fixtures_list_every_fixture_file_with_its_exact_size(
     ids=["only-parent", "error-page", "empty"],
 )
 def test_listing_without_rows_is_a_data_error(body):
-    with pytest.raises(IMGWDataError, match="no file and directory rows") as error:
+    with pytest.raises(
+        ObserwatorDataError, match="no file and directory rows"
+    ) as error:
         parse_listing(body, url=LISTING_URL)
     assert error.value.details == {"url": LISTING_URL}
 
@@ -792,14 +794,14 @@ def test_listing_without_rows_is_a_data_error(body):
     ],
 )
 def test_listing_unreadable_row_is_a_data_error_with_line(row):
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         parse_listing(listing(row), url=LISTING_URL)
     assert error.value.details == {"url": LISTING_URL, "line": 5}
 
 
 def test_listing_repeated_name_is_a_data_error():
     row = '<a href="x.json">x.json</a>    18-Oct-2026 17:05      123'
-    with pytest.raises(IMGWDataError, match="a repeated name"):
+    with pytest.raises(ObserwatorDataError, match="a repeated name"):
         parse_listing(listing(row, row), url=LISTING_URL)
 
 
@@ -834,6 +836,6 @@ def test_normalize_archive_names_the_server_path_in_chmi_errors():
     (archive,) = archive_files(
         "cz.chmi.hydro_daily", stations=["0-203-1-900001"], years=2024
     )
-    with pytest.raises(IMGWDataError) as error:
+    with pytest.raises(ObserwatorDataError) as error:
         list(normalize_archive(archive, data=hydro_file(code="0-203-1-900002")))
     assert error.value.details["file"] == archive.server_path
