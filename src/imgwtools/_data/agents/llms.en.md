@@ -18,4 +18,4 @@
 
 ## Optional
 
-- [Decision log](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-004
+- [Decision log](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-008

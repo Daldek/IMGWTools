@@ -18,4 +18,4 @@
 
 ## Optional
 
-- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-004
+- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-008
