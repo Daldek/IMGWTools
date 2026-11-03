@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterator, Mapping
 from datetime import date
 from pathlib import Path
@@ -46,6 +47,15 @@ PROCESSED = (
 (H2024,) = archive_files(DAILY, years=[2024])
 (O1995,) = archive_files(PRECIP, years=[1995])
 (O2001,) = archive_files(PRECIP, years=[2001], months=[1])
+# ``--allow-dir`` of an MCP server that may touch every path of a test: the root
+# of the file system. On Windows ``/`` is only the root of the working drive, so
+# the drives of the working and of the temporary directory (``tmp_path``).
+ANYWHERE = tuple(
+    dict.fromkeys(
+        Path(Path(directory).anchor)
+        for directory in (Path.cwd(), tempfile.gettempdir())
+    )
+)
 
 
 def _json(name: str) -> Any:

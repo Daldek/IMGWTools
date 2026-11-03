@@ -51,6 +51,7 @@ from imgwtools.datasets import get_dataset
 from imgwtools.testing import build_fixture_store, fixture_files
 from tests.contract.conftest import _CLOCKED, FROZEN_AT
 from tests.contract.support import (
+    ANYWHERE,
     DAILY,
     RABA,
     canonical,
@@ -1152,7 +1153,7 @@ def mcp_answer(
 
     async def ask() -> Any:
         async with Client(
-            create_server(mode="write" if writes else "read", allow_dirs=(Path("/"),))
+            create_server(mode="write" if writes else "read", allow_dirs=ANYWHERE)
         ) as client:
             return await client.call_tool(meta["operation_id"], arguments)
 

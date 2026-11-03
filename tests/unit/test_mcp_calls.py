@@ -11,7 +11,6 @@ import json
 import shutil
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -44,6 +43,7 @@ from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
 from imgwtools.testing import build_fixture_store
 from tests.contract.support import (
+    ANYWHERE,
     DAILY,
     H2023,
     H2024,
@@ -92,7 +92,7 @@ def imgw():
 
 
 async def call(tool: str, arguments: dict[str, Any], *, mode: Mode = "read"):
-    async with Client(create_server(mode=mode, allow_dirs=(Path("/"),))) as client:
+    async with Client(create_server(mode=mode, allow_dirs=ANYWHERE)) as client:
         return await client.call_tool(tool, arguments)
 
 
@@ -356,7 +356,7 @@ async def test_a_cancelled_call_reaches_cancel_and_leaves_no_partial_version(
     arguments = {"root": str(root), **SYNC, "check": False}
 
     async with (
-        Client(create_server(mode="write", allow_dirs=(Path("/"),))) as client,
+        Client(create_server(mode="write", allow_dirs=ANYWHERE)) as client,
         anyio.create_task_group() as group,
     ):
         group.start_soon(client.call_tool, "imgw_store_sync", arguments)
