@@ -10,25 +10,27 @@ file. The declarations are the §3.2 table, published in ``x-imgw``.
 
 import re
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import respx
 
-from imgwtools import init_project, init_store, run_command, sync_pmaxtp
+from imgwtools import init_store, run_command, sync_pmaxtp
 from imgwtools.commands import command_schema, data_commands
 from imgwtools.testing import build_fixture_store
 from tests.contract.support import H2024, NEW, V3, FakeImgw, snapshot, stamps
 from tests.contract.test_interface_contract import CASES, Case, resolved, rooted
 
 SPECS = {spec.name: spec for spec in data_commands()}
-# MCP tool names (spec 2026-10-19 §6.4): letters, digits, "_", "-" and ".".
-TOOL_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
+# MCP tool names (AGI-5.2): the project prefix and at most 48 characters of [a-z0-9_].
+TOOL_NAME = re.compile(r"imgw_[a-z0-9_]{1,43}")
 # Spec 2026-10-19 §3.2: command → (writes, network, writing options).
 EFFECTS = {
     "datasets list": ("none", False, {}),
     "datasets files": ("none", False, {}),
-    "datasets download": ("replace", True, {}),
+    "datasets download": ("add", True, {"output_dir": "add", "force": "replace"}),
     "datasets providers": ("none", False, {}),
     "stations find": ("none", True, {}),
     "current hydro": ("none", True, {}),
@@ -39,33 +41,37 @@ EFFECTS = {
     "pmaxtp fetch": ("none", True, {}),
     "pmaxtp url": ("none", False, {}),
     "pmaxtp check": ("none", False, {}),
-    "pmaxtp sync": ("add", True, {}),
+    "pmaxtp sync": ("add", True, {"output_dir": "add", "force": "replace"}),
     "pmaxtp read": ("none", False, {}),
     "store init": ("add", False, {}),
     "store info": ("none", False, {}),
     "store scan": ("none", False, {}),
     "store check": ("none", True, {"plan": "replace"}),
-    "store sync": ("add", True, {}),
+    "store sync": ("add", True, {"output_dir": "add", "force": "replace"}),
     "store catalog": ("add", True, {}),
-    "store export": ("none", False, {"path": "replace"}),
+    "store export": ("none", False, {"output": "add", "force": "replace"}),
     "series build": ("add", False, {}),
     "series select": ("none", False, {}),
     "series read": ("none", False, {}),
     "series summary": ("none", False, {}),
-    "series export": ("none", False, {"path": "replace"}),
-    "project init": ("add", False, {}),
-    "project add": ("add", False, {}),
-    "project remove": ("replace", False, {}),
-    "project set-store": ("replace", False, {}),
-    "project download": ("replace", True, {}),
-    "project check": ("none", True, {"plan": "replace"}),
-    "project status": ("none", False, {}),
-    "project verify": ("none", False, {}),
+    "series export": ("none", False, {"output": "add", "force": "replace"}),
+    "commands list": ("none", False, {}),
     "commands schema": ("none", False, {}),
-    "commands guide": ("none", False, {"path": "replace"}),
+    "commands guide": ("none", False, {"output": "add", "force": "replace"}),
 }
-# Writing options of local commands (without a contract case).
-LOCAL_WRITES = {("project check", "plan")}
+# Writing options of local commands (without a contract case); the plain ones are
+# held by tests/unit/test_plain_output.py.
+LOCAL_WRITES = {
+    ("datasets download", "output_dir"),
+    ("datasets download", "force"),
+    ("store sync", "output_dir"),
+    ("store sync", "force"),
+    ("pmaxtp sync", "output_dir"),
+    ("pmaxtp sync", "force"),
+    ("store export", "force"),
+    ("series export", "force"),
+    ("commands guide", "force"),
+}
 
 
 @pytest.fixture(scope="module")
@@ -118,12 +124,12 @@ def case_root(case: Case, target: Path, served: Path, fixture: Path) -> Path | N
 def run(command: str, options: dict[str, object], root: Path | None) -> str:
     """Run a case through Python, reading a stream to its end; return the status."""
     outcome = run_command(command, options=rooted(resolved(options, root), root))
-    if SPECS[command].result == "stream" and "path" not in options:
-        "".join(outcome.result)
+    if SPECS[command].result == "stream" and "output" not in options:
+        "".join(cast(Iterable[str], outcome.result))
     return outcome.status
 
 
-def cases_of(predicate) -> list:
+def cases_of(predicate) -> list[Any]:
     """Contract cases of the commands meeting ``predicate``, one test each."""
     return [
         pytest.param(command, case, id=f"{command} #{index}")
@@ -140,6 +146,8 @@ def writing_cases() -> list[tuple[str, Case, str]]:
         for command, cases in CASES.items()
         for option in SPECS[command].options
         if option.writes != "none"
+        and option.type == "path"
+        and option.name != "output_dir"
     ]
 
 
@@ -158,8 +166,13 @@ def test_catalog_declares_the_effects_of_spec_section_3_2():
         for schema in commands
     } == EFFECTS
     names = [schema["x-imgw"]["operation_id"] for schema in commands]
+    assert names == [
+        "imgw_" + schema["title"].replace(" ", "_").replace("-", "_")
+        for schema in commands
+    ]
     assert len(set(names)) == len(names)
     assert all(TOOL_NAME.fullmatch(name) for name in names)
+    assert all(isinstance(schema["x-imgw"]["idempotent"], bool) for schema in commands)
 
 
 def test_every_write_can_be_planned_by_a_check_twin():
@@ -168,7 +181,7 @@ def test_every_write_can_be_planned_by_a_check_twin():
             assert spec.check is not None, spec.name
         for option in spec.options:
             if option.writes != "none":
-                # A check itself (store check, project check) plans by running.
+                # A check itself (store check) plans by running.
                 is_check = spec.function.startswith("check_")
                 assert spec.check is not None or is_check, (spec.name, option.name)
 
@@ -235,27 +248,13 @@ def test_a_writing_option_writes_its_file(
     root = case_root(case, tmp_path / "store", served_root, fixture_root)
     target = tmp_path / "out" / f"{option}.txt"
     target.parent.mkdir()
+    options = {**case.options, option: target}
+    if existing and any(o.name == "force" for o in SPECS[command].options):
+        options["force"] = True  # an existing output is replaced only with force
     if existing:  # "replace": an existing file is overwritten
         target.write_text("stara treść\n", encoding="utf-8")
 
-    assert run(command, {**case.options, option: target}, root) == "ok"
+    assert run(command, options, root) == "ok"
 
     assert target.is_file()
     assert target.read_text(encoding="utf-8") != "stara treść\n"
-
-
-@pytest.mark.parametrize("existing", [False, True], ids=["new", "existing"])
-def test_project_check_writes_its_plan_file(existing, tmp_path, workdir):
-    project = init_project(tmp_path / "projekt", store_dir="../magazyn").path
-    target = tmp_path / "plan.json"
-    if existing:
-        target.write_text("{}\n", encoding="utf-8")
-    with respx.mock(assert_all_called=False) as router:
-        anything = router.route().respond(503)
-        outcome = run_command(
-            "project check", options={"project_dir": project, "plan": target}
-        )
-
-    assert outcome.status == "ok"
-    assert target.read_text(encoding="utf-8") != "{}\n"
-    assert anything.call_count == 0  # a project without tasks asks no source

@@ -1,4 +1,4 @@
-"""Fetch IMGW-PIB reference data into the ``data/`` directory.
+"""Fetch IMGW-PIB reference data into the reference directory.
 
 After installing the package (``pip install -e .``), run it with no arguments:
 
@@ -7,8 +7,10 @@ After installing the package (``pip install -e .``), run it with no arguments:
 The module reuses ``imgwtools.stations.fetch_hydro_states`` (it does not
 duplicate IMGW URLs, parsing, or encoding) and writes only
 ``hydro_stations_locations.csv`` and the format descriptions (``desc/``).
-Output goes to ``settings.data_dir`` (defaults to ``./data``; override with the
-``IMGW_DATA_DIR`` environment variable).
+Output goes to ``settings.reference_dir``: ``IMGW_REFERENCE_DIR``, ``[imgw]
+reference_dir`` of ``nogat.toml``, else ``<cache_dir>/imgw/reference`` (the cache
+directory of ``nogat``; ``IMGW_CACHE_DIR`` moves it). Nothing is written to the
+working directory.
 
 All fetched data comes from IMGW-PIB and is subject to IMGW-PIB's terms of use.
 Regulations and the exact attribution wording:
@@ -24,9 +26,10 @@ from pathlib import Path
 
 import httpx
 
-from imgwtools.config import settings
+from imgwtools.config import human_language, settings
 from imgwtools.datasets import get_provider
 from imgwtools.exceptions import IMGWError
+from imgwtools.messages import Lang, message, reason
 from imgwtools.stations import fetch_hydro_states
 
 # Format-description files are not covered by imgwtools.stations, so their URLs
@@ -44,6 +47,10 @@ METEO_SUBTYPES = ["klimat", "opad", "synop"]
 # Required attribution of IMGW-PIB data: the formula of the provider registry.
 ATTRIBUTION = get_provider("IMGW-PIB").license.attribution
 
+# Language of the lines this module prints: IMGW_LANG (Polish by default), Polish
+# also for an unusable value (the CLI reports that one).
+_LANG: Lang = human_language() or "pl"
+
 
 def _write_csv(path: Path, header: list[str], rows: Iterable[list[object]]) -> None:
     buf = io.StringIO()
@@ -55,20 +62,24 @@ def _write_csv(path: Path, header: list[str], rows: Iterable[list[object]]) -> N
         count += 1
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(buf.getvalue(), encoding="utf-8")
-    print(f"  - {path} ({count} wierszy)")
+    print(message("reference.rows_written", lang=_LANG, path=path, count=count))
 
 
 def _write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
-    print(f"  - {path} ({len(data):,} B)")
+    print(
+        message(
+            "reference.bytes_written", lang=_LANG, path=path, size=f"{len(data):,} B"
+        )
+    )
 
 
-def fetch_stations(data_dir: Path) -> None:
+def fetch_stations(reference_dir: Path) -> None:
     """Fetch hydrological station coordinates via the library (no duplication)."""
-    print("Współrzędne stacji hydrologicznych:")
+    print(message("reference.station_coordinates", lang=_LANG))
     _write_csv(
-        data_dir / "hydro_stations_locations.csv",
+        reference_dir / "hydro_stations_locations.csv",
         ["station_code", "latitude", "longitude"],
         (
             [s.station_code, s.latitude, s.longitude]
@@ -93,46 +104,66 @@ def _meteo_format_files(client: httpx.Client) -> Iterator[tuple[str, str]]:
                     yield name, base + name
 
 
-def fetch_descriptions(data_dir: Path) -> None:
+def fetch_descriptions(reference_dir: Path) -> None:
     """Fetch file-format description files (resources outside the library)."""
     with httpx.Client(timeout=60, follow_redirects=True) as client:
-        print("Opisy formatów (hydro):")
+        print(message("reference.format_descriptions_hydro", lang=_LANG))
         for rel in HYDRO_DESC:
             resp = client.get(f"{DESC_BASE}/{rel}")
             if resp.is_success:
                 _write_bytes(
-                    data_dir / "desc" / "dane_hydrologiczne" / Path(rel).name,
+                    reference_dir / "desc" / "dane_hydrologiczne" / Path(rel).name,
                     resp.content,
                 )
             else:
-                print(f"  pominięto: {rel}: HTTP {resp.status_code}")
+                print(
+                    message(
+                        "reference.skipped",
+                        lang=_LANG,
+                        name=rel,
+                        status=resp.status_code,
+                    )
+                )
 
-        print("Opisy formatów (meteo):")
+        print(message("reference.format_descriptions_meteo", lang=_LANG))
         for name, url in _meteo_format_files(client):
             resp = client.get(url)
             if resp.is_success:
                 _write_bytes(
-                    data_dir / "desc" / "dane_meteorologiczne" / name, resp.content
+                    reference_dir / "desc" / "dane_meteorologiczne" / name,
+                    resp.content,
                 )
             else:
-                print(f"  pominięto: {name}: HTTP {resp.status_code}")
+                print(
+                    message(
+                        "reference.skipped",
+                        lang=_LANG,
+                        name=name,
+                        status=resp.status_code,
+                    )
+                )
 
 
 def main() -> int:
-    """Fetch all reference data into ``settings.data_dir``."""
-    data_dir = settings.data_dir
-    print(f"Pobieranie danych referencyjnych do: {data_dir}")
-    print("Dane podlegają warunkom korzystania IMGW-PIB.")
-    print(f"Wymagana atrybucja: {ATTRIBUTION}\n")
+    """Fetch all reference data into ``settings.reference_dir``."""
+    reference_dir = settings.reference_dir
+    print(message("reference.fetching_to", lang=_LANG, directory=reference_dir))
+    print(message("reference.terms_of_use", lang=_LANG))
+    print(
+        message("reference.required_attribution", lang=_LANG, attribution=ATTRIBUTION)
+    )
 
     try:
-        fetch_stations(data_dir)
-        fetch_descriptions(data_dir)
+        fetch_stations(reference_dir)
+        fetch_descriptions(reference_dir)
     except (IMGWError, httpx.HTTPError) as exc:
-        print(f"Błąd pobierania danych: {exc}", file=sys.stderr)
+        print(
+            message("reference.fetch_failed", lang=_LANG, error=reason(exc)),
+            file=sys.stderr,
+        )
         return 1
 
-    print(f"\nGotowe: dane IMGW-PIB zapisano w {data_dir}.")
+    print(message("reference.done", lang=_LANG, directory=reference_dir))
     return 0
 
 

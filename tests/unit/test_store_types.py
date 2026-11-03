@@ -14,11 +14,11 @@ from imgwtools.datasets import archive_files
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWError,
-    IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWStoreError,
 )
+from imgwtools.output import FileResult
 from imgwtools.store.types import (
     CatalogReport,
     CommandOption,
@@ -33,11 +33,8 @@ from imgwtools.store.types import (
     PlanItem,
     PMaXTPStoreResult,
     Progress,
-    Project,
-    ProjectFile,
-    ProjectReport,
-    ProjectTask,
     SeriesReport,
+    StationSeriesIndex,
     StoreEntry,
     StoreInfo,
     StorePlan,
@@ -52,7 +49,6 @@ from imgwtools.store.types import (
         IMGWStoreError,
         IMGWStoreConflictError,
         IMGWStoreDependencyError,
-        IMGWProjectError,
     ],
 )
 def test_store_errors_extend_imgw_error(error):
@@ -69,8 +65,8 @@ def test_frozen_contracts():
         Notice("warning", "missing", "Brak danych"),
         StoreInfo(Path("/tmp/store"), False, None, False, {}, ()),
         StoreEntry("problem", "archive:abc", None, None, "missing", "Brak"),
-        VersionResult("created", Path("/tmp/zip"), "a" * 64, "2026-10-17"),
-        SeriesReport("reused", None, 0, (), ()),
+        VersionResult("new", Path("/tmp/zip"), "a" * 64, "2026-10-17"),
+        SeriesReport("unchanged", None, 0, (), ()),
         SyncReport((), (), False),
         CatalogReport("unchanged", None, 0, 0, 0, ()),
         Page((1, 2), 2, None, 0),
@@ -82,10 +78,9 @@ def test_frozen_contracts():
             None,
             None,
         ),
-        DownloadReport(Path("/tmp/out"), (), False),
+        DownloadReport("plain", Path("/tmp/out"), None, (), (), False),
         CommandResult("store info", False, "ok", None, ()),
         PMaXTPStoreResult("unchanged", None, None, None, None),
-        ProjectReport({}, (), False),
         Meta(
             "imgw-meta/1",
             "pl.imgw.hydro_daily",
@@ -153,7 +148,7 @@ def test_plan_url_must_match_dataset_registry(tmp_path):
     payload = json.loads(path.read_text())
     payload["items"][0]["url"] = "http://127.0.0.1:22/x"
     path.write_text(json.dumps(payload))
-    with pytest.raises(IMGWDataError, match="nie odpowiada rejestrowi"):
+    with pytest.raises(IMGWDataError, match="does not match the dataset registry"):
         StorePlan.from_json(path)
 
 
@@ -166,6 +161,8 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     root = tmp_path / "store"
     outside = tmp_path / "out" / "codz_2023.zip"
     result = DownloadReport(
+        "store",
+        None,
         root,
         (
             DownloadItem(
@@ -185,6 +182,10 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
                 "io_error",
             ),
         ),
+        (
+            FileResult(root / "archives" / "codz_2023.zip", 3, "ab" * 32, "new"),
+            FileResult(outside, 4, "cd" * 32, "written"),
+        ),
         False,
     )
     notice = Notice("info", "license_terms", f"Magazyn {root}")
@@ -195,7 +196,9 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     assert list(local) == ["schema", "command", "check", "status", "result", "notices"]
     assert local["schema"] == "imgw-result/1"
     assert local["result"] == {
-        "output": str(root),
+        "mode": "store",
+        "output_dir": None,
+        "root": str(root),
         "items": [
             {
                 "slot": "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
@@ -214,6 +217,20 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
                 "error_code": "io_error",
             },
         ],
+        "files": [
+            {
+                "path": "archives/codz_2023.zip",
+                "size_bytes": 3,
+                "sha256": "ab" * 32,
+                "status": "new",
+            },
+            {
+                "path": str(outside),
+                "size_bytes": 4,
+                "sha256": "cd" * 32,
+                "status": "written",
+            },
+        ],
         "cancelled": False,
     }
     assert local["notices"] == [
@@ -222,7 +239,8 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
 
     served = envelope.to_json(root=root, server=True)
 
-    assert served["result"]["output"] == "."
+    assert served["result"]["root"] == "."
+    assert served["result"]["files"][0]["path"] == "archives/codz_2023.zip"
     assert served["result"]["items"][0]["path"] == "archives/codz_2023.zip"
     assert served["result"]["items"][1]["error"] == (
         f"Nie można zapisać archives/x.zip ani {root}2/y"
@@ -231,34 +249,21 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     json.dumps(served)
 
 
-def test_to_json_writes_project_pins_relative_to_the_store_in_any_working_directory(
+def test_to_json_keeps_relative_paths_relative_in_any_working_directory(
     tmp_path, monkeypatch
 ):
     store = tmp_path / "magazyn"
-    pin = Path(
-        "series/versions/hydro_daily/2024-04-24_6aaf54cd/stations/150160180.parquet"
-    )
-    task = ProjectTask(
-        "dobowe",
-        "store sync",
-        {"datasets": ["pl.imgw.hydro_daily"], "years": [2022]},
-        None,
-        datetime(2026, 10, 18, 20, 0, tzinfo=UTC),
-        "3.0.0",
-        (ProjectFile("station_series", pin, "0" * 64, "150160180"),),
-    )
-    project = Project(tmp_path / "projekt", store, (task,))
-    envelope = CommandResult("project set-store", False, "ok", project, ())
+    parquet = Path("stations/150160180.parquet")
+    entry = StationSeriesIndex(parquet, "0" * 64, 1, {})
+    envelope = CommandResult("series summary", False, "ok", entry, ())
     documents = []
     for directory in (tmp_path, store):
         directory.mkdir(exist_ok=True)
         monkeypatch.chdir(directory)
-        documents.append(envelope.to_json())
+        documents.append(envelope.to_json(root=store))
 
     assert documents[0] == documents[1]
-    result = documents[0]["result"]
-    assert result["store_dir"] == str(store)
-    assert result["tasks"][0]["files"][0]["path"] == pin.as_posix()
+    assert documents[0]["result"]["file"] == parquet.as_posix()
 
 
 def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):
@@ -327,13 +332,13 @@ def test_to_json_rejects_values_without_json_form():
 
 
 def test_new_fields_have_defaults_and_catalog_constructs():
-    operation = OperationResult("archive:x", "created", None, None)
+    operation = OperationResult("archive:x", "new", None, None)
     option = CommandOption("root", "path", True, "--root", (), "Katalog magazynu")
     command = DataCommand(
         "store info", "Opis", (option,), "store_info", None, "object", "GET"
     )
 
-    assert (operation.task, operation.error_code) == (None, None)
+    assert operation.error_code is None
     assert OperationResult(None, "failed", None, "Błąd").slot is None
     assert StoreEntry("problem", None, None, None, "missing", "Brak").slot is None
     assert (option.default, option.aliases, option.items, option.rest) == (
@@ -361,7 +366,25 @@ def test_chmi_fields_default_so_3_0_constructors_keep_working():
     assert (item.local_observation, plan.requests) == (None, None)
     assert StoreInfo(Path("/s"), True, None, True, {}, ()).providers == ()
     assert StoreEntry("problem", None, None, None, "x", "Brak").provider is None
-    assert CatalogReport("created", None, 0, 0, 0, ()).provider == "IMGW-PIB"
+    assert CatalogReport("new", None, 0, 0, 0, ()).provider == "IMGW-PIB"
+
+
+def test_fields_added_to_the_read_api_default_so_older_constructors_keep_working():
+    meta = Meta(
+        "imgw-meta/1",
+        "pl.imgw.hydro_daily",
+        "pl.imgw.hydro_daily",
+        "a" * 64,
+        1,
+        datetime.now(UTC),
+        None,
+        {},
+        {},
+    )
+
+    assert StoreInfo(Path("/s"), True, None, True, {}, ()).problem_codes == ()
+    assert (meta.producer, meta.producer_version) == ("imgwtools", None)
+    assert StoreEntry("problem", None, None, None, "x", "Brak").skipped is False
 
 
 def _chmi_plan(tmp_path):
@@ -427,10 +450,16 @@ def test_plan_without_the_chmi_fields_reads_with_defaults(tmp_path):
 @pytest.mark.parametrize(
     ("change", "text"),
     [
-        (lambda d: d["items"][0].update(signal="ftp"), "sygnał"),
+        (lambda d: d["items"][0].update(signal="ftp"), "Unknown signal"),
         (lambda d: d.update(requests={"made": -1}), "requests"),
-        (lambda d: d["items"][0].update(station_code="0-203-1-900002"), "ścieżka"),
-        (lambda d: d["items"][0].update(server_path="hydrology/x/y.json"), "ścieżka"),
+        (
+            lambda d: d["items"][0].update(station_code="0-203-1-900002"),
+            "Unknown source path",
+        ),
+        (
+            lambda d: d["items"][0].update(server_path="hydrology/x/y.json"),
+            "Unknown source path",
+        ),
     ],
 )
 def test_plan_with_invalid_chmi_fields_is_a_data_error(tmp_path, change, text):

@@ -5,11 +5,13 @@
 
 > **Uwaga (decyzja właściciela z 2026-10-17):** wydanie **3.0.0** pakietu `imgwtools` to wersjonowany magazyn danych według ADR-001 (`docs/DECISIONS.md`, `docs/CHANGELOG.md`), a nie Obserwator. Wynikają z tego dwie zmiany tego szkicu:
 > 1. **§7 „Cache SQLite — schemat v2” jest zastąpiony** przez magazyn wersjonowany (pliki + sidecary, bez bazy). Cache SQLite usunięto w 3.0.0; Obserwator nie przywraca bazy.
-> 2. **Obserwator to wyłącznie przyszła zmiana nazwy i rozszerzenie o providery** (warstwa providerów, ČHMÚ, angielskie API) w kolejnym wydaniu major — roboczo 4.0.0, nie 3.0.0. Kontrakty magazynu (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`, `imgw-project/1`) zmieniają się tylko według polityki IMGW-13 (nowe `/N`, okres przejściowy).
+> 2. **Obserwator to wyłącznie przyszła zmiana nazwy i rozszerzenie o providery** (warstwa providerów, ČHMÚ, angielskie API) w kolejnym wydaniu major — roboczo 4.0.0, nie 3.0.0. Kontrakty magazynu (`imgw-store/1`, `imgw-meta/1`, `imgw-series/1`, `imgw-plan/1`) zmieniają się tylko według polityki IMGW-13 (nowe `/N`, okres przejściowy).
 >
 > Pozostałe sekcje opisują stan planu z 2026-08-11 i wymagają ponownego przeglądu przed realizacją.
 
 > **Uwaga (2026-10-18, ADR-003 — propozycja):** część ČHMÚ tego szkicu zastępują `docs/DECISIONS.md` ADR-003 („Dostawca ČHMÚ w magazynie IMGW”) i `docs/superpowers/specs/2026-10-18-chmi-provider-design.md`. ČHMÚ wchodzi jako drugi dostawca w kontraktach 3.x (wydanie 3.1.0, bez zmiany nazwy pakietu): w rejestrze zbiorów (`cz.chmi.*`), magazynie, katalogu komend ADR-002 i kodach błędów `IMGWError`. W zakresie ČHMÚ zastąpione są: §6 w całości (niżej zachowany jako zapis historyczny z erratą), interfejs i rejestr providerów z §3.2–§3.4 oraz fasada `provider=` z §4 (zamiast nich `ProviderDescriptor` i opcja `provider` katalogu komend), komendy ČHMÚ z §8, trasy `/api/v2/{provider}` z §9, mapa stanów ČHMÚ z §10, etap 7 z §12, ryzyka ČHMÚ z §13 i punkt 3 z §14. Zakres ČHMÚ to archiwa dobowe hydro (H, Q, T) i meteo (opad, temperatura powietrza) z katalogiem stacji; dane bieżące, ostrzeżenia CAP i archiwa miesięczne ČHMÚ są poza zakresem. Zmiana nazwy na Obserwator pozostaje przyszłą decyzją.
+
+> **Uwaga (2026-10-31, ADR-008):** projekty przeniesiono do Archiwisty (`archiwista-project/1`); z listy kontraktów w punkcie 2 wyżej usunięto manifest projektu, a z §8 grupę komend `project`. Obserwator, jak IMGWTools, nie ma własnych projektów.
 
 ---
 
@@ -372,7 +374,6 @@ obserwator list intervals -P imgw
 
 obserwator store init|info|scan|check|sync|catalog  # magazyn wersjonowany (odpowiednik imgw store …; dawne komendy cache §7 zastąpione)
 obserwator series build|export|select
-obserwator project init|add|remove|set-store|download|check|status|verify
 
 obserwator admin keys|create|revoke|delete|stats  # bez zmian merytorycznych
 ```

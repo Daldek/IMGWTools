@@ -1,6 +1,7 @@
 """``imgw`` generated from the command catalog (spec §13.10): envelope, errors, flags."""
 
 import functools
+import hashlib
 import importlib
 import json
 import os
@@ -26,12 +27,21 @@ from imgwtools.commands import (
     command_schema,
     data_commands,
     format_command,
+    parse_command,
     run_command,
     validate_command,
 )
 from imgwtools.config import settings
-from imgwtools.exceptions import ERROR_CODES
-from imgwtools.store.types import CommandResult, Notice, SeriesReport, SyncReport
+from imgwtools.exceptions import ERROR_CODES, IMGWError
+from imgwtools.messages import localize, message
+from imgwtools.store.types import (
+    CommandCall,
+    CommandResult,
+    Notice,
+    Progress,
+    SeriesReport,
+    SyncReport,
+)
 from imgwtools.testing import build_fixture_store
 from imgwtools.urls import IMGW_API_URL
 from tests.contract.support import (
@@ -53,7 +63,7 @@ from tests.unit.test_commands import SAMPLES
 
 RUNNER = CliRunner()
 SPECS = {spec.name: spec for spec in data_commands()}
-CATALOG = command_schema()
+CATALOG = command_schema(lang="pl")
 EXIT_CODES = CATALOG["exit_codes"]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
@@ -74,6 +84,8 @@ CLI_ERROR = {
                 "store_unavailable",
                 "io_error",
                 "cancelled",
+                "forbidden",
+                "unsupported",
                 "internal_error",
             ]
         },
@@ -85,9 +97,9 @@ CLI_ERROR = {
 
 
 @pytest.fixture(autouse=True)
-def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT and IMGW_LANG must not reach the commands."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+def no_imgw_root(monkeypatch):
+    """The developer's IMGW_ROOT and IMGW_LANG must not reach the commands."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
     monkeypatch.delenv("IMGW_LANG", raising=False)
 
 
@@ -153,7 +165,7 @@ def error_line(result, code):
 def click_command(name):
     command = typer.main.get_command(app)
     for word in name.split():
-        command = command.commands[word]  # type: ignore[attr-defined]
+        command = command.commands[word]
     return command
 
 
@@ -193,7 +205,7 @@ def raising(monkeypatch, module, name, error):
 
 def run_installed(*args, lang=None, **kwargs):
     """
-    The installed ``imgw`` in its own process, without IMGW_STORE_ROOT or network.
+    The installed ``imgw`` in its own process, without IMGW_ROOT or network.
 
     ``lang`` is the IMGW_LANG of the process (unset by default).
     """
@@ -204,7 +216,7 @@ def run_installed(*args, lang=None, **kwargs):
     env = {
         key: value
         for key, value in os.environ.items()
-        if key not in ("IMGW_STORE_ROOT", "IMGW_LANG")
+        if key not in ("IMGW_ROOT", "IMGW_LANG")
     }
     env |= {"HTTP_PROXY": dead, "HTTPS_PROXY": dead, "NO_PROXY": ""}
     if lang is not None:
@@ -232,7 +244,7 @@ def tree(command, path=("imgw",)):
 def test_cli_catalog_registers_every_group_and_command_of_the_catalog():
     root = typer.main.get_command(app)
     for group, description in CATALOG["groups"].items():
-        assert root.commands[group].help == description  # type: ignore[attr-defined]
+        assert root.commands[group].help == description
         assert list(click_command(group).commands) == [
             spec.name.split(" ", 1)[1]
             for spec in data_commands()
@@ -246,27 +258,26 @@ def test_cli_catalog_registers_every_group_and_command_of_the_catalog():
 @pytest.mark.parametrize("spec", data_commands(), ids=lambda spec: spec.name)
 def test_cli_catalog_command_help_and_flags_are_the_catalog(spec):
     command = click_command(spec.name)
-    assert command.help == spec.description
+    assert command.help == localize(spec.description, "pl")
     params = {param.name: param for param in command.params}
     reserved = {"schema"} | ({"check"} if spec.check is not None else set())
     assert set(params) == {option.name for option in spec.options} | reserved
     for option in spec.options:
         param = params[option.name]
         assert param.opts == [option.flag, *option.aliases]
-        assert param.help == option.help
+        assert param.help == localize(option.help, "pl")
         if option.type == "bool":
             negative = [f"--no-{option.flag[2:]}"] if option.default is True else []
             assert param.secondary_opts == negative
-        assert (param.envvar == "IMGW_STORE_ROOT") == (option.name == "root")
+        assert param.envvar is None
     shown = " ".join(invoke(*spec.name.split(), "--help").output.split())
-    assert spec.description in shown
+    assert localize(spec.description, "pl") in shown
     assert ("Opcje wymagane" in shown) == any(o.required for o in spec.options)
 
 
-@pytest.mark.parametrize(("command", "options"), SAMPLES)
-def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
-    monkeypatch, command, options
-):
+@pytest.fixture
+def dispatched(monkeypatch):
+    """``(command, check, options)`` of each call the CLI dispatches, not run."""
     calls = []
 
     def dispatcher(check):
@@ -278,6 +289,21 @@ def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
 
     monkeypatch.setattr(_dispatch, "run_command", dispatcher(False))
     monkeypatch.setattr(_dispatch, "check_command", dispatcher(True))
+    return calls
+
+
+def dispatched_call(dispatched, args):
+    """The call the CLI dispatches for ``args``, as a ``CommandCall``."""
+    result = invoke(*args)
+    assert result.exit_code == 0, (args, result.output)
+    name, check, options = dispatched.pop()
+    return CommandCall(name, options, {"check": True} if check else {})
+
+
+@pytest.mark.parametrize(("command", "options"), SAMPLES)
+def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
+    dispatched, command, options
+):
     variants = [
         (argv(command, options), False),
         (argv(command, options, aliases=True), False),
@@ -285,19 +311,38 @@ def test_cli_catalog_passes_the_given_option_text_to_the_dispatcher(
     if SPECS[command].check is not None:
         variants.append(([*argv(command, options), "--check"], True))
     for args, check in variants:
-        result = invoke(*args)
-        assert result.exit_code == 0, (args, result.output)
-        name, checked, passed = calls.pop()
-        assert (name, checked) == (command, check)
+        call = dispatched_call(dispatched, args)
+        assert (call.command, call.run) == (command, {"check": True} if check else {})
         # Click validates nothing: the raw text of each given option reaches the catalog.
         assert all(
             isinstance(value, str | bool)
             or all(isinstance(item, str) for item in value)
-            for value in passed.values()
+            for value in call.options.values()
         )
-        assert validate_command(command, options=passed) == validate_command(
+        assert validate_command(command, options=call.options) == validate_command(
             command, options=options
         )
+        # parse_command reads the same words into the same call.
+        assert parse_command(args) == call
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (
+            *("store", "sync", "-r/data/imgw", f"--datasets={DAILY}"),
+            *("-y", "2023", "-y", "2024,2025", "--no-series", "--force", "--check"),
+            "--",
+        ),
+        ("store", "info", "--root", "/a", "-r", "/b"),
+        ("stations", "find", "--query", "-raba", "--kind=hydro"),
+    ],
+    ids=" ".join,
+)
+def test_parse_command_reads_joined_values_and_repeated_flags_as_the_cli(
+    dispatched, args
+):
+    assert parse_command(args) == dispatched_call(dispatched, args)
 
 
 @pytest.mark.parametrize("spec", data_commands(), ids=lambda spec: spec.name)
@@ -323,9 +368,7 @@ def test_cli_help_of_every_command_is_polish_by_default():
             assert english not in text, path
     store_sync = shown(invoke("store", "sync", "--help").output)
     for element in (
-        "Opcje wymagane",
         "─ Opcje ─",
-        "[zmienna środowiskowa: IMGW_STORE_ROOT]",
         "ŚCIEŻKA",
     ):
         assert element in store_sync
@@ -345,15 +388,13 @@ def test_cli_help_follows_imgw_lang_en():
 
     assert printed.returncode == 0, printed.stderr
     text = shown(printed.stdout)
-    assert spec.description_en in text
+    assert str(spec.description) in text
     for option in spec.options:
-        assert option.help_en in text, option.name
+        assert str(option.help) in text, option.name
     for element in (
         "Usage: imgw store sync [OPTIONS]",
         "─ Options ─",
-        "─ Required options ─",
         "Show this message and exit.",
-        "[env var: IMGW_STORE_ROOT]",
         "PATH",
     ):
         assert element in text
@@ -376,7 +417,7 @@ def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
     assert line["details"] == {
         "option": "IMGW_LANG",
         "value": "de",
-        "allowed": ["pl", "en"],
+        "allowed": ["en", "pl"],
     }
     # The language is checked before Click parses anything, help included.
     monkeypatch.setattr(settings, "lang", "english")
@@ -385,19 +426,20 @@ def test_cli_imgw_lang_outside_pl_and_en_ends_every_call_with_validation_error(
         assert document["details"]["option"] == "IMGW_LANG"
 
 
-def test_cli_lang_flag_and_imgw_lang_choose_the_commands_schema_language():
-    english = json.loads(json.dumps(command_schema(lang="en")))
-    polish = json.loads(json.dumps(command_schema()))
+def test_cli_commands_schema_is_english_and_polish_only_on_request():
+    english = json.loads(json.dumps(command_schema()))
+    polish = json.loads(json.dumps(command_schema(lang="pl")))
 
+    assert envelope(invoke("commands", "schema"))["result"] == english
     assert envelope(invoke("commands", "schema", "--lang", "en"))["result"] == english
-    by_variable = invoke("commands", "schema", env={"IMGW_LANG": "en"})
+    assert envelope(invoke("commands", "schema", "--lang", "pl"))["result"] == polish
+    # IMGW_LANG is the language of the human lines, not of the machine output.
+    by_variable = invoke("commands", "schema", env={"IMGW_LANG": "pl"})
     assert envelope(by_variable)["result"] == english
-    flag_first = invoke("commands", "schema", "--lang", "pl", env={"IMGW_LANG": "en"})
-    assert envelope(flag_first)["result"] == polish
-    flag = run_installed("store", "sync", "--schema", lang="en", capture_output=True)
+    flag = run_installed("store", "sync", "--schema", lang="pl", capture_output=True)
     assert flag.returncode == 0, flag.stderr
     assert json.loads(flag.stdout)["result"] == json.loads(
-        json.dumps(command_schema("store sync", lang="en"))
+        json.dumps(command_schema("store sync"))
     )
 
 
@@ -462,7 +504,7 @@ def test_cli_catalog_series_build_prints_the_envelope_of_the_same_run(
         "series build", options={"root": api_root, "dataset": PRECIP}
     ).to_json(root=api_root)
     assert printed == expected
-    assert printed["result"]["status"] == "created"
+    assert printed["result"]["status"] == "new"
     assert snapshot(cli_root) == snapshot(api_root)
 
 
@@ -500,9 +542,22 @@ def test_cli_catalog_streams_print_only_the_data_lines(tmp_path, fixture_root, o
         assert b"imgw-result/1" not in result.stdout_bytes
         assert "Informacja: Źródłem pochodzenia danych jest" in result.stderr
     target = tmp_path / "opad.csv"
-    printed = envelope(invoke("store", "export", "--version", version, "-p", target))
-    assert printed["result"] == str(target)
-    assert target.read_bytes() == "".join(store.export_archive(version)).encode()
+    printed = envelope(
+        invoke("store", "export", "--version", version, "--output", target)
+    )
+    wanted = "".join(store.export_archive(version)).encode()
+    assert printed["result"] == {
+        "output": str(target),
+        "files": [
+            {
+                "path": str(target),
+                "size_bytes": len(wanted),
+                "sha256": hashlib.sha256(wanted).hexdigest(),
+                "status": "written",
+            }
+        ],
+    }
+    assert target.read_bytes() == wanted
 
 
 def test_cli_catalog_prints_each_distinct_notice_once(monkeypatch, tmp_path):
@@ -530,13 +585,37 @@ def test_cli_catalog_prints_each_distinct_notice_once(monkeypatch, tmp_path):
     assert result.stderr.count("Ostrzeżenie: Licencja IMGW-PIB") == 1
 
 
-# --- --root z IMGW_STORE_ROOT ----------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("lang", "label", "text"),
+    [("pl", "Ostrzeżenie", "brak wersji"), ("en", "Warning", "no version")],
+)
+def test_cli_catalog_stderr_lines_follow_imgw_lang_while_the_envelope_is_english(
+    monkeypatch, tmp_path, lang, label, text
+):
+    monkeypatch.setattr(_dispatch, "_LANG", lang)
+
+    @functools.wraps(store.sync_store)
+    def sync_store(root, /, *, on_notice, on_progress, **kwargs):
+        on_progress(Progress(1, 1, "archive", "new", message("catalog.no_version")))
+        on_notice(Notice("warning", "other", message("catalog.no_version")))
+        return SyncReport((), (), cancelled=False)
+
+    monkeypatch.setattr(store, "sync_store", sync_store)
+
+    result = invoke("store", "sync", "-r", tmp_path, "-d", DAILY, "-y", 2024)
+
+    assert f"[1/1] {text}" in result.stderr
+    assert f"{label}: {text}" in result.stderr
+    assert [notice["text"] for notice in envelope(result)["notices"]] == ["no version"]
 
 
-def test_cli_catalog_root_falls_back_to_imgw_store_root(
+# --- --root z IMGW_ROOT ----------------------------------------------------------------
+
+
+def test_cli_catalog_root_falls_back_to_imgw_root(
     monkeypatch, tmp_path, fixture_root, offline
 ):
-    env = {"IMGW_STORE_ROOT": str(fixture_root)}
+    env = {"IMGW_ROOT": str(fixture_root)}
     info = run_command("store info", options={"root": fixture_root})
     assert envelope(invoke("store", "info", env=env)) == info.to_json(root=fixture_root)
     other = tmp_path / "inny"
@@ -600,6 +679,7 @@ def _data_error(tmp_path, root, router, monkeypatch):
 
 
 def _store_unavailable(tmp_path, root, router, monkeypatch):
+    (tmp_path / "archives").mkdir()  # the layout of a store without its marker
     return ["series", "build", "-r", tmp_path, "-d", DAILY]
 
 
@@ -621,6 +701,24 @@ def _io_error(tmp_path, root, router, monkeypatch):
     ]
 
 
+def _forbidden(tmp_path, root, router, monkeypatch):
+    # No CLI path refuses a write itself; a refusal raised below reaches exit 12.
+    refusal = IMGWError(
+        "Write refused", code="forbidden", details={"reason": "writes_disabled"}
+    )
+    raising(monkeypatch, store, "store_info", refusal)
+    return ["store", "info", "-r", root]
+
+
+def _unsupported(tmp_path, root, router, monkeypatch):
+    # No catalog command refuses a combination itself; a refusal below reaches exit 15.
+    refusal = IMGWError(
+        "Not rebuildable", code="unsupported", details={"reason": "test"}
+    )
+    raising(monkeypatch, store, "store_info", refusal)
+    return ["store", "info", "-r", root]
+
+
 def _internal_error(tmp_path, root, router, monkeypatch):
     raising(monkeypatch, store, "store_info", RuntimeError("awaria testowa"))
     return ["store", "info", "-r", root]
@@ -635,6 +733,8 @@ ERRORS = {
     "data_error": _data_error,
     "store_unavailable": _store_unavailable,
     "io_error": _io_error,
+    "forbidden": _forbidden,
+    "unsupported": _unsupported,
     "internal_error": _internal_error,
 }
 
@@ -667,15 +767,27 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     document = error_line(invoke(*args), "validation_error")
     assert document["details"].get("option") == option
     assert document["details"]["click"]
+    # parse_command refuses the same words as a mistake of the line.
+    with pytest.raises(IMGWError) as error:
+        parse_command([str(arg) for arg in args])
+    assert (error.value.code, error.value.details["reason"]) == (
+        "validation_error",
+        "usage",
+    )
+    assert error.value.details.get("option") == option
 
 
-def test_cli_catalog_unknown_flag_is_reported_in_polish():
+def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_imgw_lang():
+    detail = "Unknown option --colour of the command imgw datasets list"
     document = error_line(
         invoke("datasets", "list", "--colour", "red"), "validation_error"
     )
-    assert document["detail"].startswith(
-        "Nieznana opcja --colour komendy imgw datasets list"
+    assert document["detail"].startswith(detail)
+    polish = run_installed(
+        "datasets", "list", "--colour", "red", lang="pl", capture_output=True
     )
+    line = json.loads(polish.stderr.decode("utf-8").splitlines()[-1])
+    assert (polish.returncode, line["detail"].startswith(detail)) == (2, True)
     assert document["details"]["click"] == "No such option: --colour"
 
 
@@ -757,8 +869,8 @@ def test_cli_catalog_installed_imgw_reports_the_error_line_of_the_spec():
     )
     assert (result.returncode, result.stdout) == (2, b"")
     assert result.stderr.decode("utf-8").splitlines()[-1] == (
-        '{"code":"validation_error","detail":"Szerokość geograficzna 1.0 poza zakresem '
-        'Polski (49.0–55.0)","details":{"option":"latitude","value":1.0}}'
+        '{"code":"validation_error","detail":"Latitude 1.0 is outside Poland '
+        '(49.0–55.0)","details":{"option":"latitude","value":1.0}}'
     )
     unknown = run_installed("store", "info", "--colour", "red", capture_output=True)
     assert unknown.returncode == 2

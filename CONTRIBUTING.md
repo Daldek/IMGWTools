@@ -6,13 +6,13 @@ bug reports, fixes, features, and documentation — are welcome.
 ## Getting started
 
 ```bash
-# Install the project with development dependencies
-pip install -e ".[dev]"
+# Install the locked development environment (uv: https://docs.astral.sh/uv/)
+uv sync --locked
 
-# Run the checks before opening a pull request
-pytest
-ruff check src/ tests/
-ruff format --check src/ tests/
+# Run the gate before opening a pull request: ruff, mypy, tests with coverage
+# and the commit check (contributors keep their own identity, so skip the
+# author check)
+GATE_CHECK_AUTHOR=0 scripts/gate.sh
 ```
 
 Please keep pull requests focused, follow the existing code style, and use

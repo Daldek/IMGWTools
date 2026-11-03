@@ -21,12 +21,14 @@ from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Literal, get_args
+from unittest import mock
 
 import httpx
 
 from imgwtools.datasets import archive_files
 from imgwtools.exceptions import IMGWDataError, IMGWStoreError, IMGWValidationError
 from imgwtools.fetch import download_hydro_data, download_meteo_data
+from imgwtools.messages import message
 from imgwtools.store import (
     build_catalog,
     build_series,
@@ -68,36 +70,36 @@ _CHMI_ELEMENTS, _CHMI_RAIN = "0-203-0-90001", "0-203-0-90000000002"
 # sync_store selectors with the expected statuses of the items and of the series.
 _CHMI_STEPS: tuple[tuple[str, Mapping[str, Any], tuple[str, ...], str], ...] = (
     (
-        "ČHMÚ hydro (1) pierwsza publikacja",
+        "ČHMÚ hydro (1) first publication",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL, _CHMI_GAP)},
-        ("created",) * 4,
-        "created",
+        ("new",) * 4,
+        "new",
     ),
     (
-        "ČHMÚ hydro (2) ponowna publikacja",
+        "ČHMÚ hydro (2) republication",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_GAP,)},
         ("relabeled",) * 2,
-        "reused",
+        "unchanged",
     ),
     (
-        "ČHMÚ hydro (3) poprawka",
+        "ČHMÚ hydro (3) correction",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2024,)},
-        ("created",),
-        "created",
+        ("new",),
+        "new",
     ),
     (
-        "ČHMÚ hydro (8) ponowna serializacja",
+        "ČHMÚ hydro (8) reserialization",
         {"datasets": (_CHMI_HYDRO,), "stations": (_CHMI_FULL,), "years": (2023,)},
         ("unchanged",),
-        "reused",
+        "unchanged",
     ),
     (
         "ČHMÚ meteo",
         {"datasets": (_CHMI_METEO,), "stations": (_CHMI_ELEMENTS, _CHMI_RAIN)},
         # The three temperature elements of the precipitation-only station are
         # not published: unchanged without a version.
-        ("created",) * 5 + ("unchanged",) * 3,
-        "created",
+        ("new",) * 5 + ("unchanged",) * 3,
+        "new",
     ),
 )
 # Recorder patching is process-global; serialize concurrent builders.
@@ -165,7 +167,9 @@ def _body(interaction: Mapping[str, Any]) -> tuple[bytes, dict[str, str]]:
     expected = interaction.get("sha256")
     if expected is not None and hashlib.sha256(data).hexdigest() != expected:
         raise IMGWDataError(
-            f"Suma nagrania {interaction['case']} nie zgadza się z plikiem fixtury"
+            message(
+                "testing.checksum_recording_does_not_match", case=interaction["case"]
+            )
         )
     return data, headers
 
@@ -191,7 +195,11 @@ def _recorded_http(
         queue = queues.get((request.method, str(request.url)))
         if not queue:
             raise httpx.ConnectError(
-                f"Brak nagranej odpowiedzi dla {request.method} {request.url}",
+                message(
+                    "testing.no_recorded_response",
+                    method=request.method,
+                    url=request.url,
+                ),
                 request=request,
             )
         interaction = queue.popleft()
@@ -200,28 +208,30 @@ def _recorded_http(
             interaction["status"], headers=headers, content=content, request=request
         )
 
-    with _HTTP_LOCK:
-        original = httpx.HTTPTransport.handle_request
-        httpx.HTTPTransport.handle_request = handle
-        try:
-            yield
-        finally:
-            httpx.HTTPTransport.handle_request = original
+    with _HTTP_LOCK, mock.patch.object(httpx.HTTPTransport, "handle_request", handle):
+        yield
     left = sorted(f"{method} {url}" for (method, url), queue in queues.items() if queue)
     if left:
-        raise IMGWDataError(f"Nie wykorzystano nagranych odpowiedzi: {', '.join(left)}")
+        raise IMGWDataError(
+            message("testing.recorded_responses_were_not_used", left=", ".join(left))
+        )
 
 
 def _expect(step: str, status: str, expected: str) -> None:
     if status != expected:
         raise IMGWDataError(
-            f"Fixtura: krok {step} zakończył się statusem {status}, oczekiwano {expected}"
+            message(
+                "testing.fixture_step_ended_status_expected",
+                step=step,
+                status=status,
+                expected=expected,
+            )
         )
 
 
 @contextmanager
 def _without_reference_data() -> Iterator[None]:
-    """Hide the local static locations file (``settings.data_dir``) from the catalog.
+    """Hide the local static locations file (``settings.reference_dir``) from the catalog.
 
     Fixture stores must not depend on reference data a user fetched with
     ``python -m imgwtools.reference_data``. Process-global: call under ``_HTTP_LOCK``.
@@ -275,12 +285,12 @@ def _add_chmi(handle: StoreHandle) -> None:
                 ", ".join(sorted(items)),
             )
             _expect(
-                f"{step}: szereg",
+                f"{step}: series",
                 ", ".join(series.status for series in report.series),
                 built,
             )
         catalog = build_catalog(handle, provider="CHMI")
-        _expect("katalog stacji ČHMÚ", catalog.status, "created")
+        _expect("ČHMÚ station catalog", catalog.status, "new")
 
 
 def build_fixture_store(
@@ -347,11 +357,17 @@ def build_fixture_store(
     """
     if variant not in get_args(FixtureVariant):
         raise IMGWValidationError(
-            f"Nieznany wariant fixtury: {variant!r}; dozwolone: {', '.join(get_args(FixtureVariant))}"
+            message(
+                "testing.unknown_fixture_variant_allowed",
+                variant=variant,
+                allowed=", ".join(get_args(FixtureVariant)),
+            )
         )
     path = Path(root)
     if path.exists() and (not path.is_dir() or any(path.iterdir())):
-        raise IMGWStoreError(f"Magazyn fixtury wymaga pustego katalogu: {path}")
+        raise IMGWStoreError(
+            message("testing.fixture_store_needs_empty_directory", path=path)
+        )
     handle = init_store(path)
     (hydro,) = archive_files(_HYDRO, years=(2024,))
     (meteo_2001,) = archive_files(_METEO, years=(2001,), months=(1,))
@@ -360,10 +376,8 @@ def build_fixture_store(
         old = write_archive(
             handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
         )
-        _expect("codz_2024 v1", old.status, "created")
-        _expect(
-            "szereg hydro v1", build_series(handle, dataset=_HYDRO).status, "created"
-        )
+        _expect("codz_2024 v1", old.status, "new")
+        _expect("series hydro v1", build_series(handle, dataset=_HYDRO).status, "new")
         relabeled = write_archive(
             handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
         )
@@ -371,28 +385,26 @@ def build_fixture_store(
         newer = write_archive(
             handle, archive=hydro, response=download_hydro_data("dobowe", 2024)
         )
-        _expect("codz_2024 v3", newer.status, "created")
-        _expect(
-            "szereg hydro v2", build_series(handle, dataset=_HYDRO).status, "created"
-        )
+        _expect("codz_2024 v3", newer.status, "new")
+        _expect("series hydro v2", build_series(handle, dataset=_HYDRO).status, "new")
         meteo = write_archive(
             handle,
             archive=meteo_2001,
             response=download_meteo_data("dobowe", "opad", 2001, 1),
         )
-        _expect("2001_01_o", meteo.status, "created")
-        _expect("szereg meteo", build_series(handle, dataset=_METEO).status, "created")
+        _expect("2001_01_o", meteo.status, "new")
+        _expect("series meteo", build_series(handle, dataset=_METEO).status, "new")
         late = write_archive(
             handle,
             archive=meteo_1995,
             response=download_meteo_data("dobowe", "opad", 1995),
         )
-        _expect("1995_o", late.status, "created")
+        _expect("1995_o", late.status, "new")
         with _without_reference_data():
             catalog = build_catalog(handle)
-        _expect("katalog stacji", catalog.status, "created")
+        _expect("station catalog", catalog.status, "new")
         if catalog.without_location == 0:
-            raise IMGWDataError("Fixtura: katalog stacji bez stacji z geometry=null")
+            raise IMGWDataError(message("testing.fixture_station_catalog_has_no"))
     if variant == "corrupt":
         sidecar = old.path.with_name(f"{old.path.name}.meta.json")
         sidecar.write_bytes(sidecar.read_bytes()[: sidecar.stat().st_size // 2])

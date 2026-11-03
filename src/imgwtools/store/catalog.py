@@ -54,6 +54,7 @@ from imgwtools.exceptions import (
     io_error,
 )
 from imgwtools.fetch import _IDENTIFY, DEFAULT_TIMEOUT, DownloadResult
+from imgwtools.messages import message, reason
 from imgwtools.models import StationListEntry
 from imgwtools.store.content import content_sha256
 from imgwtools.store.series import _current_series, _series_versions
@@ -72,7 +73,6 @@ from imgwtools.store.types import (
 )
 from imgwtools.store.writer import (
     _canonical,
-    _check_kartograf,
     _cleanup,
     _existing,
     _fsync_dir,
@@ -80,7 +80,10 @@ from imgwtools.store.writer import (
     _utc,
     _validate_slot,
     _write_json,
-    open_store,
+    lenient_store,
+    prepare_store,
+    root_conflict_plan,
+    version_file,
     write_archive,
 )
 from imgwtools.urls import IMGW_API_URL
@@ -147,6 +150,15 @@ _CHMI_METEO_NOW_FILE = re.compile(r"^meta1-[0-9]{8}\.json$")
 _THRESHOLD_UNITS: Mapping[str, str] = MappingProxyType({"CM": "cm", "M3_S": "m3/s"})
 
 MissingReason = Literal["none", "zero", "outside_country"]
+MeteoKind = Literal["climate", "precipitation"]
+# ``meteo_kind`` of an IMGW-PIB station measured in the current series of a dataset;
+# a station in both series is a climate station (its programme includes precipitation).
+_METEO_KINDS: Mapping[str, MeteoKind] = MappingProxyType(
+    {
+        "pl.imgw.meteo_climate_daily": "climate",
+        "pl.imgw.meteo_precip_daily": "precipitation",
+    }
+)
 # Location candidate ``(source, longitude, latitude)`` as published.
 _Candidate = tuple[str, object, object]
 
@@ -215,7 +227,9 @@ def _publish_version(
             for old_file, old_meta in _existing(slot_dir, name, skip=skip):
                 if old_file.parent == target and old_meta["sha256"] == sha:
                     return old_file, False
-            raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
+            raise IMGWStoreConflictError(
+                message("catalog.version_directory_collision", target=target)
+            ) from exc
         return target / name, True
     finally:
         if staging.exists():
@@ -223,7 +237,7 @@ def _publish_version(
 
 
 def _handle(root: RootArg) -> StoreHandle:
-    return open_store(root.root if isinstance(root, StoreHandle) else root)
+    return lenient_store(root)
 
 
 def _cancelled(cancel: Cancel | None) -> bool:
@@ -252,7 +266,7 @@ class _Border:
             for (x1, y1), (x2, y2) in zip(ring, ring[1:], strict=False)
         ]
         if not any(y1 != y2 for _, y1, _, y2 in edges):
-            raise IMGWDataError("Pusty obrys: wielokąt nie ma krawędzi")
+            raise IMGWDataError(message("catalog.empty_outline_polygon_has_no"))
         self.min_lon = min(min(e[0], e[2]) for e in edges)
         self.max_lon = max(max(e[0], e[2]) for e in edges)
         self.min_lat = min(min(e[1], e[3]) for e in edges)
@@ -397,7 +411,14 @@ def _locate(
         if isinstance(verdict, str):
             if verdict != "none":
                 rejections.append(
-                    f"{code}: odrzucono punkt źródła {source} ({lon}, {lat}) — {verdict}"
+                    message(
+                        "catalog.source_point_rejected",
+                        code=code,
+                        source=source,
+                        lon=lon,
+                        lat=lat,
+                        verdict=verdict,
+                    )
                 )
                 first_rejection = first_rejection or verdict
             continue
@@ -424,13 +445,15 @@ def _http(
             response.raise_for_status()
             return response
     except httpx.TimeoutException as exc:
-        raise IMGWConnectionError(f"Przekroczono czas oczekiwania na {url}") from exc
+        raise IMGWConnectionError(message("catalog.timeout_waiting", url=url)) from exc
     except httpx.HTTPStatusError as exc:
         raise IMGWConnectionError(
-            f"Błąd HTTP {exc.response.status_code} dla {url}"
+            message("catalog.http_error", status_code=exc.response.status_code, url=url)
         ) from exc
     except httpx.HTTPError as exc:
-        raise IMGWConnectionError(f"Błąd połączenia z {url}: {exc}") from exc
+        raise IMGWConnectionError(
+            message("catalog.connection_error", url=url, exc=reason(exc))
+        ) from exc
 
 
 def _headers(provider: str) -> Mapping[str, str] | None:
@@ -443,7 +466,9 @@ def _content_length(response: httpx.Response) -> int | None:
     try:
         return int(value) if value is not None else None
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawny nagłówek Content-Length: {value}") from exc
+        raise IMGWDataError(
+            message("catalog.invalid_content_length_header", value=value)
+        ) from exc
 
 
 def _signal_time(meta: Mapping[str, Any]) -> datetime:
@@ -483,7 +508,9 @@ def _archive_http(path: Path, meta: Mapping[str, Any]) -> Mapping[str, Any]:
     """``extra.http`` of a stored list version; a version without it is corrupted."""
     http = meta["extra"].get("http")
     if not isinstance(http, Mapping):
-        raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {path.parent}")
+        raise IMGWStoreConflictError(
+            message("catalog.corrupt_archive_version", parent=path.parent)
+        )
     return http
 
 
@@ -557,8 +584,10 @@ def _station_list(
                 Notice(
                     "warning",
                     "source_unverifiable",
-                    f"{archive.server_path}: brak porównywalnego sygnału ETag/Last-Modified; "
-                    "pobieranie i porównanie sumy SHA-256",
+                    message(
+                        "catalog.no_comparable_signal_download",
+                        server_path=archive.server_path,
+                    ),
                 )
             )
     if stale:
@@ -580,7 +609,9 @@ def _station_list(
         current = _current_archive(handle.root, archive)
     if current is None:  # pragma: no cover - write_archive always leaves a version
         raise IMGWStoreConflictError(
-            f"Brak zapisanej wersji listy {archive.server_path}"
+            message(
+                "catalog.no_stored_version_listing", server_path=archive.server_path
+            )
         )
     path, meta = current
     data = path.read_bytes()
@@ -606,11 +637,13 @@ def _api(
     try:
         payload = response.json()
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {url}") from exc
+        raise IMGWDataError(
+            message("catalog.invalid_json_response_from", url=url)
+        ) from exc
     if not isinstance(payload, list) or not all(
         isinstance(row, dict) for row in payload
     ):
-        raise IMGWDataError(f"Nieoczekiwany format odpowiedzi z {url}")
+        raise IMGWDataError(message("catalog.unexpected_format_response_from", url=url))
     rows: dict[str, dict[str, Any]] = {}
     for row in payload:
         code = str(row.get(code_key) or "").strip()
@@ -642,17 +675,18 @@ def _read_locations(
     reader = csv.DictReader(io.StringIO(text))
     fields = [name.strip() for name in reader.fieldnames or ()]
     if tuple(fields[: len(_LOCATION_COLUMNS)]) != _LOCATION_COLUMNS:
-        found = ",".join(fields) or "brak"
+        found = ",".join(fields) or message("common.none")
         if user:
             raise IMGWValidationError(
-                "Plik położeń użytkownika musi mieć kolumny "
-                f"station_code,latitude,longitude[,source]; znaleziono {found}",
+                message("catalog.user_location_file_must_have", found=found),
                 details={"option": "user_locations", "found": fields},
             )
         raise IMGWValidationError(
-            f"Lokalny plik położeń {STATIC_LOCATIONS} ma nieobsługiwany nagłówek "
-            f"{found}; wymagane kolumny station_code,latitude,longitude — wygeneruj "
-            "plik ponownie poleceniem python -m imgwtools.reference_data",
+            message(
+                "catalog.local_location_file_has_unsupported",
+                static_locations=STATIC_LOCATIONS,
+                found=found,
+            ),
             details={"file": STATIC_LOCATIONS, "found": fields},
         )
     own = re.compile(provider.station_code_pattern)
@@ -669,12 +703,12 @@ def _read_locations(
         if not own.fullmatch(code):
             if not known.fullmatch(code):
                 problems.append(
-                    f"Wiersz {line}: niepoprawny kod stacji '{code}' w pliku położeń"
+                    message("catalog.location_row_invalid_code", line=line, code=code)
                 )
             continue
         if code in result:
             problems.append(
-                f"Wiersz {line}: powtórzony kod stacji {code} w pliku położeń"
+                message("catalog.location_row_repeated_code", line=line, code=code)
             )
             continue
         result[code] = (
@@ -699,15 +733,17 @@ def _optional_int(value: object) -> int | None:
 
 def _series_codes(
     root: Path, problems: list[str], *, provider: ProviderDescriptor
-) -> tuple[dict[str, set[str]], list[dict[str, Any]]]:
+) -> tuple[dict[str, set[str]], list[dict[str, Any]], dict[str, MeteoKind]]:
     """Station codes of the current series version of each provider dataset, by family.
 
     Offline: reads only the ``series.json`` index of the newest verified version
     of each series dataset of ``provider``; the index carries no station names
-    or rivers. Also returns one ``series`` sidecar entry per index read.
+    or rivers. Also returns one ``series`` sidecar entry per index read and the
+    ``meteo_kind`` of every station in a series of ``_METEO_KINDS``.
     """
     pattern = re.compile(provider.station_code_pattern)
     codes: dict[str, set[str]] = {"hydro": set(), "meteo": set()}
+    kinds: dict[str, MeteoKind] = {}
     sources: list[dict[str, Any]] = []
     for descriptor in datasets(provider=provider.id):
         if (
@@ -723,19 +759,30 @@ def _series_codes(
         try:
             stations = json.loads(current.path.read_bytes())["stations"]
             if not isinstance(stations, dict):
-                raise TypeError("pole stations nie jest obiektem")
+                raise TypeError(message("catalog.field_stations_not_object"))
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
-                f"Nieczytelny indeks szeregu {relative}: {exc}"
+                message(
+                    "catalog.unreadable_series_index",
+                    relative=relative,
+                    exc=reason(exc),
+                )
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
+        meteo_kind = _METEO_KINDS.get(descriptor.key)
         for code in stations:
             if pattern.fullmatch(code):
                 codes[descriptor.kind].add(code)
+                if meteo_kind is not None and kinds.get(code) != "climate":
+                    kinds[code] = meteo_kind
             else:
                 problems.append(
-                    f"Indeks szeregu {relative}: pominięto niepoprawny kod stacji '{code}'"
+                    message(
+                        "catalog.series_index_invalid_code",
+                        relative=relative,
+                        code=code,
+                    )
                 )
         sources.append(
             {
@@ -748,7 +795,7 @@ def _series_codes(
                 "sha256": current.meta["sha256"],
             }
         )
-    return codes, sources
+    return codes, sources, kinds
 
 
 # --------------------------------------------------------------------------
@@ -772,6 +819,7 @@ def _feature(
     code: str,
     *,
     kind: Literal["hydro", "meteo"],
+    meteo_kind: MeteoKind | None,
     listed: StationListEntry | None,
     api: Mapping[str, Any] | None,
     candidates: list[_Candidate],
@@ -784,7 +832,7 @@ def _feature(
     properties: dict[str, Any] = {
         "station_code": code,
         "kind": kind,
-        "meteo_kind": None,
+        "meteo_kind": meteo_kind,
         "name": (listed.name if listed else None)
         or str(api_row.get("stacja") or api_row.get("nazwa_stacji") or ""),
         "river": str(river) if river else None,
@@ -816,15 +864,19 @@ def _list_rows(
     for station in parse_stations_csv(data, kind=kind):
         code = station.station_code
         if not (len(code) == 9 and code.isdecimal()):
-            problems.append(f"Lista {kind}: pominięto niepoprawny kod stacji '{code}'")
+            problems.append(message("catalog.list_invalid_code", kind=kind, code=code))
             continue
         first = rows.setdefault(code, station)
         if first is not station:
             # IMGW lists e.g. meteo station 252150270 twice, with two short codes.
             problems.append(
-                f"Lista {kind}: powtórzony kod stacji {code} "
-                f"({_list_row_text(first)} oraz {_list_row_text(station)}); "
-                "katalog używa pierwszego wiersza"
+                message(
+                    "catalog.list_repeated_code",
+                    kind=kind,
+                    code=code,
+                    list_row_text=_list_row_text(first),
+                    list_row_text_2=_list_row_text(station),
+                )
             )
     return rows
 
@@ -834,7 +886,8 @@ def _list_row_text(station: StationListEntry) -> str:
         station.name,
         station.river,
         station.hydrographic_code,
-        station.short_code and f"kod krótki {station.short_code}",
+        station.short_code
+        and message("catalog.short_code", short_code=station.short_code),
     )
     return ", ".join(field for field in fields if field)
 
@@ -844,16 +897,17 @@ def _catalog_bytes(
     lists: Mapping[str, Mapping[str, StationListEntry]],
     apis: Mapping[str, Mapping[str, Mapping[str, Any]]],
     series: Mapping[str, set[str]],
+    meteo_kinds: Mapping[str, MeteoKind],
     static: Mapping[str, tuple[str, str, str | None]],
     user: Mapping[str, tuple[str, str, str | None]],
     problems: list[str],
     rejections: list[str],
 ) -> tuple[bytes, int, int, dict[str, int], list[str]]:
-    for api_kind, api in apis.items():
-        for code in api:
+    for api_kind, api_rows in apis.items():
+        for code in api_rows:
             if not (len(code) == 9 and code.isdecimal()):
                 problems.append(
-                    f"API {api_kind}: pominięto niepoprawny kod stacji '{code}'"
+                    message("catalog.api_invalid_code", api_kind=api_kind, code=code)
                 )
     listed = {
         kind: {
@@ -867,7 +921,9 @@ def _catalog_bytes(
     shared = sorted(codes["hydro"] & codes["meteo"])
     if shared:
         raise IMGWDataError(
-            f"Kody stacji występują jednocześnie w rodzinie hydro i meteo: {', '.join(shared[:10])}"
+            message(
+                "catalog.station_codes_appear_both_hydro", shared=", ".join(shared[:10])
+            )
         )
     # The static file holds IMGW-PIB hydrological gauge coordinates, so a code known
     # only from it is still a (historical) hydro station: no code may disappear. The
@@ -885,9 +941,11 @@ def _catalog_bytes(
     unknown = sorted(set(user) - known)
     if unknown:
         problems.append(
-            f"Plik położeń użytkownika: {len(unknown)} kodów spoza list, API, pliku "
-            f"statycznego i szeregów (np. {unknown[0]}); plik użytkownika uzupełnia "
-            "tylko położenia"
+            message(
+                "catalog.user_locations_unknown_codes",
+                count=len(unknown),
+                unknown=unknown[0],
+            )
         )
     features = []
     used: dict[str, int] = {}
@@ -905,6 +963,7 @@ def _catalog_bytes(
         feature, source = _feature(
             code,
             kind=kind,
+            meteo_kind=meteo_kinds.get(code) if kind == "meteo" else None,
             listed=lists[kind].get(code),
             api=api,
             candidates=candidates,
@@ -1001,7 +1060,9 @@ class _Metadata:
             return value
         number = float(value)
         if not math.isfinite(number):
-            raise self.table.cell_error(index, column, f"liczba {value} poza zakresem")
+            raise self.table.cell_error(
+                index, column, message("catalog.number_out_range", value=value)
+            )
         return number
 
 
@@ -1028,13 +1089,12 @@ def _metadata(
             rows[code] = index
         else:
             problems.append(
-                f"Źródło {source}: pominięto niepoprawny kod stacji '{code}'"
+                message("catalog.source_invalid_code", source=source, code=code)
             )
     for code in chosen.duplicates:
         if code in rows:
             problems.append(
-                f"Źródło {source}: powtórzony kod stacji {code}; katalog używa "
-                "pierwszego wiersza"
+                message("catalog.source_repeated_code", source=source, code=code)
             )
     return _Metadata(source, kind, table, rows, thresholds)
 
@@ -1047,7 +1107,8 @@ def _chmi_get(url: str, *, source: str, form: str) -> tuple[bytes, dict[str, Any
         content = content_sha256(data, form=form)
     except IMGWDataError as exc:
         raise IMGWDataError(
-            f"Niepoprawny dokument JSON {url}: {exc}", details={"url": url}
+            message("catalog.invalid_json_document", url=url, exc=reason(exc)),
+            details={"url": url},
         ) from exc
     return data, {
         "source": source,
@@ -1072,7 +1133,7 @@ def _chmi_meteo_now_url(base_url: str) -> str:
     )
     if not names:
         raise IMGWDataError(
-            f"Nieczytelny listing {listing}: brak pliku meta1-<RRRRMMDD>.json",
+            message("catalog.unreadable_listing_no_file_meta1", listing=listing),
             details={"url": listing},
         )
     return listing + names[-1]
@@ -1103,7 +1164,9 @@ def _thresholds(source: _Metadata, code: str) -> dict[str, Any] | None:
         unit = source.text(code, f"SPA{variable}_UNIT")
         if unit is not None and unit not in _THRESHOLD_UNITS:
             raise source.table.cell_error(
-                source.rows[code], f"SPA{variable}_UNIT", f"nieznana jednostka {unit!r}"
+                source.rows[code],
+                f"SPA{variable}_UNIT",
+                message("catalog.unknown_unit", unit=unit),
             )
         levels[variable] = {
             "unit": None if unit is None else _THRESHOLD_UNITS[unit],
@@ -1125,9 +1188,13 @@ def _established(source: _Metadata) -> dict[str, int]:
     for index in range(len(table.rows)):
         code = table.text(index, column)
         begin = table.timestamp(index, "BEGIN_DATE")
-        if code is not None and code in source.rows and begin is not None:
-            if code not in first or begin < first[code]:
-                first[code] = begin
+        if (
+            code is not None
+            and code in source.rows
+            and begin is not None
+            and (code not in first or begin < first[code])
+        ):
+            first[code] = begin
     return {code: moment.year for code, moment in first.items()}
 
 
@@ -1168,8 +1235,8 @@ def _chmi_feature(
     elevation: int | float | None = None
     if not isinstance(located, str):
         index, point, own = located
-        for _, lon, lat in candidates[index + 1 :]:
-            verdict = _evaluate(lon, lat, border=CZECHIA_BORDER_RESOURCE)
+        for _, later_lon, later_lat in candidates[index + 1 :]:
+            verdict = _evaluate(later_lon, later_lat, border=CZECHIA_BORDER_RESOURCE)
             if not isinstance(verdict, str) and _distance_m(point, verdict[0]) > max(
                 own, verdict[1]
             ):
@@ -1250,7 +1317,9 @@ def _chmi_catalog_bytes(
     shared = sorted(codes["hydro"] & codes["meteo"])
     if shared:
         raise IMGWDataError(
-            f"Kody stacji występują jednocześnie w rodzinie hydro i meteo: {', '.join(shared[:10])}"
+            message(
+                "catalog.station_codes_appear_both_hydro", shared=", ".join(shared[:10])
+            )
         )
     known = codes["hydro"] | codes["meteo"]
     series_only = sorted(
@@ -1259,8 +1328,11 @@ def _chmi_catalog_bytes(
     unknown = sorted(set(user) - known)
     if unknown:
         problems.append(
-            f"Plik położeń użytkownika: {len(unknown)} kodów spoza metadanych ČHMÚ i "
-            f"szeregów (np. {unknown[0]}); plik użytkownika uzupełnia tylko położenia"
+            message(
+                "catalog.user_locations_unknown_codes_chmi",
+                count=len(unknown),
+                unknown=unknown[0],
+            )
         )
     established = _established(families["meteo"][-1])
     features = []
@@ -1312,7 +1384,7 @@ def _user_file(user_locations: PathArg | None) -> tuple[Path, bytes] | None:
         return path, path.read_bytes()
     except OSError as exc:
         raise IMGWValidationError(
-            f"Nie można odczytać pliku położeń użytkownika: {path}"
+            message("catalog.cannot_read_user_location_file", path=path)
         ) from exc
 
 
@@ -1320,22 +1392,19 @@ def _static_file() -> tuple[Path, bytes | None]:
     """Local IMGW-PIB coordinates ``station_code,latitude,longitude``; ``None`` when absent.
 
     IMGW data is not shipped with the package: ``python -m imgwtools.reference_data`` writes
-    the file. Without ``pydantic-settings`` the directory comes from ``IMGW_DATA_DIR``.
+    the file into the reference directory (``IMGW_REFERENCE_DIR``, ``[imgw] reference_dir``
+    of ``nogat.toml``, else ``<cache_dir>/imgw/reference``).
     """
-    try:
-        from imgwtools.config import settings
-    except ImportError:
-        data_dir = Path(os.environ.get("IMGW_DATA_DIR", "data"))
-    else:
-        data_dir = settings.data_dir
-    path = data_dir / STATIC_LOCATIONS
+    from imgwtools.config import settings
+
+    path = settings.reference_dir / STATIC_LOCATIONS
     try:
         return path, path.read_bytes()
     except FileNotFoundError:
         return path, None
     except OSError as exc:
         raise IMGWValidationError(
-            f"Nie można odczytać lokalnego pliku położeń: {path}"
+            message("catalog.cannot_read_local_location_file", path=path)
         ) from exc
 
 
@@ -1351,16 +1420,21 @@ def _current_catalog(
     return _newest_downloaded(_existing(slot, CATALOG_FILE, skip=_skip(provider)))
 
 
-def _catalog_codes(path: Path, meta: Mapping[str, Any]) -> set[str]:
-    """Station codes of a stored catalog version, verified against its sidecar."""
+def _catalog_meteo_kinds(path: Path, meta: Mapping[str, Any]) -> dict[str, object]:
+    """``meteo_kind`` by station code of a stored catalog version, verified by SHA-256."""
     try:
         data = path.read_bytes()
         if hashlib.sha256(data).hexdigest() != meta["sha256"]:
-            raise ValueError("SHA-256 niezgodne z sidecarem")
-        return {feature["id"] for feature in json.loads(data)["features"]}
+            raise ValueError(message("catalog.sha_256_does_not_match"))
+        return {
+            feature["id"]: feature["properties"]["meteo_kind"]
+            for feature in json.loads(data)["features"]
+        }
     except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         raise IMGWStoreConflictError(
-            f"Uszkodzona wersja katalogu stacji {path}: {exc}"
+            message(
+                "catalog.corrupt_version_station_catalog", path=path, exc=reason(exc)
+            )
         ) from exc
     except OSError as exc:
         raise io_error(exc) from exc
@@ -1369,21 +1443,21 @@ def _catalog_codes(path: Path, meta: Mapping[str, Any]) -> set[str]:
 def _unverifiable_sources(provider: ProviderDescriptor) -> tuple[tuple[str, str], ...]:
     """Sources downloaded by every build, with the reason they have no signal."""
     if provider.id == "IMGW-PIB":
-        reason = "publiczne API nie udostępnia stabilnego sygnału aktualności"
+        reason = message("catalog.no_stable_signal_public_api")
         return ((HYDRO_API_URL, reason), (METEO_API_URL, reason))
     base = provider.base_url
     return (
         (
             base + _CHMI_HYDRO_NOW,
-            "koperta metadanych zmienia się co godzinę, także bez zmiany danych",
+            message("catalog.metadata_envelope_hourly"),
         ),
         (
             base + _CHMI_HYDRO_META3,
-            "koperta metadanych zmienia się codziennie, także bez zmiany danych",
+            message("catalog.metadata_envelope_daily"),
         ),
         (
-            f"{base}{_CHMI_METEO_NOW_DIR}meta1-<RRRRMMDD>.json",
-            "nowy plik metadanych codziennie; najnowszy wskazuje listing katalogu",
+            f"{base}{_CHMI_METEO_NOW_DIR}meta1-<YYYYMMDD>.json",
+            message("catalog.metadata_new_file_daily"),
         ),
     )
 
@@ -1427,8 +1501,9 @@ def check_catalog(
     the public station APIs; ČHMÚ: the ``now`` metadata files, whose envelope
     is regenerated hourly or daily). Location files are compared by SHA-256
     with the entries recorded in the provider's current catalog sidecar; the
-    station codes of the provider's current series indexes are compared with
-    the codes of its current catalog. Nothing is downloaded or written.
+    station codes of the provider's current series indexes and the
+    ``meteo_kind`` they give are compared with its current catalog. Nothing
+    is downloaded or written.
 
     Parameters
     ----------
@@ -1448,7 +1523,7 @@ def check_catalog(
         signal.
     cancel : Cancel or None, optional
         Polled before each station list; once it returns ``True`` the remaining
-        lists are reported as ``unverifiable`` with error ``"anulowano"``.
+        lists are reported as ``unverifiable`` with error ``"cancelled"``.
 
     Returns
     -------
@@ -1461,10 +1536,10 @@ def check_catalog(
         (``current``, or ``newer`` when the file appeared, disappeared or
         changed; ``missing`` without a catalog; the IMGW-PIB static file is
         always checked), one for the series indexes (``current``, ``newer``
-        when a series station code is absent from the catalog, ``missing``
-        without a catalog) and a final catalog action that is ``missing``
-        without a catalog, ``newer`` when any source changed, otherwise
-        ``unverifiable``.
+        when a series station code is absent from the catalog or a station's
+        ``meteo_kind`` differs, ``missing`` without a catalog) and a final
+        catalog action that is ``missing`` without a catalog, ``newer`` when
+        any source changed, otherwise ``unverifiable``.
 
     Raises
     ------
@@ -1482,8 +1557,11 @@ def check_catalog(
         (``details.path``) if the system cannot read a stored version.
     """
     owner = get_provider(provider)
-    handle = _handle(root)
     user = _user_file(user_locations)
+    refused = root_conflict_plan("store catalog", root)
+    if refused is not None:
+        return refused
+    handle = _handle(root)
     catalog = _current_catalog(handle.root, owner.id)
     recorded = {
         entry.get("source"): entry.get("sha256")
@@ -1501,7 +1579,14 @@ def check_catalog(
             cancelled = True
             items.append(
                 PlanItem(
-                    archive, "unverifiable", None, None, None, None, None, "anulowano"
+                    archive,
+                    "unverifiable",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    message("common.cancelled"),
                 )
             )
             continue
@@ -1527,7 +1612,7 @@ def check_catalog(
                     None,
                     None,
                     None,
-                    str(exc),
+                    reason(exc),
                     local_observation=observation,
                 )
             )
@@ -1538,8 +1623,8 @@ def check_catalog(
             status: Literal["current", "newer", "missing", "unverifiable"] = (
                 "missing" if current is None else _list_status(signal, etag, modified)
             )
-            reason = (
-                "brak porównywalnego sygnału ETag/Last-Modified"
+            why = (
+                message("catalog.no_comparable_signal")
                 if status == "unverifiable"
                 else None
             )
@@ -1552,7 +1637,7 @@ def check_catalog(
                     etag,
                     modified,
                     length,
-                    reason,
+                    why,
                     local_observation=observation,
                 )
             )
@@ -1563,15 +1648,15 @@ def check_catalog(
                     total,
                     "source",
                     items[-1].status,
-                    f"Sprawdzono {archive.server_path}",
+                    message("catalog.source_checked", server_path=archive.server_path),
                 )
             )
-    for url, reason in _unverifiable_sources(owner):
+    for url, cause in _unverifiable_sources(owner):
         actions.append(
             PlanAction(
                 "store catalog",
                 "unverifiable",
-                f"{url}: {reason}; sprawdzenie wymaga pobrania",
+                message("catalog.check_needs_download", url=url, reason=cause),
             )
         )
         if on_notice is not None:
@@ -1579,7 +1664,7 @@ def check_catalog(
                 Notice(
                     "warning",
                     "source_unverifiable",
-                    f"Nie można sprawdzić aktualności {url} bez pobrania",
+                    message("catalog.cannot_check_without_download", url=url),
                 )
             )
     local_files: list[tuple[str, bytes | None, Path]] = []
@@ -1597,26 +1682,47 @@ def check_catalog(
         detail = (
             f"sha256 {digest}"
             if digest is not None
-            else f"brak pliku {path.as_posix()}"
+            else message("catalog.missing_file", path=path.as_posix())
         )
         actions.append(
-            PlanAction("store catalog", file_status, f"plik położeń {source}: {detail}")
+            PlanAction(
+                "store catalog",
+                file_status,
+                message("catalog.location_file_detail", source=source, detail=detail),
+            )
         )
-    series, _ = _series_codes(handle.root, [], provider=owner)
+    series, _, meteo_kinds = _series_codes(handle.root, [], provider=owner)
     series_codes = series["hydro"] | series["meteo"]
     if catalog is None:
         series_status: Literal["current", "newer", "missing"] = "missing"
-        series_detail = f"{len(series_codes)} kodów stacji"
+        series_detail = message("catalog.codes_stations", count=len(series_codes))
     else:
-        absent = sorted(series_codes - _catalog_codes(*catalog))
-        series_status = "newer" if absent else "current"
-        series_detail = (
-            f"{len(absent)} kodów spoza katalogu (np. {absent[0]})"
-            if absent
-            else f"{len(series_codes)} kodów stacji w katalogu"
+        stored = _catalog_meteo_kinds(*catalog)
+        absent = sorted(series_codes - stored.keys())
+        changed = sorted(
+            code for code, kind in stored.items() if kind != meteo_kinds.get(code)
         )
+        series_status = "newer" if absent or changed else "current"
+        if absent:
+            series_detail = message(
+                "catalog.codes_outside_catalog", count=len(absent), absent=absent[0]
+            )
+        elif changed:
+            series_detail = message(
+                "catalog.stations_other_meteo_kind",
+                count=len(changed),
+                changed=changed[0],
+            )
+        else:
+            series_detail = message(
+                "catalog.codes_stations_in_catalog", count=len(series_codes)
+            )
     actions.append(
-        PlanAction("store catalog", series_status, f"indeksy szeregów: {series_detail}")
+        PlanAction(
+            "store catalog",
+            series_status,
+            message("catalog.series_indexes", series_detail=series_detail),
+        )
     )
     if catalog is None:
         overall: Literal["missing", "newer", "unverifiable"] = "missing"
@@ -1630,13 +1736,24 @@ def check_catalog(
         PlanAction(
             "store catalog",
             overall,
-            f"katalog stacji: {catalog[0].relative_to(handle.root).as_posix() if catalog else 'brak wersji'}",
+            message(
+                "catalog.station_catalog_version",
+                version=(
+                    catalog[0].relative_to(handle.root).as_posix()
+                    if catalog
+                    else message("catalog.no_version")
+                ),
+            ),
         )
     )
     if on_progress is not None:
         on_progress(
             Progress(
-                total, total, "source", overall, "Sprawdzono źródła katalogu stacji"
+                total,
+                total,
+                "source",
+                overall,
+                message("catalog.checked_catalog_sources"),
             )
         )
     return StorePlan(
@@ -1670,7 +1787,11 @@ def _catalog_notices(
         on_notice(Notice("warning", "location_rejected", rejection))
     for source, number in sorted(used.items()):
         on_notice(
-            Notice("info", "location_source", f"Położenie z {source}: {number} stacji")
+            Notice(
+                "info",
+                "location_source",
+                message("catalog.location_from_source", source=source, number=number),
+            )
         )
     if user_rows is not None:
         labels = sorted({label for _, _, label in user_rows.values() if label})
@@ -1679,7 +1800,7 @@ def _catalog_notices(
                 Notice(
                     "info",
                     "location_source",
-                    f"Źródła w pliku użytkownika: {', '.join(labels)}",
+                    message("catalog.user_file_sources", labels=", ".join(labels)),
                 )
             )
     if conflicts:
@@ -1687,9 +1808,11 @@ def _catalog_notices(
             Notice(
                 "info",
                 "location_conflict",
-                f"{len(conflicts)} stacji z poprawnymi położeniami źródeł różniącymi się "
-                "bardziej niż ich niepewność (wybrano według pierwszeństwa źródeł): "
-                f"{', '.join(conflicts)}",
+                message(
+                    "catalog.location_conflicts",
+                    count=len(conflicts),
+                    conflicts=", ".join(conflicts),
+                ),
             )
         )
     if series_only:
@@ -1697,8 +1820,11 @@ def _catalog_notices(
             Notice(
                 "info",
                 "series_station",
-                f"{len(series_only)} stacji wyłącznie z indeksów szeregów "
-                f"(historyczne, active=false): {', '.join(series_only[:10])}"
+                message(
+                    "catalog.series_only_stations",
+                    count=len(series_only),
+                    series_only=", ".join(series_only[:10]),
+                )
                 + (" …" if len(series_only) > 10 else ""),
             )
         )
@@ -1707,7 +1833,7 @@ def _catalog_notices(
             Notice(
                 "warning",
                 "station_without_location",
-                f"{without} stacji bez położenia (geometry=null)",
+                message("catalog.stations_without_location", without=without),
             )
         )
 
@@ -1735,7 +1861,7 @@ class _Build:
         status : str
             Status of the step, e.g. ``"done"``.
         message : str
-            Polish description of the step.
+            Description of the step.
         """
         if self.on_progress is not None:
             self.on_progress(Progress(step, self.total, "step", status, message))
@@ -1780,7 +1906,7 @@ class _Build:
         Returns
         -------
         CatalogReport
-            ``created`` with the new version or ``unchanged`` with the
+            ``new`` with the new version or ``unchanged`` with the
             current one.
         """
         provider = self.provider
@@ -1788,7 +1914,7 @@ class _Build:
         sha = hashlib.sha256(data).hexdigest()
         current = _current_catalog(root, provider.id)
         if current is not None and current[1]["sha256"] == sha:
-            self.progress(self.total, "unchanged", "Katalog stacji bez zmian")
+            self.progress(self.total, "unchanged", message("catalog.catalog_unchanged"))
             return CatalogReport(
                 "unchanged",
                 current[0],
@@ -1797,6 +1923,7 @@ class _Build:
                 from_series,
                 tuple(problems),
                 provider.id,
+                (version_file(current[0], "unchanged"),),
             )
         now = datetime.now(UTC)
         label = now.date().isoformat()
@@ -1829,18 +1956,29 @@ class _Build:
             on_notice=self.on_notice,
             skip=_skip(provider.id),
         )
-        status: Literal["created", "unchanged"] = "created" if created else "unchanged"
-        self.progress(self.total, status, f"Katalog stacji: {path.parent.name}")
+        status: Literal["new", "unchanged"] = "new" if created else "unchanged"
+        self.progress(
+            self.total,
+            status,
+            message("catalog.catalog_published", name=path.parent.name),
+        )
         if created and self.on_notice is not None:
             self.on_notice(
                 Notice(
                     "info",
                     LICENSE_NOTICE,
-                    f"{license_.attribution}. {provider.notice}",
+                    provider.license_notice(license_.attribution),
                 )
             )
         return CatalogReport(
-            status, path, count, without, from_series, tuple(problems), provider.id
+            status,
+            path,
+            count,
+            without,
+            from_series,
+            tuple(problems),
+            provider.id,
+            (version_file(path, status),),
         )
 
 
@@ -1872,9 +2010,13 @@ def build_catalog(
     ``geometry`` null unless the user file locates it, counted in
     ``from_series``); codes only in the user file are reported in ``problems``.
     Location precedence: API, then the local static file
-    ``station_code,latitude,longitude`` (``settings.data_dir``), then the user
+    ``station_code,latitude,longitude`` (``settings.reference_dir``), then the user
     CSV. A missing static file is not an error: it is reported in ``problems``
-    and recorded in the sidecar as ``available: false``.
+    and recorded in the sidecar as ``available: false``. ``meteo_kind`` of a
+    meteorological station is ``"climate"`` when the current
+    ``pl.imgw.meteo_climate_daily`` series holds it, otherwise
+    ``"precipitation"`` when the current ``pl.imgw.meteo_precip_daily`` series
+    does, and null without such a series (also for every ČHMÚ station).
 
     ČHMÚ (``stations/versions/chmi_stations/<label>_<sha8>/``, spec
     2026-10-18 §7): sources in precedence order of location, name, river and
@@ -1924,7 +2066,7 @@ def build_catalog(
     Returns
     -------
     CatalogReport
-        Status ``created``, ``unchanged`` or ``cancelled``, the path of the
+        Status ``new``, ``unchanged`` or ``cancelled``, the path of the
         current ``stations.geojson``, the station count, the number of stations
         without location, the number of stations known only from series indexes,
         the problems found in the sources and the provider.
@@ -1939,7 +2081,7 @@ def build_catalog(
         ``python -m imgwtools.reference_data``); raised before any download.
     IMGWStoreError
         If ``root`` is not a supported IMGW store or collides with a Kartograf
-        store or project.
+        store.
     IMGWConnectionError
         If a station list cannot be checked or downloaded, or another source
         cannot be downloaded.
@@ -1954,8 +2096,7 @@ def build_catalog(
         atomically.
     """
     owner = get_provider(provider)
-    handle = _handle(root)
-    _check_kartograf(handle.root)
+    handle = prepare_store(root)
     user = _user_file(user_locations)
     if owner.id == "IMGW-PIB":
         return _build_imgw(
@@ -1989,9 +2130,13 @@ def _build_imgw(build: _Build) -> CatalogReport:
         )
         lists.append(data)
         sources.append(source)
-        build.progress(step, "done", f"Lista stacji {archive.server_path}")
+        build.progress(
+            step,
+            "done",
+            message("catalog.list_progress", server_path=archive.server_path),
+        )
     apis = []
-    for step, (url, source, key) in enumerate(
+    for step, (url, api_source, key) in enumerate(
         (
             (HYDRO_API_URL, "api_hydro", "id_stacji"),
             (METEO_API_URL, "api_meteo", "kod_stacji"),
@@ -2000,10 +2145,10 @@ def _build_imgw(build: _Build) -> CatalogReport:
     ):
         if (report := build.stopped()) is not None:
             return report
-        rows, record = _api(url, source, key)
+        rows, record = _api(url, api_source, key)
         apis.append(rows)
         sources.append(record)
-        build.progress(step, "done", f"Pobrano {url}")
+        build.progress(step, "done", message("catalog.url_downloaded", url=url))
     if (report := build.stopped()) is not None:
         return report
     problems: list[str] = []
@@ -2016,8 +2161,7 @@ def _build_imgw(build: _Build) -> CatalogReport:
     sources[1]["count"] = len(parsed_lists["meteo"])
     if static_bytes is None:
         problems.append(
-            f"Brak lokalnego pliku położeń {static_path.as_posix()}; źródło static pominięte "
-            "(dane IMGW-PIB pobiera python -m imgwtools.reference_data)"
+            message("catalog.no_static_locations", static_path=static_path.as_posix())
         )
         sources.append(
             {
@@ -2045,18 +2189,21 @@ def _build_imgw(build: _Build) -> CatalogReport:
                 user[1], source="user", file=user[0].name, count=len(user_rows)
             )
         )
-    series, series_sources = _series_codes(handle.root, problems, provider=owner)
+    series, series_sources, meteo_kinds = _series_codes(
+        handle.root, problems, provider=owner
+    )
     sources.extend(series_sources)
     data, count, without, used, series_only = _catalog_bytes(
         lists=parsed_lists,
         apis={"hydro": apis[0], "meteo": apis[1]},
         series=series,
+        meteo_kinds=meteo_kinds,
         static=static,
         user=user_rows,
         problems=problems,
         rejections=rejections,
     )
-    build.progress(5, "done", f"Zbudowano katalog {count} stacji")
+    build.progress(5, "done", message("catalog.catalog_built", count=count))
     _catalog_notices(
         build.on_notice,
         problems=problems,
@@ -2091,7 +2238,9 @@ def _build_chmi(build: _Build) -> CatalogReport:
     hydro_list, meteo_list = station_source_files(provider=owner.id)
     form = get_dataset(hydro_list.dataset).content_form
     if form is None:  # pragma: no cover - registry invariant (spec §3.1)
-        raise IMGWDataError(f"Zbiór {hydro_list.dataset} nie ma formy treści")
+        raise IMGWDataError(
+            message("catalog.dataset_has_no_content_form", dataset=hydro_list.dataset)
+        )
     stored: dict[str, tuple[bytes, dict[str, Any]]] = {}
     for step, archive in enumerate((hydro_list, meteo_list), start=1):
         if (report := build.stopped()) is not None:
@@ -2099,7 +2248,11 @@ def _build_chmi(build: _Build) -> CatalogReport:
         stored[archive.dataset] = _station_list(
             handle, archive, on_progress=None, on_notice=build.on_notice
         )
-        build.progress(step, "done", f"Lista stacji {archive.server_path}")
+        build.progress(
+            step,
+            "done",
+            message("catalog.list_progress", server_path=archive.server_path),
+        )
     fetched: dict[str, tuple[bytes, dict[str, Any]]] = {}
     for step, (source, path) in enumerate(
         (
@@ -2117,7 +2270,7 @@ def _build_chmi(build: _Build) -> CatalogReport:
             else _chmi_meteo_now_url(owner.base_url)
         )
         fetched[source] = _chmi_get(url, source=source, form=form)
-        build.progress(step, "done", f"Pobrano {url}")
+        build.progress(step, "done", message("catalog.url_downloaded", url=url))
     if (report := build.stopped()) is not None:
         return report
     problems: list[str] = []
@@ -2162,7 +2315,8 @@ def _build_chmi(build: _Build) -> CatalogReport:
             )
             | {"available": True}
         )
-    series, series_sources = _series_codes(handle.root, problems, provider=owner)
+    # ČHMÚ publishes no station class: meteo_kind stays null (spec 2026-10-18 §7.3).
+    series, series_sources, _ = _series_codes(handle.root, problems, provider=owner)
     records.extend(series_sources)
     data, count, without, used, series_only, conflicts = _chmi_catalog_bytes(
         families=families,
@@ -2171,7 +2325,7 @@ def _build_chmi(build: _Build) -> CatalogReport:
         problems=problems,
         rejections=rejections,
     )
-    build.progress(6, "done", f"Zbudowano katalog {count} stacji")
+    build.progress(6, "done", message("catalog.catalog_built", count=count))
     _catalog_notices(
         build.on_notice,
         problems=problems,

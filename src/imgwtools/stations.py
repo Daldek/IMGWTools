@@ -33,6 +33,7 @@ from imgwtools.fetch import (
     _get_async,
     _json_payload,
 )
+from imgwtools.messages import message
 from imgwtools.models import HydroState, StationListEntry
 
 if TYPE_CHECKING:
@@ -46,8 +47,10 @@ _MAP_HEADERS = {
 _KINDS: tuple[Literal["hydro", "meteo"], ...] = ("hydro", "meteo")
 _SOURCES = ("live", "store")
 # The newest dated file of a listed directory, as plans name it.
-_NEWEST = "meta1-<RRRRMMDD>.json"
+_NEWEST = "meta1-<YYYYMMDD>.json"
 
+# Polish ``ł`` has no decomposition, so ``_normalize`` maps it by hand.
+_L_STROKE = unicodedata.lookup("LATIN SMALL LETTER L WITH STROKE")
 
 # ============================================================================
 # Station search
@@ -61,7 +64,7 @@ def _normalize(text: str) -> str:
     Polish ``ł`` becomes ``l`` (it has no decomposition); Czech letters
     decompose, so ``"Špindlerův"`` becomes ``"spindleruv"``.
     """
-    folded = unicodedata.normalize("NFKD", text.casefold().replace("ł", "l"))
+    folded = unicodedata.normalize("NFKD", text.casefold().replace(_L_STROKE, "l"))
     return "".join(char for char in folded if not unicodedata.combining(char))
 
 
@@ -71,22 +74,22 @@ def _search_kinds(
     """Validate the search options; return the families and stripped query."""
     if kind is not None and kind not in _KINDS:
         raise IMGWValidationError(
-            f"Nieznany rodzaj stacji: {kind!r}; dozwolone hydro, meteo",
+            message("stations.unknown_kind_station_allowed_hydro", kind=kind),
             details={"option": "kind", "allowed": list(_KINDS)},
         )
     if source not in _SOURCES:
         raise IMGWValidationError(
-            f"Nieznane źródło listy stacji: {source!r}; dozwolone live, store",
+            message("stations.unknown_source_station_list_allowed", source=source),
             details={"option": "source", "allowed": list(_SOURCES)},
         )
     if source == "store" and root is None:
         raise IMGWValidationError(
-            "Wyszukiwanie w magazynie (source=store) wymaga katalogu magazynu root",
+            message("stations.search_store_source_store_needs"),
             details={"option": "root"},
         )
     if source == "live" and root is not None:
         raise IMGWValidationError(
-            "Katalog magazynu root jest dozwolony tylko przy source=store",
+            message("stations.store_directory_root_allowed_only"),
             details={"option": "root"},
         )
     needle = None
@@ -94,7 +97,7 @@ def _search_kinds(
         needle = query.strip()
         if not needle:
             raise IMGWValidationError(
-                "Fraza wyszukiwania stacji nie może być pusta",
+                message("stations.station_search_phrase_must_not"),
                 details={"option": "query"},
             )
     kinds = _KINDS if kind is None else (kind,)
@@ -204,7 +207,9 @@ def _newest(source: _LiveSource, content: bytes) -> str:
     )
     if not names:
         raise IMGWDataError(
-            f"Nieczytelny listing {source.url}: brak pliku {_NEWEST}",
+            message(
+                "stations.unreadable_listing_no_file", url=source.url, newest=_NEWEST
+            ),
             details={"url": source.url},
         )
     return source.url + names[-1]
@@ -442,7 +447,9 @@ def _hydro_states(payload: Any, url: str) -> list[HydroState]:
     """
     items = payload.get("stations", []) if isinstance(payload, dict) else payload
     if not isinstance(items, list):
-        raise IMGWDataError(f"Nieoczekiwana odpowiedź z {url}: oczekiwano listy stacji")
+        raise IMGWDataError(
+            message("stations.unexpected_response_from_list_stations", url=url)
+        )
     states: list[HydroState] = []
     for item in items:
         if not isinstance(item, dict) or not item.get("id"):

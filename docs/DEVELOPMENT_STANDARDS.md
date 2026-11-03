@@ -63,27 +63,29 @@ DEFAULT_TIMEOUT = 30
 - `years`/`months` przyjmują `YearsArg`/`MonthsArg` (`2024`, `"2020-2023"`, `"2020,2022"`,
   listy); jedyny parser to `parse_years`/`parse_months` z `imgwtools.datasets`.
 - `latitude`/`longitude` (nie `lat`/`lon`; CLI ma aliasy `--lat`/`--lon`), `kind`, `query`,
-  `root`, `path` (plik wynikowy), `output` (katalog), `method` (PMAXTP, domyślnie `"POT"`).
+  `root` (magazyn), `output_dir` (katalog zwykłych plików), `output` (jeden plik eksportu), `force`, `method` (PMAXTP, domyślnie `"POT"`).
 - Pierwszy obiekt (`root`, `version`, `dataset`, `command`) może być pozycyjny; wszystkie dalsze
   argumenty są keyword-only.
 - Nowa operacja to nowa komenda katalogu (`commands._CATALOG`) wywołująca dokładnie jedną
   funkcję z `imgwtools.__all__`; CLI, REST i narzędzia MCP powstają z katalogu, bez ręcznych
   komend, tras i narzędzi.
-- Teksty dla człowieka (komunikaty, `detail`, pomoc) są domyślnie po polsku; kody, nazwy
-  i docstringi po angielsku (ADR-004 D3).
-- Teksty katalogu i rejestrów mają wariant angielski: opis komendy (`description_en`), pomoc
-  opcji (`help_en`), reguły (`rules_en`, te same pozycje co `rules`), opisy grup
-  (`_GROUPS_EN`), tytuły błędów (`ErrorSpec.title_en`) i zbiorów (`DatasetDescriptor.title_en`).
-  Nowy tekst katalogu dodaje się zawsze w parze polski + angielski (testy wymagają
-  niepustego wariantu i jednoznacznego odwzorowania pomocy PL ↔ EN). Język wybiera się
-  jawnie (`lang`, `IMGW_LANG`, `Accept-Language`, `imgw mcp --lang`); bez wariantu
-  angielskiego zostają `detail`, `Notice.text`, postęp, CSV, web GUI i OpenAPI. Język nie
-  zmienia kontraktu (te same właściwości, typy i reguły w obu schematach).
+- Wyjście maszynowe jest po angielsku (AGI-9.2, ADR-006): `--json`, ostatnia linia stderr,
+  serwer MCP, REST bez `Accept-Language`, OpenAPI, `command_schema`, `list_commands`,
+  `agent_guide`, `AGENTS.md` i `llms.txt`. Polski dają wyjście dla człowieka (pomoc CLI
+  i jego linie wg `IMGW_LANG`, web GUI) i jawna prośba (`Accept-Language: pl`, `lang="pl"`,
+  `--lang pl`); kody, nazwy i docstringi są po angielsku.
+- Każdy tekst dla człowieka (opis komendy, pomoc opcji, reguły, opisy grup, tytuły błędów
+  i zbiorów, `detail`, powiadomienia, linie postępu) jest wpisem katalogu
+  `imgwtools.messages.<obszar>` (`Text(en, pl)`, angielski pierwszy) i powstaje przez
+  `message("<obszar>.<nazwa>", …)`; w kodzie nie leży inline. `tests/unit/test_messages.py`
+  wymaga obu języków, tych samych zmiennych, braku nieużywanych wpisów i braku polskich
+  literałów poza katalogiem. Język nie zmienia kontraktu (te same właściwości, typy
+  i reguły w obu schematach).
 - Komenda deklaruje skutki: `DataCommand.writes` (`none`/`add`/`replace`), `network`
   i `CommandOption.writes` opcji zapisującej; komenda zapisująca ma bliźniaka `check`.
 - Zmiana tekstów katalogu, rejestru zbiorów, dostawców albo kodów błędów lub szablonów
   `src/imgwtools/_data/agents/` regeneruje w tej samej zmianie pliki pochodne `AGENTS.md`
-  i `llms.txt` (`imgw commands guide --format agents|llms --lang pl --path …`); test dryfu
+  i `llms.txt` (`imgw commands guide --format agents|llms --output … --force`); test dryfu
   porównuje bajty.
 
 ---
@@ -309,15 +311,12 @@ def test_pmaxtp_get_precipitation():
 
 ### 5.4 Pokrycie
 
-Stan faktyczny: **2209 testów** (2026-10-19, `pytest --collect-only`; 2130 offline, 79 na żywo z `IMGW_LIVE=1`); ostatni pomiar
-pokrycia: **93%** (2026-10-18, 998 testów, przed zmianami ADR-002). Cel docelowy: **80%**
-— bramka `--cov-fail-under` nie jest jeszcze włączona w konfiguracji projektu.
+Stan faktyczny: **2409 testów** (2026-10-25, `pytest --collect-only`; 2329 offline, 80 na żywo z `IMGW_LIVE=1`); ostatni pomiar
+pokrycia: **94,37%** (2026-10-25, bramka `scripts/gate.sh`). Próg `--cov-fail-under=80` jest włączony w bramce
+(`scripts/gate.sh`, DEV-7.6).
 
 ```bash
 pytest tests/ --cov=imgwtools --cov-report=html
-
-# Docelowo, po osiągnięciu progu:
-# pytest tests/ --cov=imgwtools --cov-report=html --cov-fail-under=80
 ```
 
 ---
@@ -428,7 +427,6 @@ mapuje kod na tytuł, kod wyjścia CLI i status HTTP — adaptery nie mają wła
 | `IMGWStoreError` | `store_unavailable` | `not_found` (brak wersji, sidecara, szeregu), `validation_error` (dowiązanie w ścieżce) |
 | `IMGWStoreConflictError` | `conflict` | `details.reason`: `path_conflict`, `not_atomic`, `locked`, … |
 | `IMGWStoreDependencyError` | `missing_dependency` | — |
-| `IMGWProjectError` | `validation_error` | `not_found`, `conflict`, `io_error` |
 | `IMGWCancelledError` | `cancelled` | — |
 
 Zasady:
@@ -440,7 +438,7 @@ Zasady:
 - Błędy sieci przechodzą przez wspólne `_source_error` (`details`: `url`, `reason`
   `timeout|network|http_status`, `status`); nie zgłaszaj surowych wyjątków `httpx`.
 - Anulowanie (`cancel()`) zgłasza `IMGWCancelledError`, nigdy `IMGWStoreError`.
-- Porażka jednej pozycji długiej operacji (`sync_store`, `download_archives`, projekt) to wpis
+- Porażka jednej pozycji długiej operacji (`sync_store`, `download_archives`) to wpis
   raportu ze `status="failed"` i `error_code`, nie wyjątek; koperta dostaje `partial`/`failed`.
 - `OSError` przy zapisie/odczycie plików kończy się kodem `io_error` (polski powód,
   `details.path`).

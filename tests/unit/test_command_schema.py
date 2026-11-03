@@ -10,7 +10,12 @@ from imgwtools import __version__
 from imgwtools._jsonable import jsonable
 from imgwtools.api.main import app as rest_app
 from imgwtools.cli.main import app as cli_app
-from imgwtools.commands import command_schema, run_command, validate_command
+from imgwtools.commands import (
+    command_schema,
+    list_commands,
+    run_command,
+    validate_command,
+)
 from imgwtools.config import settings
 from imgwtools.datasets import datasets
 from imgwtools.exceptions import ERROR_CODES, IMGWValidationError
@@ -32,7 +37,7 @@ SERIES_KEYS = [
 ]
 
 
-def test_catalog_document_lists_37_schemas_groups_errors_and_exit_codes():
+def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes():
     document = command_schema()
     assert json.loads(json.dumps(document)) == document
     assert (
@@ -40,7 +45,7 @@ def test_catalog_document_lists_37_schemas_groups_errors_and_exit_codes():
         document["version"],
         document["lang"],
         document["result_schema"],
-    ) == ("imgw-commands/1", __version__, "pl", "imgw-result/1")
+    ) == ("imgw-commands/1", __version__, "en", "imgw-result/1")
     assert [schema["title"] for schema in document["commands"]] == SPEC_COMMANDS
     assert list(document["groups"]) == list(
         dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS)
@@ -48,7 +53,7 @@ def test_catalog_document_lists_37_schemas_groups_errors_and_exit_codes():
     assert document["errors"] == [
         {
             "code": spec.code,
-            "title": spec.title,
+            "title": spec.title.localized("en"),
             "exit_code": spec.exit_code,
             "http_status": spec.http_status,
         }
@@ -86,15 +91,23 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "kind": {"enum": ["hydro", "meteo"]},
         "query": {"type": "string", "minLength": 1},
         "source": {"enum": ["live", "store"], "default": "live"},
-        "root": {"type": "string", "x-imgw-type": "path"},
+        "root": {
+            "type": "string",
+            "x-imgw-type": "path",
+            "x-imgw-path-role": "root",
+        },
         "limit": {"type": "integer", "minimum": 1},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
         "provider": {"enum": ["IMGW-PIB", "CHMI"]},
     }
-    meta = {key: value for key, value in find["x-imgw"].items() if key != "rules"}
+    meta = {
+        key: value
+        for key, value in find["x-imgw"].items()
+        if key not in ("rules", "examples")
+    }
     assert meta == {
         "command": "stations find",
-        "operation_id": "stations_find",
+        "operation_id": "imgw_stations_find",
         "group": "stations",
         "function": "find_stations",
         "check": "check_command",
@@ -102,6 +115,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "result_type": "StationListEntry",
         "writes": "none",
         "network": True,
+        "idempotent": True,
         "cli": {
             "command": "imgw stations find",
             "flags": {
@@ -122,7 +136,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         },
     }
     check = command_schema("store check")
-    assert check["required"] == ["root", "datasets"]
+    assert check["required"] == ["datasets"]
     assert check["properties"]["datasets"]["items"] == {"enum": SERIES_KEYS}
     assert check["properties"]["years"]["items"] == {
         "anyOf": [
@@ -161,18 +175,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
 def test_rest_routes_cover_exactly_the_non_local_commands():
     commands = command_schema()["commands"]
     local = [schema["title"] for schema in commands if schema["x-imgw"]["rest"] is None]
-    assert local == [
-        "datasets download",
-        "store init",
-        "project init",
-        "project add",
-        "project remove",
-        "project set-store",
-        "project download",
-        "project check",
-        "project status",
-        "project verify",
-    ]
+    assert local == ["datasets download", "store init"]
     posts = [
         schema["title"]
         for schema in commands
@@ -276,9 +279,76 @@ def test_store_scan_of_observations_answers_alike_in_python_cli_and_rest(
     )
     assert printed.exit_code == 0, printed.output
     assert canonical(json.loads(printed.stdout)) == canonical(local)
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
     answered = TestClient(rest_app).request(**rest_request("store scan", options))
     assert answered.status_code == 200, answered.text
     assert canonical(answered.json()) == canonical(
         python.to_json(root=root, server=True)
     )
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_command_list_summarizes_every_command_of_the_catalog(lang):
+    document = list_commands(lang=lang)
+    catalog = command_schema(lang=lang)
+
+    assert json.loads(json.dumps(document)) == document
+    assert (document["schema"], document["version"], document["lang"]) == (
+        "imgw-command-list/1",
+        __version__,
+        lang,
+    )
+    assert document["groups"] == catalog["groups"]
+    assert [entry["command"] for entry in document["commands"]] == SPEC_COMMANDS
+    for entry, schema in zip(document["commands"], catalog["commands"], strict=True):
+        meta = schema["x-imgw"]
+        assert entry == {
+            "command": meta["command"],
+            "operation_id": meta["operation_id"],
+            "group": meta["group"],
+            "summary": entry["summary"],
+            "writes": meta["writes"],
+            "network": meta["network"],
+            "idempotent": meta["idempotent"],
+            "check": meta["check"],
+            "result": meta["result"],
+            "result_type": meta["result_type"],
+            "rest": None
+            if meta["rest"] is None
+            else {"method": meta["rest"]["method"], "path": meta["rest"]["path"]},
+        }
+        # The summary is the first sentence of the description (DOC-1.7: 100).
+        assert schema["description"].startswith(entry["summary"])
+        assert len(entry["summary"]) <= 100, meta["command"]
+
+
+def test_command_list_stays_within_the_default_page_budget():
+    # DOC-1.7: at most 20,000 characters per default page of a CLI or MCP result.
+    for lang in ("pl", "en"):
+        text = json.dumps(list_commands(lang=lang), ensure_ascii=False)
+        assert len(text) <= 20_000
+
+
+def test_command_list_rejects_a_language_outside_the_catalog():
+    with pytest.raises(IMGWValidationError) as error:
+        list_commands(lang="de")
+    assert (error.value.details["option"], error.value.details["allowed"]) == (
+        "lang",
+        ["en", "pl"],
+    )
+
+
+def test_every_path_option_has_a_role_and_the_write_targets_exclude_each_other():
+    commands = {schema["title"]: schema for schema in command_schema()["commands"]}
+    for title, schema in commands.items():
+        for name, option in schema["properties"].items():
+            if option.get("x-imgw-type") == "path":
+                assert option.get("x-imgw-path-role") in ("input", "output", "root"), (
+                    title,
+                    name,
+                )
+    download = commands["datasets download"]
+    assert download["properties"]["output_dir"]["x-imgw-path-role"] == "output"
+    assert download["properties"]["root"]["x-imgw-path-role"] == "root"
+    assert download["x-imgw"]["exclusive"] == [["output_dir", "root"]]
+    assert "exclusive" not in commands["datasets files"]["x-imgw"]

@@ -152,7 +152,7 @@ async def test_unpublished_meteo_combinations_fail_before_request(
 
 def test_unknown_interval_lists_registry_keys(respx_mock):
     with pytest.raises(IMGWValidationError) as error:
-        download_hydro_data("roczne", 2020)  # type: ignore[arg-type]
+        download_hydro_data("roczne", 2020)
     assert "pl.imgw.hydro_daily" in error.value.details["allowed"]
 
 
@@ -181,14 +181,14 @@ async def test_download_failure_is_source_unavailable(respx_mock, mock, reason, 
 @pytest.mark.parametrize(
     "response, message",
     [
-        (httpx.Response(200, content=b"<html>"), "Niepoprawne archiwum ZIP"),
+        (httpx.Response(200, content=b"<html>"), "Invalid ZIP archive"),
         (
             httpx.Response(
                 200,
                 stream=httpx.ByteStream(_zip_bytes()),
                 headers={"Content-Length": "duzo"},
             ),
-            "Niepoprawny nagłówek Content-Length",
+            "Invalid Content-Length header",
         ),
     ],
 )

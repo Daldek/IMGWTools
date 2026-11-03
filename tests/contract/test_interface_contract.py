@@ -28,7 +28,6 @@ from imgwtools import (
     IMGWCancelledError,
     IMGWError,
     check_command,
-    command_schema,
     current_version,
     init_store,
     run_command,
@@ -36,6 +35,7 @@ from imgwtools import (
     sync_pmaxtp,
 )
 from imgwtools.exceptions import describe_os_error
+from imgwtools.messages import localize
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -46,6 +46,8 @@ from tests.contract.support import (
     FakeImgw,
     canonical,
     cli_words,
+    command_document,
+    current_path,
     envelope_errors,
     rest_request,
     schema_errors,
@@ -54,7 +56,7 @@ from tests.contract.support import (
     stamps,
 )
 
-CATALOG = command_schema()
+CATALOG = command_document()
 EXIT_CODES = CATALOG["exit_codes"]
 ROUTES = {
     schema["x-imgw"]["command"]: schema["x-imgw"]
@@ -65,8 +67,16 @@ POST_COMMANDS = [
     name for name, meta in ROUTES.items() if meta["rest"]["method"] == "POST"
 ]
 INTERFACES = ("python", "cli", "rest")
-# Notice labels of the CLI stderr (spec §13.10).
+# Notice labels of the CLI stderr (spec §13.10); its lines are for a person, so they
+# are in the language of IMGW_LANG, Polish by default.
 LABELS = {"info": "Informacja", "warning": "Ostrzeżenie", "error": "Błąd"}
+
+
+def line_of(notice):
+    """The stderr line the CLI prints for a notice."""
+    return f"{LABELS[notice.level]}: {localize(notice.text, 'pl')}"
+
+
 # Placeholders of versions relative to the root, resolved in the served store.
 ARCHIVE, SERIES = "<archive>", "<series>"
 PLACEHOLDERS = {
@@ -156,6 +166,7 @@ CASES: dict[str, list[Case]] = {
             "served",
         )
     ],
+    "commands list": [Case({}), Case({"lang": "en"})],
     "commands schema": [
         Case({"command": "series export"}),
         Case({}),
@@ -187,9 +198,9 @@ def recorded(imgw):
 
 
 @pytest.fixture
-def relative_data_dir(monkeypatch, server):
+def relative_reference_dir(monkeypatch, server):
     """Relative reference-data directory: texts name it alike in every interface."""
-    monkeypatch.setattr(server, "data_dir", Path("brak-danych-referencyjnych"))
+    monkeypatch.setattr(server, "reference_dir", Path("brak-danych-referencyjnych"))
 
 
 def rooted(options: dict[str, object], root: Path | None) -> dict[str, object]:
@@ -202,7 +213,7 @@ def resolved(options: dict[str, object], root: Path | None) -> dict[str, object]
     for name, value in options.items():
         if isinstance(value, str) and value in PLACEHOLDERS:
             assert root is not None
-            version = current_version(root, slot=PLACEHOLDERS[value]).version
+            version = current_path(root, PLACEHOLDERS[value])
             result[name] = version.relative_to(root).as_posix()
     return result
 
@@ -253,7 +264,7 @@ def assert_alike(command, python, printed, answered, root):
         exported = ROUTES[command]["function"].startswith("export_")
         assert ("license_terms" in {notice["code"] for notice in notices}) == exported
         for notice in python.notices:
-            assert printed.stderr.count(f"{LABELS[notice.level]}: {notice.text}") == 1
+            assert printed.stderr.count(line_of(notice)) == 1
         return
     local = python.to_json(root=root)
     served = python.to_json(root=root, server=True)
@@ -289,7 +300,7 @@ def test_every_rest_command_answers_alike_in_python_cli_and_rest(
     served_root,
     recorded,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
 ):
     for case in CASES[command]:
         writes = case.store in ("empty", "fixture")
@@ -297,7 +308,7 @@ def test_every_rest_command_answers_alike_in_python_cli_and_rest(
             root = tmp_path / "store"
         else:
             root = served_root if case.store == "served" else None
-        monkeypatch.setattr(server, "store_root", root)
+        monkeypatch.setattr(server, "root", root)
         options = case.options if writes else resolved(case.options, root)
         local = options
         if ROUTES[command]["result"] == "list" and "limit" not in options:
@@ -345,12 +356,12 @@ def test_every_write_is_planned_alike_by_check_in_python_cli_and_rest(
     fixture_root,
     recorded,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
 ):
     (case,) = CASES[command]
     root = tmp_path / "store"
     fresh_store(case.store, root, fixture_root)
-    monkeypatch.setattr(server, "store_root", root)  # writes stay disabled
+    monkeypatch.setattr(server, "root", root)  # writes stay disabled
     before = stamps(root)
 
     python, printed, answered = (
@@ -396,7 +407,7 @@ def test_same_limit_and_offset_give_the_same_page_in_every_interface(
     recorded,
 ):
     root = served_root if stored else None
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     window = {**options, "limit": limit, "offset": offset}
     whole = run_command(command, options=rooted(options, root))
 
@@ -436,7 +447,7 @@ STATION_LISTS = ("pl.imgw.hydro_stations", "pl.imgw.meteo_stations")
 def test_versions_answered_by_rest_work_as_imgw_version_with_root(
     cli, rest, server, monkeypatch, served_root
 ):
-    monkeypatch.setattr(server, "store_root", served_root)
+    monkeypatch.setattr(server, "root", served_root)
     read = []
     for kind, (command, extra) in READERS.items():
         scanned = rest.get("/api/v1/store/scan", params={"kind": kind}).json()
@@ -509,9 +520,9 @@ def _not_found(setting: Setting) -> Scenario:
 def _conflict(setting: Setting) -> Scenario:
     root = setting.store()
     (root / "notatki").mkdir()
-    (root / "notatki" / "kartograf-project.json").write_text(
-        json.dumps({"output_dir": ".."}), encoding="utf-8"
-    )  # a Kartograf project writing into the store
+    (root / "notatki" / "kartograf-store.json").write_text(
+        json.dumps({"schema": "kartograf-store/1"}), encoding="utf-8"
+    )  # a Kartograf store inside the store
     return Scenario("series build", {"dataset": PRECIP}, root)
 
 
@@ -523,13 +534,13 @@ def _source_unavailable(setting: Setting) -> Scenario:
 def _missing_dependency(setting: Setting) -> Scenario:
     for name in ("pyarrow", "pyarrow.parquet"):
         setting.monkeypatch.setitem(sys.modules, name, None)
-    options = {"dataset": DAILY, "station": RABA}
+    options: dict[str, object] = {"dataset": DAILY, "station": RABA}
     return Scenario("series read", options, setting.fixture_root)
 
 
 def _data_error(setting: Setting) -> Scenario:
     root = setting.store()
-    series = current_version(root, slot=f"series:{PRECIP}").version
+    series = current_path(root, f"series:{PRECIP}")
     series.write_text("{}", encoding="utf-8")  # no longer the bytes of the sidecar
     return Scenario("series summary", {"dataset": PRECIP}, root)
 
@@ -557,6 +568,18 @@ def _forbidden(setting: Setting) -> Scenario:
     return Scenario("series build", {"dataset": PRECIP}, setting.store(), ("rest",))
 
 
+def _unsupported(setting: Setting) -> Scenario:
+    # No catalog command refuses a combination itself (command_for_version is
+    # Python only); a refusal raised below a command is reported alike.
+    refusal = IMGWError(
+        "Komenda wersji nie do odtworzenia",
+        code="unsupported",
+        details={"reason": "command_not_rebuildable"},
+    )
+    setting.raising(store, "store_info", refusal)
+    return Scenario("store info", {}, setting.store())
+
+
 def _method_not_allowed(setting: Setting) -> Scenario:
     return Scenario("store info", {}, setting.store(), ("rest",), method="DELETE")
 
@@ -578,6 +601,7 @@ SCENARIOS = {
     "io_error": _io_error,
     "cancelled": _cancelled,
     "forbidden": _forbidden,
+    "unsupported": _unsupported,
     "method_not_allowed": _method_not_allowed,
     "internal_error": _internal_error,
 }
@@ -608,7 +632,7 @@ def test_every_error_code_is_reported_alike_by_every_interface(
     spec = ERROR_CODES[code]
     scenario = SCENARIOS[code](Setting(tmp_path, fixture_root, imgw, monkeypatch))
     options = rooted(scenario.options, scenario.root)
-    monkeypatch.setattr(server, "store_root", scenario.root)
+    monkeypatch.setattr(server, "root", scenario.root)
     if code == "forbidden":
         monkeypatch.setattr(server, "store_writes_enabled", False)
     raised: BaseException | None = None
@@ -673,11 +697,11 @@ def test_every_error_code_is_reported_alike_by_every_interface(
 
 
 def _series_index(root: Path) -> Path:
-    return current_version(root, slot=f"series:{DAILY}").version
+    return current_path(root, f"series:{DAILY}")
 
 
 def _archive_file(root: Path) -> tuple[str, dict[str, object], Path]:
-    archive = current_version(root, slot=PLACEHOLDERS[ARCHIVE]).version
+    archive = current_path(root, PLACEHOLDERS[ARCHIVE])
     return "store export", {"version": archive.relative_to(root).as_posix()}, archive
 
 
@@ -707,7 +731,7 @@ def _station_parquet(root: Path) -> tuple[str, dict[str, object], Path]:
 
 
 def _pmaxtp_cell(root: Path) -> tuple[str, dict[str, object], Path]:
-    cell = current_version(root, slot="pmaxtp:pl.imgw.pmaxtp:POT/751_317").version
+    cell = current_path(root, "pmaxtp:pl.imgw.pmaxtp:POT/751_317")
     return "pmaxtp read", {"ind_x": 751, "ind_y": 317}, cell
 
 
@@ -764,7 +788,7 @@ def test_an_unreadable_version_is_an_io_error_in_every_interface(
     root = tmp_path / "store"
     shutil.copytree(served_root, root)
     command, options, target = UNREADABLE[unreadable](root)
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     target.chmod(0)
     try:
         raised = assert_io_error_alike(command, options, root, cli=cli, rest=rest)
@@ -773,7 +797,7 @@ def test_an_unreadable_version_is_an_io_error_in_every_interface(
 
     assert isinstance(raised, IMGWError)
     assert (raised.detail, dict(raised.details)) == (
-        f"Błąd systemu plików: brak uprawnień: {target}",
+        f"File system error: permission denied: {target}",
         {"path": str(target)},
     )
 
@@ -782,7 +806,7 @@ def test_a_failed_write_is_the_same_io_error_in_imgw_and_rest(
     cli, rest, writable, server, monkeypatch, tmp_path, fixture_root, imgw
 ):
     scenario = _io_error(Setting(tmp_path, fixture_root, imgw, monkeypatch))
-    monkeypatch.setattr(server, "store_root", scenario.root)
+    monkeypatch.setattr(server, "root", scenario.root)
 
     raised = assert_io_error_alike(
         scenario.command,

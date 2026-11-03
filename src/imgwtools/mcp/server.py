@@ -7,14 +7,17 @@ validator. Modes (spec §6.3): ``read`` (default of ``imgw mcp``) offers every
 command, writing ones only as a plan, ``write`` (``imgw mcp --allow-writes``)
 plans by default and writes with ``check: false``, ``http`` (``/mcp`` of ``imgw
 server``) offers the REST routes, POST ones only as a plan. The tool list is
-fixed for the server: language, mode and ``IMGW_STORE_ROOT`` are read once when
-the server is created. The instructions of the server are the rules of the
+fixed for the server: the mode, the default store root and the ``--allow-dir``
+directories are read once when the server is created. Everything the server says is English (AGI-9.2): the tool descriptions,
+the instructions and the error documents. The instructions are the rules of the
 agent guide with the lines of the mode.
 """
 
 from __future__ import annotations
 
-import os
+import contextlib
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import anyio
@@ -27,27 +30,29 @@ from starlette.applications import Starlette
 
 from imgwtools._version import __version__
 from imgwtools.agent_guide import _instructions
-from imgwtools.commands import LANGS, Lang
-from imgwtools.config import settings
+from imgwtools.config import settings, store_root
 from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import call_tool
 from imgwtools.mcp._tools import MODES, Mode, catalog_tools
+from imgwtools.messages import message
 
 __all__ = ["create_server", "http_app", "run_stdio"]
-
-_ROOT_ENV = "IMGW_STORE_ROOT"
 
 
 def _choice(name: str, value: object, allowed: tuple[str, ...]) -> None:
     if value not in allowed:
         raise IMGWValidationError(
-            f"Nieprawidłowa wartość {value!r} opcji {name}; dozwolone: "
-            f"{', '.join(allowed)}",
+            message(
+                "mcp.invalid_value_option_allowed",
+                value=value,
+                name=name,
+                allowed=", ".join(allowed),
+            ),
             details={"option": name, "value": str(value), "allowed": list(allowed)},
         )
 
 
-def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
+def create_server(*, mode: Mode = "read", allow_dirs: Sequence[Path] = ()) -> Server:
     """
     Create the MCP server of the command catalog.
 
@@ -59,31 +64,32 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
         writing commands plan by default and write with ``check: false``;
         ``http``: the commands with a REST route, answered by that route,
         POST routes only planning.
-    lang : {"pl", "en"}, optional
-        Language of the tool texts, the instructions, error titles and the
-        default of ``lang`` options (``detail`` stays Polish).
+    allow_dirs : sequence of pathlib.Path, optional
+        The directories the server may read and write (``--allow-dir``): every
+        path option and the default root must lie inside one, and a writing
+        command without any directory only plans (DEV-19.3).
 
     Returns
     -------
     mcp.server.Server
         Low-level SDK server with the tools of the mode in catalog order. In
-        ``read`` and ``write`` an absent ``root`` is ``IMGW_STORE_ROOT`` (read
-        now) under the command's ``env_root_when``, relative paths are
-        relative to the current working directory.
+        ``read`` and ``write`` an absent ``root`` is the default store root
+        (``IMGW_ROOT``, ``[imgw] root`` or ``<data_dir>/imgw``, read now) under
+        the command's ``env_root_when``, relative paths are relative to the
+        current working directory.
 
     Raises
     ------
     IMGWValidationError
-        If ``mode`` or ``lang`` is not one of the allowed values.
+        If ``mode`` is not one of the allowed values.
     """
     _choice("mode", mode, MODES)
-    _choice("lang", lang, LANGS)
     if mode == "http":
-        root, workdir, store = None, None, settings.store_root
+        workdir, store = None, settings.root
     else:
-        root, workdir = os.environ.get(_ROOT_ENV) or None, Path.cwd()
-        store = None if root is None else Path(root)
-    tools = catalog_tools(mode=mode, lang=lang, root=root)
+        workdir, store = Path.cwd(), store_root().root
+    confined = tuple(Path(item).expanduser().resolve() for item in allow_dirs)
+    tools = catalog_tools(mode=mode)
     listing = types.ListToolsResult(tools=[tool.definition for tool in tools.values()])
 
     async def list_tools(
@@ -96,16 +102,21 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
     ) -> types.CallToolResult:
         tool = tools.get(params.name)
         if tool is None:
-            raise MCPError(types.INVALID_PARAMS, f"Nieznane narzędzie: {params.name}")
+            raise MCPError(
+                types.INVALID_PARAMS, message("mcp.unknown_tool", name=params.name)
+            )
         return await call_tool(
-            tool, params.arguments or {}, report=ctx.session.report_progress
+            tool,
+            params.arguments or {},
+            report=ctx.session.report_progress,
+            allow_dirs=confined,
         )
 
     return Server(
         "imgwtools",
         version=__version__,
         title="IMGWTools",
-        instructions=_instructions(lang=lang, mode=mode, workdir=workdir, root=store),
+        instructions=_instructions(mode=mode, workdir=workdir, root=store),
         on_list_tools=list_tools,
         on_call_tool=call,
     )
@@ -113,31 +124,42 @@ def create_server(*, mode: Mode = "read", lang: Lang = "pl") -> Server:
 
 async def _serve(server: Server) -> None:
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+        try:
+            await server.run(
+                read_stream, write_stream, server.create_initialization_options()
+            )
+        finally:
+            # Block-buffered stdout (a pipe) holds the text of a ``print`` until it
+            # is flushed: flushed after the SDK restored file descriptor 1 it would
+            # reach the client, flushed here it goes to stderr.
+            with contextlib.suppress(OSError, ValueError):
+                sys.stdout.flush()
 
 
-def run_stdio(*, allow_writes: bool = False, lang: Lang = "pl") -> None:
+def run_stdio(*, allow_writes: bool = False, allow_dirs: Sequence[Path] = ()) -> None:
     """
     Serve MCP over stdin and stdout until the client closes the connection.
 
     stdout belongs to the protocol: while serving, the SDK points the process
-    stdout at stderr, so nothing else reaches the client.
+    stdout at stderr, so stray output of a command (a ``print``) never reaches
+    the client; what Python still buffers when the client leaves is flushed to
+    stderr before the SDK restores stdout.
 
     Parameters
     ----------
     allow_writes : bool, optional
         Mode ``write`` instead of ``read`` (``imgw mcp --allow-writes``,
         ``IMGW_MCP_ALLOW_WRITES=true``).
-    lang : {"pl", "en"}, optional
-        Language of the server (``imgw mcp --lang``, default ``IMGW_LANG``).
+    allow_dirs : sequence of pathlib.Path, optional
+        Directories the server may read and write (``imgw mcp --allow-dir``).
     """
-    server = create_server(mode="write" if allow_writes else "read", lang=lang)
+    server = create_server(
+        mode="write" if allow_writes else "read", allow_dirs=allow_dirs
+    )
     anyio.run(_serve, server)
 
 
-def http_app(*, lang: Lang = "pl") -> Starlette:
+def http_app() -> Starlette:
     """
     Streamable HTTP application of the MCP server in mode ``http``.
 
@@ -145,11 +167,6 @@ def http_app(*, lang: Lang = "pl") -> Starlette:
     ``IMGW_MCP_ALLOWED_HOSTS`` (``Settings.mcp_allowed_hosts``) are answered,
     each with any port or none (another Host → 421), and requests with an
     ``Origin`` header are refused (403, the SDK's narrowest list).
-
-    Parameters
-    ----------
-    lang : {"pl", "en"}, optional
-        Language of the server (``IMGW_LANG`` of the REST server process).
 
     Returns
     -------
@@ -159,7 +176,7 @@ def http_app(*, lang: Lang = "pl") -> Starlette:
         (``app.router.lifespan_context``); a mounted application's lifespan
         never runs by itself.
     """
-    server = create_server(mode="http", lang=lang)
+    server = create_server(mode="http")
     hosts = [
         form for host in settings.mcp_allowed_hosts for form in (host, f"{host}:*")
     ]

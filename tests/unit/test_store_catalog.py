@@ -192,7 +192,7 @@ def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
             return_value=httpx.Response(200, headers=LIST_HEADERS)
         )
         plan = check_catalog(store)
-    assert second.status == "created"
+    assert second.status == "new"
     assert "150000030" in features(second) and "150000030" not in features(first)
     assert [item.status for item in plan.items] == ["current", "current"]
     hydro_versions = stored_lists(store, HYDRO_LIST)
@@ -212,9 +212,9 @@ def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
 
 
 def test_code_only_in_static_file_is_kept_as_hydro_station(
-    store, tmp_path, isolated_data_dir
+    store, tmp_path, isolated_reference_dir
 ):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n150000099,50.0512,19.9512\n", encoding="utf-8"
     )
@@ -266,10 +266,10 @@ def test_user_file_source_column_is_optional(store, tmp_path):
     ids=["static_id_x_y", "user_lon_lat"],
 )
 def test_old_location_headers_are_rejected_before_any_download(
-    store, tmp_path, isolated_data_dir, static_text, user_text, option, hint
+    store, tmp_path, isolated_reference_dir, static_text, user_text, option, hint
 ):
     if static_text is not None:
-        (isolated_data_dir / "hydro_stations_locations.csv").write_text(
+        (isolated_reference_dir / "hydro_stations_locations.csv").write_text(
             static_text, encoding="utf-8"
         )
     user = None
@@ -304,17 +304,17 @@ def put_monthly(store, codes, etag, *, shift=0):
     )
     write_archive(store, archive=archive, response=response)
     report = build_series(store, dataset="pl.imgw.hydro_monthly")
-    assert report.status == "created", report.problems
+    assert report.status == "new", report.problems
     return report.version
 
 
 def series_action(plan):
-    (action,) = [a for a in plan.actions if a.detail.startswith("indeksy szeregów")]
+    (action,) = [a for a in plan.actions if a.detail.startswith("series indexes")]
     return action.status
 
 
 def test_code_only_in_series_index_is_kept_as_historical_station(
-    store, isolated_data_dir
+    store, isolated_reference_dir
 ):
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router)
@@ -328,7 +328,7 @@ def test_code_only_in_series_index_is_kept_as_historical_station(
         put_monthly(store, ["149190310", "150000097"], '"m2"', shift=5)
         again = build_catalog(store)
     assert empty.from_series == 0 and "150000097" not in features(empty)
-    assert report.status == "created" and report.from_series == 1
+    assert report.status == "new" and report.from_series == 1
     found = features(report)
     assert set(found) == set(features(empty)) | {"150000097"}
     closed = found["150000097"]
@@ -352,7 +352,58 @@ def test_code_only_in_series_index_is_kept_as_historical_station(
     assert again.from_series == 1
 
 
-def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_data_dir):
+def put_meteo(store, dataset):
+    """Store the January 2001 archive of a daily meteo dataset and build its series."""
+    (archive,) = archive_files(dataset, years=[2001], months=[1])
+    content = (FIXTURES / "archives" / archive.server_path).read_bytes()
+    response = DownloadResult(
+        content, archive.url, '"m1"', "Sat, 17 Oct 2026 12:00:00 GMT", len(content)
+    )
+    write_archive(store, archive=archive, response=response)
+    report = build_series(store, dataset=dataset)
+    assert report.status == "new", report.problems
+
+
+def test_meteo_kind_comes_from_the_climate_and_precipitation_series(store):
+    meteo_csv = METEO_CSV + cp1250('"250180460","ADAMOWICE","95414"')
+    with respx.mock(assert_all_called=False) as router:
+        mock_sources(router, meteo_csv=meteo_csv)
+        before = build_catalog(store)
+        put_meteo(store, "pl.imgw.meteo_precip_daily")  # 123750000, 123760000
+        assert series_action(check_catalog(store)) == "newer"
+        precipitation = build_catalog(store)
+        assert series_action(check_catalog(store)) == "current"
+        put_meteo(store, "pl.imgw.meteo_climate_daily")  # 123750000
+        assert series_action(check_catalog(store)) == "newer"
+        climate = build_catalog(store)
+
+    def kinds(report, kind):
+        return {
+            code: feature["properties"]["meteo_kind"]
+            for code, feature in features(report).items()
+            if feature["properties"]["kind"] == kind
+        }
+
+    assert kinds(before, "meteo") == dict.fromkeys(
+        ("123750000", "123760000", "250180460")
+    )
+    assert kinds(precipitation, "meteo") == {
+        "123750000": "precipitation",
+        "123760000": "precipitation",
+        "250180460": None,
+    }
+    # A station in both series is a climate station; without a series it stays null.
+    assert kinds(climate, "meteo") == {
+        "123750000": "climate",
+        "123760000": "precipitation",
+        "250180460": None,
+    }
+    assert set(kinds(climate, "hydro").values()) == {None}
+
+
+def test_location_precedence_rejections_and_reasons(
+    store, tmp_path, isolated_reference_dir
+):
     hydro_csv = HYDRO_CSV + cp1250(
         '"150000020","STACJA API","Rzeka (1)","00010"',
         '"150000021","STACJA STATYCZNA","Rzeka (1)","00015"',
@@ -367,7 +418,7 @@ def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_da
             "lat": "49.9213",
         },
     ]
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n"
         "150000020,50.0000,18.4000\n150000021,49.95453369,18.32665589\n",
@@ -424,13 +475,13 @@ def test_location_precedence_rejections_and_reasons(store, tmp_path, isolated_da
     assert static_source["sha256"] == hashlib.sha256(static.read_bytes()).hexdigest()
 
 
-def test_missing_static_file_is_reported_and_recorded(store, isolated_data_dir):
+def test_missing_static_file_is_reported_and_recorded(store, isolated_reference_dir):
     notices = []
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router)
         report = build_catalog(store, on_notice=notices.append)
-    assert report.status == "created"
-    expected = (isolated_data_dir / "hydro_stations_locations.csv").as_posix()
+    assert report.status == "new"
+    expected = (isolated_reference_dir / "hydro_stations_locations.csv").as_posix()
     assert any(
         expected in problem and "static" in problem for problem in report.problems
     )
@@ -566,8 +617,8 @@ def test_hydrographic_code_text_prefix_and_river_order(store):
     ]
 
 
-def test_geojson_is_rfc7946_and_sidecar_records_sources(store, isolated_data_dir):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+def test_geojson_is_rfc7946_and_sidecar_records_sources(store, isolated_reference_dir):
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n149190312,50.0512,19.9512\n", encoding="utf-8"
     )
@@ -663,7 +714,7 @@ def test_identical_content_next_day_is_unchanged(store, tmp_path, monkeypatch):
             encoding="utf-8",
         )
         third = build_catalog(store, user_locations=user)
-    assert first.status == "created" and third.status == "created"
+    assert first.status == "new" and third.status == "new"
     assert third.version.parent.name.startswith(
         (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
     )
@@ -713,12 +764,14 @@ def test_check_catalog_uses_head_only_and_writes_nothing(store, tmp_path):
     assert tree(store.root) == before
 
 
-def test_check_catalog_tracks_static_file_presence(store, isolated_data_dir):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+def test_check_catalog_tracks_static_file_presence(store, isolated_reference_dir):
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
 
     def static_action():
         (action,) = [
-            a for a in check_catalog(store).actions if "plik położeń static" in a.detail
+            a
+            for a in check_catalog(store).actions
+            if "location file static" in a.detail
         ]
         return action
 
@@ -726,13 +779,13 @@ def test_check_catalog_tracks_static_file_presence(store, isolated_data_dir):
         mock_sources(router)
         build_catalog(store)
         absent = static_action()
-        assert absent.status == "current" and "brak pliku" in absent.detail
+        assert absent.status == "current" and "missing file" in absent.detail
         static.write_text(
             "station_code,latitude,longitude\n149190312,50.0512,19.9512\n",
             encoding="utf-8",
         )
         assert static_action().status == "newer"
-        assert build_catalog(store).status == "created"
+        assert build_catalog(store).status == "new"
         assert static_action().status == "current"
         static.unlink()
         assert static_action().status == "newer"
@@ -758,11 +811,11 @@ def test_code_listed_twice_is_reported_and_kept_once(store):
     with respx.mock(assert_all_called=False) as router:
         mock_sources(router, meteo_csv=meteo)
         report = build_catalog(store)
-    assert report.status == "created"
+    assert report.status == "new"
     (problem,) = [p for p in report.problems if "250199990" in p]
     assert problem == (
-        "Lista meteo: powtórzony kod stacji 250199990 (STACJA TESTOWA, kod krótki "
-        "4611 oraz STACJA TESTOWA, kod krótki 94660); katalog używa pierwszego wiersza"
+        "List meteo: repeated station code 250199990 (STACJA TESTOWA, short code "
+        "4611 and STACJA TESTOWA, short code 94660); the catalog uses the first row"
     )
     assert list(features(report)).count("250199990") == 1
     rows = [

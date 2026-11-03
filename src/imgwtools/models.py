@@ -9,9 +9,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Literal
+from numbers import Real
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
+
+from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import message
 
 Flag = Literal["value", "missing", "no_phenomenon", "accumulated"]
 
@@ -93,15 +97,103 @@ class NormalizedRecord:
     extrema_occurrences: Mapping[str, int] = field(default_factory=dict)
 
 
+# The 27 probabilities [%] of every PMAXTP table, the same for each duration (measured
+# on the real API, PROGRESS). IMGW writes the keys of the tables as plain numbers, so a
+# whole percentage has no decimal point ("1", not "1.0"): it is an ``int`` here and the
+# key is ``str(value)``.
+_PMAXTP_PROBABILITIES: tuple[float, ...] = (
+    0.01,
+    0.02,
+    0.03,
+    0.05,
+    0.1,
+    0.2,
+    0.3,
+    0.5,
+    1,
+    2,
+    3,
+    5,
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    95,
+    98,
+    98.5,
+    99,
+    99.5,
+    99.9,
+)
+_PROBABILITY_KEYS: Mapping[float, str] = {
+    value: str(value) for value in _PMAXTP_PROBABILITIES
+}
+
+
+def _probability_key(probability_percent: float) -> str:
+    """
+    Key of a probability in the PMAXTP tables.
+
+    ``50`` and ``50.0`` are the same percentage and give ``"50"``; a number that is
+    not one of the published probabilities (also ``nan``, a ``bool`` or a value that
+    is no number) is refused instead of reading as an absent value.
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``probability_percent`` is not a published probability
+        (``details`` ``option``, ``value`` and ``allowed``).
+    """
+    key = (
+        _PROBABILITY_KEYS.get(cast(float, probability_percent))
+        if isinstance(probability_percent, Real)
+        and not isinstance(probability_percent, bool)
+        else None
+    )
+    if key is None:
+        raise IMGWValidationError(
+            message(
+                "models.unknown_pmaxtp_probability_allowed",
+                probability=probability_percent,
+                allowed=", ".join(_PROBABILITY_KEYS.values()),
+            ),
+            details={
+                "option": "probability_percent",
+                "value": str(probability_percent),
+                "allowed": list(_PMAXTP_PROBABILITIES),
+            },
+        )
+    return key
+
+
+def _quantile(
+    table: Mapping[str, Mapping[str, float]],
+    duration_minutes: int,
+    probability_percent: float,
+) -> float | None:
+    """Read one cell of a PMAXTP table; None when the duration or value is absent."""
+    probability_key = _probability_key(probability_percent)
+    return table.get(str(duration_minutes), {}).get(probability_key)
+
+
 class PMaXTPData(BaseModel):
     """
     PMAXTP precipitation quantiles for all durations and probabilities.
 
     Each attribute is a nested dict of the form
     ``{duration: {probability: value}}``, where both keys are plain numbers
-    written as strings: durations in minutes (e.g. "5", "10", "15", "30",
-    "45", "60", "90", "120", "180") and probabilities in percent
-    (e.g. "1", "2", "5", "10", "20", "50").
+    written as strings: durations in minutes (5, 10, 15, 30, 45, 60, 90, 120,
+    180, 360, 720, 1080, 1440, 2160, 2880 and 4320) and probabilities in
+    percent, 27 values from ``"0.01"`` to ``"99.9"`` (``"1"``, ``"50"``,
+    ``"98.5"``; a whole percentage has no decimal point). The accessors
+    ``get_precipitation``, ``get_confidence_bound`` and
+    ``get_estimation_error`` take the probability as a number, ``50`` or
+    ``0.01``, and refuse a number that is not one of the 27.
 
     Attributes
     ----------
@@ -120,15 +212,15 @@ class PMaXTPData(BaseModel):
 
     ks: dict[str, dict[str, float]] = Field(
         default_factory=dict,
-        description="Kwantyle opadu maksymalnego [mm]",
+        description="Maximum precipitation quantiles [mm]",
     )
     sg: dict[str, dict[str, float]] = Field(
         default_factory=dict,
-        description="Górne granice przedziału ufności [mm]",
+        description="Upper confidence bounds [mm]",
     )
     rb: dict[str, dict[str, float]] = Field(
         default_factory=dict,
-        description="Błędy estymacji kwantyli [mm]",
+        description="Quantile estimation errors [mm]",
     )
 
     @classmethod
@@ -146,7 +238,7 @@ class PMaXTPData(BaseModel):
     def get_precipitation(
         self,
         duration_minutes: int,
-        probability_percent: int,
+        probability_percent: float,
     ) -> float | None:
         """
         Get precipitation value for given duration and probability.
@@ -154,43 +246,56 @@ class PMaXTPData(BaseModel):
         Parameters
         ----------
         duration_minutes : int
-            Duration in minutes (5, 10, 15, 30, 45, 60, 90, 120, 180, etc.).
-        probability_percent : int
-            Probability in percent (1, 2, 5, 10, 20, 50, etc.).
+            Duration in minutes (5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720,
+            1080, 1440, 2160, 2880 or 4320).
+        probability_percent : float
+            Probability in percent, one of the 27 published values: 0.01, 0.02,
+            0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60,
+            70, 80, 90, 95, 98, 98.5, 99, 99.5 or 99.9. ``50`` and ``50.0`` are
+            the same percentage.
 
         Returns
         -------
         float or None
-            Precipitation in mm, or None if not available.
+            Precipitation in mm, or None if the data holds no value for the
+            duration and probability.
+
+        Raises
+        ------
+        IMGWValidationError
+            If ``probability_percent`` is not one of the published values
+            (``details`` ``option``, ``value`` and ``allowed``).
 
         Examples
         --------
         >>> data.get_precipitation(15, 50)
         5.1
         """
-        duration_key = str(duration_minutes)
-        prob_key = str(probability_percent)
-        return self.ks.get(duration_key, {}).get(prob_key)
+        return _quantile(self.ks, duration_minutes, probability_percent)
 
     def get_confidence_bound(
         self,
         duration_minutes: int,
-        probability_percent: int,
+        probability_percent: float,
     ) -> float | None:
-        """Get upper confidence bound for given duration and probability."""
-        duration_key = str(duration_minutes)
-        prob_key = str(probability_percent)
-        return self.sg.get(duration_key, {}).get(prob_key)
+        """
+        Get upper confidence bound for given duration and probability.
+
+        Takes and refuses the same values as `get_precipitation`.
+        """
+        return _quantile(self.sg, duration_minutes, probability_percent)
 
     def get_estimation_error(
         self,
         duration_minutes: int,
-        probability_percent: int,
+        probability_percent: float,
     ) -> float | None:
-        """Get estimation error for given duration and probability."""
-        duration_key = str(duration_minutes)
-        prob_key = str(probability_percent)
-        return self.rb.get(duration_key, {}).get(prob_key)
+        """
+        Get estimation error for given duration and probability.
+
+        Takes and refuses the same values as `get_precipitation`.
+        """
+        return _quantile(self.rb, duration_minutes, probability_percent)
 
     def to_dataframe(self) -> Any:
         """
@@ -211,10 +316,7 @@ class PMaXTPData(BaseModel):
         try:
             import pandas as pd
         except ImportError as e:
-            raise ImportError(
-                "Metoda to_dataframe() wymaga pakietu pandas. "
-                "Zainstaluj dodatek: pip install imgwtools[pandas]"
-            ) from e
+            raise ImportError(message("models.pandas_required")) from e
 
         rows = []
         for duration, probs in self.ks.items():
@@ -234,10 +336,10 @@ class PMaXTPData(BaseModel):
 class PMaXTPResult(BaseModel):
     """Complete PMAXTP result with metadata."""
 
-    method: str = Field(description="Metoda obliczeń: POT albo AMP")
-    latitude: float = Field(description="Szerokość geograficzna punktu (WGS84)")
-    longitude: float = Field(description="Długość geograficzna punktu (WGS84)")
-    data: PMaXTPData = Field(description="Dane opadowe PMAXTP (ks, sg, rb)")
+    method: str = Field(description="Calculation method: POT or AMP")
+    latitude: float = Field(description="Latitude of the point (WGS84)")
+    longitude: float = Field(description="Longitude of the point (WGS84)")
+    data: PMaXTPData = Field(description="PMAXTP precipitation data (ks, sg, rb)")
 
 
 class HydroCurrentData(BaseModel):
@@ -247,32 +349,28 @@ class HydroCurrentData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/hydro
     """
 
-    station_code: str = Field(description="Kod stacji")
-    station_name: str = Field(description="Nazwa stacji")
-    river: str | None = Field(default=None, description="Nazwa rzeki")
-    province: str | None = Field(default=None, description="Województwo")
-    latitude: float | None = Field(
-        default=None, description="Szerokość geograficzna (WGS84)"
-    )
-    longitude: float | None = Field(
-        default=None, description="Długość geograficzna (WGS84)"
-    )
-    water_level_cm: float | None = Field(default=None, description="Stan wody [cm]")
+    station_code: str = Field(description="Station code")
+    station_name: str = Field(description="Station name")
+    river: str | None = Field(default=None, description="River name")
+    province: str | None = Field(default=None, description="Voivodeship")
+    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
+    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
+    water_level_cm: float | None = Field(default=None, description="Water level [cm]")
     water_level_date: str | None = Field(
-        default=None, description="Data pomiaru stanu wody"
+        default=None, description="Date of the water level measurement"
     )
-    flow_m3s: float | None = Field(default=None, description="Przepływ [m³/s]")
-    flow_date: str | None = Field(default=None, description="Data pomiaru przepływu")
+    flow_m3s: float | None = Field(default=None, description="Flow [m³/s]")
+    flow_date: str | None = Field(
+        default=None, description="Date of the flow measurement"
+    )
     water_temp_c: float | None = Field(
-        default=None, description="Temperatura wody [°C]"
+        default=None, description="Water temperature [°C]"
     )
     water_temp_date: str | None = Field(
-        default=None, description="Data pomiaru temperatury wody"
+        default=None, description="Date of the water temperature measurement"
     )
-    ice_phenomenon: str | None = Field(
-        default=None, description="Kod zjawiska lodowego"
-    )
-    overgrowth: str | None = Field(default=None, description="Kod zarastania")
+    ice_phenomenon: str | None = Field(default=None, description="Ice phenomenon code")
+    overgrowth: str | None = Field(default=None, description="Overgrowth code")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> HydroCurrentData:
@@ -315,28 +413,22 @@ class MeteoCurrentData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/meteo
     """
 
-    station_code: str = Field(description="Kod stacji")
-    station_name: str = Field(description="Nazwa stacji")
-    latitude: float | None = Field(
-        default=None, description="Szerokość geograficzna (WGS84)"
-    )
-    longitude: float | None = Field(
-        default=None, description="Długość geograficzna (WGS84)"
-    )
-    air_temp_c: float | None = Field(
-        default=None, description="Temperatura powietrza [°C]"
-    )
+    station_code: str = Field(description="Station code")
+    station_name: str = Field(description="Station name")
+    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
+    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
+    air_temp_c: float | None = Field(default=None, description="Air temperature [°C]")
     air_temp_date: str | None = Field(
-        default=None, description="Data pomiaru temperatury powietrza"
+        default=None, description="Date of the air temperature measurement"
     )
     wind_speed_ms: float | None = Field(
-        default=None, description="Średnia prędkość wiatru [m/s]"
+        default=None, description="Mean wind speed [m/s]"
     )
     humidity_percent: float | None = Field(
-        default=None, description="Wilgotność względna [%]"
+        default=None, description="Relative humidity [%]"
     )
     precipitation_10min_mm: float | None = Field(
-        default=None, description="Opad z ostatnich 10 minut [mm]"
+        default=None, description="Precipitation of the last 10 minutes [mm]"
     )
 
     @classmethod
@@ -375,26 +467,30 @@ class SynopData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/synop
     """
 
-    station_code: str = Field(description="Kod stacji")
-    station_name: str = Field(description="Nazwa stacji")
-    measurement_date: str | None = Field(default=None, description="Data pomiaru")
-    measurement_hour: int | None = Field(default=None, description="Godzina pomiaru")
+    station_code: str = Field(description="Station code")
+    station_name: str = Field(description="Station name")
+    measurement_date: str | None = Field(
+        default=None, description="Date of the measurement"
+    )
+    measurement_hour: int | None = Field(
+        default=None, description="Hour of the measurement"
+    )
     temperature_c: float | None = Field(
-        default=None, description="Temperatura powietrza [°C]"
+        default=None, description="Air temperature [°C]"
     )
-    wind_speed_ms: float | None = Field(
-        default=None, description="Prędkość wiatru [m/s]"
-    )
-    wind_direction: int | None = Field(default=None, description="Kierunek wiatru [°]")
+    wind_speed_ms: float | None = Field(default=None, description="Wind speed [m/s]")
+    wind_direction: int | None = Field(default=None, description="Wind direction [°]")
     humidity_percent: float | None = Field(
-        default=None, description="Wilgotność względna [%]"
+        default=None, description="Relative humidity [%]"
     )
-    precipitation_mm: float | None = Field(default=None, description="Suma opadu [mm]")
+    precipitation_mm: float | None = Field(
+        default=None, description="Precipitation total [mm]"
+    )
     pressure_hpa: float | None = Field(
-        default=None, description="Ciśnienie atmosferyczne [hPa]"
+        default=None, description="Atmospheric pressure [hPa]"
     )
-    visibility_m: int | None = Field(default=None, description="Widzialność [m]")
-    cloud_cover: int | None = Field(default=None, description="Zachmurzenie [oktanty]")
+    visibility_m: int | None = Field(default=None, description="Visibility [m]")
+    cloud_cover: int | None = Field(default=None, description="Cloud cover [oktas]")
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> SynopData:
@@ -437,21 +533,21 @@ class WarningData(BaseModel):
     """
 
     id: str = Field(
-        description="Identyfikator ostrzeżenia (id ostrzeżenia meteo, numer "
-        "ostrzeżenia hydro)"
+        description="Warning identifier (the id of a meteo warning, "
+        "the number of a hydro warning)"
     )
-    kind: Literal["hydro", "meteo"] = Field(description="Rodzaj ostrzeżenia")
-    event: str | None = Field(default=None, description="Nazwa zjawiska")
-    level: int | None = Field(default=None, description="Stopień ostrzeżenia")
-    region: str | None = Field(default=None, description="Obszar ostrzeżenia")
-    description: str | None = Field(default=None, description="Treść ostrzeżenia")
+    kind: Literal["hydro", "meteo"] = Field(description="Kind of the warning")
+    event: str | None = Field(default=None, description="Name of the phenomenon")
+    level: int | None = Field(default=None, description="Level of the warning")
+    region: str | None = Field(default=None, description="Area of the warning")
+    description: str | None = Field(default=None, description="Text of the warning")
     valid_from: str | None = Field(
-        default=None, description="Początek obowiązywania (data i godzina)"
+        default=None, description="Start of validity (date and time)"
     )
     valid_to: str | None = Field(
-        default=None, description="Koniec obowiązywania (data i godzina)"
+        default=None, description="End of validity (date and time)"
     )
-    probability: int | None = Field(default=None, description="Prawdopodobieństwo [%]")
+    probability: int | None = Field(default=None, description="Probability [%]")
 
     @classmethod
     def from_api_response(
@@ -497,19 +593,15 @@ class HydroState(BaseModel):
     (``hydro-back.imgw.pl/map/stations/hydrologic``).
     """
 
-    station_code: str = Field(description="Kod stacji")
-    name: str = Field(description="Nazwa stacji")
-    river: str | None = Field(default=None, description="Nazwa rzeki")
-    latitude: float | None = Field(
-        default=None, description="Szerokość geograficzna (WGS84)"
-    )
-    longitude: float | None = Field(
-        default=None, description="Długość geograficzna (WGS84)"
-    )
+    station_code: str = Field(description="Station code")
+    name: str = Field(description="Station name")
+    river: str | None = Field(default=None, description="River name")
+    latitude: float | None = Field(default=None, description="Latitude (WGS84)")
+    longitude: float | None = Field(default=None, description="Longitude (WGS84)")
     water_state: str | None = Field(
         default=None,
-        description="Stan wody względem stanów charakterystycznych (wartości: "
-        "alarm, warning, high, medium, low, …)",
+        description="Water state against the characteristic states (values: alarm, "
+        "warning, high, medium, low, …)",
     )
 
 

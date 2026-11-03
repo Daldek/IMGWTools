@@ -18,8 +18,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from imgwtools import command_schema
-from tests.contract.support import rest_request, stamps
+from tests.contract.support import command_document, rest_request, stamps
 from tests.contract.test_interface_contract import (
     CASES,
     ROUTES,
@@ -27,22 +26,22 @@ from tests.contract.test_interface_contract import (
     Setting,
     fresh_store,
     recorded,  # noqa: F401 (fixture)
-    relative_data_dir,  # noqa: F401 (fixture)
+    relative_reference_dir,  # noqa: F401 (fixture)
     resolved,
     served_root,  # noqa: F401 (fixture)
 )
-from tests.unit.test_mcp_http import connected, enabled
+from tests.unit.test_mcp_http import ENGLISH, connected, enabled
 
 # Default page of a list tool (spec 2026-10-19 §6.4 p. 5).
 PAGE = 50
 
 
 def rest_answer(rest, command: str, options: dict[str, object]):
-    """The REST answer the tool forwards: a POST route only plans (``?check=true``)."""
+    """The REST answer the tool forwards: English, a POST route only plans."""
     request = rest_request(command, options)
     if request["method"] == "POST":
         request["url"] += "?check=true"
-    return rest.request(**request)
+    return rest.request(**request, headers=ENGLISH)
 
 
 def assert_same(answered, result, command: str, options: dict[str, object]) -> None:
@@ -62,7 +61,7 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
         assert result.content[0].text == answered.text
         return
     data = answered.content
-    default = command_schema(command)["properties"]["format"]["default"]
+    default = command_document(command)["properties"]["format"]["default"]
     assert result.content[0].text == data.decode("utf-8")
     assert result.structured_content == {
         "schema": "imgw-result/1",
@@ -89,7 +88,7 @@ async def test_every_rest_case_is_the_answer_of_its_mcp_tool(
     served_root,  # noqa: F811
     recorded,  # noqa: F811
     frozen,
-    relative_data_dir,  # noqa: F811
+    relative_reference_dir,  # noqa: F811
 ):
     app = enabled(monkeypatch)
     tool = ROUTES[command]["operation_id"]
@@ -100,7 +99,7 @@ async def test_every_rest_case_is_the_answer_of_its_mcp_tool(
                 root = tmp_path / "store"
             else:
                 root = served_root if case.store == "served" else None
-            monkeypatch.setattr(server, "store_root", root)
+            monkeypatch.setattr(server, "root", root)
             options = case.options if writes else resolved(case.options, root)
             paged = dict(options)
             if ROUTES[command]["result"] == "list" and "limit" not in options:
@@ -131,7 +130,7 @@ async def test_every_error_scenario_of_rest_is_the_answer_of_the_mcp_tool(
 ):
     app = enabled(monkeypatch)  # before the scenario: it may break the registry
     scenario = SCENARIOS[code](Setting(tmp_path, fixture_root, imgw, monkeypatch))
-    monkeypatch.setattr(server, "store_root", scenario.root)
+    monkeypatch.setattr(server, "root", scenario.root)
     tool = ROUTES[scenario.command]["operation_id"]
 
     answered = rest_answer(rest, scenario.command, scenario.options)

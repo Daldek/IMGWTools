@@ -26,7 +26,7 @@ Features:
     - Station search and hydrological station states with coordinates
     - Versioned local store of IMGW archives, Parquet series and station catalog
     - ČHMÚ daily hydrological and meteorological data, stations and catalog
-    - Data command catalog and ``imgw-project/1`` project manifests
+    - Data command catalog shared by Python, CLI, REST and MCP
     - Guide for AI agents (``AGENTS.md``, ``llms.txt``) generated from the catalog
 
 Installation:
@@ -50,14 +50,18 @@ from imgwtools.agent_guide import agent_guide
 # Data command catalog
 from imgwtools.commands import (
     check_command,
+    command_for_version,
     command_schema,
     data_commands,
     format_command,
+    list_commands,
+    parse_command,
     run_command,
     validate_command,
 )
 
 # Coverage
+from imgwtools.config import StoreRoot, store_root
 from imgwtools.coverage import summarize_coverage
 
 # Dataset registry
@@ -86,7 +90,6 @@ from imgwtools.exceptions import (
     IMGWConnectionError,
     IMGWDataError,
     IMGWError,
-    IMGWProjectError,
     IMGWStoreConflictError,
     IMGWStoreDependencyError,
     IMGWStoreError,
@@ -128,6 +131,9 @@ from imgwtools.models import (
     WarningData,
 )
 
+# Plain output
+from imgwtools.output import FileResult, OutputReport
+
 # Parsers
 from imgwtools.parsers import (
     IMGW_ENCODING,
@@ -142,19 +148,6 @@ from imgwtools.parsers import (
     parse_semi_annual_csv,
     parse_stations_csv,
     parse_zip_file,
-)
-
-# Projects
-from imgwtools.project import (
-    add_project_task,
-    check_project,
-    download_project,
-    get_project_status,
-    init_project,
-    open_project,
-    remove_project_task,
-    set_project_store,
-    verify_project,
 )
 
 # Station functions
@@ -218,18 +211,15 @@ from imgwtools.store import (
     write_archive,
 )
 
-# Command and project types
+# Command types
 from imgwtools.store.types import (
+    CommandCall,
     CommandOption,
     CommandResult,
     DataCommand,
     DownloadItem,
     DownloadReport,
     Page,
-    Project,
-    ProjectFile,
-    ProjectReport,
-    ProjectTask,
     SeriesSelection,
 )
 
@@ -245,6 +235,9 @@ from imgwtools.urls import (
 __all__ = [
     # Version
     "__version__",
+    # The default store root without reading the store (DEV-19.2)
+    "store_root",
+    "StoreRoot",
     # Exceptions
     "IMGWError",
     "IMGWConnectionError",
@@ -257,7 +250,6 @@ __all__ = [
     "ErrorCode",
     "ErrorSpec",
     "ERROR_CODES",
-    "IMGWProjectError",
     # Models
     "PMaXTPData",
     "PMaXTPResult",
@@ -298,6 +290,8 @@ __all__ = [
     "DownloadResult",
     "DownloadItem",
     "DownloadReport",
+    "FileResult",
+    "OutputReport",
     # Station functions
     "find_stations",
     "find_stations_async",
@@ -387,27 +381,17 @@ __all__ = [
     "CommandOption",
     "DataCommand",
     "CommandResult",
+    "CommandCall",
     "Page",
     "SeriesSelection",
     "data_commands",
     "command_schema",
+    "list_commands",
     "validate_command",
     "format_command",
+    "parse_command",
+    "command_for_version",
     "check_command",
     "run_command",
     "agent_guide",
-    # Projects
-    "ProjectFile",
-    "ProjectTask",
-    "ProjectReport",
-    "Project",
-    "init_project",
-    "open_project",
-    "set_project_store",
-    "add_project_task",
-    "remove_project_task",
-    "check_project",
-    "download_project",
-    "get_project_status",
-    "verify_project",
 ]

@@ -5,26 +5,26 @@ The arguments of a tool are the options of its catalog command; only
 `validate_command` normalizes them. stdio (modes ``read`` and ``write``): the
 ``check`` argument chooses `check_command` over `run_command`, a list command
 without ``limit`` gets the default page (a larger ``limit`` than
-``IMGW_API_MAX_LIMIT`` is refused), a command with ``root`` gets
-``IMGW_STORE_ROOT`` under its ``env_root_when`` (spec §3.5) and a command with
-``lang`` the server language. The command runs in a worker thread: progress is
+``IMGW_API_MAX_LIMIT`` is refused), a command without ``root`` gets
+the default store root (`validate_command`), a path outside the ``--allow-dir``
+directories and a write without any are ``forbidden`` (DEV-19.3, AGI-5.8) and a
+command with ``lang`` English. The command runs in a worker thread: progress is
 sent as ``notifications/progress`` (only to a request that asked for it) and a
 cancellation of the request reaches the command through ``cancel``; the thread
 always finishes, so the store stays consistent, and a cancelled request gets no
 answer. A server without writes refuses a writing option and ``check: false``
 with ``forbidden`` (``details.reason="writes_disabled"``). http: the REST route
 of the command answers in this process (ASGI, no network): GET with query
-parameters, POST with a JSON body and always ``?check=true``, Polish or English
-by ``Accept-Language`` of the server language; REST itself refuses server and
-local options.
+parameters, POST with a JSON body and always ``?check=true``, in English
+(``Accept-Language: en``); REST itself refuses server and local options.
 
 An envelope ``imgw-result/1`` is ``structuredContent`` and, as compact JSON,
 the only text content (the CLI stdout line without its line end); a stream
-(``store export``, ``series export``, ``commands guide`` without ``path``) is its
+(``store export``, ``series export``, ``commands guide`` without ``output``) is its
 text, at most 256 KiB, with an envelope whose result is ``{format, bytes,
 lines}``. An error is ``isError`` with ``{code, title, detail, details}``:
 ``code``, ``detail`` and ``details`` as in the CLI error line, ``title`` from the
-registry in the server language, ``internal_error`` for a program error (its
+registry, all in English (AGI-9.2), ``internal_error`` for a program error (its
 traceback goes to stderr).
 """
 
@@ -47,7 +47,7 @@ import anyio.lowlevel
 import anyio.to_thread
 import mcp.types as types
 
-from imgwtools.commands import Lang, check_command, run_command, validate_command
+from imgwtools.commands import check_command, run_command, validate_command
 from imgwtools.exceptions import (
     ERROR_CODES,
     ErrorCode,
@@ -56,6 +56,7 @@ from imgwtools.exceptions import (
     describe_os_error,
 )
 from imgwtools.mcp._tools import CatalogTool
+from imgwtools.messages import localize, message
 from imgwtools.store.types import CommandResult, Progress
 
 __all__ = ["STREAM_LIMIT", "Report", "call_tool"]
@@ -67,17 +68,12 @@ Report = Callable[[float, float | None, str | None], Coroutine[Any, Any, None]]
 """Progress of the request: ``(progress, total, message)``."""
 
 _LOG = logging.getLogger(__name__)
-_INTERNAL = "Błąd wewnętrzny serwera MCP; szczegóły w dzienniku serwera"
-_TOO_LARGE = (
-    "Wynik przekracza 256 KiB; zawęź wybór, czytaj stronami series read albo "
-    "zapisz plik opcją path"
-)
-_ENABLE_WRITES = (
-    "zapis włącza użytkownik: imgw mcp --allow-writes albo IMGW_MCP_ALLOW_WRITES=true"
-)
+_INTERNAL = message("mcp.internal_error")
+_TOO_LARGE = message("mcp.result_exceeds_256_kib_narrow")
+_ENABLE_WRITES = message("mcp.user_enables_writes_imgw_mcp")
 
 
-# --- wyniki ----------------------------------------------------------------------------------
+# --- results ---------------------------------------------------------------------------------
 
 
 def _json(document: object) -> str:
@@ -92,16 +88,14 @@ def _answer(document: dict[str, Any], text: str | None = None) -> types.CallTool
     )
 
 
-def _error(
-    code: ErrorCode, detail: str, details: object, lang: Lang
-) -> types.CallToolResult:
-    """Error document of spec §6.7 in the server language."""
+def _error(code: ErrorCode, detail: str, details: object) -> types.CallToolResult:
+    """Error document of spec §6.7, in English like the CLI error line."""
     spec = ERROR_CODES[code]
     text = _json(
         {
             "code": code,
-            "title": spec.title_en if lang == "en" else spec.title,
-            "detail": detail or spec.title,
+            "title": localize(spec.title, "en"),
+            "detail": localize(detail, "en") or localize(spec.title, "en"),
             "details": details,
         }
     )
@@ -112,15 +106,15 @@ def _error(
     )
 
 
-def _failure(exc: Exception, lang: Lang) -> types.CallToolResult:
+def _failure(exc: Exception) -> types.CallToolResult:
     """Error result of an exception (the CLI error line with a title)."""
     if isinstance(exc, IMGWError):
-        return _error(exc.code, exc.detail, dict(exc.details), lang)
+        return _error(exc.code, exc.detail, dict(exc.details))
     if isinstance(exc, OSError):
         detail, details = describe_os_error(exc)
-        return _error("io_error", detail, details, lang)
+        return _error("io_error", detail, details)
     traceback.print_exception(exc, file=sys.stderr)
-    return _error("internal_error", _INTERNAL, {}, lang)
+    return _error("internal_error", _INTERNAL, {})
 
 
 def _line_count(text: str) -> int:
@@ -169,20 +163,23 @@ def _stream(
     return _answer(envelope, text)
 
 
-# --- argumenty -------------------------------------------------------------------------------
+# --- arguments -------------------------------------------------------------------------------
 
 
 def _writes_disabled(tool: CatalogTool, option: str) -> IMGWError:
     if option == "check":
-        what = (
-            f"komenda {tool.command.name} zwraca wyłącznie plan imgw-plan/1 "
-            "(check=true)"
-        )
+        what = message("mcp.command_returns_only_imgw_plan", name=tool.command.name)
     else:
-        what = f"opcja {option} komendy {tool.command.name} zapisuje plik"
-    how = "zapis przez HTTP nie istnieje" if tool.mode == "http" else _ENABLE_WRITES
+        what = message(
+            "mcp.option_command_writes_file", option=option, name=tool.command.name
+        )
+    how = (
+        message("mcp.writing_over_http_does_not")
+        if tool.mode == "http"
+        else _ENABLE_WRITES
+    )
     return IMGWError(
-        f"Serwer MCP działa bez zapisu: {what}; {how}",
+        message("mcp.mcp_server_runs_without_writes", what=what, how=how),
         code="forbidden",
         details={"reason": "writes_disabled", "option": option},
     )
@@ -195,7 +192,7 @@ def _flag(value: object) -> bool:
     if isinstance(value, str) and value.strip().lower() in ("true", "false"):
         return value.strip().lower() == "true"
     raise IMGWValidationError(
-        f"Argument check musi mieć wartość logiczną true albo false: {value!r}",
+        message("mcp.argument_check_must_true_false", value=value),
         details={"option": "check", "value": value, "allowed": [True, False]},
     )
 
@@ -211,13 +208,52 @@ def _check(tool: CatalogTool, options: dict[str, object]) -> bool:
     return check
 
 
-def _environment_root(tool: CatalogTool, options: Mapping[str, object]) -> bool:
-    """Whether the options meet ``env_root_when`` (spec §3.5, as in the CLI)."""
-    defaults = {option.name: option.default for option in tool.command.options}
-    return all(
-        str(options.get(name, defaults.get(name))).strip() == value
-        for name, value in tool.command.env_root_when.items()
-    )
+def _confine(
+    tool: CatalogTool,
+    normalized: Mapping[str, object],
+    check: bool,
+    allow_dirs: tuple[Path, ...],
+) -> None:
+    """
+    Keep the paths of a call inside the ``--allow-dir`` directories (DEV-19.3).
+
+    Without a directory a writing command, or a command given a writing option
+    (``output`` of an export), may only plan; with directories every path
+    option, the default root included, must lie inside one of them.
+    """
+    spec = tool.command
+    if not allow_dirs:
+        writes = spec.writes != "none" or any(
+            option.writes != "none" and option.name in normalized
+            for option in spec.options
+        )
+        if not check and writes:
+            raise IMGWError(
+                message("mcp.write_needs_allow_dir", name=spec.name),
+                code="forbidden",
+                details={"reason": "no_allowed_dir", "option": "check"},
+            )
+        return
+    for option in spec.options:
+        value = normalized.get(option.name)
+        if option.type != "path" or not isinstance(value, Path):
+            continue
+        if not any(value.resolve().is_relative_to(allowed) for allowed in allow_dirs):
+            raise IMGWError(
+                message(
+                    "mcp.path_outside_allowed_dirs",
+                    option=option.name,
+                    path=value,
+                    allowed=", ".join(str(allowed) for allowed in allow_dirs),
+                ),
+                code="forbidden",
+                details={
+                    "reason": "outside_allowed_dirs",
+                    "option": option.name,
+                    "value": str(value),
+                    "allowed": [str(allowed) for allowed in allow_dirs],
+                },
+            )
 
 
 def _options(
@@ -238,16 +274,6 @@ def _options(
     check = _check(tool, options)
     if tool.limit is not None and options.get("limit") is None:
         options["limit"] = tool.limit[0]
-    if (
-        tool.root is not None
-        and options.get("root") is None
-        and _environment_root(tool, options)
-    ):
-        options["root"] = tool.root
-    if options.get("lang") is None and any(
-        option.name == "lang" for option in tool.command.options
-    ):
-        options["lang"] = tool.lang
     return options, check
 
 
@@ -259,8 +285,7 @@ def _page_limit(tool: CatalogTool, options: Mapping[str, object]) -> None:
     maximum = tool.limit[1]
     if limit > maximum:
         raise IMGWValidationError(
-            f"Opcja limit może wynosić co najwyżej {maximum} (IMGW_API_MAX_LIMIT): "
-            f"{limit}",
+            message("mcp.option_limit_may_most_imgw", maximum=maximum, limit=limit),
             details={"option": "limit", "value": limit, "maximum": maximum},
         )
 
@@ -274,6 +299,7 @@ def _run(
     check: bool,
     report: Report,
     cancelled: threading.Event,
+    allow_dirs: tuple[Path, ...] = (),
 ) -> types.CallToolResult:
     """Run (``check``: plan) the command in a worker thread; never raise."""
 
@@ -283,11 +309,12 @@ def _run(
         try:
             anyio.from_thread.run(report, update.current, update.total, message)
         except Exception:  # progress is a hint: its loss never stops the command
-            _LOG.debug("Postęp nie dotarł do klienta MCP", exc_info=True)
+            _LOG.debug("Progress did not reach the MCP client", exc_info=True)
 
     name = tool.command.name
     try:
         normalized = validate_command(name, options=options)
+        _confine(tool, normalized, check, allow_dirs)
         if not check:
             _page_limit(tool, normalized)
         dispatch = check_command if check else run_command
@@ -300,7 +327,7 @@ def _run(
             return _stream(tool, outcome, normalized, base)
         return _answer(outcome.to_json(root=base))
     except Exception as exc:
-        return _failure(exc, tool.lang)
+        return _failure(exc)
 
 
 async def _watch(cancelled: threading.Event) -> None:
@@ -356,7 +383,7 @@ def _query(options: Mapping[str, object]) -> str:
 
 
 async def _asgi(
-    method: str, path: str, query: str, body: bytes, lang: str, limit: int | None
+    method: str, path: str, query: str, body: bytes, limit: int | None
 ) -> tuple[int, dict[str, str], bytes, bool]:
     """
     Request to the REST application of this process.
@@ -367,7 +394,7 @@ async def _asgi(
     """
     from imgwtools.api.main import app  # the REST app of this server (api extra)
 
-    headers = [(b"host", b"imgwtools"), (b"accept-language", lang.encode("ascii"))]
+    headers = [(b"host", b"imgwtools"), (b"accept-language", b"en")]
     if method == "POST":
         headers += [
             (b"content-type", b"application/json"),
@@ -437,14 +464,14 @@ async def _route(
     else:
         query, body = "check=true", json.dumps(options, ensure_ascii=False).encode()
     status, headers, data, stopped = await _asgi(
-        method, path, query, body, tool.lang, STREAM_LIMIT if stream else None
+        method, path, query, body, STREAM_LIMIT if stream else None
     )
     media = headers.get("content-type", "")
     if media.startswith("application/problem+json"):
         problem = json.loads(data)
-        return _error(problem["code"], problem["detail"], problem["details"], tool.lang)
+        return _error(problem["code"], problem["detail"], problem["details"])
     if status != 200:
-        raise RuntimeError(f"Trasa REST {method} {path} odpowiedziała {status} {media}")
+        raise RuntimeError(f"The REST route {method} {path} answered {status} {media}")
     if media.startswith("application/json"):
         text = data.decode("utf-8")
         return _answer(json.loads(text), text)
@@ -466,11 +493,15 @@ async def _route(
     return _answer(envelope, text)
 
 
-# --- wejście ---------------------------------------------------------------------------------
+# --- entry point -----------------------------------------------------------------------------
 
 
 async def call_tool(
-    tool: CatalogTool, arguments: Mapping[str, Any], *, report: Report
+    tool: CatalogTool,
+    arguments: Mapping[str, Any],
+    *,
+    report: Report,
+    allow_dirs: tuple[Path, ...] = (),
 ) -> types.CallToolResult:
     """
     Call one tool: run its catalog command and answer with a tool result.
@@ -483,6 +514,8 @@ async def call_tool(
         Arguments of the call (catalog options and ``check``).
     report : Report
         Progress of the request (a no-op unless the client asked for it).
+    allow_dirs : tuple of pathlib.Path, optional
+        Resolved ``--allow-dir`` directories of the server (DEV-19.3).
 
     Returns
     -------
@@ -495,9 +528,9 @@ async def call_tool(
             return await _route(tool, arguments)
         options, check = _options(tool, arguments)
     except Exception as exc:
-        return _failure(exc, tool.lang)
+        return _failure(exc)
 
     def work(cancelled: threading.Event) -> types.CallToolResult:
-        return _run(tool, options, check, report, cancelled)
+        return _run(tool, options, check, report, cancelled, allow_dirs)
 
     return await _in_thread(work)

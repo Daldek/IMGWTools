@@ -81,13 +81,13 @@ def test_station_list_with_tampered_bytes_is_rejected(root):
     data = bytearray(version.read_bytes())
     data[0] = ord("2")  # same size, different SHA-256
     version.write_bytes(bytes(data))
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="does not match the sidecar"):
         read_station_list(root, kind="hydro")
 
 
 def test_station_list_kind_is_validated(root):
     with pytest.raises(IMGWValidationError):
-        read_station_list(root, kind="synop")  # type: ignore[arg-type]
+        read_station_list(root, kind="synop")
 
 
 @pytest.mark.parametrize("archive", [DAILY_2024, PRECIP_2001, CLIMATE_1995])
@@ -109,7 +109,7 @@ def test_read_archive_detects_tampering_before_iteration(root):
     data = bytearray(version.read_bytes())
     data[-1] ^= 0xFF
     version.write_bytes(bytes(data))
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="does not match the sidecar"):
         read_archive(version.parent)
 
 

@@ -1,12 +1,10 @@
-"""Export of stored archive records and station series as text lines or atomic files."""
+"""Export of stored archive records and station series as text lines or one plain file."""
 
 from __future__ import annotations
 
 import csv
 import io
 import json
-import os
-import uuid
 from collections.abc import Iterable, Iterator, Sequence
 from datetime import date, datetime
 from decimal import Decimal
@@ -16,7 +14,9 @@ from typing import Literal, overload
 from imgwtools._parsing.meteo import DATASET_ATTRIBUTES
 from imgwtools.datasets import DatasetDescriptor, get_dataset, get_provider
 from imgwtools.exceptions import IMGWCancelledError, IMGWDataError, IMGWValidationError
+from imgwtools.messages import message
 from imgwtools.models import Measurement, NormalizedRecord
+from imgwtools.output import OutputReport, Staging, plan_plain, refuse
 from imgwtools.store.catalog import RootArg
 from imgwtools.store.reader import (
     _archive_main,
@@ -36,13 +36,13 @@ from imgwtools.store.types import (
     Progress,
     ProgressHook,
 )
-from imgwtools.store.writer import _MARKER, _fsync_dir
+from imgwtools.store.writer import _fsync_dir
 
 _SERIES_FORMATS = ("csv",)
 _ARCHIVE_FORMATS = ("csv", "jsonl")
 _YEAR_TYPES = ("hydrological", "calendar")
 _PROGRESS_ROWS = 256
-_CANCELLED = "Anulowano eksport; plik docelowy pozostaje nietknięty"
+_CANCELLED = message("export.cancelled")
 
 
 def _number(value: float) -> str:
@@ -63,31 +63,43 @@ def _check_cancel(cancel: Cancel | None) -> None:
 def _format(value: object, allowed: tuple[str, ...]) -> None:
     if value not in allowed:
         raise IMGWValidationError(
-            f"Nieobsługiwany format eksportu {value!r}; dostępne: {', '.join(allowed)}",
+            message(
+                "export.unsupported_export_format_available",
+                value=value,
+                allowed=", ".join(allowed),
+            ),
             details={"option": "format", "value": str(value), "allowed": list(allowed)},
         )
 
 
-def _target(path: PathArg) -> Path:
-    """Absolute export target: a file in an existing directory outside every IMGW store."""
-    target = Path(path).expanduser().absolute()
-    details = {"option": "path", "value": str(target)}
+def _file(output: PathArg) -> Path:
+    """Absolute path of the one output file of an export; a directory is no file."""
+    target = Path(output).expanduser().absolute()
     if target.is_dir():
         raise IMGWValidationError(
-            f"Ścieżka eksportu wskazuje katalog: {target}", details=details
+            message("export.output_is_directory", target=target),
+            details={"option": "output", "value": str(target)},
         )
-    if not target.parent.is_dir():
-        raise IMGWValidationError(
-            f"Katalog docelowy eksportu nie istnieje: {target.parent}", details=details
-        )
-    store = next(
-        (item for item in target.resolve().parents if (item / _MARKER).is_file()), None
-    )
-    if store is not None:
-        raise IMGWValidationError(
-            f"Eksport musi być zapisany poza magazynem IMGW ({store}): {target}",
-            details=details,
-        )
+    return target
+
+
+def _target(output: PathArg | None, *, force: bool) -> Path | None:
+    """
+    Check the output of an export before anything is read for it (DEV-19.6).
+
+    ``None`` streams the lines (and ``force`` then has nothing to replace). A
+    file is checked like the target list of any plain write: an existing file
+    without ``force`` and a file in a store are a ``conflict`` that lists the
+    path; a missing directory is created by the write (DEV-19.8).
+    """
+    if output is None:
+        if force:
+            raise IMGWValidationError(
+                message("export.force_needs_output"), details={"option": "output"}
+            )
+        return None
+    target = _file(output)
+    refuse(plan_plain(target.parent, [target.name], force=force), single=True)
     return target
 
 
@@ -100,8 +112,14 @@ def _attribution(descriptor: DatasetDescriptor) -> tuple[str, str]:
 def _license(descriptor: DatasetDescriptor, on_notice: NoticeHook | None) -> None:
     if on_notice is not None:
         source, processed = _attribution(descriptor)
-        notice = get_provider(descriptor.provider).notice
-        on_notice(Notice("info", "license_terms", f"{source}. {processed}. {notice}"))
+        provider = get_provider(descriptor.provider)
+        on_notice(
+            Notice(
+                "info",
+                "license_terms",
+                provider.license_notice(f"{source}. {processed}"),
+            )
+        )
 
 
 def _field_names(name: str, descriptor: DatasetDescriptor) -> list[str]:
@@ -175,7 +193,11 @@ class _Lines:
                             self._total,
                             "row",
                             "written",
-                            f"{self._label}: {self.written} wierszy",
+                            message(
+                                "export.rows_written",
+                                label=self._label,
+                                written=self.written,
+                            ),
                         )
                     )
 
@@ -192,30 +214,25 @@ def _iterate(lines: _Lines, done: str) -> Iterator[str]:
 
 def _deliver(
     lines: _Lines, *, target: Path | None, cancel: Cancel | None, done: str
-) -> Path | Iterator[str]:
+) -> OutputReport | Iterator[str]:
     """
-    Return the lazy lines, or publish them atomically to ``target``.
+    Return the lazy lines, or write them as the one plain file ``target``.
 
-    The target is replaced only by a fully written and fsynced hidden unique
-    ``.part`` file beside it; cancellation or failure removes the ``.part``
-    and leaves the target untouched.
+    The lines go to a staging directory beside the target
+    (``<dir>/.imgw-incoming/<host>_<pid>_<token>/``), are hashed while they are
+    written and fsynced, and the file is moved into place with ``os.replace``
+    only when it is whole; cancellation, an error, SIGINT or SIGTERM leave the
+    target as it was and remove the staging directory (DEV-19.7).
     """
     if target is None:
         return _iterate(lines, done)
-    part = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")
-    try:
-        with part.open("x", encoding="utf-8", newline="") as stream:
-            for text in lines:
-                stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
+    with Staging(target.parent) as staging:
+        staged, size, sha256 = staging.write(text.encode("utf-8") for text in lines)
         _check_cancel(cancel)
-        os.replace(part, target)
-        _fsync_dir(target.parent)
-    finally:
-        part.unlink(missing_ok=True)
-    lines.finish(f"{done} do {target}")
-    return target
+        written = staging.commit(staged, target, size, sha256)
+    _fsync_dir(target.parent)
+    lines.finish(message("export.exported_to_file", done=done, target=target))
+    return OutputReport(target, (written,))
 
 
 def _record_json(
@@ -269,8 +286,13 @@ def _archive_row(
     )
     if unknown:
         raise IMGWDataError(
-            f"Rekord stacji {record.station_code} z {record.date} ma kolumny "
-            f"spoza zbioru {record.dataset}: {', '.join(unknown)}"
+            message(
+                "export.record_station_from_has_columns",
+                station_code=record.station_code,
+                date=record.date,
+                dataset=record.dataset,
+                unknown=", ".join(unknown),
+            )
         )
     half_year = descriptor.time_unit == "half_year"
     cells = [
@@ -324,7 +346,8 @@ def export_archive(
     *,
     root: RootArg | None = None,
     format: Literal["csv", "jsonl"] = "csv",
-    path: None = None,
+    output: None = None,
+    force: bool = False,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
@@ -338,11 +361,12 @@ def export_archive(
     *,
     root: RootArg | None = None,
     format: Literal["csv", "jsonl"] = "csv",
-    path: PathArg,
+    output: PathArg,
+    force: bool = False,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
-) -> Path: ...
+) -> OutputReport: ...
 
 
 def export_archive(
@@ -351,11 +375,12 @@ def export_archive(
     *,
     root: RootArg | None = None,
     format: Literal["csv", "jsonl"] = "csv",
-    path: PathArg | None = None,
+    output: PathArg | None = None,
+    force: bool = False,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
-) -> Path | Iterator[str]:
+) -> OutputReport | Iterator[str]:
     """
     Export the normalized records of one stored archive version as CSV or JSONL.
 
@@ -381,10 +406,15 @@ def export_archive(
         Store root, the base of a relative ``version``.
     format : {"csv", "jsonl"}, optional
         Output format.
-    path : str, os.PathLike or None, optional
-        Target file in an existing directory outside every IMGW store; written
-        atomically through a hidden ``.part`` file. ``None`` (default) returns
-        the lines instead, byte-identical to the file content.
+    output : str, os.PathLike or None, optional
+        The one plain file to write (DEV-19.1): its directory is created when
+        missing, the lines go through ``<dir>/.imgw-incoming/`` and the file is
+        moved into place with ``os.replace``, so an interrupted export leaves
+        no partial file. ``None`` (default) returns the lines instead,
+        byte-identical to the file content.
+    force : bool, optional
+        Replace an existing ``output`` file; without it an existing file is a
+        ``conflict``. Needs ``output``.
     on_progress : ProgressHook or None, optional
         Called once after the export with ``unit="row"`` and the number of
         records.
@@ -398,23 +428,29 @@ def export_archive(
 
     Returns
     -------
-    pathlib.Path or Iterator[str]
-        Absolute path of the written file when ``path`` is given, otherwise a
-        lazy iterator of text lines with their line terminators.
+    OutputReport or Iterator[str]
+        With ``output``: the written file as ``output`` and ``files[]``
+        (``written`` or ``replaced``, size and SHA-256 of the bytes written);
+        otherwise a lazy iterator of text lines with their line terminators.
 
     Raises
     ------
     IMGWValidationError
         If ``format`` is unsupported, ``version`` is not an archive version
-        or is a station list version, or ``path`` is a directory, lies in a
-        missing directory or inside an IMGW store.
+        or is a station list version, ``output`` is a directory, or ``force``
+        is given without ``output``.
+    IMGWError
+        Code ``conflict`` before anything is written: ``output`` exists and
+        ``force`` is not given (``details.reason="output_exists"``) or lies
+        in a store of any tool (``"output_in_store"``); ``details.paths``
+        names it.
     IMGWStoreError
         If the archive file or its sidecar does not exist (code
         ``not_found``) or ``root`` is not a supported store.
     IMGWCancelledError
         If ``cancel`` returns ``True``; the target stays untouched and no
-        ``.part`` file remains. With ``path=None`` it may also be raised
-        while iterating.
+        staging file remains. Without ``output`` it may also be raised while
+        iterating.
     IMGWDataError
         If the sidecar or the stored bytes are invalid; while iterating (or
         writing), if the archive content is malformed.
@@ -427,7 +463,7 @@ def export_archive(
         source = _open(root) / source
     records = read_archive(source)
     descriptor = get_dataset(read_meta(_archive_main(source)).dataset)
-    target = None if path is None else _target(path)
+    target = _target(output, force=force)
     head, rows = _archive_lines(records, format)
     _check_cancel(cancel)
     _license(descriptor, on_notice)
@@ -435,12 +471,15 @@ def export_archive(
         head,
         rows,
         total=None,
-        label=f"Archiwum {source}",
+        label=message("export.archive_progress", source=source),
         on_progress=on_progress,
         cancel=cancel,
     )
     return _deliver(
-        lines, target=target, cancel=cancel, done=f"Wyeksportowano archiwum {source}"
+        lines,
+        target=target,
+        cancel=cancel,
+        done=message("export.archive_exported", source=source),
     )
 
 
@@ -457,7 +496,8 @@ def export_series(
     end: date | None = None,
     year_type: Literal["hydrological", "calendar"] | None = None,
     format: Literal["csv"] = "csv",
-    path: None = None,
+    output: None = None,
+    force: bool = False,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
@@ -477,11 +517,12 @@ def export_series(
     end: date | None = None,
     year_type: Literal["hydrological", "calendar"] | None = None,
     format: Literal["csv"] = "csv",
-    path: PathArg,
+    output: PathArg,
+    force: bool = False,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
-) -> Path: ...
+) -> OutputReport: ...
 
 
 def export_series(
@@ -496,11 +537,12 @@ def export_series(
     end: date | None = None,
     year_type: Literal["hydrological", "calendar"] | None = None,
     format: Literal["csv"] = "csv",
-    path: PathArg | None = None,
+    output: PathArg | None = None,
+    force: bool = False,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
-) -> Path | Iterator[str]:
+) -> OutputReport | Iterator[str]:
     """
     Export values, flags and both attribution formulas of one station as CSV.
 
@@ -548,10 +590,15 @@ def export_series(
         of ``date``. ``None`` uses ``series.json`` ``year_type``.
     format : {"csv"}, optional
         Output format.
-    path : str, os.PathLike or None, optional
-        Target CSV file in an existing directory outside every IMGW store;
-        written atomically through a hidden ``.part`` file. ``None`` (default)
-        returns the lines instead, byte-identical to the file content.
+    output : str, os.PathLike or None, optional
+        The one plain CSV file to write (DEV-19.1): its directory is created
+        when missing, the lines go through ``<dir>/.imgw-incoming/`` and the
+        file is moved into place with ``os.replace``, so an interrupted export
+        leaves no partial file. ``None`` (default) returns the lines instead,
+        byte-identical to the file content.
+    force : bool, optional
+        Replace an existing ``output`` file; without it an existing file is a
+        ``conflict``. Needs ``output``.
     on_progress : ProgressHook or None, optional
         Called every 256 rows and once after the export with ``unit="row"``.
     on_notice : NoticeHook or None, optional
@@ -563,25 +610,31 @@ def export_series(
 
     Returns
     -------
-    pathlib.Path or Iterator[str]
-        Absolute path of the written CSV file when ``path`` is given,
+    OutputReport or Iterator[str]
+        With ``output``: the written file as ``output`` and ``files[]``
+        (``written`` or ``replaced``, size and SHA-256 of the bytes written);
         otherwise a lazy iterator of CSV lines ending with CRLF.
 
     Raises
     ------
     IMGWValidationError
         If ``format`` or ``year_type`` is unsupported, ``year_type="calendar"``
-        is requested for a half-year series, ``path`` is a directory, lies in
-        a missing directory or inside an IMGW store, or the arguments are
-        rejected by :func:`read_series` (``version``/``dataset`` choice,
-        station, ``variables``, ``start``/``end``).
+        is requested for a half-year series, ``output`` is a directory,
+        ``force`` is given without ``output``, or the arguments are rejected
+        by :func:`read_series` (``version``/``dataset`` choice, station,
+        ``variables``, ``start``/``end``).
+    IMGWError
+        Code ``conflict`` before the station data is read: ``output`` exists
+        and ``force`` is not given (``details.reason="output_exists"``) or
+        lies in a store of any tool (``"output_in_store"``); ``details.paths``
+        names it.
     IMGWStoreError
         If ``series.json``, its sidecar or the dataset series does not exist
         (code ``not_found``) or ``root`` is not a supported store.
     IMGWCancelledError
         If ``cancel`` returns ``True``; the target stays untouched and no
-        ``.part`` file remains. With ``path=None`` it may also be raised
-        while iterating.
+        staging file remains. Without ``output`` it may also be raised while
+        iterating.
     IMGWStoreDependencyError
         If ``pyarrow>=15`` is not installed.
     IMGWDataError
@@ -593,7 +646,11 @@ def export_series(
     _format(format, _SERIES_FORMATS)
     if year_type is not None and year_type not in _YEAR_TYPES:
         raise IMGWValidationError(
-            f"Nieznany year_type {year_type!r}; dozwolone: {', '.join(_YEAR_TYPES)}",
+            message(
+                "export.unknown_year_type_allowed",
+                year_type=year_type,
+                year_types=", ".join(_YEAR_TYPES),
+            ),
             details={
                 "option": "year_type",
                 "value": str(year_type),
@@ -608,18 +665,22 @@ def export_series(
     chosen = year_type or index.year_type
     if half_year and chosen == "calendar":
         raise IMGWValidationError(
-            f"Charakterystyki półroczne i roczne ({index.dataset}) mają tylko lata "
-            "hydrologiczne; year_type='calendar' niedozwolony",
+            message(
+                "export.semi_annual_annual_characteristics_have", dataset=index.dataset
+            ),
             details={"option": "year_type", "value": "calendar"},
         )
-    target = None if path is None else _target(path)
+    target = _target(output, force=force)
     records = list(
         read_series(series, station=station, variables=names, start=start, end=end)
     )
     if not records:
         raise IMGWDataError(
-            f"Szereg stacji {station} w {index.dataset} jest pusty w wybranym zakresie; "
-            "eksport odrzucono, by nie utracić formuł atrybucji"
+            message(
+                "export.series_station_empty_chosen_range",
+                station=station,
+                dataset=index.dataset,
+            )
         )
     _check_cancel(cancel)
     _license(descriptor, on_notice)
@@ -653,7 +714,7 @@ def export_series(
         (_csv_line(header),),
         _csv_lines(row(number, record) for number, record in enumerate(records)),
         total=len(records),
-        label=f"Stacja {station}",
+        label=message("export.station_progress", station=station),
         on_progress=on_progress,
         cancel=cancel,
     )
@@ -661,5 +722,5 @@ def export_series(
         lines,
         target=target,
         cancel=cancel,
-        done=f"Wyeksportowano szereg stacji {station}",
+        done=message("export.series_exported", station=station),
     )

@@ -7,9 +7,7 @@ Data is fetched directly from IMGW servers - nothing is stored locally.
 
 from __future__ import annotations
 
-import os
-import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -23,17 +21,20 @@ from imgwtools._version import __version__
 from imgwtools.datasets import (
     ArchiveFile,
     MonthsArg,
+    ProviderDescriptor,
     YearsArg,
     archive_files,
     get_dataset,
     get_provider,
 )
 from imgwtools.exceptions import (
+    IMGWCancelledError,
     IMGWConnectionError,
     IMGWDataError,
     IMGWError,
     IMGWValidationError,
 )
+from imgwtools.messages import message, reason
 from imgwtools.models import (
     HydroCurrentData,
     MeteoCurrentData,
@@ -42,11 +43,20 @@ from imgwtools.models import (
     SynopData,
     WarningData,
 )
+from imgwtools.output import (
+    FileResult,
+    Staging,
+    plan_plain,
+    refuse,
+    refuse_directory,
+    resolve_target,
+)
 from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 if TYPE_CHECKING:
     from imgwtools.store.types import (
         Cancel,
+        DownloadItem,
         DownloadReport,
         NoticeHook,
         PathArg,
@@ -62,7 +72,7 @@ POLAND_LON_MAX = 24.5
 DEFAULT_TIMEOUT = 30.0
 DOWNLOAD_TIMEOUT = 120.0
 
-UNPUBLISHED = "nieopublikowany"
+UNPUBLISHED = message("common.unpublished")
 """Error text of a candidate file the provider does not publish (HTTP 404/410)."""
 
 # Requests for per-station files (ČHMÚ) identify the library (spec 2026-10-18
@@ -91,13 +101,15 @@ def _download_result(
             ZipFile(BytesIO(data)).close()
         except BadZipFile as exc:
             raise IMGWDataError(
-                f"Niepoprawne archiwum ZIP z adresu {response.url}"
+                message("fetch.invalid_zip_archive_from", url=response.url)
             ) from exc
     length = response.headers.get("Content-Length")
     try:
         content_length = int(length) if length is not None else None
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawny nagłówek Content-Length: {length}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_content_length_header", length=length)
+        ) from exc
     return DownloadResult(
         data=data,
         url=str(response.url),
@@ -111,7 +123,9 @@ def _json_payload(response: httpx.Response) -> Any:
     try:
         return response.json()
     except ValueError as exc:
-        raise IMGWDataError(f"Niepoprawna odpowiedź JSON z {response.url}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_json_response_from", url=response.url)
+        ) from exc
 
 
 def _source_error(
@@ -137,17 +151,21 @@ def _source_error(
     """
     if isinstance(exc, httpx.TimeoutException):
         return IMGWConnectionError(
-            f"Przekroczono czas oczekiwania na serwer {source}: {url}",
+            message("fetch.timeout_waiting_server", source=source, url=url),
             details={"url": url, "reason": "timeout"},
         )
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return IMGWConnectionError(
-            f"Serwer {source} zwrócił HTTP {status}: {url}",
+            message(
+                "fetch.server_returned_http", source=source, status=status, url=url
+            ),
             details={"url": url, "reason": "http_status", "status": status},
         )
     return IMGWConnectionError(
-        f"Błąd połączenia z serwerem {source} ({exc}): {url}",
+        message(
+            "fetch.connection_error_server", source=source, exc=reason(exc), url=url
+        ),
         details={"url": url, "reason": "network"},
     )
 
@@ -226,19 +244,33 @@ def _records[T](
     items = [payload] if isinstance(payload, dict) else payload
     if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
         raise IMGWDataError(
-            f"Nieoczekiwana odpowiedź z {url}: oczekiwano listy obiektów"
+            message("fetch.unexpected_response_from_list_objects", url=url)
         )
     try:
         return [parse(cast(dict[str, Any], item)) for item in items]
     except (ValidationError, TypeError, ValueError) as exc:
-        raise IMGWDataError(f"Niepoprawny rekord w odpowiedzi z {url}: {exc}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_record_response_from", url=url, exc=reason(exc))
+        ) from exc
 
 
 def _validate_poland_coords(latitude: float, longitude: float) -> None:
     """Validate that coordinates are numbers within the Poland bounds box."""
     for option, name, value, low, high in (
-        ("latitude", "Szerokość", latitude, POLAND_LAT_MIN, POLAND_LAT_MAX),
-        ("longitude", "Długość", longitude, POLAND_LON_MIN, POLAND_LON_MAX),
+        (
+            "latitude",
+            message("fetch.latitude"),
+            latitude,
+            POLAND_LAT_MIN,
+            POLAND_LAT_MAX,
+        ),
+        (
+            "longitude",
+            message("fetch.longitude"),
+            longitude,
+            POLAND_LON_MIN,
+            POLAND_LON_MAX,
+        ),
     ):
         if (
             isinstance(value, bool)
@@ -249,7 +281,9 @@ def _validate_poland_coords(latitude: float, longitude: float) -> None:
             if isinstance(value, int | float | str):
                 details["value"] = value
             raise IMGWValidationError(
-                f"{name} geograficzna {value!r} poza zakresem Polski ({low}–{high})",
+                message(
+                    "fetch.outside_poland", name=name, value=value, low=low, high=high
+                ),
                 details=details,
             )
 
@@ -292,10 +326,14 @@ def _check_pmaxtp_payload(payload: object, latitude: float, longitude: float) ->
     error = str(payload["error"])
     if any(marker in error.lower() for marker in _PMAXTP_OUTSIDE_GRID):
         raise IMGWValidationError(
-            f"Punkt {latitude}, {longitude} leży poza siatką PMAXTP IMGW-PIB "
-            f"(brak danych dla tego miejsca); odpowiedź API: {error}"
+            message(
+                "fetch.point_lies_outside_pmaxtp_grid",
+                latitude=latitude,
+                longitude=longitude,
+                error=error,
+            )
         )
-    raise IMGWDataError(f"API PMAXTP zwróciło błąd: {error}")
+    raise IMGWDataError(message("fetch.pmaxtp_api_returned_error", error=error))
 
 
 def _pmaxtp_result(
@@ -314,9 +352,11 @@ def _pmaxtp_result(
             data=PMaXTPData.from_api_response(cast(dict[str, Any], raw_data)),
         )
     except (ValidationError, AttributeError, TypeError, ValueError) as exc:
-        raise IMGWDataError(f"Niepoprawna odpowiedź PMAXTP: {exc}") from exc
+        raise IMGWDataError(
+            message("fetch.invalid_pmaxtp_response", exc=reason(exc))
+        ) from exc
     if not result.data.ks:
-        raise IMGWDataError("Odpowiedź PMAXTP bez danych (pusta tabela ks)")
+        raise IMGWDataError(message("fetch.pmaxtp_response_has_no_data"))
     return result
 
 
@@ -331,7 +371,7 @@ def fetch_pmaxtp(
     """
     Fetch PMAXTP (probabilistic maximum precipitation) data.
 
-    PMAXTP provides precipitation quantiles for 7 durations and 6 probabilities,
+    PMAXTP provides precipitation quantiles for 16 durations and 27 probabilities,
     useful for hydrological modeling and flood risk assessment.
 
     Parameters
@@ -376,8 +416,11 @@ def fetch_pmaxtp(
 
     Notes
     -----
-    Data durations: 15, 30, 45, 60, 90, 120, 180 minutes.
-    Probabilities: 1%, 2%, 5%, 10%, 20%, 50%.
+    Durations [min]: 5, 10, 15, 30, 45, 60, 90, 120, 180, 360, 720, 1080, 1440,
+    2160, 2880, 4320. Probabilities [%]: 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3,
+    0.5, 1, 2, 3, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 98.5, 99, 99.5,
+    99.9. `PMaXTPData.get_precipitation` takes a probability as a number (``0.01``,
+    ``50``) and refuses a number that is not in this list.
     """
     if validate_coords:
         _validate_poland_coords(latitude, longitude)
@@ -609,7 +652,7 @@ def _warning_sources(
     """Warning families to fetch with their endpoint URLs, hydro first."""
     if kind is not None and kind not in _WARNING_KINDS:
         raise IMGWValidationError(
-            f"Nieznany rodzaj ostrzeżeń: {kind!r}; dozwolone hydro, meteo",
+            message("fetch.unknown_kind_warnings_allowed_hydro", kind=kind),
             details={"option": "kind", "allowed": list(_WARNING_KINDS)},
         )
     kinds = _WARNING_KINDS if kind is None else (kind,)
@@ -714,19 +757,20 @@ def _single_archive(
     if len(files) == 1:
         return files[0]
     if option == "param":
-        message = f"Archiwum {files[0].dataset} wymaga parametru T, Q albo H"
+        text = message("fetch.archive_needs_parameter_t_q", dataset=files[0].dataset)
     else:
-        message = (
-            f"Archiwum {files[0].dataset} {files[0].year} jest publikowane w plikach "
-            "miesięcznych; podaj miesiąc (1–12)"
+        text = message(
+            "fetch.archive_published_monthly_files_give",
+            dataset=files[0].dataset,
+            year=files[0].year,
         )
-    raise IMGWValidationError(message, details={"option": option})
+    raise IMGWValidationError(text, details={"option": option})
 
 
 def _legacy_year(year: object) -> int:
     if isinstance(year, bool) or not isinstance(year, int):
         raise IMGWValidationError(
-            f"Rok musi być liczbą całkowitą: {year!r}",
+            message("fetch.year_must_integer", year=year),
             details={"option": "year", "value": str(year)},
         )
     return year
@@ -963,19 +1007,275 @@ async def download_meteo_data_async(
         return await _archive_response_async(client, archive.url)
 
 
-def _save(destination: Path, data: bytes) -> Path:
-    """Write ``data`` atomically through a unique ``.part`` file."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    part = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.part")
+_STREAM_CHUNK = 1 << 16
+"""Size of the pieces a plain download is read, hashed and written in."""
+
+
+def _origin(archive: ArchiveFile) -> tuple[ProviderDescriptor, bool]:
+    """Provider of an archive and whether its files are per station (ČHMÚ)."""
+    descriptor = get_dataset(archive.dataset)
+    return get_provider(descriptor.provider), descriptor.archive_scope != "country"
+
+
+def _stage(
+    client: httpx.Client,
+    archive: ArchiveFile,
+    staging: Staging,
+    *,
+    source: str,
+    zipped: bool,
+) -> tuple[Path, int, str]:
+    """
+    GET one source file straight into the staging directory (DEV-19.7).
+
+    The bytes are hashed while they stream to the staged file; an archive that
+    must be a ZIP is verified there, before it is moved into place.
+
+    Returns
+    -------
+    tuple of (pathlib.Path, int, str)
+        The staged file, its size and its SHA-256.
+
+    Raises
+    ------
+    IMGWConnectionError
+        If the request fails (``source_unavailable``).
+    IMGWDataError
+        If ``zipped`` bytes are no ZIP archive.
+    """
     try:
-        with part.open("xb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(part, destination)
-    finally:
-        part.unlink(missing_ok=True)
-    return destination
+        with client.stream("GET", archive.url) as response:
+            response.raise_for_status()
+            staged, size, sha256 = staging.write(response.iter_bytes(_STREAM_CHUNK))
+    except httpx.HTTPError as exc:
+        raise _source_error(exc, archive.url, source=source) from exc
+    if zipped:
+        try:
+            ZipFile(staged).close()
+        except BadZipFile as exc:
+            staged.unlink(missing_ok=True)
+            raise IMGWDataError(
+                message("fetch.invalid_zip_archive_from", url=archive.url)
+            ) from exc
+    return staged, size, sha256
+
+
+def _download_loop(
+    files: Sequence[ArchiveFile],
+    save: Callable[[httpx.Client, ArchiveFile], FileResult],
+    *,
+    timeout: float,
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> tuple[list[DownloadItem], list[FileResult]]:
+    """
+    Download every archive with ``save`` and report each file as an item.
+
+    A failed file becomes a ``failed`` item and the others are still
+    downloaded; a ČHMÚ candidate the server answers with HTTP 404 or 410 is a
+    successful ``not_published`` item; ``cancel`` is polled before every file.
+    """
+    # store.types is imported lazily: the imgwtools.store package imports this module.
+    from imgwtools.store.types import DownloadItem, Notice, Progress
+
+    items: list[DownloadItem] = []
+    written: list[FileResult] = []
+    licensed: set[str] = set()
+    listed = any(_origin(archive)[1] for archive in files)
+    with httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=_IDENTIFY if listed else None,
+    ) as client:
+        for index, archive in enumerate(files):
+            if cancel is not None and cancel():
+                items.extend(
+                    DownloadItem(
+                        _archive_slot(rest), rest.url, "cancelled", None, None, None
+                    )
+                    for rest in files[index:]
+                )
+                break
+            provider, per_station = _origin(archive)
+            slot = _archive_slot(archive)
+            try:
+                result = save(client, archive)
+            except IMGWCancelledError:
+                items.extend(
+                    DownloadItem(
+                        _archive_slot(rest), rest.url, "cancelled", None, None, None
+                    )
+                    for rest in files[index:]
+                )
+                break
+            except IMGWError as exc:
+                if per_station and exc.details.get("status") in _NOT_PUBLISHED:
+                    item = DownloadItem(
+                        slot, archive.url, "not_published", None, UNPUBLISHED, None
+                    )
+                else:
+                    item = DownloadItem(
+                        slot, archive.url, "failed", None, exc.detail, exc.code
+                    )
+            except OSError as exc:
+                item = DownloadItem(
+                    slot,
+                    archive.url,
+                    "failed",
+                    None,
+                    message(
+                        "fetch.cannot_save_archive",
+                        path=archive.server_path,
+                        exc=reason(exc),
+                    ),
+                    "io_error",
+                )
+            else:
+                written.append(result)
+                item = DownloadItem(
+                    slot, archive.url, "downloaded", result.path, None, None
+                )
+            items.append(item)
+            if on_progress is not None:
+                on_progress(
+                    Progress(
+                        index + 1,
+                        len(files),
+                        "archive",
+                        item.status,
+                        message(
+                            "fetch.archive_downloaded", server_path=archive.server_path
+                        )
+                        if item.path is not None
+                        else message(
+                            "fetch.archive_not_downloaded",
+                            server_path=archive.server_path,
+                            error=item.error,
+                        ),
+                    )
+                )
+            if item.path is not None and provider.id not in licensed:
+                licensed.add(provider.id)
+                if on_notice is not None:
+                    on_notice(
+                        Notice("info", "license_terms", provider.license_notice())
+                    )
+    return items, written
+
+
+def _download_plain(
+    files: Sequence[ArchiveFile],
+    directory: Path,
+    *,
+    force: bool,
+    timeout: float,
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> tuple[list[DownloadItem], list[FileResult]]:
+    """
+    Write the archives as ordinary files below ``directory`` (DEV-19.5 to DEV-19.9).
+
+    The names are the server paths. The output directory is checked first
+    (`refuse_directory`), then the full target list, both before the first
+    request (`plan_plain`, `refuse`); each file is streamed to the staging
+    directory, verified and moved into place with ``os.replace``.
+
+    Raises
+    ------
+    IMGWError
+        ``conflict`` (``output_in_store`` with the directory as the path for a
+        directory that is or lies in a store; ``duplicate_output_name``,
+        ``output_in_store`` for a target that would enter a store below the
+        directory, ``output_exists``) before anything is requested or written.
+    OSError
+        If the output directory cannot be created.
+    """
+    refuse_directory(directory)
+    refuse(
+        plan_plain(directory, [archive.server_path for archive in files], force=force)
+    )
+    with Staging(directory) as staging:
+
+        def save(client: httpx.Client, archive: ArchiveFile) -> FileResult:
+            provider, per_station = _origin(archive)
+            staged, size, sha256 = _stage(
+                client,
+                archive,
+                staging,
+                source=provider.short_name if per_station else "IMGW",
+                zipped=not per_station,
+            )
+            target = directory.joinpath(*archive.server_path.split("/"))
+            return staging.commit(staged, target, size, sha256)
+
+        return _download_loop(
+            files,
+            save,
+            timeout=timeout,
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
+
+
+def _download_store(
+    files: Sequence[ArchiveFile],
+    root: Path,
+    *,
+    timeout: float,
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> tuple[list[DownloadItem], list[FileResult]]:
+    """
+    Publish the archives as versions in the store at ``root`` (``write_archive``).
+
+    Every file is fetched (there is no freshness check) and gets the status of
+    its version: ``new``, ``unchanged`` or ``relabeled``.
+
+    Raises
+    ------
+    IMGWStoreError
+        If ``root`` is no usable store (the layout has no marker).
+    IMGWStoreConflictError
+        If the root nests a store or holds foreign files.
+    """
+    # The writer imports this module, so it is imported lazily.
+    from imgwtools.store.types import Notice
+    from imgwtools.store.writer import prepare_store, write_archive
+
+    handle = prepare_store(root)
+
+    def forward(notice: Notice) -> None:
+        # The license notice is sent once per provider by the loop.
+        if on_notice is not None and notice.code != "license_terms":
+            on_notice(notice)
+
+    def save(client: httpx.Client, archive: ArchiveFile) -> FileResult:
+        provider, per_station = _origin(archive)
+        response = _archive_response(
+            client,
+            archive.url,
+            source=provider.short_name if per_station else "IMGW",
+            zipped=not per_station,
+        )
+        version = write_archive(
+            handle, archive=archive, response=response, on_notice=forward, cancel=cancel
+        )
+        return FileResult(
+            version.path, version.path.stat().st_size, version.sha256, version.status
+        )
+
+    return _download_loop(
+        files,
+        save,
+        timeout=timeout,
+        on_progress=on_progress,
+        on_notice=on_notice,
+        cancel=cancel,
+    )
 
 
 def download_archives(
@@ -986,22 +1286,32 @@ def download_archives(
     months: MonthsArg | None = None,
     params: Iterable[Literal["H", "Q", "T"]] | None = None,
     stations: Iterable[str] | None = None,
-    output: PathArg = "data/downloaded",
+    output_dir: PathArg | None = None,
+    root: PathArg | None = None,
+    force: bool = False,
     timeout: float = DOWNLOAD_TIMEOUT,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> DownloadReport:
     """
-    Download dataset archives into a plain directory, outside any store.
+    Download the source files of a dataset as plain files or into the store.
 
-    Every file of `archive_files` is saved as ``<output>/<server_path>``
-    through a unique ``.part`` file replaced atomically, so an interrupted
-    download never leaves an incomplete archive. A failed file becomes a
-    ``failed`` item and the remaining files are still downloaded. ČHMÚ files
-    are candidates that are fetched without a listing (spec 2026-10-18 §4.4):
-    a candidate the server answers with HTTP 404 or 410 is a successful
-    ``not_published`` item.
+    With ``output_dir`` (plain mode, DEV-19.1) every file of `archive_files`
+    is written as ``<output_dir>/<server_path>``: before the first request the
+    full list of targets is checked and an existing target without ``force``,
+    a duplicate name or a directory that is, or lies in, a store is a
+    ``conflict`` that lists every path; each file is streamed to
+    ``<output_dir>/.imgw-incoming/<host>_<pid>_<token>/``, hashed while it
+    streams, verified and moved into place with ``os.replace``, so an
+    interrupted download leaves no partial file. Without ``output_dir`` the
+    files are published as versions in the store at ``root`` (the default
+    root when ``root`` is not given: ``IMGW_ROOT``, ``[imgw] root`` of
+    ``nogat.toml`` or ``<data_dir>/imgw``); only the datasets of the store
+    are accepted. A failed file becomes a ``failed`` item and the remaining
+    files are still downloaded. ČHMÚ files are candidates that are fetched
+    without a listing (spec 2026-10-18 §4.4): a candidate the server answers
+    with HTTP 404 or 410 is a successful ``not_published`` item.
 
     Parameters
     ----------
@@ -1019,8 +1329,16 @@ def download_archives(
     stations : iterable of str or None, optional
         ČHMÚ station codes (WIGOS identifiers); required for ČHMÚ datasets
         and rejected for IMGW-PIB datasets.
-    output : str or os.PathLike, optional
-        Target directory, created when missing.
+    output_dir : str or os.PathLike or None, optional
+        Plain mode: directory of the files, created when missing. Excludes
+        ``root``.
+    root : str or os.PathLike or None, optional
+        Store mode: root of the store; None (with no ``output_dir``) is the
+        default root.
+    force : bool, optional
+        Plain mode: replace existing target files (each atomically, nothing
+        else is deleted). Store mode: the files are fetched again anyway and
+        a version is never overwritten, so it changes nothing.
     timeout : float, optional
         Request timeout in seconds, per file.
     on_progress : ProgressHook or None, optional
@@ -1036,102 +1354,85 @@ def download_archives(
     Returns
     -------
     DownloadReport
-        Absolute ``output`` and one item per file in download order, with the
-        §13.7 slot, URL, status, written path and, for a failed file, the
-        error text and code (``source_unavailable``, ``data_error`` or
-        ``io_error``); a ``not_published`` item has no path, the error
-        ``"nieopublikowany"`` and no code.
+        The mode, the absolute ``output_dir`` or ``root``, one item per file
+        in download order (the §13.7 slot, URL, status, written path and, for
+        a failed file, the error text and code: ``source_unavailable``,
+        ``data_error`` or ``io_error``; a ``not_published`` item has no path,
+        the error ``"not published"`` and no code) and ``files``: the files
+        written with their size, SHA-256 and status (``written`` or
+        ``replaced`` in plain mode, ``new``, ``unchanged`` or ``relabeled``
+        in store mode).
 
     Raises
     ------
     IMGWValidationError
         If the dataset, years, months, params or stations are invalid
-        (``details["option"]``).
+        (``details["option"]``); if both ``output_dir`` and ``root`` are
+        given (``details["reason"]="exclusive_options"``); or if a store
+        download names a dataset outside the store
+        (``details["reason"]="not_in_store"``).
+    IMGWError
+        ``conflict`` in plain mode before any request: an output directory that
+        is or lies in a store (``output_in_store``, ``details["paths"]`` is the
+        directory), then an existing target without ``force``
+        (``output_exists``), duplicate names (``duplicate_output_name``) or a
+        target that would enter a store below the directory
+        (``output_in_store``); ``details["paths"]`` lists every such path. In
+        store mode ``store_unavailable`` (a layout without a marker) or
+        ``conflict`` (a nested store, ``nested_store``, or a root with other
+        files, ``not_empty``).
     OSError
         If the output directory cannot be created.
 
     Examples
     --------
-    >>> report = download_archives("meteo/miesieczne/synop", years=1998)
+    >>> report = download_archives(
+    ...     "meteo/miesieczne/synop", years=1998, output_dir="data/synop"
+    ... )
     >>> [item.status for item in report.items]
     ['downloaded']
+    >>> [file.status for file in report.files]
+    ['written']
     """
-    # store.types is imported lazily: the imgwtools.store package imports this module.
-    from imgwtools.store.types import DownloadItem, DownloadReport, Notice, Progress
-
     files = archive_files(
         dataset, years=years, months=months, params=params, stations=stations
     )
     descriptor = get_dataset(dataset)
-    provider = get_provider(descriptor.provider)
-    # Per-station files (ČHMÚ) are JSON or CSV and may be unpublished candidates.
-    per_station = descriptor.archive_scope != "country"
-    source = provider.short_name if per_station else "IMGW"
-    target = Path(os.fspath(output)).expanduser().absolute()
-    target.mkdir(parents=True, exist_ok=True)
-    items: list[DownloadItem] = []
-    licensed = False
-    with httpx.Client(
-        timeout=timeout,
-        follow_redirects=True,
-        headers=_IDENTIFY if per_station else None,
-    ) as client:
-        for index, archive in enumerate(files):
-            if cancel is not None and cancel():
-                items.extend(
-                    DownloadItem(
-                        _archive_slot(rest), rest.url, "cancelled", None, None, None
-                    )
-                    for rest in files[index:]
-                )
-                break
-            slot = _archive_slot(archive)
-            try:
-                data = _archive_response(
-                    client, archive.url, source=source, zipped=not per_station
-                ).data
-                path = _save(target.joinpath(*archive.server_path.split("/")), data)
-            except IMGWError as exc:
-                if per_station and exc.details.get("status") in _NOT_PUBLISHED:
-                    item = DownloadItem(
-                        slot, archive.url, "not_published", None, UNPUBLISHED, None
-                    )
-                else:
-                    item = DownloadItem(
-                        slot, archive.url, "failed", None, exc.detail, exc.code
-                    )
-            except OSError as exc:
-                item = DownloadItem(
-                    slot,
-                    archive.url,
-                    "failed",
-                    None,
-                    f"Nie można zapisać {archive.server_path}: {exc}",
-                    "io_error",
-                )
-            else:
-                item = DownloadItem(slot, archive.url, "downloaded", path, None, None)
-            items.append(item)
-            if on_progress is not None:
-                on_progress(
-                    Progress(
-                        index + 1,
-                        len(files),
-                        "archive",
-                        item.status,
-                        f"Pobrano {archive.server_path}"
-                        if item.path is not None
-                        else f"Nie pobrano {archive.server_path}: {item.error}",
-                    )
-                )
-            if item.path is not None and not licensed and on_notice is not None:
-                licensed = True
-                on_notice(
-                    Notice(
-                        "info",
-                        "license_terms",
-                        f"{provider.license.attribution}. {provider.notice}",
-                    )
-                )
+    target = resolve_target(output_dir=output_dir, root=root)
+    # store.types is imported lazily: the imgwtools.store package imports this module.
+    from imgwtools.store.types import DownloadReport
+
+    if target.mode == "plain":
+        items, written = _download_plain(
+            files,
+            target.path,
+            force=force,
+            timeout=timeout,
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
+        directory, store = target.path, None
+    else:
+        if not descriptor.in_store:
+            raise IMGWValidationError(
+                message("fetch.not_in_store", dataset=descriptor.key),
+                details={
+                    "option": "dataset",
+                    "value": descriptor.key,
+                    "reason": "not_in_store",
+                },
+            )
+        items, written = _download_store(
+            files,
+            target.path,
+            timeout=timeout,
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
+        directory, store = None, target.path
     cancelled = any(item.status == "cancelled" for item in items)
-    return DownloadReport(target, tuple(items), cancelled)
+    return DownloadReport(
+        target.mode, directory, store, tuple(items), tuple(written), cancelled
+    )

@@ -117,7 +117,7 @@ def test_chmi_sidecar_takes_country_provider_and_license_from_the_registry(root)
         response=response(HYDRO, FIRST, PUBLISHED),
         on_notice=notices.append,
     )
-    assert written.status == "created"
+    assert written.status == "new"
     assert written.path.relative_to(root).as_posix() == (
         f"{SLOT_DIR}/2026-05-21_{written.sha256[:8]}/H_{CODE}_DQ_2025.json"
     )
@@ -343,7 +343,7 @@ def test_other_content_than_the_current_version_is_a_new_version(root):
     corrected = write_archive(
         root, archive=HYDRO, response=response(HYDRO, CORRECTED, REGENERATED)
     )
-    assert (corrected.status, corrected.observation) == ("created", None)
+    assert (corrected.status, corrected.observation) == ("new", None)
     assert sidecar(corrected.path)["content_sha256"] == content_sha256(
         CORRECTED, form=FORM
     )
@@ -353,7 +353,7 @@ def test_other_content_than_the_current_version_is_a_new_version(root):
     back = write_archive(
         root, archive=HYDRO, response=response(HYDRO, RESERIALIZED, LATER)
     )
-    assert back.status == "created"
+    assert back.status == "new"
     assert len(versions(root)) == 3 and first.path.parent.name in versions(root)
     assert register(root) == []
 
@@ -375,7 +375,7 @@ def test_current_version_without_comparable_content_gives_a_new_version(root, st
     result = write_archive(
         root, archive=HYDRO, response=response(HYDRO, RESERIALIZED, REGENERATED)
     )
-    assert (result.status, result.observation) == ("created", None)
+    assert (result.status, result.observation) == ("new", None)
     assert sidecar(result.path)["content_form"] == FORM
     assert register(root) == []
 
@@ -392,8 +392,8 @@ def test_meteo_csv_has_no_content_fields_and_other_bytes_are_a_version(root):
         root, archive=sra, response=response(sra, header + rows * 2, REGENERATED)
     )
     assert (first.status, second.status, second.observation) == (
-        "created",
-        "created",
+        "new",
+        "new",
         None,
     )
     meta = sidecar(second.path)
@@ -508,7 +508,7 @@ def test_new_envelope_of_a_station_list_is_unchanged_with_an_observation(root):
         archive=hydro_list,
         response=response(hydro_list, meta1("c-3", "2026-10-18T02:03Z", "2"), LATER),
     )
-    assert third.status == "created"
+    assert third.status == "new"
 
 
 def test_imgw_sidecars_carry_no_chmi_fields(tmp_path):

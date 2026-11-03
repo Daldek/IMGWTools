@@ -22,7 +22,6 @@ htmlcov/
 
 # Data files
 /temp/
-/data/downloaded/
 *.txt
 # Derived guide for AI agents (imgw commands guide --format llms), kept in the repository
 !/llms.txt

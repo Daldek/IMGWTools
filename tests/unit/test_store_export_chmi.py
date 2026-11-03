@@ -28,9 +28,9 @@ SOURCE = (
 )
 PROCESSED = "Dane ČHMÚ zostały przetworzone (normalizacja i zmiana formatu)"
 TERMS = (
-    f"{SOURCE}. {PROCESSED}. Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie "
-    "komercyjne pod warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia "
-    "zmian."
+    f"{SOURCE}. {PROCESSED}. The CC BY 4.0 licence permits copying, changes and "
+    "commercial use provided that the author ČHMÚ is credited, the licence is given "
+    "and the changes are marked."
 )
 METEO_VARIABLES = ("P", "Tmean", "Tmax", "Tmin")
 

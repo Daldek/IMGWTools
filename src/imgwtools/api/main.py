@@ -6,8 +6,8 @@ The catalog routes ``/api/v1/<group>/<command>`` come from
 server, ``GET /llms.txt`` is the agent guide in the llms.txt format in the
 language of ``Accept-Language`` (spec 2026-10-19 §5.8). With
 ``IMGW_MCP_ENABLED=true`` and the ``mcp`` extra, ``/mcp`` serves the MCP server
-in mode ``http`` (Streamable HTTP, spec §6.2, §6.9) in the language of
-``IMGW_LANG``; its session manager runs in the lifespan of this application.
+in mode ``http`` (Streamable HTTP, spec §6.2, §6.9), in English like every MCP
+server; its session manager runs in the lifespan of this application.
 """
 
 import logging
@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.applications import Starlette
 
@@ -28,13 +29,11 @@ from imgwtools.agent_guide import agent_guide
 from imgwtools.api.errors import EXCEPTION_HANDLERS, accept_language
 from imgwtools.api.routes import commands
 from imgwtools.api.schemas import HealthCheck
-from imgwtools.commands import LANGS, Lang, command_schema
-from imgwtools.config import settings
-from imgwtools.exceptions import IMGWValidationError
+from imgwtools.commands import command_schema
+from imgwtools.config import check_config, settings
 from imgwtools.web.app import router as web_router
 
 _LOG = logging.getLogger(__name__)
-_LANG_ENV = "IMGW_LANG"
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
@@ -42,34 +41,36 @@ STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
 # API metadata
 API_TITLE = "IMGWTools API"
 API_DESCRIPTION = """
-API danych publicznych IMGW-PIB i ČHMÚ generowane z katalogu komend IMGWTools.
+API of the public data of IMGW-PIB and ČHMÚ, generated from the IMGWTools command catalog.
 
-## Trasy
+## Routes
 
-* `GET|POST /api/v1/<grupa>/<komenda>` — jedna trasa na komendę katalogu
-  (`imgw <grupa> <komenda>` w CLI); lista tras: `GET /api/v1`, opis opcji:
-  `GET /api/v1/commands/schema`.
-* `GET /llms.txt` — przewodnik dla agentów AI w formacie llms.txt (język z
-  nagłówka `Accept-Language`: `pl` albo `en`).
-* `/mcp` — serwer MCP (Streamable HTTP) z trasami katalogu jako narzędziami,
-  gdy administrator ustawi `IMGW_MCP_ENABLED=true`; zapis tylko jako plan.
-* Odpowiedź: koperta `imgw-result/1` (`schema`, `command`, `check`, `status`,
-  `result`, `notices`); status `partial`/`failed` też ma kod 200, więc czytaj
-  pole `status`. `store export` i `series export` zwracają strumień CSV/JSONL
-  z nagłówkami `X-IMGW-Status` i `X-IMGW-Notices`.
-* Komendy listowe stronicują `limit` (domyślnie i najwyżej `IMGW_API_MAX_LIMIT`)
-  i `offset`.
-* Błędy: `application/problem+json` (RFC 9457) z polami `code` i `details`.
+* `GET|POST /api/v1/<group>/<command>` — one route per catalog command
+  (`imgw <group> <command>` in the CLI); the list of routes: `GET /api/v1`, the
+  description of the options: `GET /api/v1/commands/schema`.
+* `GET /llms.txt` — the guide for AI agents in the llms.txt format (the language
+  comes from the `Accept-Language` header: `en` or `pl`, `en` by default).
+* `/mcp` — the MCP server (Streamable HTTP) with the catalog routes as tools, when
+  the administrator sets `IMGW_MCP_ENABLED=true`; writes only as a plan.
+* Answer: the envelope `imgw-result/1` (`schema`, `command`, `check`, `status`,
+  `result`, `notices`); the status `partial`/`failed` also has code 200, so read
+  the `status` field. `store export` and `series export` return a CSV/JSONL
+  stream with the headers `X-IMGW-Status` and `X-IMGW-Notices`.
+* List commands page by `limit` (default and at most `IMGW_API_MAX_LIMIT`) and
+  `offset`.
+* Errors: `application/problem+json` (RFC 9457) with the fields `code` and `details`.
+* The texts of notices and errors follow `Accept-Language` (`en` or `pl`, `en` by
+  default); every answer names its language in `Content-Language`.
 
-## Magazyn
+## Store
 
-Domyślnie dane NIE są przechowywane na serwerze: API generuje bezpośrednie
-linki do serwerów IMGW-PIB i ČHMÚ, a dane bieżące odczytuje na żywo. Komendy
-magazynu działają wyłącznie na magazynie wskazanym przez administratora w
-`IMGW_STORE_ROOT` (bez niego 503 `store_unavailable`). Zapis (POST bez
-`?check=true`) jest domyślnie wyłączony (403 `forbidden`): wymaga
-`IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN` i nagłówka
-`X-API-Key`; `?check=true` zwraca plan `imgw-plan/1` bez zapisu i bez tokenu.
+By default the data is NOT kept on the server: the API gives direct links to the
+IMGW-PIB and ČHMÚ servers and reads the current data live. The store commands work
+only on the store the administrator names in `IMGW_ROOT` (without it 503
+`store_unavailable`). Writing (POST without `?check=true`) is off by default (403
+`forbidden`): it needs `IMGW_STORE_WRITES_ENABLED=true`, `IMGW_STORE_WRITE_TOKEN`
+and the header `X-API-Key`; `?check=true` returns the plan `imgw-plan/1` without
+writing and without a token.
 """
 API_VERSION = __version__
 
@@ -81,37 +82,21 @@ def _mcp_app() -> Starlette | None:
     Returns
     -------
     starlette.applications.Starlette or None
-        The MCP server in mode ``http`` in the language of ``IMGW_LANG``; None
-        unless ``IMGW_MCP_ENABLED=true`` and the ``mcp`` extra is installed
-        (``/mcp`` is then an unknown route: 404 ``not_found``).
-
-    Raises
-    ------
-    IMGWValidationError
-        If MCP is enabled and ``IMGW_LANG`` is neither ``pl`` nor ``en``.
+        The MCP server in mode ``http``; None unless ``IMGW_MCP_ENABLED=true`` and
+        the ``mcp`` extra is installed (``/mcp`` is then an unknown route: 404
+        ``not_found``).
     """
     if not settings.mcp_enabled:
         return None
-    lang = settings.lang.strip()
-    if lang not in LANGS:
-        raise IMGWValidationError(
-            f"Nieprawidłowa wartość {settings.lang!r} zmiennej środowiskowej "
-            f"{_LANG_ENV}; dozwolone: {', '.join(LANGS)}",
-            details={
-                "option": _LANG_ENV,
-                "value": settings.lang,
-                "allowed": list(LANGS),
-            },
-        )
     try:
         from imgwtools.mcp.server import http_app
     except ImportError:
         _LOG.warning(
-            "IMGW_MCP_ENABLED=true, ale serwer MCP wymaga dodatku: pip install "
-            "imgwtools[mcp]; trasa /mcp nie istnieje"
+            "IMGW_MCP_ENABLED=true, but the MCP server needs the extra: pip install "
+            "imgwtools[mcp]; the route /mcp does not exist"
         )
         return None
-    return http_app(lang=cast(Lang, lang))
+    return http_app()
 
 
 _MCP = _mcp_app()
@@ -119,10 +104,17 @@ _MCP = _mcp_app()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Run the session manager of ``/mcp`` as long as the REST application."""
+    """Check ``nogat.toml``, then run the session manager of ``/mcp`` with the app."""
+    check_config()  # an unusable settings file stops the server instead of being ignored
     # A route of another application never runs its lifespan by itself.
     async with nullcontext() if _MCP is None else _MCP.router.lifespan_context(_MCP):
         yield
+
+
+def _operation_id(route: APIRoute) -> str:
+    """``operationId`` of a route outside the catalog: ``imgw_system_<function>``."""
+    # Catalog routes name their id themselves (imgw_<group>_<verb>, AGI-6.2).
+    return f"imgw_system_{route.name}"
 
 
 # Create FastAPI app
@@ -136,12 +128,18 @@ app = FastAPI(
     openapi_tags=[
         *(
             {"name": group, "description": text}
-            for group, text in cast(dict[str, str], command_schema()["groups"]).items()
+            for group, text in cast(
+                dict[str, str], command_schema(lang="en")["groups"]
+            ).items()
         ),
-        {"name": "System", "description": "Stan serwera, lista tras i przewodnik"},
+        {
+            "name": "System",
+            "description": "Server state, the list of routes and the guide",
+        },
     ],
     exception_handlers=EXCEPTION_HANDLERS,
     lifespan=_lifespan,
+    generate_unique_id_function=_operation_id,
 )
 
 # Middleware
@@ -169,15 +167,15 @@ if _MCP is not None:
     app.router.routes.extend(_MCP.routes)
 
 
-@app.get("/health", response_model=HealthCheck, tags=["System"], summary="Stan serwera")
+@app.get("/health", response_model=HealthCheck, tags=["System"], summary="Server state")
 async def health_check() -> HealthCheck:
-    """Stan serwera i wersja pakietu."""
+    """State of the server and the version of the package."""
     return HealthCheck(status="ok", version=API_VERSION)
 
 
-@app.get("/api/v1", tags=["System"], summary="Trasy API")
+@app.get("/api/v1", tags=["System"], summary="API routes")
 async def api_info() -> dict[str, object]:
-    """Lista tras katalogu komend."""
+    """List the routes of the command catalog."""
     return {
         "name": API_TITLE,
         "version": API_VERSION,
@@ -189,20 +187,20 @@ async def api_info() -> dict[str, object]:
 @app.get(
     "/llms.txt",
     tags=["System"],
-    summary="Przewodnik llms.txt",
+    summary="The llms.txt guide",
     response_class=Response,
     responses={
         200: {
-            "description": "Przewodnik w formacie llms.txt (markdown)",
+            "description": "The guide in the llms.txt format (markdown)",
             "content": {"text/markdown": {"schema": {"type": "string"}}},
         }
     },
 )
 async def llms_txt(request: Request) -> Response:
     """
-    Przewodnik dla agentów AI w formacie llms.txt.
+    Guide for AI agents in the llms.txt format.
 
-    Język wybiera nagłówek Accept-Language: pl albo en, domyślnie pl.
+    The header Accept-Language chooses the language: en or pl, en by default.
     """
     lang = accept_language(request.headers.get("accept-language"))
     response = Response(
@@ -214,7 +212,7 @@ async def llms_txt(request: Request) -> Response:
     return response
 
 
-def run_server():
+def run_server() -> None:
     """Run the API server."""
     import uvicorn
 

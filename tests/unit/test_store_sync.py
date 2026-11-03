@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from imgwtools.datasets import archive_files
-from imgwtools.exceptions import IMGWStoreError, IMGWValidationError
+from imgwtools.exceptions import IMGWStoreConflictError, IMGWValidationError
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import init_store, write_archive
 from imgwtools.store import sync as sync_module
@@ -130,13 +130,13 @@ def test_check_store_reports_all_statuses_with_listing_and_head_only(root, serve
     assert by_path[H2023.server_path].status == "current"
     assert by_path[H2023.server_path].content_length == 999999
     assert by_path[H2022_01.server_path].status == "unverifiable"
-    assert "porównywalnego" in by_path[H2022_01.server_path].error
+    assert "no comparable" in by_path[H2022_01.server_path].error
     assert by_path[H2022_02.server_path].status == "missing"
     assert by_path[H2022_02.server_path].local_path is None
     assert by_path[H2098.server_path].status == "unverifiable"
-    assert by_path[H2098.server_path].error == "nieopublikowany"
+    assert by_path[H2098.server_path].error == "not published"
     assert by_path[H2022_03.server_path].status == "check_failed"
-    assert "czas" in by_path[H2022_03.server_path].error
+    assert "Timed out" in by_path[H2022_03.server_path].error
     assert (
         by_path[H2024.server_path]
         .local_path.as_posix()
@@ -165,7 +165,7 @@ def test_plan_json_round_trip_including_cancellation(root, server, tmp_path):
     assert plan.cancelled
     assert [(item.status, item.error) for item in plan.items] == [
         ("missing", None),
-        ("unverifiable", "anulowano"),
+        ("unverifiable", "cancelled"),
     ]
 
     saved = plan.to_json(tmp_path / "plan.json")
@@ -219,7 +219,7 @@ def test_new_hash_is_new_version_same_hash_new_signal_is_relabeled(root, server)
     download = get(server, H2024, V1, data(H2024))
 
     first = sync_store(root, datasets=[HYDRO], years=[2024], series=False)
-    assert [item.status for item in first.items] == ["created"]
+    assert [item.status for item in first.items] == ["new"]
     assert first.items[0].version.read_bytes() == data(H2024)
 
     download.reset()
@@ -239,7 +239,7 @@ def test_new_hash_is_new_version_same_hash_new_signal_is_relabeled(root, server)
     signal.mock(return_value=httpx.Response(200, headers=V3))
     download.mock(return_value=httpx.Response(200, headers=V3, content=changed))
     created = sync_store(root, datasets=[HYDRO], years=[2024], series=False)
-    assert [item.status for item in created.items] == ["created"]
+    assert [item.status for item in created.items] == ["new"]
     assert created.items[0].version.read_bytes() == changed
     slot = root / "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024"
     assert len(list(slot.iterdir())) == 3
@@ -310,7 +310,7 @@ def test_cancel_reports_completed_items_without_partial_version(
     )
 
     assert report.cancelled
-    assert [item.status for item in report.items] == ["created", "cancelled"]
+    assert [item.status for item in report.items] == ["new", "cancelled"]
     assert report.items[0].version.is_file()
     assert not second_slot.exists()
     assert [entry.status for entry in report.series] == ["cancelled"]
@@ -342,7 +342,7 @@ def test_series_is_built_only_from_complete_inputs(root, server, monkeypatch):
 
     def fake_build(store, /, **kwargs):
         built.append((store, kwargs["dataset"]))
-        return SeriesReport("created", None, 1, (), ())
+        return SeriesReport("new", None, 1, (), ())
 
     monkeypatch.setattr(sync_module, "build_series", fake_build)
     for archive in (H2023, H2024):
@@ -356,7 +356,7 @@ def test_series_is_built_only_from_complete_inputs(root, server, monkeypatch):
     broken = server.get(H2023.url).mock(return_value=httpx.Response(503))
 
     partial = sync_store(root, datasets=[HYDRO], years="2023-2024")
-    assert [item.status for item in partial.items] == ["failed", "created"]
+    assert [item.status for item in partial.items] == ["failed", "new"]
     assert "503" in partial.items[0].error
     assert [item.error_code for item in partial.items] == ["source_unavailable", None]
     assert built == []
@@ -367,9 +367,9 @@ def test_series_is_built_only_from_complete_inputs(root, server, monkeypatch):
 
     broken.mock(return_value=httpx.Response(200, headers=V1, content=data(H2023)))
     complete = sync_store(root, datasets=[HYDRO], years=[2023, 2024])
-    assert [item.status for item in complete.items] == ["created", "unchanged"]
+    assert [item.status for item in complete.items] == ["new", "unchanged"]
     assert built == [(root, HYDRO)]
-    assert [entry.status for entry in complete.series] == ["created"]
+    assert [entry.status for entry in complete.series] == ["new"]
 
 
 def test_selector_validation(root, tmp_path):
@@ -385,5 +385,12 @@ def test_selector_validation(root, tmp_path):
         )
     with pytest.raises(IMGWValidationError):
         check_store(root, datasets=["pl.imgw.hydro_stations"], years=[2024])
-    with pytest.raises(IMGWStoreError):
-        check_store(tmp_path / "missing", datasets=[HYDRO], years=[2024])
+    (tmp_path / "foreign").mkdir()
+    (tmp_path / "foreign" / "notes.txt").write_text("mine")
+    # Not a store (foreign files, no layout): the plan lists a conflict, the run refuses it.
+    (action,) = check_store(
+        tmp_path / "foreign", datasets=[HYDRO], years=[2024]
+    ).actions
+    assert (action.action, action.reason) == ("conflict", "not_empty")
+    with pytest.raises(IMGWStoreConflictError):
+        sync_store(tmp_path / "foreign", datasets=[HYDRO], years=[2024])

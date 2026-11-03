@@ -3,6 +3,7 @@
 import functools
 import importlib
 import json
+import re
 import shutil
 import sys
 from datetime import UTC, datetime
@@ -15,9 +16,10 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from imgwtools.api.main import app
-from imgwtools.commands import check_command, command_schema, run_command
-from imgwtools.config import Settings, settings
+from imgwtools.commands import check_command, command_schema, data_commands, run_command
+from imgwtools.config import Settings, settings, store_root
 from imgwtools.exceptions import ERROR_CODES
+from imgwtools.messages import localize
 from imgwtools.stations import HYDRO_MAP_API_URL
 from imgwtools.store import current_version, init_store
 from imgwtools.testing import build_fixture_store
@@ -152,7 +154,7 @@ def raising(monkeypatch, module, name, error):
 def server(monkeypatch):
     """Unconfigured server: no store root, writes disabled, default page size."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("store_write_token", None),
         ("user_locations_dir", None),
@@ -173,7 +175,7 @@ def fixture_root(tmp_path_factory):
 
 @pytest.fixture
 def served(monkeypatch, fixture_root):
-    monkeypatch.setattr(settings, "store_root", fixture_root)
+    monkeypatch.setattr(settings, "root", fixture_root)
     return fixture_root
 
 
@@ -223,14 +225,14 @@ def frozen(monkeypatch):
 @pytest.fixture
 def empty_root(monkeypatch, tmp_path):
     root = init_store(tmp_path / "store").root
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
     return root
 
 
 @pytest.fixture
-def relative_data_dir(monkeypatch):
+def relative_reference_dir(monkeypatch):
     """Relative reference-data directory: no absolute path in envelope texts."""
-    monkeypatch.setattr(settings, "data_dir", Path("brak-danych-referencyjnych"))
+    monkeypatch.setattr(settings, "reference_dir", Path("brak-danych-referencyjnych"))
 
 
 def store_copy(kind, fixture_root, target):
@@ -264,7 +266,7 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
         for method, operation in operations.items()
     }
 
-    assert len(expected) == 27
+    assert len(expected) == 28
     assert served.keys() == expected.keys()
     assert [
         (route["method"], route["path"])
@@ -297,10 +299,18 @@ def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
     assert (limit["schema"]["default"], limit["schema"]["maximum"]) == (1000, 1000)
     tags = {tag["name"]: tag["description"] for tag in document["tags"]}
     assert tags.items() >= command_schema()["groups"].items()
+    # Every operation, also outside the catalog, has an id of the catalog form.
+    operation_ids = [
+        operation["operationId"]
+        for operations in document["paths"].values()
+        for operation in operations.values()
+    ]
+    assert len(set(operation_ids)) == len(operation_ids)
+    assert all(re.fullmatch(r"imgw_[a-z0-9_]{1,43}", name) for name in operation_ids)
 
 
 def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv("IMGW_STORE_ROOT", str(tmp_path))
+    monkeypatch.setenv("IMGW_ROOT", str(tmp_path))
     monkeypatch.setenv("IMGW_STORE_WRITES_ENABLED", "true")
     monkeypatch.setenv("IMGW_STORE_WRITE_TOKEN", TOKEN)
     monkeypatch.setenv("IMGW_USER_LOCATIONS_DIR", str(tmp_path))
@@ -308,7 +318,7 @@ def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
 
     configured = Settings(_env_file=None)
 
-    assert configured.store_root == configured.user_locations_dir == tmp_path
+    assert configured.root == configured.user_locations_dir == tmp_path
     assert configured.store_writes_enabled is True
     assert configured.store_write_token is not None
     assert configured.store_write_token.get_secret_value() == TOKEN
@@ -322,20 +332,23 @@ def test_api_settings_come_from_imgw_environment(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("header", "query", "lang"),
     [
-        (None, None, "pl"),
+        (None, None, "en"),
         ("en", None, "en"),
         ("en-GB", None, "en"),
         ("de-AT, en-US;q=0.8, pl;q=0.7", None, "en"),
         ("pl;q=0.5, en;q=0.9", None, "en"),
         ("en;q=0.5, pl", None, "pl"),
         ("en, pl", None, "en"),  # equal weights: the item listed first
-        ("en;q=0, de", None, "pl"),
-        ("en;q=abc, fr", None, "pl"),
+        ("pl, en", None, "pl"),
+        ("pl;q=0, de", None, "en"),  # pl refused, de unknown: the default
+        ("en;q=0, pl;q=0.1", None, "pl"),
+        ("pl;q=abc, fr", None, "en"),  # a malformed weight is ignored
         ("en", "pl", "pl"),
+        (None, "pl", "pl"),
         (None, "en", "en"),
     ],
 )
-def test_api_lang_comes_from_the_query_then_accept_language_then_polish(
+def test_api_lang_comes_from_the_query_then_accept_language_then_english(
     client, header, query, lang
 ):
     headers = {} if header is None else {"Accept-Language": header}
@@ -352,7 +365,7 @@ def test_api_lang_comes_from_the_query_then_accept_language_then_polish(
     assert ("accept-language" in vary) == (query is None)
 
 
-def test_api_problem_title_follows_accept_language_and_detail_stays_polish(client):
+def test_api_problem_title_and_detail_follow_accept_language(client):
     english = {"Accept-Language": "en-US, pl;q=0.5"}
     invalid = client.get(
         "/api/v1/pmaxtp/fetch",
@@ -363,23 +376,29 @@ def test_api_problem_title_follows_accept_language_and_detail_stays_polish(clien
         "/api/v1/commands/schema", params={"lang": "de"}, headers=english
     )
     unknown = client.get("/api/v1/nothing/here", headers=english)
-    polish = client.get("/api/v1/nothing/here")
+    polish = client.get("/api/v1/nothing/here", headers={"Accept-Language": "pl"})
+    polish_invalid = client.get(
+        "/api/v1/pmaxtp/fetch",
+        params={"latitude": "1", "longitude": "21.01"},
+        headers={"Accept-Language": "pl"},
+    )
 
     assert (invalid.status_code, invalid.json()["title"]) == (
         400,
-        ERROR_CODES["validation_error"].title_en,
+        ERROR_CODES["validation_error"].title,
     )
+    assert invalid.json()["detail"] == "Latitude 1.0 is outside Poland (49.0–55.0)"
     assert (
-        invalid.json()["detail"]
+        polish_invalid.json()["detail"]
         == "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)"
     )
     assert refused.json()["details"] == {
         "option": "lang",
         "value": "de",
-        "allowed": ["pl", "en"],
+        "allowed": ["en", "pl"],
     }
-    assert unknown.json()["title"] == ERROR_CODES["not_found"].title_en
-    assert polish.json()["title"] == ERROR_CODES["not_found"].title
+    assert unknown.json()["title"] == ERROR_CODES["not_found"].title
+    assert polish.json()["title"] == ERROR_CODES["not_found"].title.localized("pl")
     for response, lang in (
         (invalid, "en"),
         (refused, "en"),
@@ -425,7 +444,7 @@ def test_api_post_route_answers_the_run_command_envelope(
     fixture_root,
     imgw,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
     writable,
     command,
     body,
@@ -436,7 +455,7 @@ def test_api_post_route_answers_the_run_command_envelope(
     imgw.publish_pmaxtp("pmaxtp_pot_first")
     rest_root = store_copy(kind, fixture_root, tmp_path / "rest")
     python_root = store_copy(kind, fixture_root, tmp_path / "python")
-    monkeypatch.setattr(settings, "store_root", rest_root)
+    monkeypatch.setattr(settings, "root", rest_root)
 
     response = client.post(path_of(command), json=body, headers=writable)
 
@@ -479,7 +498,7 @@ def test_api_check_true_plans_every_write_without_token_or_writes(
     fixture_root,
     imgw,
     frozen,
-    relative_data_dir,
+    relative_reference_dir,
     command,
     body,
     kind,
@@ -487,7 +506,7 @@ def test_api_check_true_plans_every_write_without_token_or_writes(
     imgw.publish(H2024, V1, OLD)
     imgw.publish_catalog_sources()
     root = store_copy(kind, fixture_root, tmp_path / "store")
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
     before = stamps(root)
 
     response = client.post(f"{path_of(command)}?check=true", json=body)
@@ -530,7 +549,7 @@ def test_api_checked_plan_syncs_and_a_stale_item_makes_the_envelope_partial(
     body = response.json()
     assert body["status"] == "partial"
     assert [(item["slot"], item["status"]) for item in body["result"]["items"]] == [
-        (f"archive:{DAILY}:2023/codz_2023.zip", "created"),
+        (f"archive:{DAILY}:2023/codz_2023.zip", "new"),
         (f"archive:{DAILY}:2024/codz_2024.zip", "stale_plan"),
     ]
     assert (empty_root / body["result"]["items"][0]["version"]).is_file()
@@ -541,11 +560,11 @@ def test_api_checked_plan_syncs_and_a_stale_item_makes_the_envelope_partial(
 @pytest.mark.parametrize(
     ("plan", "fragment"),
     [
-        ({"schema": "imgw-plan/1", "root": "/elsewhere"}, "innego magazynu"),
-        ({"schema": "imgw-plan/9", "root": "."}, "Niepoprawny plan"),
+        ({"schema": "imgw-plan/1", "root": "/elsewhere"}, "another store"),
+        ({"schema": "imgw-plan/9", "root": "."}, "Invalid imgw-plan/1 plan"),
         (
             {"schema": "imgw-plan/1", "root": ".", "items": [{"archive": {}}]},
-            "Niepoprawny plan",
+            "Invalid imgw-plan/1 plan",
         ),
     ],
 )
@@ -625,6 +644,57 @@ def test_api_exports_stream_the_cli_lines_with_status_and_notice_headers(
     assert "license_terms" in {notice["code"] for notice in json.loads(notices)}
 
 
+def test_api_texts_of_a_command_answer_follow_accept_language(
+    client, served, live, frozen
+):
+    query = {"latitude": "52.23", "longitude": "21.01", "ind_x": "751", "ind_y": "317"}
+    expected = run_command("pmaxtp check", options={**query, "root": served})
+
+    english = client.get("/api/v1/pmaxtp/check", params=query)
+    polish = client.get(
+        "/api/v1/pmaxtp/check", params=query, headers={"Accept-Language": "pl"}
+    )
+
+    assert english.json() == expected.to_json(root=served, server=True)
+    assert polish.json() == expected.to_json(root=served, server=True, lang="pl")
+    assert polish.json() != english.json()
+    for response, lang in ((english, "en"), (polish, "pl")):
+        assert response.headers["content-language"] == lang
+        assert "accept-language" in response.headers["vary"].lower()
+
+
+def test_api_stream_notices_follow_accept_language_and_the_data_does_not(
+    client, served
+):
+    slot = f"archive:{DAILY}:2024/codz_2024.zip"
+    query = {"version": relative(current_version(served, slot=slot), served)}
+    expected = run_command("store export", options={**query, "root": served})
+    lines = "".join(expected.result)
+
+    english = client.get(path_of("store export"), params=query)
+    polish = client.get(
+        path_of("store export"), params=query, headers={"Accept-Language": "pl"}
+    )
+
+    assert english.text == polish.text == lines
+    notices = {
+        "en": json.loads(english.headers["x-imgw-notices"]),
+        "pl": json.loads(polish.headers["x-imgw-notices"]),
+    }
+    assert polish.headers["x-imgw-notices"].isascii()
+    assert notices["pl"] == [
+        {"level": n.level, "code": n.code, "text": localize(n.text, "pl")}
+        for n in expected.notices
+    ]
+    assert [item["text"] for item in notices["en"]] == [
+        n.text for n in expected.notices
+    ]
+    assert notices["pl"] != notices["en"]
+    for response, lang in ((english, "en"), (polish, "pl")):
+        assert response.headers["content-language"] == lang
+        assert "accept-language" in response.headers["vary"].lower()
+
+
 # --------------------------------------------------------------------------
 # Errors as problem+json
 # --------------------------------------------------------------------------
@@ -636,9 +706,7 @@ def test_api_catalog_validation_is_400_with_the_library_detail(client):
     )
 
     body = problem(response, 400, "validation_error")
-    assert (
-        body["detail"] == "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)"
-    )
+    assert body["detail"] == "Latitude 1.0 is outside Poland (49.0–55.0)"
     assert body["details"] == {"option": "latitude", "value": 1.0}
 
 
@@ -666,7 +734,7 @@ def test_api_unknown_route_and_wrong_method_are_problem_documents(client):
     unknown = client.get("/api/v1/nothing/here")
     wrong = client.delete("/api/v1/store/info")
 
-    assert problem(unknown, 404, "not_found")["detail"] == "Nieznana trasa"
+    assert problem(unknown, 404, "not_found")["detail"] == "Unknown route"
     problem(wrong, 405, "method_not_allowed")
     assert wrong.headers["allow"] == "GET"
 
@@ -686,7 +754,7 @@ def test_api_unknown_route_and_wrong_method_are_problem_documents(client):
 def test_api_store_commands_without_a_valid_root_are_503(
     client, monkeypatch, root, reason, method, command, query
 ):
-    monkeypatch.setattr(settings, "store_root", None if root is None else Path(root))
+    monkeypatch.setattr(settings, "root", None if root is None else Path(root))
 
     response = client.request(
         method, path_of(command), params=query, json={"dataset": DAILY}
@@ -694,13 +762,13 @@ def test_api_store_commands_without_a_valid_root_are_503(
 
     body = problem(response, 503, "store_unavailable")
     assert body["details"] == {"reason": reason}
-    assert "IMGW_STORE_ROOT" in body["detail"]
+    assert "IMGW_ROOT" in body["detail"]
 
 
 def test_api_unsupported_root_is_described_only_by_store_info_and_scan(
     client, monkeypatch, tmp_path
 ):
-    monkeypatch.setattr(settings, "store_root", tmp_path)
+    monkeypatch.setattr(settings, "root", tmp_path)
 
     info = client.get("/api/v1/store/info")
     scan = client.get("/api/v1/store/scan")
@@ -851,13 +919,13 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
     outside = tmp_path / "outside"
     outside.mkdir()
     (root / "series" / "versions" / "linked").symlink_to(outside)
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
 
     response = client.get(
         "/api/v1/series/summary", params={"version": "series/versions/linked/x"}
     )
 
-    assert "dowiązanie" in problem(response, 400, "validation_error")["detail"]
+    assert "through a link" in problem(response, 400, "validation_error")["detail"]
 
 
 @pytest.mark.parametrize(
@@ -868,9 +936,16 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
         (
             "GET",
             "store export",
-            {"version": "archives/versions/x", "path": "/tmp/x.csv"},
+            {"version": "archives/versions/x", "output": "/tmp/x.csv"},
             None,
-            "path",
+            "output",
+        ),
+        (
+            "GET",
+            "store export",
+            {"version": "archives/versions/x", "force": "true"},
+            None,
+            "force",
         ),
         (
             "GET",
@@ -882,9 +957,9 @@ def test_api_version_through_a_symlink_is_rejected(client, monkeypatch, tmp_path
         (
             "GET",
             "datasets files",
-            {"dataset": DAILY, "years": "2024", "output": "/tmp"},
+            {"dataset": DAILY, "years": "2024", "output_dir": "/tmp"},
             None,
-            "output",
+            "output_dir",
         ),
         ("GET", "datasets list", {"check": "true"}, None, "check"),
         ("GET", "datasets list", {"kind": ["hydro", "meteo"]}, None, "kind"),
@@ -901,6 +976,80 @@ def test_api_refuses_server_local_unknown_and_repeated_options(
 
     assert problem(response, 400, "validation_error")["details"]["option"] == option
     assert stamps(served) == before
+
+
+def refused_options():
+    """(command, method, option) of every option that is no REST request parameter."""
+    return [
+        (spec.name, spec.method, option.name)
+        for spec in data_commands()
+        if spec.method is not None
+        for option in spec.options
+        if option.rest != "param"
+    ]
+
+
+@pytest.mark.parametrize(("command", "method", "option"), refused_options())
+def test_api_no_route_takes_a_place_to_write_from_a_request(
+    client, served, writable, command, method, option
+):
+    # DEV-19.3: root, output_dir, output (and force, plan) are server or local
+    # options; even a client that holds the write token cannot choose a place.
+    before = stamps(served)
+
+    if method == "GET":
+        response = client.get(path_of(command), params={option: "x"})
+        assert problem(response, 400, "validation_error")["details"] == {
+            "option": option
+        }
+    else:
+        bodies = {name: body for name, body, _ in POST_CASES}
+        response = client.post(
+            path_of(command), json={**bodies[command], option: "x"}, headers=writable
+        )
+        errors = problem(response, 400, "validation_error")["details"]["errors"]
+        assert {error["option"] for error in errors} == {option}
+
+    assert stamps(served) == before
+
+
+@pytest.mark.parametrize(
+    ("command", "body"), [(name, body) for name, body, _ in POST_CASES]
+)
+def test_api_a_write_without_a_configured_root_never_goes_to_the_default_root(
+    client, writable, monkeypatch, tmp_path, command, body
+):
+    (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
+    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
+    assert store_root().root == tmp_path / "data" / "imgw"  # where the CLI would write
+
+    response = client.post(path_of(command), json=body, headers=writable)
+
+    problem_details = problem(response, 503, "store_unavailable")["details"]
+    assert problem_details == {"reason": "not_configured"}
+    assert not (tmp_path / "data").exists()
+
+
+def test_api_a_write_goes_to_the_configured_root_and_not_to_the_default_root(
+    client, writable, empty_root, imgw, monkeypatch, tmp_path
+):
+    (tmp_path / "nogat.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("NOGAT_CONFIG", str(tmp_path / "nogat.toml"))
+    monkeypatch.setenv("IMGW_DATA_DIR", str(tmp_path / "data"))
+    imgw.publish_pmaxtp("pmaxtp_pot_first")
+
+    response = client.post(
+        "/api/v1/pmaxtp/sync",
+        json={"latitude": 52.23, "longitude": 21.01},
+        headers=writable,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["status"] == "new"
+    assert (empty_root / "pmaxtp").is_dir()
+    assert not (tmp_path / "data").exists()
 
 
 def test_api_catalog_user_locations_come_only_from_the_server_directory(
@@ -943,11 +1092,11 @@ def test_api_catalog_user_locations_come_only_from_the_server_directory(
 
 
 def test_api_answers_hide_server_directories_in_texts(
-    client, imgw, writable, monkeypatch, tmp_path, fixture_root, isolated_data_dir
+    client, imgw, writable, monkeypatch, tmp_path, fixture_root, isolated_reference_dir
 ):
     imgw.publish_catalog_sources()
     root = store_copy("fixture", fixture_root, tmp_path / "store")
-    monkeypatch.setattr(settings, "store_root", root)
+    monkeypatch.setattr(settings, "root", root)
 
     response = client.post("/api/v1/store/catalog", json={}, headers=writable)
     missing = client.get(
@@ -956,12 +1105,12 @@ def test_api_answers_hide_server_directories_in_texts(
 
     problems = response.json()["result"]["problems"]
     assert any("hydro_stations_locations.csv" in text for text in problems)
-    assert str(isolated_data_dir) not in response.text
+    assert str(isolated_reference_dir) not in response.text
     assert str(tmp_path) not in response.text + missing.text
 
 
 def test_api_hiding_a_server_directory_keeps_imgw_urls_intact(client, monkeypatch):
-    monkeypatch.setattr(settings, "data_dir", Path("/data"))
+    monkeypatch.setattr(settings, "reference_dir", Path("/data"))
 
     response = client.get(
         "/api/v1/datasets/files", params={"dataset": DAILY, "years": "2024"}

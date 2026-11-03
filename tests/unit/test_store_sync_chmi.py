@@ -146,7 +146,7 @@ def publish_first(root, server):
     """Scenario (1) for station 900001: both years ``missing``, then ``created``."""
     serve(server, "hydro_listing", *FIRST)
     report = sync_store(root, datasets=[HYDRO], stations=[S1], series=False)
-    assert [item.status for item in report.items] == ["created", "created"]
+    assert [item.status for item in report.items] == ["new", "new"]
     return report
 
 
@@ -241,12 +241,12 @@ def test_check_reads_one_listing_and_compares_it_with_the_store(root, server):
         PlanAction(
             "store sync",
             "unverifiable",
-            f"stacja {FULL}: brak plików zbioru {HYDRO} u źródła",
+            f"station {FULL}: no files of the dataset {HYDRO} at the source",
         ),
         PlanAction(
             "store sync",
             "unverifiable",
-            f"stacja {NO_FILES}: brak plików zbioru {HYDRO} u źródła",
+            f"station {NO_FILES}: no files of the dataset {HYDRO} at the source",
         ),
     )
     assert [(notice.code, notice.text) for notice in notices] == [
@@ -270,7 +270,7 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
 
     def fake_build(store_root, /, **kwargs):
         built.append(kwargs["dataset"])
-        return SeriesReport("created", None, 2, (), ())
+        return SeriesReport("new", None, 2, (), ())
 
     monkeypatch.setattr(sync_module, "build_series", fake_build)
     serve(
@@ -295,14 +295,14 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
         (
             archive_files(HYDRO, stations=[S1], years=[2005])[0],
             "unverifiable",
-            "nieopublikowany",
+            "not published",
         ),
         (
             archive_files(HYDRO, stations=[S1], years=[2006])[0],
             "unverifiable",
-            "nieopublikowany",
+            "not published",
         ),
-        (H2_2005, "unverifiable", "nieopublikowany"),
+        (H2_2005, "unverifiable", "not published"),
         (H2_2006, "missing", None),
     ]
     assert plan.actions == () and plan.requests == {"made": 1, "planned": 2}
@@ -313,13 +313,13 @@ def test_requested_years_absent_from_the_listing_are_unpublished(
     assert [
         (item.status, item.version is None, item.error) for item in report.items
     ] == [
-        ("unchanged", True, "nieopublikowany"),
-        ("unchanged", True, "nieopublikowany"),
-        ("unchanged", True, "nieopublikowany"),
-        ("created", False, None),
+        ("unchanged", True, "not published"),
+        ("unchanged", True, "not published"),
+        ("unchanged", True, "not published"),
+        ("new", False, None),
     ]
     assert built == [HYDRO]  # unpublished years do not block the series
-    assert [entry.status for entry in report.series] == ["created"]
+    assert [entry.status for entry in report.series] == ["new"]
 
 
 def test_plan_of_listing_items_round_trips_and_meets_the_contract(
@@ -363,7 +363,7 @@ def test_plan_of_listing_items_round_trips_and_meets_the_contract(
         {
             "command": "store sync",
             "status": "unverifiable",
-            "detail": f"stacja {NO_FILES}: brak plików zbioru {HYDRO} u źródła",
+            "detail": f"station {NO_FILES}: no files of the dataset {HYDRO} at the source",
         }
     ]
 
@@ -385,8 +385,8 @@ def test_first_publication_heads_then_gets_and_writes_chmi_sidecars(root, server
         f"imgwtools/{__version__}"
     }
     assert [(item.slot, item.status) for item in report.items] == [
-        (f"archive:{HYDRO}:H_{S1}_DQ_2023.json", "created"),
-        (f"archive:{HYDRO}:H_{S1}_DQ_2024.json", "created"),
+        (f"archive:{HYDRO}:H_{S1}_DQ_2023.json", "new"),
+        (f"archive:{HYDRO}:H_{S1}_DQ_2024.json", "new"),
     ]
     entry = CASES["h900001_2023_get"]
     data = payload(entry)
@@ -459,7 +459,7 @@ def test_mass_republication_of_the_same_bytes_is_relabeled(root, server):
         ),
     )
     first = sync_store(root, datasets=[HYDRO], stations=[S1, S2], series=False)
-    assert [item.status for item in first.items] == ["created"] * 4
+    assert [item.status for item in first.items] == ["new"] * 4
     names = ("h900001_2023", "h900001_2024", "h900002_2004", "h900002_2006")
     serve(
         server,
@@ -502,7 +502,7 @@ def test_correction_creates_a_version_beside_the_untouched_one(root, server):
     assert [item.status for item in plan.items] == ["current", "newer"]
     report = sync_store(root, plan=plan, series=False)
 
-    assert [item.status for item in report.items] == ["unchanged", "created"]
+    assert [item.status for item in report.items] == ["unchanged", "new"]
     corrected = report.items[1].version
     assert corrected.read_bytes() == payload(CASES["h900001_2024_corrected_get"])
     assert corrected.parent.name.startswith("2026-05-21_")
@@ -583,14 +583,37 @@ def test_unusable_listing_fails_every_item_of_its_directory(
     assert [
         (action.status, action.detail.split(":")[0]) for action in unknown.actions
     ] == [
-        ("check_failed", f"stacja {S1}"),
-        ("check_failed", f"stacja {S2}"),
+        ("check_failed", f"station {S1}"),
+        ("check_failed", f"station {S2}"),
     ]
     synced = sync_store(root, datasets=[HYDRO], stations=[S1, S2])
     assert [(item.slot, item.status, item.error_code) for item in synced.items] == [
         (None, "failed", code)
     ] * 2
     assert synced.series == ()
+
+
+@pytest.mark.parametrize(
+    ("listing", "code"),
+    [
+        ("hydro_listing_error", "source_unavailable"),
+        ("hydro_listing_empty", "data_error"),
+    ],
+)
+def test_a_saved_plan_gives_a_failed_check_the_code_of_its_text(
+    root, server, tmp_path, listing, code
+):
+    serve(server, listing)
+    saved = tmp_path / "plan.json"
+    check_store(root, datasets=[HYDRO], stations=[S1], years=[2023], plan=saved)
+
+    plan = StorePlan.from_json(saved)
+    report = sync_store(root, plan=saved, series=False)
+
+    assert type(plan.items[0].error) is str  # the file keeps the text, not the message
+    assert [(item.status, item.error_code) for item in report.items] == [
+        ("failed", code)
+    ]
 
 
 def test_other_content_under_the_same_canonical_form_is_one_observation(root, server):
@@ -692,15 +715,15 @@ def test_meteo_station_has_four_files_and_missing_elements_are_unpublished(
         (RAIN, "TMI", "unverifiable"),
         *((FULL, element, "missing") for element in elements),
     ]
-    assert {item.error for item in plan.items[1:4]} == {"nieopublikowany"}
+    assert {item.error for item in plan.items[1:4]} == {"not published"}
     assert [action.detail for action in plan.actions] == [
-        f"stacja {S1}: brak plików zbioru {METEO} u źródła"
+        f"station {S1}: no files of the dataset {METEO} at the source"
     ]
     report = sync_store(root, plan=plan, series=False)
     assert [item.status for item in report.items] == [
-        "created",
+        "new",
         *["unchanged"] * 3,
-        *["created"] * 4,
+        *["new"] * 4,
     ]
     meta = json.loads(
         Path(f"{report.items[0].version}.meta.json").read_text(encoding="utf-8")
@@ -731,7 +754,7 @@ def test_meteo_station_has_four_files_and_missing_elements_are_unpublished(
         "current",
     ]
     corrected = sync_store(root, plan=changed, series=False)
-    assert [item.status for item in corrected.items] == ["created", *["unchanged"] * 3]
+    assert [item.status for item in corrected.items] == ["new", *["unchanged"] * 3]
     assert corrected.items[0].version != sra and sra.is_file()
     assert corrected.items[0].version.read_bytes() == payload(
         CASES["m90001_SRA_corrected_get"]
@@ -755,7 +778,7 @@ def test_unreadable_meteo_directory_fails_only_its_elements(root, server):
         (FULL, "TMA", "check_failed"),
         (FULL, "TMI", "check_failed"),
     ]
-    assert plan.items[1].error.startswith("Błąd HTTP 503")
+    assert plan.items[1].error.startswith("HTTP error 503")
 
 
 def test_cancel_before_the_listing_and_between_files(root, server):
@@ -765,7 +788,7 @@ def test_cancel_before_the_listing_and_between_files(root, server):
     )
     assert plan.cancelled and not server.calls
     assert [(item.status, item.error) for item in plan.items] == [
-        ("unverifiable", "anulowano")
+        ("unverifiable", "cancelled")
     ] * 2
 
     polls = iter([False, False, True])
@@ -779,11 +802,11 @@ def test_cancel_before_the_listing_and_between_files(root, server):
     assert partial.cancelled and len(server.calls) == 1
     assert [(item.status, item.error) for item in partial.items] == [
         ("missing", None),
-        ("unverifiable", "anulowano"),
+        ("unverifiable", "cancelled"),
     ]
     serve(server, "h900001_2023_head", "h900001_2023_get")
     report = sync_store(root, plan=partial, series=False)
-    assert [item.status for item in report.items] == ["created", "cancelled"]
+    assert [item.status for item in report.items] == ["new", "cancelled"]
     assert report.cancelled is True
 
 

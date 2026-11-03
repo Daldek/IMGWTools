@@ -34,11 +34,11 @@ class TestBuildPmaxtpUrl:
 
     def test_method_is_keyword_only(self):
         with pytest.raises(TypeError):
-            build_pmaxtp_url(52.23, 21.01, "AMP")  # type: ignore[misc]
+            build_pmaxtp_url(52.23, 21.01, "AMP")
 
     def test_unknown_method_is_validation_error(self):
         with pytest.raises(IMGWValidationError) as error:
-            build_pmaxtp_url(52.23, 21.01, method="XYZ")  # type: ignore[arg-type]
+            build_pmaxtp_url(52.23, 21.01, method="XYZ")
         assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}
 
 
@@ -68,4 +68,4 @@ class TestBuildApiUrl:
 
     def test_station_is_keyword_only(self):
         with pytest.raises(TypeError):
-            build_api_url("hydro", "150160180")  # type: ignore[misc]
+            build_api_url("hydro", "150160180")

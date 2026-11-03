@@ -9,8 +9,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+import httpx
+
 from imgwtools._version import __version__
-from imgwtools.datasets import _license_document, get_dataset
+from imgwtools.datasets import (
+    ProviderDescriptor,
+    _license_document,
+    get_dataset,
+    get_provider,
+)
 from imgwtools.exceptions import (
     IMGWDataError,
     IMGWStoreError,
@@ -18,17 +25,26 @@ from imgwtools.exceptions import (
     io_error,
 )
 from imgwtools.fetch import _check_pmaxtp_payload, _validate_poland_coords
+from imgwtools.messages import message, reason
 from imgwtools.models import PMaXTPData, PMaXTPResult
+from imgwtools.output import (
+    Staging,
+    chunks_of,
+    plan_plain,
+    refuse,
+    refuse_directory,
+    resolve_target,
+)
 from imgwtools.store.catalog import (
     LICENSE_NOTICE,
     RootArg,
     _cancelled,
-    _check_kartograf,
     _handle,
     _http,
     _newest_downloaded,
     _publish_version,
 )
+from imgwtools.store.plain import plain_actions
 from imgwtools.store.types import (
     Cancel,
     Notice,
@@ -38,19 +54,24 @@ from imgwtools.store.types import (
     PMaXTPStoreResult,
     Progress,
     ProgressHook,
+    StoreHandle,
     StorePlan,
 )
-from imgwtools.store.writer import _canonical, _existing, _utc, _validate_slot
+from imgwtools.store.writer import (
+    _canonical,
+    _existing,
+    _utc,
+    _validate_slot,
+    prepare_store,
+    root_conflict_plan,
+    version_file,
+)
 from imgwtools.urls import build_pmaxtp_url
 
 CELL_FILE = "cell.json"
 RESPONSE_FILE = "response.json"
 CELL_SCHEMA = "imgw-pmaxtp/1"
 PMAXTP_DATASET = "pl.imgw.pmaxtp"
-PROCESSED_ATTRIBUTION = (
-    "Dane Instytutu Meteorologii i Gospodarki Wodnej – Państwowego Instytutu Badawczego "
-    "zostały przetworzone"
-)
 _METHODS = ("POT", "AMP")
 _TABLES = ("ks", "sg", "rb")
 
@@ -60,7 +81,7 @@ Method = Literal["POT", "AMP"]
 def _validate_method(method: object) -> Method:
     if method not in _METHODS:
         raise IMGWValidationError(
-            f"Nieznana metoda PMAXTP: {method!r}; dozwolone POT, AMP",
+            message("pmaxtp.unknown_pmaxtp_method_allowed_pot", method=method),
             details={"option": "method", "allowed": list(_METHODS)},
         )
     return cast(Method, method)
@@ -69,7 +90,7 @@ def _validate_method(method: object) -> Method:
 def _validate_index(name: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise IMGWValidationError(
-            f"Indeks komórki {name} musi być nieujemną liczbą całkowitą: {value!r}",
+            message("pmaxtp.cell_index_must_non_negative", name=name, value=value),
             details={"option": name, "value": str(value)},
         )
     return value
@@ -80,7 +101,7 @@ def _validate_cell(ind_x: int | None, ind_y: int | None) -> tuple[int, int] | No
         return None
     if ind_x is None or ind_y is None:
         raise IMGWValidationError(
-            "Podaj oba indeksy komórki ind_x i ind_y albo żaden",
+            message("pmaxtp.give_both_cell_indices_ind"),
             details={"option": "ind_y" if ind_y is None else "ind_x"},
         )
     return _validate_index("ind_x", ind_x), _validate_index("ind_y", ind_y)
@@ -92,16 +113,27 @@ def _slot(method: Method, ind_x: int, ind_y: int) -> str:
 
 def _table(name: str, value: object) -> dict[str, dict[str, float]]:
     if not isinstance(value, Mapping) or not value:
-        raise IMGWDataError(f"Odpowiedź PMAXTP: pusta lub niepoprawna tabela {name}")
+        raise IMGWDataError(
+            message("pmaxtp.pmaxtp_response_empty_invalid_table", name=name)
+        )
     table: dict[str, dict[str, float]] = {}
     for duration, row in value.items():
         if not isinstance(row, Mapping) or not row:
-            raise IMGWDataError(f"Odpowiedź PMAXTP: pusty wiersz {name}[{duration}]")
+            raise IMGWDataError(
+                message(
+                    "pmaxtp.pmaxtp_response_empty_row", name=name, duration=duration
+                )
+            )
         values: dict[str, float] = {}
         for probability, number in row.items():
             if isinstance(number, bool) or not isinstance(number, int | float):
                 raise IMGWDataError(
-                    f"Odpowiedź PMAXTP: wartość {name}[{duration}][{probability}] nie jest liczbą"
+                    message(
+                        "pmaxtp.pmaxtp_response_value_not_number",
+                        name=name,
+                        duration=duration,
+                        probability=probability,
+                    )
                 )
             values[str(probability)] = number
         table[str(duration)] = values
@@ -113,26 +145,24 @@ def _cell_document(
 ) -> dict[str, Any]:
     """Validate the API response and build the canonical cell document."""
     if not isinstance(payload, Mapping):
-        raise IMGWDataError("Nieoczekiwany format odpowiedzi PMAXTP")
+        raise IMGWDataError(message("pmaxtp.unexpected_format_pmaxtp_response"))
     _check_pmaxtp_payload(payload, latitude, longitude)
     point = payload.get("point")
     data = payload.get("data")
     if not isinstance(point, Mapping):
-        raise IMGWDataError("Odpowiedź PMAXTP bez opisu punktu")
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_description"))
     try:
         ind_x = _validate_index("indX", point["indX"])
         ind_y = _validate_index("indY", point["indY"])
     except (KeyError, IMGWValidationError) as exc:
-        raise IMGWDataError(
-            "Odpowiedź PMAXTP bez poprawnych indeksów komórki indX/indY"
-        ) from exc
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_valid")) from exc
     center = {"lon": point.get("dataLon"), "lat": point.get("dataLat")}
     if any(
         isinstance(v, bool) or not isinstance(v, int | float) for v in center.values()
     ):
-        raise IMGWDataError("Odpowiedź PMAXTP bez środka komórki dataLon/dataLat")
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_cell"))
     if not isinstance(data, Mapping) or not data:
-        raise IMGWDataError("Odpowiedź PMAXTP bez danych (puste data)")
+        raise IMGWDataError(message("pmaxtp.pmaxtp_response_has_no_data"))
     return {
         "schema": CELL_SCHEMA,
         "method": method,
@@ -155,9 +185,15 @@ def _result(
     )
 
 
+def _provider() -> ProviderDescriptor:
+    return get_provider(get_dataset(PMAXTP_DATASET).provider)
+
+
 def _license() -> dict[str, str]:
     license_ = _license_document(get_dataset(PMAXTP_DATASET).license)
-    license_["attribution"] = f"{license_['attribution']}. {PROCESSED_ATTRIBUTION}"
+    license_["attribution"] = (
+        f"{license_['attribution']}. {_provider().processed_attribution}"
+    )
     return license_
 
 
@@ -168,10 +204,199 @@ def _current_cell(
     return _newest_downloaded(_existing(slot, CELL_FILE))
 
 
+def _fetch_cell(
+    latitude: float,
+    longitude: float,
+    method: Method,
+    expected: tuple[int, int] | None,
+) -> tuple[httpx.Response, dict[str, Any], tuple[int, int]]:
+    """
+    Ask the PMAXTP API for a point and validate the answer.
+
+    Returns
+    -------
+    tuple
+        The response, the canonical cell document built from it and the cell
+        indices the API reports.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the indices the caller expected differ from the response.
+    """
+    response = _http("GET", build_pmaxtp_url(latitude, longitude, method=method))
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise IMGWDataError(
+            message("pmaxtp.invalid_json_response_from_pmaxtp")
+        ) from exc
+    document = _cell_document(payload, method, latitude, longitude)
+    cell = (document["ind_x"], document["ind_y"])
+    if expected is not None and expected != cell:
+        raise IMGWValidationError(
+            message(
+                "pmaxtp.given_cell_indices_differ_from",
+                expected_x=expected[0],
+                expected_y=expected[1],
+                cell_x=cell[0],
+                cell_y=cell[1],
+            )
+        )
+    return response, document, cell
+
+
+def _plain_names(method: Method, ind_x: int, ind_y: int) -> tuple[str, str]:
+    """Relative names of the two plain files of a cell (ADR-007 D3)."""
+    folder = f"{method}/{ind_x}_{ind_y}"
+    return f"{folder}/{CELL_FILE}", f"{folder}/{RESPONSE_FILE}"
+
+
+def _plain_targets(method: Method, cell: tuple[int, int]) -> list[tuple[str, str]]:
+    """Plain names of a cell with what is written to each."""
+    cell_name, response_name = _plain_names(method, *cell)
+    return [
+        (
+            cell_name,
+            message(
+                "pmaxtp.plain_cell_what", method=method, cell=cell[0], cell_2=cell[1]
+            ),
+        ),
+        (
+            response_name,
+            message(
+                "pmaxtp.plain_response_what",
+                method=method,
+                cell=cell[0],
+                cell_2=cell[1],
+            ),
+        ),
+    ]
+
+
+def _check_plain(
+    directory: Path,
+    *,
+    method: Method,
+    latitude: float,
+    longitude: float,
+    cell: tuple[int, int] | None,
+    force: bool,
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> StorePlan:
+    """Plan the plain sync of a point: the two files of its cell, once the cell is known."""
+    now = datetime.now(UTC)
+    if _cancelled(cancel):
+        action = PlanAction("pmaxtp sync", "unverifiable", message("common.cancelled"))
+        return StorePlan(
+            "imgw-plan/1", directory, now, (), {}, (action,), cancelled=True
+        )
+    if cell is not None:
+        actions = plain_actions(
+            "pmaxtp sync", directory, _plain_targets(method, cell), force=force
+        )
+        return StorePlan("imgw-plan/1", directory, now, (), {}, tuple(actions))
+    # The names come from the indices of the answer, so only the request knows them.
+    detail = message(
+        "pmaxtp.plain_cell_unknown",
+        method=method,
+        latitude=latitude,
+        longitude=longitude,
+        directory=directory,
+    )
+    if on_notice is not None:
+        on_notice(Notice("warning", "source_unverifiable", detail))
+    if on_progress is not None:
+        on_progress(Progress(1, 1, "cell", "unverifiable", detail))
+    return StorePlan(
+        "imgw-plan/1",
+        directory,
+        now,
+        (),
+        {},
+        (PlanAction("pmaxtp sync", "unverifiable", detail),),
+    )
+
+
+def _sync_plain(
+    directory: Path,
+    *,
+    force: bool,
+    latitude: float,
+    longitude: float,
+    method: Method,
+    expected: tuple[int, int] | None,
+    given: tuple[int | None, int | None],
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> PMaXTPStoreResult:
+    """
+    Write the cell of a point as ``<METHOD>/<indX>_<indY>/cell.json`` and ``response.json``.
+
+    The output directory is refused before any request when it is, or lies in,
+    a store. The names are known when the caller gave the indices, so a
+    conflict of a name then refuses before the request; otherwise they come
+    from the answer, which is small and is checked before anything is written
+    (DEV-19.6).
+    """
+    refuse_directory(directory)
+    if expected is not None:
+        refuse(
+            plan_plain(directory, list(_plain_names(method, *expected)), force=force)
+        )
+    if _cancelled(cancel):
+        return PMaXTPStoreResult("cancelled", None, given[0], given[1], None)
+    response, document, cell = _fetch_cell(latitude, longitude, method, expected)
+    names = _plain_names(method, *cell)
+    refuse(plan_plain(directory, list(names), force=force))
+    result = _result(document, latitude=latitude, longitude=longitude)
+    if _cancelled(cancel):
+        return PMaXTPStoreResult("cancelled", None, cell[0], cell[1], None)
+    written = []
+    with Staging(directory) as staging:
+        for name, content in zip(
+            names, (_canonical(document), response.content), strict=True
+        ):
+            staged, size, sha256 = staging.write(chunks_of(content))
+            target = directory.joinpath(*name.split("/"))
+            written.append(staging.commit(staged, target, size, sha256))
+    if on_progress is not None:
+        on_progress(
+            Progress(
+                1,
+                1,
+                "cell",
+                "new",
+                message(
+                    "pmaxtp.cell_written",
+                    cell=cell[0],
+                    cell_2=cell[1],
+                    directory=directory,
+                ),
+            )
+        )
+    if on_notice is not None:
+        on_notice(
+            Notice(
+                "info",
+                LICENSE_NOTICE,
+                _provider().license_notice(_license()["attribution"]),
+            )
+        )
+    return PMaXTPStoreResult(
+        "new", written[0].path, cell[0], cell[1], result, tuple(written)
+    )
+
+
 def check_pmaxtp(
-    root: RootArg,
+    root: RootArg | None = None,
     /,
     *,
+    output_dir: PathArg | None = None,
+    force: bool = False,
     latitude: float,
     longitude: float,
     method: Literal["POT", "AMP"] = "POT",
@@ -189,8 +414,17 @@ def check_pmaxtp(
 
     Parameters
     ----------
-    root : str, os.PathLike or StoreHandle
-        Store root directory or an open store handle.
+    root : str, os.PathLike, StoreHandle or None, optional
+        Store root directory or an open store handle; None (with no
+        ``output_dir``) is the store at the default root.
+    output_dir : str, os.PathLike or None, optional
+        Plain mode: directory the files would be written to. Excludes
+        ``root``. The plan lists ``cell.json`` and ``response.json`` of the
+        cell as ``write``, ``replace`` or ``conflict`` when the indices are
+        given; without them the cell is known only after the request.
+    force : bool, optional
+        Plain mode: existing files are planned as ``replace`` instead of
+        ``conflict``.
     latitude : float
         Latitude of the point within Poland.
     longitude : float
@@ -225,31 +459,60 @@ def check_pmaxtp(
     IMGWStoreConflictError
         If a stored version of the cell is corrupted.
     """
-    handle = _handle(root)
+    target = resolve_target(
+        output_dir=output_dir,
+        root=root.root if isinstance(root, StoreHandle) else root,
+    )
+    if target.mode == "plain":
+        method = _validate_method(method)
+        _validate_poland_coords(latitude, longitude)
+        return _check_plain(
+            target.path,
+            method=method,
+            latitude=latitude,
+            longitude=longitude,
+            cell=_validate_cell(ind_x, ind_y),
+            force=force,
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
     method = _validate_method(method)
     _validate_poland_coords(latitude, longitude)
     cell = _validate_cell(ind_x, ind_y)
+    refused = root_conflict_plan("pmaxtp sync", target.path)
+    if refused is not None:
+        return refused
+    handle = _handle(target.path)
     now = datetime.now(UTC)
     if _cancelled(cancel):
-        action = PlanAction("pmaxtp sync", "unverifiable", "anulowano")
+        action = PlanAction("pmaxtp sync", "unverifiable", message("common.cancelled"))
         return StorePlan(
             "imgw-plan/1", handle.root, now, (), {}, (action,), cancelled=True
         )
     if cell is None:
-        detail = (
-            f"{method} {latitude:.4f},{longitude:.4f}: komórka nieznana bez pobrania — "
-            "indeksy indX/indY ustala wyłącznie odpowiedź API, które nie udostępnia sygnału aktualności"
+        detail = message(
+            "pmaxtp.cell_unknown_without_download",
+            method=method,
+            latitude=latitude,
+            longitude=longitude,
         )
     else:
         current = _current_cell(handle.root, method, *cell)
         where = (
-            f"lokalna wersja {current[0].relative_to(handle.root).as_posix()}"
+            message(
+                "pmaxtp.local_version",
+                current=current[0].relative_to(handle.root).as_posix(),
+            )
             if current
-            else "brak lokalnej wersji"
+            else message("pmaxtp.no_local_version")
         )
-        detail = (
-            f"{method} komórka {cell[0]}_{cell[1]}: {where}; aktualności nie można sprawdzić "
-            "bez pobrania (API nie udostępnia sygnału aktualności)"
+        detail = message(
+            "pmaxtp.cell_cannot_check",
+            method=method,
+            cell=cell[0],
+            cell_2=cell[1],
+            where=where,
         )
     if on_notice is not None:
         on_notice(Notice("warning", "source_unverifiable", detail))
@@ -266,9 +529,11 @@ def check_pmaxtp(
 
 
 def sync_pmaxtp(
-    root: RootArg,
+    root: RootArg | None = None,
     /,
     *,
+    output_dir: PathArg | None = None,
+    force: bool = False,
     latitude: float,
     longitude: float,
     method: Literal["POT", "AMP"] = "POT",
@@ -289,8 +554,18 @@ def sync_pmaxtp(
 
     Parameters
     ----------
-    root : str, os.PathLike or StoreHandle
-        Store root directory or an open store handle.
+    root : str, os.PathLike, StoreHandle or None, optional
+        Store root directory or an open store handle; None (with no
+        ``output_dir``) is the store at the default root.
+    output_dir : str, os.PathLike or None, optional
+        Plain mode: write ``<METHOD>/<indX>_<indY>/cell.json`` and the raw
+        ``response.json`` as ordinary files below this directory instead of a
+        version. Excludes ``root``. An existing file without ``force`` is a
+        ``conflict`` that lists both paths, before the request when the
+        indices are given.
+    force : bool, optional
+        Plain mode: replace existing files. Store mode: nothing to change
+        (the endpoint is always asked and a version is never overwritten).
     latitude : float
         Latitude of the requested point within Poland.
     longitude : float
@@ -302,7 +577,7 @@ def sync_pmaxtp(
     ind_y : int or None, optional
         Expected grid cell Y index; must be given together with ``ind_x``.
     on_progress : ProgressHook or None, optional
-        Called once with the ``created`` or ``unchanged`` progress event.
+        Called once with the ``new`` or ``unchanged`` progress event.
     on_notice : NoticeHook or None, optional
         Called with the license notice when a new version is created and with a
         ``leftover_incoming`` warning for every removed staging directory older
@@ -314,7 +589,7 @@ def sync_pmaxtp(
     Returns
     -------
     PMaXTPStoreResult
-        ``status`` is ``"created"``, ``"unchanged"`` or ``"cancelled"``;
+        ``status`` is ``"new"``, ``"unchanged"`` or ``"cancelled"``;
         ``version`` is the ``cell.json`` path (``None`` when cancelled) and
         ``result`` holds the data for the requested point.
 
@@ -337,25 +612,30 @@ def sync_pmaxtp(
         If a stored version is corrupted, the version directory collides with
         different content, or the file system cannot publish atomically.
     """
-    handle = _handle(root)
     method = _validate_method(method)
     _validate_poland_coords(latitude, longitude)
     expected = _validate_cell(ind_x, ind_y)
-    _check_kartograf(handle.root)
+    target = resolve_target(
+        output_dir=output_dir,
+        root=root.root if isinstance(root, StoreHandle) else root,
+    )
+    if target.mode == "plain":
+        return _sync_plain(
+            target.path,
+            force=force,
+            latitude=latitude,
+            longitude=longitude,
+            method=method,
+            expected=expected,
+            given=(ind_x, ind_y),
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
+    handle = prepare_store(target.path)
     if _cancelled(cancel):
         return PMaXTPStoreResult("cancelled", None, ind_x, ind_y, None)
-    response = _http("GET", build_pmaxtp_url(latitude, longitude, method=method))
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise IMGWDataError("Niepoprawna odpowiedź JSON z API PMAXTP") from exc
-    document = _cell_document(payload, method, latitude, longitude)
-    cell = (document["ind_x"], document["ind_y"])
-    if expected is not None and expected != cell:
-        raise IMGWValidationError(
-            f"Podane indeksy komórki {expected[0]}_{expected[1]} różnią się od odpowiedzi API "
-            f"{cell[0]}_{cell[1]}; nic nie zapisano"
-        )
+    response, document, cell = _fetch_cell(latitude, longitude, method, expected)
     result = _result(document, latitude=latitude, longitude=longitude)
     if _cancelled(cancel):
         return PMaXTPStoreResult("cancelled", None, cell[0], cell[1], None)
@@ -370,10 +650,17 @@ def sync_pmaxtp(
                     1,
                     "cell",
                     "unchanged",
-                    f"Komórka PMAXTP {cell[0]}_{cell[1]} bez zmian",
+                    message("pmaxtp.cell_unchanged", cell=cell[0], cell_2=cell[1]),
                 )
             )
-        return PMaXTPStoreResult("unchanged", current[0], cell[0], cell[1], result)
+        return PMaXTPStoreResult(
+            "unchanged",
+            current[0],
+            cell[0],
+            cell[1],
+            result,
+            (version_file(current[0], "unchanged"),),
+        )
     now = datetime.now(UTC)
     label = now.date().isoformat()
     meta = {
@@ -415,7 +702,7 @@ def sync_pmaxtp(
         on_notice=on_notice,
         attachments={RESPONSE_FILE: response.content},
     )
-    status: Literal["created", "unchanged"] = "created" if created else "unchanged"
+    status: Literal["new", "unchanged"] = "new" if created else "unchanged"
     if on_progress is not None:
         on_progress(
             Progress(
@@ -423,7 +710,12 @@ def sync_pmaxtp(
                 1,
                 "cell",
                 status,
-                f"Komórka PMAXTP {cell[0]}_{cell[1]}: {path.parent.name}",
+                message(
+                    "pmaxtp.cell_published",
+                    cell=cell[0],
+                    cell_2=cell[1],
+                    name=path.parent.name,
+                ),
             )
         )
     if created and on_notice is not None:
@@ -431,11 +723,12 @@ def sync_pmaxtp(
             Notice(
                 "info",
                 LICENSE_NOTICE,
-                f"{_license()['attribution']}. Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-                "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+                _provider().license_notice(_license()["attribution"]),
             )
         )
-    return PMaXTPStoreResult(status, path, cell[0], cell[1], result)
+    return PMaXTPStoreResult(
+        status, path, cell[0], cell[1], result, (version_file(path, status),)
+    )
 
 
 def read_pmaxtp(
@@ -496,7 +789,12 @@ def read_pmaxtp(
         current = _current_cell(handle.root, method, *cell)
         if current is None:
             raise IMGWStoreError(
-                f"Brak zapisanej komórki PMAXTP {method} {cell[0]}_{cell[1]}",
+                message(
+                    "pmaxtp.no_stored_pmaxtp_cell",
+                    method=method,
+                    cell_x=cell[0],
+                    cell_y=cell[1],
+                ),
                 code="not_found",
             )
         path = current[0]
@@ -506,28 +804,39 @@ def read_pmaxtp(
         given = given / CELL_FILE if given.name != CELL_FILE else given
         if given.parent.parent != slot:
             raise IMGWValidationError(
-                f"Wersja {version} nie należy do komórki {method} {cell[0]}_{cell[1]}"
+                message(
+                    "pmaxtp.version_does_not_belong_cell",
+                    version=version,
+                    method=method,
+                    cell_x=cell[0],
+                    cell_y=cell[1],
+                )
             )
         matches = [entry for entry in _existing(slot, CELL_FILE) if entry[0] == given]
         if not matches:
             raise IMGWStoreError(
-                f"Brak wersji komórki PMAXTP: {version}", code="not_found"
+                message("pmaxtp.no_version_pmaxtp_cell", version=version),
+                code="not_found",
             )
         path = matches[0][0]
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
         if document.get("schema") != CELL_SCHEMA:
-            raise ValueError(f"nieobsługiwany schemat {document.get('schema')!r}")
+            raise ValueError(
+                message("pmaxtp.unsupported_schema", schema=document.get("schema"))
+            )
         if (document["method"], document["ind_x"], document["ind_y"]) != (
             method,
             *cell,
         ):
-            raise ValueError("metoda lub indeksy niezgodne ze ścieżką")
+            raise ValueError(message("pmaxtp.method_indices_do_not_match"))
         center = document["center"]
         return _result(
             document, latitude=float(center["lat"]), longitude=float(center["lon"])
         )
     except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
-        raise IMGWDataError(f"Uszkodzona komórka PMAXTP {path}: {exc}") from exc
+        raise IMGWDataError(
+            message("pmaxtp.corrupt_pmaxtp_cell", path=path, exc=reason(exc))
+        ) from exc
     except OSError as exc:
         raise io_error(exc) from exc

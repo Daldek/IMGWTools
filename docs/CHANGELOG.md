@@ -6,27 +6,572 @@ magazynu (`imgw-*/N`) trafia do tego pliku (ADR-001, polityka IMGW-13).
 
 ## [Unreleased]
 
-### Naprawione
+Work on top of the untagged 3.0.0, from bringing the repository in line with the Nogat
+standard 2.1. These entries fold into `[3.0.0]` when that version is tagged.
 
-- Zapis do magazynu działa na macOS i Windows, nie tylko na Linuksie. Wersje są
-  publikowane według modelu Kartografa: pliki trafiają z `.incoming/` do katalogu
-  `<label>_<sha8>` dowiązaniami twardymi (`os.link`, nigdy nie zastępują celu), a
-  sidecar pliku głównego, dowiązywany ostatni, zatwierdza wersję; obserwacje
-  (`observations/`) publikuje to samo `os.link`. Dotąd `store sync`, `series build`,
-  `store catalog`, `pmaxtp sync` i `project download` poza Linuksem kończyły się błędem
-  `conflict` (brak `renameat2`), a na Windows także `store init`, zapis manifestu
-  projektu i eksport z `--path` (błąd `fsync` katalogu). `fsync` katalogu jest teraz
-  pomijany na Windows i na systemach plików, które go nie obsługują (ADR-001, errata
-  2026-10-19).
+### Added
 
-### Zmienione
+- **`command_for_version(version, *, root=None)` (ADR-008, Nogat ECO-054, plan 2026-10-31 step 3):**
+  the data command that fetches a stored version again, rebuilt offline and read-only from its
+  sidecar (`imgw-meta/1`) and the store layout, as the `CommandCall` that `parse_command` reads
+  from the canonical line of `format_command` (options as texts, `root` the absolute store root,
+  empty `run`), so `format_command`, `check_command` and `run_command` take it. `version` is the
+  version directory, its main file (`StoreEntry.version`), its sidecar, the PMAXTP `response.json`
+  or a station file of a series version, relative to `root` (default `store_root()`); the main
+  file need not exist, so Archiwista can restore a pin whose data are gone. IMGW-PIB archives give
+  `store sync --datasets <key> --years <year>` (`--months` of a monthly file), ČHMÚ archives
+  `store sync --datasets <key> --stations <code>` (`--years` of a hydrological file), station
+  lists and catalogs `store catalog --provider <provider>`, series versions `series build
+  --dataset <key>` and PMAXTP cells `pmaxtp sync` of their point, method and cell. The call is
+  the narrowest that selects the version's file; it may cover files beside it (the `H`, `Q`, `T`
+  files of a half-year, every element of a ČHMÚ meteorological station). Refused, never guessed:
+  a catalog built with a user's coordinates file (only its name is recorded), a sidecar without a
+  field the call needs, a file `store sync` does not select (`unsupported`,
+  `details.reason="command_not_rebuildable"`, the text says how to pin it instead); a missing
+  version or sidecar is `not_found`, an invalid or contradicting sidecar `data_error`, a path that
+  is no version `validation_error` (`details.option="version"`). Python only: no catalog command.
+- **Error code `unsupported` (exit 15, HTTP 422; Nogat ERR registry):** "Not supported" /
+  "Nieobsługiwane", a valid request outside what the tool can do; `command_for_version` is its
+  first user. `ERROR_CODES`, the CLI, REST (problem+json, OpenAPI `4XX`), MCP, `contract_schemas.json`
+  (`problem+json`, `cli-error`) and the error tables of `AGENTS.md` carry it.
+- **`parse_command(line)` and `format_command(..., run=)` (AGI-2.1, request of Archiwista):**
+  `parse_command` reads an `imgw` command line, a text or its words with or without the leading
+  `imgw`, into `CommandCall(command, options, run)`, so a pasted line becomes a call. The flags are
+  those the CLI has for the catalog command (`x-imgw.cli.flags`, and `--check` of a command with a
+  check twin), read as the CLI reads them: `--root=/data`, `-r/data`, a list flag repeated, the
+  last value of another flag, `--` at the end. The options are the texts the CLI passes to
+  `run_command`, nothing validated (`validate_command` does that), and `run` is `{"check": True}`
+  for `--check`. A mistake of the line (no command or one outside the catalog, `--help` or
+  `--schema`, an unknown flag, a flag without its value, a switch with one, a word that is no flag)
+  is `validation_error` with `details.reason` `usage`, `details.option` for a wrong flag and
+  `details.command` once the line named a command. `format_command(command, /, *, options,
+  run=None)` writes `--check` last for `run={"check": True}`; another flag of a run, a value that
+  is not a boolean or `--check` of a command without it is `validation_error` naming it. The agent
+  guide writes its planned steps with it (the guides do not change). The names, shapes and errors
+  are Kartograf's (`parse_command`, `format_command(..., run=)`, `CommandCall`); IMGWTools keeps its
+  keyword-only options (R1), so `format_command(command, options=..., run=...)` calls both. A
+  contract test (`tests/contract/test_command_lines.py`) writes the line of every example call
+  (each catalog command, the ČHMÚ calls, with `--check` where a command has it), reads it back and
+  writes the same line again, so a tool that exchanges `imgw` lines compares them as text.
+- **Example calls in the catalog (AGI-2.2):** every command of `command_schema` has
+  `x-imgw.examples`, at least one `{call, result}`: a complete `imgw` line and an excerpt of the
+  `result` of its envelope (41 examples for the 30 commands, with `--check`, the ČHMÚ datasets
+  and plain `--output-dir` among them). Each call is the canonical line of `format_command`
+  (AGI-2.1): `format_command` writes the call that `parse_command` reads from it as the same line,
+  and `validate_command` accepts its options. A contract test holds this for every example (also
+  under another default root) and every excerpt to fields of the command's result type. The MCP
+  tool descriptions, `commands list` and the agent guides do not change.
+- **`store_root()` (DEV-19.2):** `imgwtools.store_root()` (also `imgwtools.config.store_root`) is the
+  public read-only accessor of the default store root: `StoreRoot(root, source, name,
+  marker_exists)` with the absolute root of a command without `--root`, the layer that gave it
+  (`default`, `env`, `dotenv`, `file`) and whether `imgw-store.json` is a file in it. It lists and
+  measures nothing (`imgw config show` measures the size); Kartograf has the same function. It
+  replaces `imgwtools.config.default_root()`, which returned the bare path (use `.root`).
+- **`commands list` (AGI-5.9):** a new catalog command and the public `list_commands(*, lang)`
+  return the catalog summary `imgw-command-list/1`: per command its name, `operation_id`,
+  group, one-sentence summary, effects (`writes`, `network`, `idempotent`), check twin, result
+  shape and REST route. It is the first discovery step before `commands schema`; the MCP tool is
+  `imgw_commands_list`, the REST route `GET /api/v1/commands/list`, the CLI
+  `imgw commands list`.
+- **`nogat.toml` (DEV-18.1):** every setting also comes from `[imgw]` (any setting) and `[nogat]`
+  (the shared keys `data_dir`, `cache_dir`, `lang`) of the user's `nogat.toml` (`NOGAT_CONFIG` names
+  another file), read with `tomllib`; `NOGAT_DATA_DIR`, `NOGAT_CACHE_DIR` and `NOGAT_LANG` are the shared
+  variables. Order: option, `IMGW_<KEY>`, `.env`, `NOGAT_<KEY>`, `[imgw]`, `[nogat]`, default. The
+  file never gives the credential `IMGW_STORE_WRITE_TOKEN`; an unusable file ends every `imgw`
+  call and the REST startup with `validation_error`.
+- **`cache_dir` (DEV-18.2):** `IMGW_CACHE_DIR` (default `platformdirs.user_cache_path("nogat")`),
+  home of the reference data (`<cache_dir>/imgw/reference`).
+- **`imgw config show [--json]` (DEV-18.6):** document `imgw-config/1` with every setting, its value
+  and source, each credential as `present` or `missing`, and the store root with its source and
+  size (hard-linked files counted once). README and `.env.example` list all 18 `IMGW_*` variables.
+- **Message catalog (AGI-9.1, AGI-9.2, DEV-2.3, ADR-006):** `imgwtools.messages` holds the texts
+  for a person in English with a Polish variant (`Text(en, pl)` under the key `<area>.<name>` in
+  `imgwtools.messages.<area>`). `message(key, lang="en", **values)` renders one as a `Message`: a
+  `str` that remembers its key and values, so the adapter of a caller who asked for Polish
+  renders it again (`localize(text, lang)`, `IMGWError.localized(lang)`,
+  `CommandResult.to_json(lang=)`, `jsonable(..., lang=)`) instead of parsing text.
+  `tests/unit/test_messages.py` checks both languages of every entry, every `message("…")` call
+  against its entry, unused entries and Polish literals outside the catalog.
+- **`StoreInfo.problem_codes` (request of Archiwista):** every text of `StoreInfo.problems` has its
+  machine-readable code at the same index: `missing_store`, `missing_marker`, `invalid_marker` or
+  `unsupported_store`, the codes `iter_store` already gives the entry of the same problem
+  (`StoreEntry.problem_code`). A consumer decides by the code and shows the text. The field is
+  optional (default `()`), so `imgw-store/1` and the constructor of `StoreInfo` do not change; it is
+  part of the document of `store info` in every interface.
+- **`Meta.producer` and `Meta.producer_version` (DEV-19.16, request of Archiwista):** the typed
+  sidecar that `read_meta`, `iter_store` (`StoreEntry.meta`) and `current_version` return keeps the
+  two fields of the sidecar core that the reader validated and dropped. They are what the sidecar
+  says: `producer` is `imgwtools` (the only name a reader accepts) and `producer_version` the version
+  of the package that wrote the version, so a version written by an earlier release keeps its older
+  number and the running package never stands in for it. `imgw-meta/1` has required both from the
+  start, so a sidecar without one is still `invalid_meta`, refused and not filled in. The fields are
+  optional (defaults `"imgwtools"` and `None`), so `imgw-meta/1` and the constructor of `Meta` do
+  not change.
+- **`iter_store(skip_versions=)` and `StoreEntry.skipped` (request of Archiwista):** an incremental
+  scan. A consumer that keeps what it has read passes the versions it knows, the path of each
+  version directory relative to the root (with `/`) mapped to the names of its data files
+  (`{"archives/versions/…/<label>_<sha8>": ("codz_2024.zip",)}`; the shape of
+  `ScanScope.known_versions` of Archiwista and of `skip_versions` of Kartograf), and gets each back
+  as an entry with `skipped=True` and `meta=None` (`kind`, `slot`, `version` and `provider` as
+  always), without its directory being listed, its sidecar read or its file measured. The scan
+  still lists the slots, so a new version, a problem and a version that is gone show as in a full
+  scan; the caller vouches for what it names, so a known version that has broken since is not
+  seen. An observation of an archive slot is still checked against the content fields of the
+  version it names, which reads that one sidecar. `skip_versions` is a parameter of the Python
+  function only (`store scan` takes no list of known versions); a value that is not a mapping of
+  paths to collections of plain file names is `validation_error` with `details.option` set to
+  `skip_versions`. `StoreEntry.skipped` is optional (default `False`).
 
-- Katalog wersji bez sidecara pliku głównego to przerwana publikacja, nie wersja:
-  `current_version` i zapis go pomijają (dotąd: `IMGWDataError` / `conflict` dla całego
-  slotu), `iter_store` nadal zgłasza go jako `missing_sidecar` (także gdy brakuje
-  pliku głównego), a następny zapis tej samej treści go uzupełnia.
-- System plików bez dowiązań twardych (FAT, exFAT, część FUSE) przy zapisie wersji:
-  `IMGWStoreConflictError` z `details.reason="not_atomic"`, jak dotąd w `init_store`.
+### Changed
+
+- **Breaking — projects move to Archiwista (ADR-008, Nogat ECO-054, ECO-020):** IMGWTools keeps no
+  projects any more; Archiwista owns them (`archiwista-project/1`) and pins store versions by the
+  `sha256` and `content_sha256` that the store already records. Removed without aliases: the
+  catalog group `project` and its eight commands `project init`, `project add`, `project remove`,
+  `project set-store`, `project download`, `project check`, `project status` and `project verify`
+  (CLI, REST, MCP; the catalog has 30 commands and 41 example calls); the functions
+  `init_project`, `open_project`, `add_project_task`, `remove_project_task`, `set_project_store`,
+  `download_project`, `check_project`, `get_project_status`, `verify_project` and the module
+  `imgwtools.project`; the types `Project`, `ProjectFile`, `ProjectTask` and `ProjectReport`; the
+  exception `IMGWProjectError`; the constant `PROJECT_FILE` (`imgw-project.json`); the contract
+  `imgw-project/1` (schema and example in `contract_schemas.json`) and the key `project` of
+  `StoreInfo.contracts`; the field `OperationResult.task` and the item status
+  `restored_by_content`, so the items of `imgw-result/1` carry no `task`; the message area
+  `imgwtools.messages.project`; the flow "Reproducible project" of `AGENTS.md` and `llms.txt`.
+  Unchanged: the store and its read API, `content_sha256` and `content_form` in the sidecars
+  (`imgw-meta/1`), the observation register (`imgw-observation/1`), `run_command`,
+  `check_command`, the read-only `series select` and `imgwtools.testing`. Projects were never
+  released, so existing `imgw-project.json` manifests are not migrated (Nogat plan decision D4).
+  Migration: keep a project in Archiwista; the command of a stored version comes from
+  `command_for_version` (Added).
+- **Breaking — `IMGW_DATA_DIR` no longer names the reference data (DEV-18.2):** `IMGW_DATA_DIR`
+  (`data_dir`) is now the user data directory (`platformdirs.user_data_path("nogat")` by default),
+  the parent of the stores (`<data_dir>/imgw`) and of the server state. The directory of the
+  IMGW-PIB reference data (`hydro_stations_locations.csv`, `desc/`) is `IMGW_REFERENCE_DIR`
+  (`reference_dir`, `settings.reference_dir`) and defaults to `<cache_dir>/imgw/reference` instead of
+  `./data` in the working directory. Migration: set `IMGW_REFERENCE_DIR` where `IMGW_DATA_DIR` held
+  the reference data (Retman exports it as its `reference_data_dir`), or run
+  `python -m imgwtools.reference_data` again. `IMGW_API_KEYS_FILE` defaults to
+  `<data_dir>/imgw/api_keys.json` instead of `./api_keys.json`. A `.env` or exported
+  `IMGW_DATA_DIR=./data` left over from 2.x now moves the stores' parent directory.
+- `imgw server` takes `--host` and `--port` defaults from `IMGW_HOST` and `IMGW_PORT`;
+  `imgw mcp --allow-writes` defaults from `IMGW_MCP_ALLOW_WRITES` (and `[imgw] mcp_allow_writes`) and
+  gained `--no-allow-writes`; an empty `IMGW_*` variable counts as unset. `pydantic>=2.10` and
+  `pydantic-settings>=2.7` are the minimum versions; `platformdirs>=4` is a new core dependency.
+- **Breaking — MCP tool names and OpenAPI `operationId` start with `imgw_` (ECO-018, AGI-5.2,
+  AGI-6.2):** `x-imgw.operation_id` is `imgw_<group>_<verb>` (`imgw_store_sync`,
+  `imgw_current_hydro_states`), the one name of the REST `operationId`, the MCP tool and the
+  guide; routes outside the catalog get `imgw_system_<function>` instead of FastAPI's generated
+  ids. Migration: replace `store_sync` by `imgw_store_sync` in MCP clients and OpenAPI
+  generators (no alias keeps the old names). The command names (`store sync`), CLI flags,
+  REST paths and schema names of the OpenAPI components are unchanged.
+- **MCP annotations (AGI-5.4):** every tool carries `title`, `readOnlyHint`, `destructiveHint`
+  (now `false` instead of absent on a read-only tool), `idempotentHint` and `openWorldHint`.
+  `idempotentHint` comes from the new catalog field `DataCommand.idempotent` (`x-imgw.idempotent`,
+  true for every command: a repeated call finds the versions and files it already wrote).
+- The first sentence of seven command descriptions is shortened to at most 100 characters
+  (DOC-1.7), because it is the `summary` of `commands list`.
+- **Development tooling (ECO-010, DEV-6.3, DEV-7.6, DEV-10.1):** mypy `strict` over `src/`
+  and `tests/` replaces pyright (per-module deviations are listed in `CLAUDE.md`);
+  `scripts/gate.sh` and `scripts/check-commits.sh` (templates of the Nogat standard) run
+  `ruff format --check`, `ruff check` (the rule set now includes `SIM`), mypy, pytest with an
+  80 % coverage floor and the commit check; `uv.lock` is committed and the environment is
+  `uv sync --locked`. The `dev` extra became the `dev` dependency group, so
+  `pip install -e ".[dev]"` no longer exists. The marker `live` replaces `IMGW_LIVE=1` for the
+  tests against real servers: the gate deselects them, `pytest -m live` runs them.
+- **CI (DEV-7.7, DEV-13.6):** `ci.yml` (the gate on Linux, macOS and Windows, a dependency
+  audit), `live.yml` (weekly `live` tests) and `dependabot.yml` (GitHub Actions), copied
+  from the Nogat templates; they trigger on `main` and `develop`.
+- **`forbidden` has the CLI exit code 12 (ERR §2):** the registry code for a refused write or a
+  path outside the allowed directories had no exit code (REST 403 and MCP only); it now
+  exits 12 like in every tool of the ecosystem, and `command_schema()["errors"]`,
+  `AGENTS.md` and the tables of the docs show it. Only `method_not_allowed` stays REST-only.
+- **`AGENTS.md` and `llms.txt` within their budgets (DOC-1.7, DOC-4.2):** the generated guide is
+  at most 200 lines and 16 KiB in both languages (it was 262 lines and 29 KB) and ends with
+  "Developing this repository? Read CLAUDE.md."; it states when to use the tool and when not, and
+  how to install it. The command section is an index of one line per command grouped by effect
+  (read, network, write, overwrite; `imgw commands schema` serves the options), the dataset table
+  lists the datasets of the store and one line the others, the flows and the flag notes are
+  shorter, and the stale developer gate commands (pyright) are gone. A contract test holds both
+  budgets and the 8,000 characters of `llms.txt` before its first link list.
+- **Breaking — `ErrorSpec.title_en` is gone (AGI-9.2):** `ErrorSpec.title` is the English title as
+  a catalog message; `title.localized("pl")` is the Polish one. `command_schema`, REST, MCP and
+  the web GUI render it in the language of their caller. The first argument of `IMGWError` is
+  named `detail`. `Lang` and `LANGS` are exported by `imgwtools.messages` instead of
+  `imgwtools.commands`, and `LANGS` is `("en", "pl")` (the order of `details.allowed` of a
+  refused language). Migration: `spec.title_en` → `spec.title`, the former Polish `spec.title`
+  → `spec.title.localized("pl")`.
+- **Breaking — `DatasetDescriptor.title_en` is gone (AGI-9.2):** `DatasetDescriptor.title` is the
+  English title as a catalog message (`messages/datasets.py`); `localize(title, "pl")` is the
+  Polish one, and `datasets list` renders it in the language of its caller. The `variable_notes`
+  of the ČHMÚ datasets are English catalog messages, so the `variable_notes` of the Parquet
+  metadata of `series.json` is English now (the Polish wording was written before the first
+  release; a series built earlier keeps its Polish notes and is not rewritten). The web GUI
+  shows the Polish titles as before. Migration: `descriptor.title_en` → `descriptor.title`, the
+  former Polish `descriptor.title` → `localize(descriptor.title, "pl")`.
+- **Breaking — `help_en`, `description_en` and `rules_en` of the catalog are gone (AGI-9.1, ADR-006):**
+  `CommandOption.help`, `DataCommand.description` and `DataCommand.rules` hold the English catalog
+  `Message` (the texts of `commands.py` are the entries of `messages/commands.py`, 143 of them,
+  English first) and `CommandOption.help_en`, `DataCommand.description_en` and
+  `DataCommand.rules_en` are removed without an alias. `command_schema`, `list_commands` and the
+  CLI help render the language asked for (`localize(text, "pl")` is the Polish text); the documents
+  of both languages are byte-identical to the ones before. The last Polish literals left the code:
+  the message guard has no pending files any more and fails on any Polish string outside
+  `imgwtools.messages`. Migration: `option.help_en` → `option.help`, the former Polish
+  `option.help` → `localize(option.help, "pl")` (the same for `description` and `rules`).
+- **Breaking — `IMGW_STORE_ROOT` is `IMGW_ROOT` and the store has a default location (DEV-19.2,
+  ADR-007 D2, D9):** the variable is renamed without an alias, `Settings.store_root` is
+  `Settings.root` and `root` in `[imgw]` of `nogat.toml` sets it too. A command without `--root`
+  uses the store at `IMGW_ROOT`, `[imgw] root` or `<data_dir>/imgw` (`imgwtools.store_root()`):
+  `root` is optional in every store command and `validate_command` fills it in (not for a command
+  given a `version`, not for `stations find` unless `source=store`), so the `--root` of the CLI no
+  longer reads an environment variable of its own. `imgw config show --json`
+  reports `store.root` with its source, whether it exists and its size. The REST server still writes
+  only to its configured `IMGW_ROOT`, never to the default. `imgw mcp` has `--allow-dir DIR`
+  (repeatable): every path option and the default root must lie inside an allowed directory
+  (`forbidden`, `details.reason="outside_allowed_dirs"`) and a write without any directory is
+  `forbidden` (`no_allowed_dir`), while a plan needs none. Migration: rename `IMGW_STORE_ROOT`; pass
+  `--allow-dir` to `imgw mcp --allow-writes`.
+- **Breaking — the store status `created` is `new` (DEV-19.19, ADR-007 D7):** `VersionResult`,
+  `OperationResult`, `SeriesReport`, `CatalogReport`, `PMaXTPStoreResult` and the fixture builder
+  say `new` where they said `created`, and a series version built from the same inputs is
+  `unchanged` (it was `reused`); `relabeled` stays. The
+  statuses of plain files, `written` and `replaced`, come with plain mode. Migration:
+  `status == "created"` → `"new"`, and `"reused"` → `"unchanged"` for a series.
+- **Breaking — the store marker, the first write and nested stores (DEV-19.12 to DEV-19.14,
+  ADR-007 D5, D6):** `imgw-store.json` always has `schema`, `tool` (`imgw`), `created_at` and
+  `producer_version` besides `created_by` (an older marker gains the missing fields on the next
+  write). The first write into an empty or new root creates it (`write_archive`, `sync_pmaxtp`,
+  `build_catalog` and so `store sync`); only `api_keys.json` of the server may lie in an empty
+  root. A root with `archives/`, `series/`, `stations/` or `pmaxtp/` and no marker is
+  `store_unavailable` (`details.reason="no_marker"`, hint `imgw store init --root <path>`), and
+  `init_store` / `imgw store init` verifies the layout (every sidecar `imgw-meta/1`, nothing
+  foreign beside the trees, else `data_error` with `details.reason="invalid_layout"`) before it
+  writes the marker. A directory with other files and no layout is `conflict`
+  (`details.reason="not_empty"`, it was `path_conflict`). A store never nests: before a write the
+  command looks for `kartograf-store.json` and `imgw-store.json` in the ancestors of the root, at
+  the root and below it, and a nested store is `conflict` with `details.reason="nested_store"`; the
+  old probe of Kartograf by `kartograf-project.json` and `kartograf-meta/1` sidecars is gone. Plans
+  (`check_store`, `check_series`, `check_catalog`, `check_pmaxtp`) treat a new or empty root as an
+  empty store and create nothing. The module `imgwtools.output` (marker names, the check of a plain
+  target list, the staging directory with SIGTERM handling, `FileResult`) is added for the plain
+  mode that follows.
+- **Breaking — `datasets download` writes plain files with `--output-dir` or the store
+  (DEV-19.1, DEV-19.5 to DEV-19.11, DEV-19.19, ADR-007 D1, D3, D4, D5, D7):** `download_archives(...,
+  output=)` and the CLI `--output`/`-o` (default `./data/downloaded`) are gone without an alias:
+  `output_dir` (`--output-dir`, `-o`) writes ordinary files named like the server paths
+  (`<dir>/<server_path>`), `root` (`--root`) publishes versions in the store, and a call with
+  neither goes to the store at the default root. The two exclude each other (`validation_error`,
+  `details.reason="exclusive_options"`, `details.options`). A plain write checks the whole target
+  list before the first request: an existing target without `--force` is `conflict`
+  (`output_exists`), duplicate names `duplicate_output_name`, a directory that is or lies in a
+  store of IMGWTools or Kartograf `output_in_store` (hint `--root`); `details.paths` lists every
+  path and nothing is written. Files stream into `<dir>/.imgw-incoming/<host>_<pid>_<token>/`,
+  are hashed while they stream, verified (ZIP) and moved with `os.replace` (the staging directory
+  goes on success, error, SIGINT and SIGTERM; leftovers older than 24 hours go with the next
+  run), so no `.part` file is left beside a target and no hard link is needed (FAT, exFAT, SMB).
+  `--force` replaces existing targets and deletes nothing else; in the store it fetches again and
+  never overwrites a version. A store download takes the seven store datasets only
+  (`details.reason="not_in_store"` otherwise, hint `--output-dir`). `DownloadReport` is `mode`,
+  `output_dir`, `root`, `items`, `files` and `cancelled`: `files[]` is `{path, size_bytes,
+  sha256, status}` with `written` or `replaced` (plain) and `new`, `unchanged` or `relabeled`
+  (store). `--check` plans each target as `write`, `replace` (with `--force`) or `conflict`
+  (`PlanAction.action`, `path`, `reason`; the plan is `ok` and exits 0 whatever it lists, only
+  the real run fails). The command schema publishes `x-imgw-path-role` (`input`, `output`,
+  `root`) of every path option,
+  `x-imgw-store-only` of an option and `x-imgw.exclusive` and `x-imgw.store_only` of a command;
+  the CLI prints the paths of every result relative to the validated root, the default root
+  included. Migration: `--output DIR` → `--output-dir DIR`; `output=` → `output_dir=`; read
+  `report.output_dir`, `report.files[].path` and `status`.
+- **`store sync` and `pmaxtp sync` write plain files too; the options that act on versions are
+  store-only (DEV-19.9, DEV-19.17, DEV-19.18, DEV-19.19, ADR-007 D3, D7, D8):** `sync_store`,
+  `sync_pmaxtp` and `check_pmaxtp` take `output_dir` and `force` and an optional `root` (the
+  default root when neither is given). `store sync --output-dir` writes the selected archives
+  as `<dir>/<server_path>` with the rules of `datasets download` (preflight, staging,
+  `--force`, `output_in_store`) and with no freshness check, no plan and no series; ČHMÚ station
+  files need `--years` there (`details.reason="years_required_in_plain_mode"`). `pmaxtp sync
+  --output-dir` writes `<METHOD>/<indX>_<indY>/cell.json` and the raw `response.json`: the names
+  come from the answer, so only a call that gives `--ind-x` and `--ind-y` refuses before the
+  request. `plan` and `series` of `store sync` are store-only: with `output_dir` they are
+  `validation_error` with `details.reason="store_only_option"`; `store init`, `store catalog` and
+  `series build` have no plain mode and say so in their rules (`x-imgw.store_only`). In the store
+  `store sync --force` fetches
+  every selected archive again (a version is never overwritten). `SyncReport`, `SeriesReport`,
+  `CatalogReport` and `PMaXTPStoreResult` list `files[]` (`{path, size_bytes, sha256, status}`
+  from the sidecar, statuses `new`, `unchanged`, `relabeled`; `written` and `replaced` for plain
+  files); `imgwtools.FileResult` is exported. The plain `--check` plan of both commands is
+  `write`, `replace` or `conflict` per target.
+- **Breaking — the exports write one plain file with `--output` (DEV-19.1, DEV-19.5 to DEV-19.11,
+  DEV-19.19, ADR-007 D1, D3, D7):** `export_archive`, `export_series` and `agent_guide` (the
+  commands `store export`, `series export` and `commands guide`) take `output` and `force` instead of
+  `path`; the CLI `--path` and `-p` are gone without an alias (`--output` has no short form).
+  Without `output` they still return the lines (stdout, REST attachment, MCP text). With it the one
+  target is checked before anything is read for it: an existing file without `--force` is
+  `conflict` (`details.reason="output_exists"`), a file in a store of IMGWTools or Kartograf
+  `conflict` (`output_in_store`; it was a `validation_error` rule of the catalog, and the hint says
+  to choose a file outside every store, because an export has no store mode), `details.paths`
+  names the file; a directory is `validation_error` (`details.option="output"`); a missing
+  directory is created. The lines stream through `<dir>/.imgw-incoming/<host>_<pid>_<token>/`
+  (the directory that holds the file), are hashed while they are written and the file moves
+  into place with `os.replace`, so no `.part` file is left and an interrupted export leaves
+  the target as it was. The result is the new `imgwtools.OutputReport` (`output`, `files[]` of
+  `{path, size_bytes, sha256, status}` with `written` or `replaced`); the envelope `result` is
+  that object where it was the path string. `force` needs `output` (`validation_error`,
+  `details.option="output"`, `dependentRequired` in the schema). `--check` plans the file as
+  `write`, `replace` (with `--force`) or `conflict` (a plan with a conflict is `ok`, only the run
+  fails). The schema marks `output` `x-imgw-writes: add` and `force` `replace`
+  (`x-imgw-path-role: output` for the file); both are local options, so REST takes neither. An
+  MCP server writes `output` only inside `--allow-dir` (`forbidden`, `outside_allowed_dirs`) and
+  not at all without a directory (`no_allowed_dir`; it was possible for an export file and
+  for the `plan` file of `store check`). `AGENTS.md` and `llms.txt` are regenerated with
+  `imgw commands guide --format agents --output AGENTS.md --force`; two sentences of the guide
+  that repeated other lines were dropped to keep it within 16 KiB. Migration: `path=` →
+  `output=` (plus `force=True` to replace a file), `--path F` → `--output F`, the returned
+  `Path` → `report.output`, the envelope `result` `"<path>"` → `{"output", "files"}`.
+- File-system errors (`describe_os_error`, `io_error`) and the default text of
+  `IMGWStoreDependencyError` are English; `IMGWError.localized("pl")` gives the Polish text.
+- **Breaking — the `detail` of every error is English (AGI-9.2, ADR-006):** every raise site of
+  `IMGWError` and its subclasses (and of the validators whose text another message embeds) gives
+  a catalog message (`imgwtools.messages.<area>`, about 570 entries) instead of an inline Polish
+  sentence, so `str(exc)`, `exc.detail`, the `--json` error line, the plan and item errors of
+  a failed unit and every caller of the library read the same English text. `details` stay
+  unchanged. Polish is `exc.localized("pl")`; REST (`Accept-Language: pl`) and the web GUI render
+  both the `title` and the `detail` in the language of their caller (the `detail` used to stay
+  Polish next to an English `title`). `imgwtools.messages.reason(exc)` gives the catalog message
+  an exception carries, so a message that embeds a caught error stays translatable. Migration:
+  tests and clients that matched Polish `detail` text match the English text or
+  `exc.detail.key`.
+- The text of a cancelled plan item and of a cancelled version write is English (`cancelled`, "The
+  write of the archive was cancelled"); the plan item error `anulowano` became `cancelled`.
+- **Breaking — notices, progress lines and plan lines are English (AGI-9.2, ADR-006):** the
+  `text` of every `Notice`, the `message` of every `Progress`, the `detail` of every `PlanAction`,
+  the `error` of a plan item or a result item and the problems of a catalog or series report are
+  catalog messages (more entries in `imgwtools.messages.<area>`), English by default;
+  `Message.localized("pl")` gives the Polish
+  text. The `license_terms` notice is the
+  attribution followed by the translated notice of the provider (`ProviderDescriptor.license_notice`);
+  the attribution formulas themselves and the official name of IMGW-PIB keep their wording in every
+  language (`imgwtools.messages.legal`), because sidecars, series, catalogs and CSV exports persist them.
+  The error of an unpublished ČHMÚ file is `not published` (it was `nieopublikowany`; Retman
+  and Archiwista compare it) and the server errors of a check begin `Timed out waiting for`,
+  `HTTP error`, `Connection error to`; `check_failed` items of a saved plan are classified by
+  that English text. Migration: match `not published` and the English texts, or the language-free
+  `Message.key` of an item that has one.
+- **Breaking — the `detail` of the CLI error line is English (AGI-9.2, ADR-006):** the last line of
+  stderr was Polish for a syntax error (unknown option or command, a missing option or value), an
+  interrupt, a program error and `IMGW_LANG` outside `pl` and `en`; it is English whatever
+  `IMGW_LANG` says, like the envelope on stdout. The human-readable output follows `IMGW_LANG`
+  (`pl` by default): the help, the progress lines, the notice lines and their labels (`Informacja`
+  or `Info`), `imgw admin`, `imgw config show` and `python -m imgwtools.reference_data`; their texts
+  are catalog messages (`imgwtools.messages.cli`, `imgwtools.messages.reference`), and
+  `imgwtools.config.human_language()` is the one reader of the setting. Migration: clients that
+  matched the Polish `detail` of a usage error match the English text or `details.option`.
+- **Breaking — the MCP server speaks English only (AGI-9.2, ADR-006):** `imgw mcp --lang` and the
+  `lang` argument of `create_server`, `run_stdio` and `http_app` are removed, and `IMGW_LANG` no
+  longer reaches the server or `/mcp` (the REST server stopped refusing an `IMGW_LANG` outside
+  `pl` and `en` for `/mcp`; the CLI still refuses it). The tool descriptions and rules, the
+  instructions and the error documents (`title`, `detail`) are English; `/mcp` asks its REST route
+  for `Accept-Language: en`; the `lang` argument of the three description tools defaults to `en`
+  (an explicit `lang: "pl"` still gives Polish texts). `docker-compose.yml` no longer passes
+  `IMGW_LANG` to the server. Migration: drop `--lang` and `IMGW_LANG` from MCP client
+  configurations.
+- **Breaking — the description commands default to English (AGI-9.2, ADR-006):**
+  `command_schema()`, `list_commands()`, `agent_guide()` and the `lang` option of `commands list`,
+  `commands schema` and `commands guide` default to `en` in Python and the CLI (REST answers
+  follow `Accept-Language`, English without it). `IMGW_LANG` is no longer the default of
+  `--lang`: it keeps the language of the CLI help and human lines, and `imgw <command> --schema`
+  prints the English schema. The committed `AGENTS.md` (175 lines, 16,174 bytes) and `llms.txt` are
+  English, and `--lang pl` generates the Polish guide (16,262 bytes). The guide's own texts (column
+  titles, effect classes, flow titles and notes, the rules shared with the MCP instructions, the
+  value syntax of the flags) are catalog messages (`imgwtools.messages.agent_guide`, 52
+  entries) instead of Polish and English literals in `agent_guide.py`. Migration: pass `lang="pl"`
+  or `--lang pl` where the Polish descriptions were meant; regenerate the guide files with
+  `imgw commands guide --format agents --output AGENTS.md --force` (and `--format llms --output llms.txt --force`).
+- **Breaking — REST answers in English by default and the OpenAPI document is English (AGI-6.4,
+  AGI-9.2, ADR-006):** without `Accept-Language`, or with one that names neither `en` nor `pl`, a
+  REST answer is English: the `title` and `detail` of problem+json, the notices, the texts of
+  failed items and plan actions, and the `lang` of the three description commands (it was Polish).
+  `Accept-Language: pl` gives Polish. The language now decides every command answer, not only
+  those of commands with a `lang` option: the notices and item texts of the JSON envelope and the
+  `X-IMGW-Notices` header of an export are rendered in it, every command answer has
+  `Content-Language`, and `Vary: Accept-Language` when the header (not `?lang=`) decided. The
+  texts of the generated routes (summaries, descriptions, options, rules, tags, responses) come
+  from the English catalog, and the field descriptions of the result models (`models.py`, 47
+  texts, they feed the OpenAPI schemas) are English, so `/openapi.json`, `/docs` and `/redoc`
+  are English. The `to_dataframe()` error without pandas is the catalog message
+  `models.pandas_required`. The `api/*` and `models.py` modules leave the pending files of the
+  message guard. Migration: REST clients that relied on the Polish default send
+  `Accept-Language: pl`.
+
+### Fixed
+
+- **`import imgwtools` without an extra:** `imgwtools.config` imports `pydantic-settings` and
+  `import imgwtools` reaches it (`agent_guide` → `commands` → `config`), but the package listed
+  the dependency only in the `api` and `cli` extras, so `pip install imgwtools` and
+  `imgwtools[store]` failed with `ModuleNotFoundError: pydantic_settings`. `pydantic-settings>=2.7`
+  is a core dependency now (removed from the extras). The fallback that read the reference
+  directory without it (`_environment.reference_dir()` in `store/catalog.py`) is gone; a test
+  installs the built wheel without extras into a fresh venv and calls a public function.
+- **`--check` and a nested store (DEV-19.10, DEV-19.14):** `imgw datasets download --root <dir in
+  another tool's store> --check` planned the download as `missing` while the run refused it with
+  `conflict` (`nested_store`); the plans of `store init`, `store sync`, `pmaxtp sync`, `series
+  build` and `store catalog` had the same gap, and the plans of `store sync` and `store catalog`
+  even sent requests, and the plans of `store sync`, `pmaxtp sync`, `series
+  build` and `store catalog` raised `store_unavailable` for a root that holds another tool's store
+  or a store below it. Each plan
+  now lists one action `conflict` with `reason="nested_store"`, the root as `path` and status
+  `unverifiable`; the plan is `ok` (exit 0), like the plain plan for `output_in_store`, and nothing
+  is requested. `PlanAction.reason` gains `nested_store`; a saved plan keeps the action.
+- **A root with other files, `--check` and the run (DEV-19.10, ADR-007 erratum):** the plan of
+  every store write listed a root that holds other files and is no store (or is a file) as
+  `check_failed`, or raised `store_unavailable`, while the run of `datasets download`, `store init`,
+  `store sync`, `series build`, `store catalog` and `pmaxtp sync` refused it with `conflict`
+  (`not_empty`; `store sync` and `series build` said `store_unavailable`). `not_empty` is a
+  `conflict` of the root like `nested_store` now: the plan lists one action `conflict` with
+  `reason="not_empty"` (`PlanAction.reason` gains it), the plan is `ok` and asks nothing, and
+  every run refuses the root with `conflict` before any request. These are not conflicts and the
+  plan raises them as errors, `datasets download --check` included (it turned them into a
+  `check_failed` action): a root with the layout and no marker is `store_unavailable`
+  (`no_marker`), and an unreadable marker (invalid JSON, no `schema`) is `data_error`
+  (`details.reason="invalid_marker"`; the writer said `store_unavailable`), in the plan and the
+  run; the reader keeps its `invalid_marker` problem code.
+- **A plain output directory in a store is refused by the directory (DEV-19.6, DEV-19.11, ADR-007
+  erratum):** the run of `datasets download`, `store sync` and `pmaxtp sync` listed every target of
+  an `output_dir` that is or lies in a store in `details.paths`, and `pmaxtp sync` without cell
+  indices asked for the cell first. The directory is checked before any request now:
+  `details.paths` is the output directory (`details.reason="output_in_store"`). A store found only
+  below the directory, in a subdirectory a target would enter, is still reported by the path of
+  each such target, and so is the file of an export (`output`); the `--check` plan keeps one
+  `conflict` action per target.
+- **`py.typed` (DEV-7.4):** the package declared `Typing :: Typed` but shipped no PEP 561 marker, so
+  mypy treated `import imgwtools` in a consumer as untyped (`module is installed, but missing
+  library stubs or py.typed marker`). `src/imgwtools/py.typed` is part of the wheel now; a test
+  checks the built wheel for it and type-checks a consumer snippet with strict mypy against the
+  installed package, without `ignore_missing_imports`.
+- **A marker without `created_by` (DEV-19.12, ADR-007 erratum):** `store_info`, `iter_store` and
+  `current_version` refused a marker that lacks a `created_by` text (`invalid_marker`), although
+  `open_store` opened it and DEV-19.12 asks of a marker only `schema`, `tool`, `created_at` and
+  `producer_version`; a store the writer had completed (it adds those three fields, never
+  `created_by`) could not be read. The reader needs only `schema` now, exactly like `open_store`
+  (a test holds the two to the same markers); `created_by` stays in the marker `init_store` writes
+  but is an optional field in the packaged `imgw-store/1` schema, and the message
+  `reader.marker_has_no_valid_created` is gone. A reader only accepts more: the contract stays
+  `imgw-store/1`.
+- **`PMaXTPData` takes fractional probabilities and refuses unpublished ones (request of
+  Hydrograf):** `get_precipitation`, `get_confidence_bound` and `get_estimation_error` were
+  annotated `probability_percent: int`, but the tables hold 27 probabilities from `"0.01"` to
+  `"99.9"` (`"98.5"`, `"99.5"`) and the key was `str(value)`: a caller that asked for 0.01 to 98.5
+  had to silence the type checker, `1.0` looked for the key `"1.0"`, and a number the tables never
+  had (`999`, a typo, `0.5` meant as `50`) read as an absent value, `None`. The parameter is a
+  `float` (an `int` is one): `50` and `50.0` are the key `"50"`, `0.01` and `98.5` are found, and a
+  probability that is not one of the 27 published ones (also `nan`, a `bool` or a text) is
+  `validation_error` (`IMGWValidationError`) with `details.option="probability_percent"`,
+  `details.value` and `details.allowed`, the 27 percentages as numbers, which the message lists
+  too. A published probability that the data lacks, or a duration that it lacks, is still `None`.
+  A caller that relied on `None` for a probability that is not published gets the error now. The
+  docstrings of `PMaXTPData` and `fetch_pmaxtp` give the 16 durations and the 27 probabilities
+  (they said 7 and 6).
+- **`imgw mcp` sends nothing but protocol messages on stdout, also when the client leaves (the
+  stdio transport of MCP):** while the server serves, the SDK points file descriptor 1 at
+  stderr, so a `print` in a command goes there; but a client starts the server without
+  `PYTHONUNBUFFERED`, so stdout is block-buffered, and the text that Python still held was
+  flushed at exit, after the SDK had restored the descriptor: a line that is no JSON-RPC message
+  reached the client. `run_stdio` flushes stdout before the SDK restores it, as Hydrolog and
+  Kartograf do, and the text goes to stderr (found by the final integration run of the data
+  output). A test starts `imgw mcp` without `PYTHONUNBUFFERED` with a command that prints.
+
+### Migration guide: data output (ADR-007, DEV §19)
+
+What a caller of IMGWTools (Python, `imgw`, REST, MCP) or a reader of its files has to change. The
+entries above give the reasons and every detail; this is the list to follow. The names are those of
+the unreleased 3.0.0, so no earlier release has to keep working and no alias exists.
+
+**The three targets (DEV-19.1, DEV-19.2).** `output_dir` (`--output-dir`, `-o`) writes plain files,
+`root` (`--root`, `-r`) writes the versioned store, `output` (`--output`, no short form) writes the one
+file of an export; `--force` replaces existing plain files. `output_dir` and `root` exclude each other
+(`validation_error`, `exclusive_options`). A writing command given neither writes the store at the first
+of `--root`, `IMGW_ROOT`, `[imgw] root` of `nogat.toml` and `<data_dir>/imgw` (`imgw config show --json`
+names it and its source), never into the working directory. A REST server writes only to its own
+`IMGW_ROOT`, with writes enabled and the token, and takes no `root`, `output_dir`, `output` or `force` in
+a request; `imgw mcp` writes only inside its `--allow-dir` directories and with `--allow-writes`.
+
+| Old | New |
+|---|---|
+| `IMGW_STORE_ROOT`, `Settings.store_root` | `IMGW_ROOT`, `Settings.root`; `root` is optional in every store command (default store) |
+| `IMGW_DATA_DIR` as the directory of the reference data | `IMGW_REFERENCE_DIR` (`IMGW_DATA_DIR` is the user data directory) |
+| `download_archives(output=DIR)`, `datasets download --output/-o DIR` (default `./data/downloaded`) | `output_dir=DIR`, `--output-dir/-o DIR` for plain files; `root=`, `--root` for versions in the store; neither: the default store |
+| `DownloadReport.output` | `DownloadReport.mode` (`plain`/`store`), `.output_dir` or `.root`, `.files` |
+| `export_archive`, `export_series`, `agent_guide` with `path=F`; `--path F`, `-p F` | `output=F` (`force=True` over an existing file); `--output F` (`--force`) |
+| their `Path` result; envelope `result` `"<path>"` | `OutputReport` (`.output`, `.files`); `{"output": …, "files": […]}` |
+| status `created`; series status `reused` | `new`; `unchanged` |
+| `.part` files beside the targets | staging directory `<dir>/.imgw-incoming/<host>_<pid>_<token>/`, removed after every run (success, error, SIGINT, SIGTERM) |
+| `imgw-store.json` with `schema`, `created_by` | also `tool` (`imgw`), `created_at`, `producer_version`, always; the first write creates it, `imgw store init` only verifies the layout |
+| nested stores found by `kartograf-project.json` and `kartograf-meta/1` sidecars | by the marker names `kartograf-store.json` and `imgw-store.json` only |
+| `imgw mcp --allow-writes` alone | needs `--allow-dir DIR` (repeatable) for any write and for any `output`, `output_dir` or `plan` file |
+
+**Results (DEV-19.19).** Every writing command lists `files[]` = `{path, size_bytes, sha256, status}`
+with `written` or `replaced` (plain) and `new`, `unchanged` or `relabeled` (store); `sha256` is computed
+while the file is written. `items[]` keep the per-unit outcomes (`DownloadItem`: `downloaded`,
+`not_published`, `failed`, `cancelled`; a plain `store sync` item is `new` for a written file).
+`--check` plans each plain target as `write`, `replace` (with `--force`) or `conflict`
+(`PlanAction.action`, `path`, `reason`); a plan with conflicts is `ok` (exit 0), only the run fails.
+
+**Errors** (codes of the registry; `details.reason` is the new precision):
+
+| Code (CLI exit) | `details.reason` | When |
+|---|---|---|
+| `conflict` (4) | `output_exists` | a plain target exists and there is no `--force`; `details.paths` lists every such file |
+| `conflict` (4) | `duplicate_output_name` | two targets of one request have one name; `details.paths` |
+| `conflict` (4) | `output_in_store` | the output directory is or lies in a store of IMGWTools or Kartograf (`details.paths` is the directory, before any request); a target that would enter a store below the directory, or the file of an export, is reported by its own path |
+| `conflict` (4) | `nested_store` | the root lies in, holds or nests a store of any tool |
+| `conflict` (4) | `not_empty` | a store write or `store init` into a directory with other files and no layout (was `path_conflict`), or into a file |
+| `store_unavailable` (8) | `no_marker` | a root that has the layout and no marker; hint `imgw store init --root <path>` |
+| `data_error` (7) | `invalid_layout` | `store init` found a foreign or invalid file |
+| `data_error` (7) | `invalid_marker` | the marker of the root is unreadable (invalid JSON, no `schema`); it was `store_unavailable` in the writer |
+| `validation_error` (2) | `exclusive_options` | `output_dir` with `root` (`details.option` is `root`, `details.options` both) |
+| `validation_error` (2) | `store_only_option` | `plan` or `series` of `store sync` with `output_dir` |
+| `validation_error` (2) | `not_in_store` | a store download of a dataset that has no place in the store (hint `--output-dir`) |
+| `validation_error` (2) | `years_required_in_plain_mode` | plain `store sync` of ČHMÚ station files without `years` |
+| `forbidden` (12) | `no_allowed_dir`, `outside_allowed_dirs` | an MCP write without `--allow-dir`, or outside it |
+
+An `output` that is a directory, a `force` without `output` and a plain `output_dir` that is a file are
+`validation_error` with `details.option`.
+
+**Unchanged.** `fetch_pmaxtp`, `download_hydro_data`, `download_meteo_data` and every reader
+(`read_*`, `iter_store`, `current_version`, `store_info`); the store layout and the schemas
+`imgw-meta/1` (its sidecar already has the core of DEV-19.16, held by a contract test),
+`imgw-series/1`, `imgw-pmaxtp/1`, `imgw-observation/1`; the envelope `imgw-result/1`, `imgw-plan/1`
+(only the optional `action`, `path`, `reason` are new), the error registry and exit codes, the REST
+routes and `operationId`s, the MCP tool names.
+
+**Per consumer** (checkouts of 2026-10-25):
+
+- **Retman** (`src/retman/tools/imgwtools/`): `calls.py:226-228` and `calls_archives.py:271-272` give
+  `path` to an export: pass `output` (add `force` only where a step may repeat in one result folder);
+  `calls_archives.py:90-91` gives `output` (a directory) to `datasets download`: pass `output_dir`;
+  `client.py:235-240` and `:272` look for `path` and take the export result as a string: use `output`
+  and `result["output"]` (or `files[0]["path"]`); `describe.py:717` and `describe_archives.py:104-125`
+  match `created` and `reused`: match `new` and `unchanged`; `client.py:62-71` exports
+  `IMGW_DATA_DIR` for the reference data: `IMGW_REFERENCE_DIR`; `client.py:101` keeps passing `root`,
+  which is optional now (a default store exists), so `store_dir` need not stay required. Retman sets no
+  `IMGW_STORE_ROOT`.
+- **Archiwista:** no IMGW adapter yet (only `adapter/kartograf`). When `adapter/imgw` is written: read the
+  marker fields `tool`, `created_at`, `producer_version` beside `created_by`; let `probe` follow DEV-19.12
+  and DEV-19.13 (a layout without a marker is `store_unavailable`, `no_marker`); statuses are `new`,
+  `unchanged`, `relabeled` (a series is `unchanged`, not `reused`). `docs/IMGWTOOLS_REQUIREMENTS.md`
+  (IMGW-5 and IMGW-7: lines 715-717, 747, 826-865, 1320-1363, 1528-1551; the marker: 26, 386-448) and
+  `docs/SPEC.md` §12.7 still quote the old marker and `created`/`reused`. `imgwtools.testing` and the
+  packaged `contract_schemas.json` carry the new marker.
+- **Hydrolog:** no package dependency (the registry says `file`, `imgw-series-csv`), and the CSV of
+  `series export` is unchanged. Its documents already name `imgw series export … --output FILE`
+  (`docs/INTEGRATION.md:391`, `docs/USAGE.md:665-678`, `AGENTS.md:139`, `src/hydrolog/agent_guide.py:217`,
+  `README.md:21,256`): that name is real now, so item 3 of its PROGRESS can be closed. Add `--force` to
+  the example where the file may exist and read `files[].path` of the `--json` result.
+- **Hydraulik, Hydrograf:** only `fetch_pmaxtp(latitude, longitude, method=…)` (Hydraulik
+  `src/hydraulik/data.py:347` in the proof-of-concept worktree, pin `v2.1.1`; Hydrograf
+  `backend/scripts/preprocess_precipitation.py:169` and `analyze_watershed.py:348`, pin `v2.1.0`),
+  unchanged and compatible with the 3.0.0 signature: change the pin to the 3.0.0 tag when it exists.
+  Neither reads the store or uses the names above.
 
 ## [3.0.0] — 2026-10-19
 
@@ -140,7 +685,7 @@ Dotyczy integracji pisanych na gałęzi przed dodaniem dostawcy ČHMÚ i wsparci
 
 | Było | Jest |
 |---|---|
-| `imgw fetch hydro -i dobowe -y 2023 -m 1 [-p H] [-o KAT]` | `imgw datasets download -d hydro/dobowe -y 2023 -m 1 [--params H] [-o KAT]` (`-d` wymagane, bez domyślnego interwału); `-o` odwzorowuje ścieżki serwera IMGW, zapis przez `.part` i `os.replace` |
+| `imgw fetch hydro -i dobowe -y 2023 -m 1 [-p H] [-o KAT]` | `imgw datasets download -d hydro/dobowe -y 2023 -m 1 [--params H] [-o KAT]` (`-d` wymagane, bez domyślnego interwału); `-o` (`--output-dir`) zapisuje zwykłe pliki w układzie ścieżek serwera IMGW przez katalog `.imgw-incoming/` i `os.replace`, istniejący plik wymaga `--force` |
 | `imgw fetch meteo -i miesieczne -s synop -y 2023 [-o KAT]` | `imgw datasets download -d meteo/miesieczne/synop -y 2023 [-o KAT]` |
 | `imgw fetch current hydro\|meteo\|synop [-s ID] [-o PLIK]` | `imgw current hydro\|meteo\|synop [-s KOD]` (zapis: `> PLIK`) |
 | `imgw fetch pmaxtp -m AMP --lat … --lon … [-o PLIK]` | `imgw pmaxtp fetch --method AMP --lat … --lon …` |
@@ -151,7 +696,7 @@ Dotyczy integracji pisanych na gałęzi przed dodaniem dostawcy ČHMÚ i wsparci
 | `imgw store check\|sync --dataset K` | `--datasets K` albo `-d K` |
 | `imgw store read …` | `imgw store export …` |
 | `imgw pmaxtp check\|sync\|read --method M` (wymagane) | opcjonalne, domyślnie `POT`; `--lat`/`--lon` to aliasy `--latitude`/`--longitude` |
-| `imgw series export … --path P` (wymagane) | `--path` opcjonalne (bez niego CSV na stdout) |
+| `imgw series export … --path P` (wymagane) | `--output P` opcjonalne (bez niego CSV na stdout), `--force` zastępuje istniejący plik |
 | `--check` przy `store check`, `pmaxtp check`, `project check` | brak |
 | stdout: surowy wynik, ścieżki bezwzględne | koperta `imgw-result/1` w jednej linii, ścieżki w magazynie względne do root |
 | błąd: `Błąd: …` na stderr (komendy legacy: stdout), kod 1 | JSON `{"code", "detail", "details"}` w ostatniej linii stderr, kod według rejestru błędów; wynik `partial`/`failed` → 10/11, anulowanie 130 |
@@ -213,8 +758,9 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
 
 - **Wersjonowany magazyn** (`imgwtools.store`, re-eksport w `imgwtools`): niezmienne,
   tylko przyrostowe wersje archiwów IMGW 1:1 z sidecarem `*.meta.json` (SHA-256, rozmiar,
-  nagłówki HTTP, licencja IMGW-PIB), atomowa publikacja katalogu wersji (rename bez
-  zastępowania), staging `.incoming/`, wykrywanie katalogów Kartografa bez jego importu.
+  nagłówki HTTP, licencja IMGW-PIB), publikacja ze stagingu `.incoming/` dowiązaniami
+  twardymi bez zastępowania celu, z sidecarem pliku głównego dowiązywanym na końcu
+  (zatwierdza wersję; model Kartografa), wykrywanie katalogów Kartografa bez jego importu.
   Funkcje: `init_store`, `open_store`, `write_archive`, `check_store`/`sync_store`
   (listing + `HEAD`, plan `imgw-plan/1`, pozycje `stale_plan`), `check_series`/`build_series`
   (Parquet per stacja), `check_catalog`/`build_catalog` (`stations.geojson`, obrys
@@ -475,6 +1021,11 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
   `hydro_stations_locations.csv` (wpis `hydro` bez nazwy, `active=false`, położenie
   `static`); kody wyłącznie z pliku użytkownika trafiają do `problems` (plik ten tylko
   uzupełnia położenia).
+- Katalog stacji IMGW-PIB podaje `meteo_kind` stacji meteorologicznej z bieżących
+  szeregów: `climate` — stacja w szeregu `pl.imgw.meteo_climate_daily`, w przeciwnym
+  razie `precipitation` — w szeregu `pl.imgw.meteo_precip_daily`, bez takiego szeregu
+  `null` (ČHMÚ zawsze `null`); `check_catalog` zgłasza zmianę `meteo_kind` jako `newer`
+  akcji indeksów szeregów (ADR-001, errata 2026-10-19).
 - `summarize_coverage` i `series.json`: w zbiorach miesięcznych i półrocznych
   miesiąc/okres posiadanego archiwum, w którym stacji brak (a inne stacje są), jest luką
   w `gaps` — jak dni w zbiorach dobowych; dla półrocza jednostkę uznaje się za posiadaną
@@ -490,8 +1041,24 @@ zastąpiły `/download/archives` + `POST /download/files`, `/stations/find` i tr
 - Kontrola katalogów Kartografa przed zapisem nie przegląda własnych drzew wersji
   magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `.incoming/`): koszt zapisu
   nie rośnie z liczbą wersji, a uszkodzony sidecar w innym slocie nie blokuje zapisów.
-- `init_store` na systemie plików bez dowiązań twardych (SMB, FAT) zgłasza
-  `IMGWStoreConflictError` (`details.reason="not_atomic"`) z polskim komunikatem.
+- Magazyn wymaga systemu plików z dowiązaniami twardymi, tak jak magazyn Kartografa
+  (jego ADR-036): wersje, obserwacje i znacznik `imgw-store.json` są publikowane
+  `os.link`, które nigdy nie zastępuje celu, więc zapis działa na Linuksie, macOS
+  i Windows (ext4, APFS, NTFS, udział SMB z dowiązaniami twardymi). System plików bez
+  dowiązań (FAT, exFAT, część NAS i FUSE, klient SMB macOS) daje w `init_store` i każdym
+  zapisie `IMGWStoreConflictError` (`details.reason="not_atomic"`) z polskim
+  komunikatem; odczyt dowiązań nie wymaga. `fsync` katalogu jest pomijany na Windows
+  i na systemach plików, które go nie obsługują (ADR-001, errata 2026-10-19).
+- Katalog wersji bez sidecara pliku głównego to przerwana publikacja, nie wersja:
+  `current_version` i zapis go pomijają, `iter_store` zgłasza go jako `missing_sidecar`
+  (także gdy brakuje pliku głównego), a następny zapis tej samej treści pod tą samą
+  etykietą go uzupełnia. Błąd albo Ctrl+C w trakcie publikacji nie usuwa dowiązanych
+  plików danych (mógł je przejąć równoległy zapis tych samych bajtów i zatwierdzić
+  swoim sidecarem) — zostaje przerwana publikacja, a znikają tylko puste katalogi
+  utworzone przez ten zapis. Etykieta katalogu stacji to data budowy, a PMAXTP
+  i archiwum bez `Last-Modified` — data pobrania (UTC): przerwaną publikację, której nie
+  dokończy ponowienie innego dnia ani zapis innej treści, usuwa się ręcznie (cały
+  katalog `<label>_<sha8>/` bez sidecara), gdy nie trwa żaden zapis do magazynu.
 - `iter_store` zgłasza wersję szeregu z nieobsługiwanym `extra.series_schema`
   (np. `imgw-series/2`) jako problem `unknown_schema`; `current_version` dla takiego
   slotu kończy się `IMGWDataError`.
@@ -537,8 +1104,9 @@ bajty co bez dostawcy ČHMÚ.
 
 ### Zmienione
 
-- Domyślnie serwer nadal tylko generuje URL-e do IMGW; dane trafiają na dysk wyłącznie
-  po jawnym wskazaniu magazynu (`--root`, `IMGW_STORE_ROOT`) lub katalogu `--output`.
+- Domyślnie serwer nadal tylko generuje URL-e do IMGW; dane trafiają na dysk wyłącznie na polecenie
+  użytkownika (`--output-dir`, `--output`, `--root`, `IMGW_ROOT` albo domyślny magazyn `<data_dir>/imgw`)
+  albo do `IMGW_ROOT` skonfigurowanego na serwerze.
 - URL-e archiwów (biblioteka, CLI, REST, web) wynikają wyłącznie z rejestru
   `archive_files`, bez zahardkodowanej górnej granicy roku.
 - Lista stacji hydro zachowuje `river_order` (czwarta kolumna CSV) i `hydrographic_code`.
@@ -664,7 +1232,7 @@ bajty co bez dostawcy ČHMÚ.
   opendata.chmi.cz (stacje `0-203-1-001000` i `0-203-0-11799`) przez Python, CLI, REST
   i MCP z dziennikiem żądań każdego interfejsu; przebieg 2026-10-19: 26 passed w 77 s,
   124 żądania, 31,5 MB.
-- 2208 testów (`pytest --collect-only`, 2026-10-19): 2129 offline i 79 na żywo (53 IMGW-PIB,
+- 2213 testów (`pytest --collect-only`, 2026-10-19): 2134 offline i 79 na żywo (53 IMGW-PIB,
   26 ČHMÚ).
 
 ## [2.2.0] — 2026-08-22
@@ -700,4 +1268,4 @@ bajty co bez dostawcy ČHMÚ.
 - URL-e meteo zgodne z rzeczywistym układem serwera IMGW.
 - Zgodność z pyright; audyt dokumentacji.
 
-Starsze wydania: `docs/PROGRESS.md` (sekcja „Wydane wersje”).
+Starsze wydania: `docs/HISTORY.md` (sekcja „Wydane wersje”).

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from imgwtools._parsing import normalize_archive
 from imgwtools._version import __version__
@@ -40,6 +40,7 @@ from imgwtools.exceptions import (
     IMGWValidationError,
     io_error,
 )
+from imgwtools.messages import message, reason
 from imgwtools.models import Flag, Measurement, NormalizedRecord
 from imgwtools.store.types import (
     Cancel,
@@ -57,7 +58,6 @@ from imgwtools.store.types import (
 )
 from imgwtools.store.writer import (
     _canonical,
-    _check_kartograf,
     _cleanup,
     _fsync_dir,
     _is_register,
@@ -65,17 +65,20 @@ from imgwtools.store.writer import (
     _utc,
     _validate_slot,
     _write_json,
-    open_store,
+    lenient_store,
+    refuse_root,
+    root_conflict_plan,
+    version_file,
 )
 
-SERIES_SCHEMA = "imgw-series/1"
+SERIES_SCHEMA: Final = "imgw-series/1"
 SeriesState = Literal["current", "outdated", "missing"]
 
 _FLAGS = ("value", "missing", "no_phenomenon", "accumulated")
 _PERIODS = ("winter", "summer", "annual")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _INT8 = range(-128, 128)
-_CANCELLED = "anulowano"
+_CANCELLED = message("common.cancelled")
 _CHUNK = 1024 * 1024
 
 
@@ -90,11 +93,11 @@ class _Version:
 
     @property
     def sha256(self) -> str:
-        return self.meta["sha256"]
+        return str(self.meta["sha256"])
 
     @property
     def label(self) -> str:
-        return self.meta["extra"]["version"]["label"]
+        return str(self.meta["extra"]["version"]["label"])
 
     @property
     def http(self) -> Mapping[str, Any]:
@@ -108,7 +111,7 @@ class _Input:
 
 
 def _root(root: PathArg | StoreHandle) -> Path:
-    return open_store(root.root if isinstance(root, StoreHandle) else root).root
+    return lenient_store(root).root
 
 
 def _series_descriptor(dataset: str) -> DatasetDescriptor:
@@ -120,7 +123,11 @@ def _series_descriptor(dataset: str) -> DatasetDescriptor:
     ]
     if descriptor.key not in allowed:
         raise IMGWValidationError(
-            f"Zbiór {dataset} nie tworzy szeregów pomiarowych; dozwolone: {', '.join(allowed)}",
+            message(
+                "series.dataset_does_not_build_measurement",
+                dataset=dataset,
+                allowed=", ".join(allowed),
+            ),
             details={"option": "dataset", "value": dataset, "allowed": allowed},
         )
     return descriptor
@@ -175,19 +182,23 @@ def _read_versions(root: Path, slot: str, name: str) -> list[_Version]:
                 or main.is_symlink()
                 or meta_path.is_symlink()
             ):
-                raise ValueError("dowiązanie lub plik zamiast katalogu wersji")
+                raise ValueError(message("series.link_file_instead_version_directory"))
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             if meta["schema"] != "imgw-meta/1" or not main.is_file():
-                raise ValueError("nieznany schemat lub brak pliku głównego")
+                raise ValueError(message("series.unknown_schema_no_main_file"))
             if not isinstance(meta["sha256"], str) or not isinstance(
                 meta["extra"]["version"]["label"], str
             ):
-                raise ValueError("brak sumy lub etykiety wersji")
+                raise ValueError(message("series.no_checksum_label_version"))
             _content_fields(meta)
             _downloaded(meta)
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWDataError(
-                f"Uszkodzona wersja archiwum {version_dir.relative_to(root).as_posix()}: {exc}"
+                message(
+                    "series.corrupt_archive_version",
+                    version_dir=version_dir.relative_to(root).as_posix(),
+                    exc=reason(exc),
+                )
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
@@ -227,7 +238,7 @@ def _content_fields(meta: Mapping[str, Any]) -> dict[str, str]:
         and isinstance(fields["content_form"], str)
         and fields["content_form"]
     ):
-        raise ValueError("niepoprawna para content_sha256 i content_form")
+        raise ValueError(message("series.invalid_pair_content_sha256_content"))
     return fields
 
 
@@ -241,10 +252,22 @@ def _restore_archive(dataset: str, meta: Mapping[str, Any]) -> ArchiveFile:
         else None
     )
     if archive is None:
-        raise ValueError(f"ścieżka {server_path} nie należy do zbioru {dataset}")
+        raise ValueError(
+            message(
+                "series.path_does_not_belong_dataset",
+                server_path=server_path,
+                dataset=dataset,
+            )
+        )
     for key in ("year", "month", "station_code", "param"):
         if key in request and request[key] != getattr(archive, key):
-            raise ValueError(f"request.{key} nie odpowiada ścieżce {server_path}")
+            raise ValueError(
+                message(
+                    "series.request_does_not_match_path",
+                    key=key,
+                    server_path=server_path,
+                )
+            )
     return archive
 
 
@@ -269,15 +292,22 @@ def _scan_inputs(
                 continue
             if current.meta.get("dataset") != descriptor.key:
                 raise IMGWDataError(
-                    f"Wersja {current.relative} należy do innego zbioru"
+                    message(
+                        "series.version_belongs_another_dataset",
+                        relative=current.relative,
+                    )
                 )
             archive = _restore_archive(descriptor.key, current.meta)
             if _slot_of(archive) != slot:
                 raise IMGWDataError(
-                    f"Wersja {current.relative} nie odpowiada slotowi {slot}"
+                    message(
+                        "series.version_does_not_match_slot",
+                        relative=current.relative,
+                        slot=slot,
+                    )
                 )
         except (IMGWError, ValueError, KeyError, TypeError) as exc:
-            problems.append(str(exc))
+            problems.append(reason(exc))
             continue
         inputs.append(_Input(archive, current))
     inputs.sort(key=lambda item: item.version.slot)
@@ -383,7 +413,7 @@ def check_series(
         Receives an ``archive_failed`` error for every unreadable archive slot.
     cancel : Cancel or None, optional
         Polled before each input; once it returns ``True`` the remaining inputs are
-        listed as ``unverifiable`` with error ``"anulowano"``.
+        listed as ``unverifiable`` with error ``"cancelled"``.
 
     Returns
     -------
@@ -404,8 +434,11 @@ def check_series(
     IMGWValidationError
         If ``dataset`` is unknown or does not produce measurement series.
     """
-    path = _root(root)
     descriptor = _series_descriptor(dataset)
+    refused = root_conflict_plan("series build", root)
+    if refused is not None:
+        return refused
+    path = _root(root)
     inputs, problems = _scan_inputs(path, descriptor)
     items: list[PlanItem] = []
     cancelled = False
@@ -433,14 +466,14 @@ def check_series(
                     len(inputs),
                     "archive",
                     "current",
-                    f"Wejście szeregu {item.version.relative}",
+                    message("series.input_progress", relative=item.version.relative),
                 )
             )
     state = _series_state(path, descriptor, inputs, reliable=not problems)
     detail = {
-        "current": f"Szereg {descriptor.slug} odpowiada bieżącym archiwom",
-        "outdated": f"Szereg {descriptor.slug} wymaga przebudowy",
-        "missing": f"Brak szeregu {descriptor.slug}",
+        "current": message("series.series_current", slug=descriptor.slug),
+        "outdated": message("series.series_needs_rebuild", slug=descriptor.slug),
+        "missing": message("series.series_missing", slug=descriptor.slug),
     }[state]
     action_status: dict[SeriesState, Literal["current", "newer", "missing"]] = {
         "current": "current",
@@ -455,7 +488,9 @@ def check_series(
     if not inputs:
         actions.append(
             PlanAction(
-                "series build", "missing", f"Brak archiwów zbioru {dataset} w magazynie"
+                "series build",
+                "missing",
+                message("series.no_archives_of_dataset", dataset=dataset),
             )
         )
     return StorePlan(
@@ -475,11 +510,18 @@ def _pyarrow() -> tuple[Any, Any]:
         import pyarrow.parquet
     except ImportError as exc:
         raise IMGWStoreDependencyError(
-            "Budowa szeregów Parquet wymaga pakietu pyarrow>=15. Zainstaluj dodatek: pip install imgwtools[store]"
+            message(
+                "series.building_parquet_series_needs_package",
+                install=message("errors.store_extra"),
+            )
         ) from exc
     if int(pyarrow.__version__.split(".")[0]) < 15:
         raise IMGWStoreDependencyError(
-            f"Wymagany pyarrow>=15 (zainstalowano {pyarrow.__version__}). Zainstaluj dodatek: pip install imgwtools[store]"
+            message(
+                "series.pyarrow_15_required_version_installed",
+                version=pyarrow.__version__,
+                install=message("errors.store_extra"),
+            )
         )
     return pyarrow, pyarrow.parquet
 
@@ -563,18 +605,35 @@ def _collect(
         measurement = _shared(shared, value, flag, quality, source_flag)
         previous = columns.get(variable)
         if previous is not None and previous != measurement:
-            raise IMGWDataError(f"Sprzeczne wartości {variable} stacji {code} z {day}")
+            raise IMGWDataError(
+                message(
+                    "series.conflicting_values_station",
+                    variable=variable,
+                    code=code,
+                    day=day,
+                )
+            )
         columns[variable] = measurement
     for variable, bounds in extrema:
         dates = station.extrema.setdefault(key, {})
         if dates.get(variable, bounds) != bounds:
-            raise IMGWDataError(f"Sprzeczne daty ekstremum {variable} stacji {code}")
+            raise IMGWDataError(
+                message(
+                    "series.conflicting_dates_extremum_station",
+                    variable=variable,
+                    code=code,
+                )
+            )
         dates[variable] = bounds
     for variable, count in occurrences:
         counts = station.occurrences.setdefault(key, {})
         if counts.get(variable, count) != count:
             raise IMGWDataError(
-                f"Sprzeczna liczba wystąpień ekstremum {variable} stacji {code}"
+                message(
+                    "series.conflicting_number_occurrences_extremum_station",
+                    variable=variable,
+                    code=code,
+                )
             )
         counts[variable] = count
     station.hydro_years.add(hydro_year)
@@ -604,18 +663,27 @@ class _Spill:
         """Validate one record and queue it for the file of its station."""
         code = record.station_code
         if code not in self.stations and not self._code.fullmatch(code):
-            raise IMGWDataError(f"Nieprawidłowy kod stacji: {code!r}")
+            raise IMGWDataError(message("series.invalid_station_code", code=code))
         measurements: list[tuple[str, float | None, Flag, int | None, str | None]] = []
         for variable, measurement in record.measurements.items():
             if variable not in self._descriptor.variables:
                 raise IMGWDataError(
-                    f"Nieznana zmienna {variable} w zbiorze {self._descriptor.key}"
+                    message(
+                        "series.unknown_variable_dataset",
+                        variable=variable,
+                        key=self._descriptor.key,
+                    )
                 )
             if (measurement.value is None) != (
                 measurement.flag == "missing"
             ) or measurement.flag not in _FLAGS:
                 raise IMGWDataError(
-                    f"Niespójna flaga {measurement.flag} zmiennej {variable} stacji {code}"
+                    message(
+                        "series.inconsistent_flag_variable_station",
+                        flag=measurement.flag,
+                        variable=variable,
+                        code=code,
+                    )
                 )
             # Fields the dataset does not declare must stay empty: the Parquet
             # file has no column for them. Quality is stored as int8.
@@ -628,8 +696,14 @@ class _Spill:
                 or (self._source_flag and isinstance(source_flag, str))
             ):
                 raise IMGWDataError(
-                    f"Niedozwolona jakość {quality!r} lub flaga źródła "
-                    f"{source_flag!r} zmiennej {variable} stacji {code} z {record.date}"
+                    message(
+                        "series.disallowed_quality_source_flag_variable",
+                        quality=quality,
+                        source_flag=source_flag,
+                        variable=variable,
+                        code=code,
+                        date=record.date,
+                    )
                 )
             measurements.append(
                 (variable, measurement.value, measurement.flag, quality, source_flag)
@@ -784,8 +858,12 @@ def _spill_station_file(
     for record in records:
         if record.station_code != code:
             raise IMGWDataError(
-                f"Rekord stacji {record.station_code} w pliku stacji {code}: "
-                f"{archive.server_path}"
+                message(
+                    "series.record_station_file_station",
+                    station_code=record.station_code,
+                    code=code,
+                    server_path=archive.server_path,
+                )
             )
         spill.add(record)
         if first is None or record.date < first:
@@ -840,14 +918,21 @@ def _copy_hashed(source: Path, target: Path) -> str:
 
 
 def _report(
-    status: Literal["created", "reused", "cancelled", "failed"],
+    status: Literal["new", "unchanged", "cancelled", "failed"],
     *,
     version: Path | None = None,
     stations: int = 0,
     sources: Iterable[Path] = (),
     problems: Iterable[str] = (),
 ) -> SeriesReport:
-    return SeriesReport(status, version, stations, tuple(sources), tuple(problems))
+    files = (
+        (version_file(version, status),)
+        if version is not None and status in ("new", "unchanged")
+        else ()
+    )
+    return SeriesReport(
+        status, version, stations, tuple(sources), tuple(problems), files
+    )
 
 
 def build_series(
@@ -866,7 +951,7 @@ def build_series(
     writes one Parquet file per station plus ``series.json`` (``imgw-series/1``),
     published atomically as a new version. When the current series version (the
     newest build) was built from the same input manifest (slot and full SHA-256
-    of every input) it is returned as ``reused`` without invoking the Parquet
+    of every input) it is returned as ``unchanged`` without invoking the Parquet
     writer. An older version with that manifest (inputs reverted to earlier
     content) is never reused: a new version is built and becomes current. Parsed
     records are validated and spilled per station to compressed temporary files
@@ -895,7 +980,7 @@ def build_series(
         dataset.
     on_progress : ProgressHook or None, optional
         Called after each parsed archive and each written station file, or once
-        for a reused version.
+        for an unchanged version.
     on_notice : NoticeHook or None, optional
         Receives ``archive_failed`` errors for unreadable inputs, a
         ``leftover_incoming`` warning for every removed staging directory older
@@ -908,28 +993,29 @@ def build_series(
     Returns
     -------
     SeriesReport
-        Status ``created``, ``reused``, ``cancelled`` or ``failed``; ``version`` is
+        Status ``new``, ``unchanged``, ``cancelled`` or ``failed``; ``version`` is
         the path of ``series.json``, ``source_files`` the absolute paths of the input
-        archive versions (for ``reused``, the inputs recorded in the reused
+        archive versions (for ``unchanged``, the inputs recorded in the existing
         current version's sidecar) and ``problems`` the reasons of a failure.
 
     Raises
     ------
     IMGWStoreError
-        If ``root`` is not a supported IMGW store or collides with a Kartograf
-        store or project.
+        If ``root`` is not a supported IMGW store (``store_unavailable``).
     IMGWValidationError
         If ``dataset`` is unknown or does not produce measurement series.
     IMGWStoreDependencyError
         If ``pyarrow>=15`` is not installed.
     IMGWStoreConflictError
-        If the version cannot be published atomically or its directory collides
-        with a different version.
+        If ``root`` nests a store (``details.reason`` ``nested_store``) or holds
+        other files and is no store (``not_empty``), the version cannot be
+        published atomically or its directory collides with a different
+        version.
     """
+    refuse_root(root)
     path = _root(root)
     descriptor = _series_descriptor(dataset)
     pa, pq = _pyarrow()
-    _check_kartograf(path)
 
     def cancelled() -> bool:
         return cancel is not None and cancel()
@@ -945,7 +1031,8 @@ def build_series(
         return _report("failed", sources=sources, problems=problems)
     if not inputs:
         return _report(
-            "failed", problems=[f"Brak archiwów zbioru {dataset} w magazynie"]
+            "failed",
+            problems=[message("series.no_archives_of_dataset", dataset=dataset)],
         )
     manifest = _manifest(inputs)
     current = _current_series(_series_versions(path, descriptor))
@@ -961,12 +1048,12 @@ def build_series(
                     1,
                     1,
                     "series",
-                    "reused",
-                    f"Szereg {descriptor.slug} bez zmian wejść",
+                    "unchanged",
+                    message("series.series_inputs_unchanged", slug=descriptor.slug),
                 )
             )
         return _report(
-            "reused",
+            "unchanged",
             version=current.path,
             stations=len(series["stations"]),
             sources=recorded,
@@ -993,7 +1080,10 @@ def build_series(
                 data = item.version.file.read_bytes()
                 if hashlib.sha256(data).hexdigest() != item.version.sha256:
                     raise IMGWDataError(
-                        f"Suma kontrolna nie zgadza się z sidecarem: {item.version.relative}"
+                        message(
+                            "series.checksum_does_not_match_sidecar",
+                            relative=item.version.relative,
+                        )
                     )
                 # Records go to their station files and are dropped: neither the
                 # parsed records nor the values of all stations stay in memory.
@@ -1011,14 +1101,16 @@ def build_series(
                             len(inputs),
                             "archive",
                             "parsed",
-                            f"Odczytano {item.version.relative}",
+                            message(
+                                "series.archive_read", relative=item.version.relative
+                            ),
                         )
                     )
             spill.flush()
         except (IMGWDataError, IMGWValidationError, OSError) as exc:
             if on_notice is not None:
-                on_notice(Notice("error", "archive_failed", str(exc)))
-            return _report("failed", sources=sources, problems=[str(exc)])
+                on_notice(Notice("error", "archive_failed", reason(exc)))
+            return _report("failed", sources=sources, problems=[reason(exc)])
         station_periods = {code: _merge_spans(items) for code, items in spans.items()}
 
         incoming = path / ".incoming"
@@ -1036,8 +1128,8 @@ def build_series(
                     station = spill.station(code)
                 except IMGWDataError as exc:
                     if on_notice is not None:
-                        on_notice(Notice("error", "archive_failed", str(exc)))
-                    return _report("failed", sources=sources, problems=[str(exc)])
+                        on_notice(Notice("error", "archive_failed", reason(exc)))
+                    return _report("failed", sources=sources, problems=[reason(exc)])
                 table = _station_table(pa, station, descriptor)
                 periods = station_periods[code] if per_station else None
                 coverage = _station_coverage(
@@ -1061,7 +1153,13 @@ def build_series(
                 index_stations[code] = entry
                 if on_progress is not None:
                     on_progress(
-                        Progress(number, total, "station", "written", f"Stacja {code}")
+                        Progress(
+                            number,
+                            total,
+                            "station",
+                            "written",
+                            message("series.station_progress", code=code),
+                        )
                     )
             _fsync_dir(staging / "stations")
             series = {
@@ -1161,7 +1259,7 @@ def build_series(
                     ):
                         # A concurrent build of the same inputs published first.
                         return _report(
-                            "reused",
+                            "unchanged",
                             version=target / "series.json",
                             stations=len(index_stations),
                             sources=sources,
@@ -1172,16 +1270,18 @@ def build_series(
                         Notice(
                             "info",
                             "license_terms",
-                            f"{license_info['attribution']}. {provider.notice}",
+                            provider.license_notice(license_info["attribution"]),
                         )
                     )
                 return _report(
-                    "created",
+                    "new",
                     version=target / "series.json",
                     stations=len(index_stations),
                     sources=sources,
                 )
-            raise IMGWStoreConflictError(f"Kolizja katalogu wersji szeregu: {parent}")
+            raise IMGWStoreConflictError(
+                message("series.series_version_directory_collision", parent=parent)
+            )
         finally:
             if staging.exists():
                 shutil.rmtree(staging)

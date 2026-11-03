@@ -1,44 +1,52 @@
 """
-Catalog of the 37 data commands and the single dispatcher of public functions.
+Catalog of the 30 data commands and the single dispatcher of public functions.
 
 ``data_commands`` describes every operation of IMGWTools (spec §13.3). Each
 command calls exactly one public function whose parameters carry the option
-names; the CLI, the REST API, the web GUI and projects use `validate_command`,
+names; the CLI, the REST API and the web GUI use `validate_command`,
 `format_command`, `check_command`, `run_command` and `command_schema` instead
 of their own validation, HTTP requests or option lists. `run_command` and
-`check_command` return the ``imgw-result/1`` envelope `CommandResult`.
+`check_command` return the ``imgw-result/1`` envelope `CommandResult`;
+`parse_command` reads an ``imgw`` line into the call it makes (`CommandCall`),
+with the flags the CLI has, and `format_command` writes the canonical line of a
+call.
 
-Texts for humans are Polish with an English variant of the same information
-(``help_en``, ``description_en``, ``rules_en``, group titles); every command
+Texts for humans (option help, descriptions, rules, group titles) are catalog
+messages (``imgwtools.messages.commands``): English, with a Polish variant that
+`command_schema` renders on request; every command
 declares its effects (``writes``, ``network``) for adapters that must not
 write or connect without a decision of the user (spec 2026-10-19 §3–§4).
 """
 
+import copy
 import importlib
 import inspect
-import json
 import math
 import os
 import re
 import shlex
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, NoReturn, cast
 
 from imgwtools import fetch as _fetch
 from imgwtools import stations as _stations
 from imgwtools import store as _store
+from imgwtools._examples import EXAMPLES
 from imgwtools._version import __version__
+from imgwtools.config import store_root
 from imgwtools.datasets import (
+    _CATALOG_DATASETS,
     STATION_CODE_PATTERN,
     ArchiveFile,
     DatasetDescriptor,
     MonthsArg,
     ProviderDescriptor,
     YearsArg,
+    _archive_from_path,
     archive_files,
     datasets,
     get_dataset,
@@ -50,25 +58,36 @@ from imgwtools.datasets import (
 from imgwtools.exceptions import (
     ERROR_CODES,
     IMGWCancelledError,
+    IMGWDataError,
     IMGWError,
+    IMGWStoreError,
     IMGWValidationError,
+    io_error,
 )
+from imgwtools.messages import LANGS, Lang, localize, message, reason
+from imgwtools.store import export as _export
 from imgwtools.store import reader as _reader
 from imgwtools.store import sync as _sync
+from imgwtools.store import writer as _writer
+from imgwtools.store.catalog import _NESTED_CATALOGS, CATALOG_FILE
+from imgwtools.store.plain import plain_actions
+from imgwtools.store.pmaxtp import CELL_FILE, RESPONSE_FILE
 from imgwtools.store.types import (
     Cancel,
     CatalogReport,
+    CommandCall,
     CommandOption,
     CommandResult,
     DataCommand,
     DownloadReport,
+    Meta,
     Notice,
     NoticeHook,
     Page,
+    PathArg,
     PlanAction,
     PMaXTPStoreResult,
     ProgressHook,
-    ProjectReport,
     SeriesReport,
     StorePlan,
     SyncReport,
@@ -77,52 +96,42 @@ from imgwtools.store.types import (
 from imgwtools.urls import build_api_url, build_pmaxtp_url
 
 __all__ = [
-    "LANGS",
-    "Lang",
     "check_command",
+    "command_for_version",
     "command_schema",
     "data_commands",
     "format_command",
+    "list_commands",
+    "parse_command",
     "run_command",
     "validate_command",
 ]
 
-Lang = Literal["pl", "en"]
-LANGS: tuple[Lang, ...] = ("pl", "en")
-"""Languages of the catalog texts; Polish is the default (spec 2026-10-19 §4)."""
-
 Options = dict[str, Any]
 Hooks = dict[str, Any]
 Status = Literal["ok", "partial", "failed", "cancelled"]
-OptionType = Literal[
-    "str", "int", "float", "bool", "date", "path", "list", "choice", "object"
-]
+OptionType = Literal["str", "int", "float", "bool", "date", "path", "list", "choice"]
 ItemType = Literal["str", "int", "year", "choice"]
 Checker = Callable[[Options, Hooks], StorePlan]
-Rule = Callable[[Options, bool], None]
+Rule = Callable[[Options], None]
 
-PROJECT_FILE = "imgw-project.json"
+# Prefix of the operation ids: REST ``operationId`` and MCP tool names (ECO-018).
+_TOOL = "imgw"
 _STORE_MARKER = "imgw-store.json"
-# Default download directory; projects resolve it against the project directory.
-_DEFAULT_OUTPUT = Path("data/downloaded")
 _DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _RANGE = "^[0-9]{1,4}-[0-9]{1,4}$"
 _STATION = STATION_CODE_PATTERN
 # Live IMGW-PIB readings accept only IMGW-PIB codes.
 _IMGW_STATION = "^[0-9]{9}$"
 _SYNOP_STATION = "^[0-9]{5}$"
-_TASK_PATTERN = "^[a-z0-9][a-z0-9_-]{0,63}$"
-_TASK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _PATTERN_TEXT = {
-    _STATION: "kod stacji z 9 cyfr (IMGW-PIB) albo identyfikator WIGOS, "
-    "np. 0-203-1-001000",
-    _IMGW_STATION: "kod stacji IMGW-PIB z 9 cyfr",
-    _SYNOP_STATION: "kod stacji synoptycznej z 5 cyfr",
-    _TASK_PATTERN: "nazwa zadania z 1–64 znaków a-z, 0-9, _ lub -, "
-    "zaczynająca się literą lub cyfrą",
+    _STATION: message("commands.pattern_station"),
+    _IMGW_STATION: message("commands.pattern_imgw_station"),
+    _SYNOP_STATION: message("commands.pattern_synop_station"),
 }
 _INTEGER = re.compile(r"-?[0-9]+")
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_SENTENCE_BREAK = re.compile(r"[.!?]\s+(?=\S)")
 _KINDS = ("hydro", "meteo")
 _YEAR_TYPES = ("hydrological", "calendar")
 # Datasets with source files (spec 2026-10-18 §9.3: 10 IMGW-PIB and 2 ČHMÚ);
@@ -140,44 +149,16 @@ _SERIES_DATASETS = tuple(
 _PROVIDERS = tuple(provider.id for provider in providers())
 # Groups reading the sources of one provider only (spec 2026-10-18 §9.3).
 _GROUP_PROVIDERS = {"current": "IMGW-PIB", "pmaxtp": "IMGW-PIB"}
-# Commands a project task may store in the manifest (spec §13.3).
-_TASK_COMMANDS = (
-    "store info",
-    "store scan",
-    "store check",
-    "store sync",
-    "store catalog",
-    "series build",
-    "series select",
-    "series export",
-    "pmaxtp check",
-    "pmaxtp sync",
-    "pmaxtp read",
-    "datasets download",
-)
-# Options of paths relative to the project directory, kept as given.
-_PROJECT_PATHS = ("store_dir", "geometry")
-_DONE = ("created", "relabeled", "unchanged", "reused")
+_DONE = ("new", "relabeled", "unchanged")
 _EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
 _GROUPS = {
-    "datasets": "Rejestr dostawców i zbiorów: lista, pliki i pobieranie",
-    "stations": "Wyszukiwanie stacji",
-    "current": "Dane bieżące z API IMGW",
-    "pmaxtp": "Opady maksymalne PMAXTP",
-    "store": "Wersjonowany magazyn",
-    "series": "Szeregi stacji",
-    "project": "Projekty imgw-project/1",
-    "commands": "Opis katalogu komend",
-}
-_GROUPS_EN = {
-    "datasets": "Registry of providers and datasets: list, files and download",
-    "stations": "Station search",
-    "current": "Current data from the IMGW API",
-    "pmaxtp": "PMAXTP maximum precipitation",
-    "store": "Versioned store",
-    "series": "Station series",
-    "project": "imgw-project/1 projects",
-    "commands": "Description of the command catalog",
+    "datasets": message("commands.group_datasets"),
+    "stations": message("commands.group_stations"),
+    "current": message("commands.group_current"),
+    "pmaxtp": message("commands.group_pmaxtp"),
+    "store": message("commands.group_store"),
+    "series": message("commands.group_series"),
+    "commands": message("commands.group_commands"),
 }
 _STORE_FUNCTIONS = (
     "check_pmaxtp",
@@ -198,16 +179,6 @@ _STORE_FUNCTIONS = (
     "summarize_series",
     "export_series",
 )
-_PROJECT_FUNCTIONS = (
-    "init_project",
-    "add_project_task",
-    "remove_project_task",
-    "set_project_store",
-    "download_project",
-    "check_project",
-    "get_project_status",
-    "verify_project",
-)
 # Public module of every function the catalog dispatches to (resolved per call).
 _MODULES = {
     "datasets": "imgwtools.datasets",
@@ -223,8 +194,8 @@ _MODULES = {
     "fetch_hydro_states": "imgwtools.stations",
     "build_pmaxtp_url": "imgwtools.urls",
     **dict.fromkeys(_STORE_FUNCTIONS, "imgwtools.store"),
-    **dict.fromkeys(_PROJECT_FUNCTIONS, "imgwtools.project"),
     "command_schema": "imgwtools.commands",
+    "list_commands": "imgwtools.commands",
     "agent_guide": "imgwtools.agent_guide",
 }
 
@@ -236,7 +207,6 @@ def _option(
     name: str,
     type_: OptionType,
     help_: str,
-    help_en: str,
     *,
     required: bool = False,
     choices: Iterable[str] = (),
@@ -248,6 +218,8 @@ def _option(
     pattern: str | None = None,
     rest: Literal["param", "server", "local"] = "param",
     writes: Writes = "none",
+    path_role: Literal["input", "output", "root"] | None = None,
+    store_only: bool = False,
 ) -> CommandOption:
     return CommandOption(
         name,
@@ -263,15 +235,15 @@ def _option(
         maximum=maximum,
         pattern=pattern,
         rest=rest,
-        help_en=help_en,
         writes=writes,
+        path_role=path_role,
+        store_only=store_only,
     )
 
 
 def _command(
     name: str,
     description: str,
-    description_en: str,
     options: Iterable[CommandOption],
     *,
     function: str,
@@ -281,12 +253,23 @@ def _command(
     method: Literal["GET", "POST"] | None = None,
     requires: Mapping[str, tuple[str, ...]] | None = None,
     one_of: tuple[tuple[str, ...], ...] = (),
-    rules: tuple[tuple[str, str], ...] = (),
+    rules: tuple[str, ...] = (),
     writes: Writes = "none",
     network: bool = False,
+    idempotent: bool = True,
     env_root_when: Mapping[str, str] | None = None,
+    exclusive: tuple[tuple[str, ...], ...] = (),
+    store_only: bool = False,
 ) -> tuple[DataCommand, str]:
-    """Catalog entry; ``rules`` are (Polish, English) pairs of one rule each."""
+    """
+    Catalog entry; ``rules`` are the catalog messages of one rule each.
+
+    ``one_of`` is a pair of alternative option groups (the refusal names both).
+    """
+    if len(one_of) not in (0, 2):
+        raise ValueError(f"one_of of {name} must be a pair of option groups")
+    if store_only:
+        rules = (*rules, message("commands.store_only_rule"))
     listed = (*options, _LIMIT, _OFFSET) if result == "list" else tuple(options)
     command = DataCommand(
         name,
@@ -298,12 +281,13 @@ def _command(
         method=method,
         requires=dict(requires or {}),
         one_of=one_of,
-        rules=tuple(polish for polish, _ in rules),
-        description_en=description_en,
-        rules_en=tuple(english for _, english in rules),
+        rules=rules,
         writes=writes,
         network=network,
+        idempotent=idempotent,
         env_root_when=dict(env_root_when or {}),
+        exclusive=exclusive,
+        store_only=store_only,
     )
     return command, result_type
 
@@ -311,36 +295,15 @@ def _command(
 _ROOT = _option(
     "root",
     "path",
-    "Katalog magazynu IMGW (CLI: domyślnie $IMGW_STORE_ROOT)",
-    "IMGW store directory (CLI: defaults to $IMGW_STORE_ROOT)",
-    required=True,
+    message("commands.root_help"),
     aliases=("-r",),
     rest="server",
-)
-_PROJECT_DIR = _option(
-    "project_dir",
-    "path",
-    "Katalog projektu z manifestem imgw-project.json",
-    "Project directory with the imgw-project.json manifest",
-    required=True,
-    rest="local",
-)
-_STORE_DIR = _option(
-    "store_dir",
-    "path",
-    "Katalog magazynu IMGW projektu; ścieżka względna liczona wobec katalogu projektu",
-    "IMGW store directory of the project; a relative path is resolved against the "
-    "project directory",
-    required=True,
-    rest="local",
+    path_role="root",
 )
 _ARCHIVE_DATASET = _option(
     "dataset",
     "choice",
-    "Zbiór archiwalny: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily, "
-    "hydro/dobowe albo cz.chmi.hydro_daily",
-    "Archive dataset: key, slug or legacy alias, e.g. pl.imgw.hydro_daily, "
-    "hydro/dobowe or cz.chmi.hydro_daily",
+    message("commands.archive_dataset_help"),
     required=True,
     choices=_ARCHIVE_DATASETS,
     aliases=("-d",),
@@ -348,18 +311,14 @@ _ARCHIVE_DATASET = _option(
 _SERIES_DATASET = _option(
     "dataset",
     "choice",
-    "Zbiór szeregów: klucz, slug albo alias legacy, np. pl.imgw.hydro_daily",
-    "Series dataset: key, slug or legacy alias, e.g. pl.imgw.hydro_daily",
+    message("commands.series_dataset_help"),
     choices=_SERIES_DATASETS,
     aliases=("-d",),
 )
 _DATASETS = _option(
     "datasets",
     "list",
-    "Zbiory magazynu rozdzielone przecinkami: klucz, slug albo alias legacy; zbiory "
-    "jednego rodzaju: pl.imgw.* albo cz.chmi.*",
-    "Comma-separated store datasets: key, slug or legacy alias; datasets of one "
-    "kind: pl.imgw.* or cz.chmi.*",
+    message("commands.datasets_help"),
     choices=_SERIES_DATASETS,
     items="choice",
     aliases=("-d",),
@@ -367,16 +326,14 @@ _DATASETS = _option(
 _FAMILY = _option(
     "kind",
     "choice",
-    "Rodzaj: hydro albo meteo; brak = obie rodziny",
-    "Kind: hydro or meteo; none = both families",
+    message("commands.family_help"),
     choices=_KINDS,
     aliases=("-k",),
 )
 _YEARS = _option(
     "years",
     "list",
-    "Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022",
-    "Years: numbers or ranges, e.g. 2023-2025 or 2020,2022",
+    message("commands.years_help"),
     items="year",
     minimum=1,
     maximum=9999,
@@ -384,26 +341,16 @@ _YEARS = _option(
 )
 _ARCHIVE_YEARS = replace(
     _YEARS,
-    help="Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022; wymagane poza "
-    "cz.chmi.meteo_daily (tam niedozwolone)",
-    help_en="Years: numbers or ranges, e.g. 2023-2025 or 2020,2022; required except "
-    "for cz.chmi.meteo_daily (not allowed there)",
+    help=message("commands.archive_years_help"),
 )
 _STORE_YEARS = replace(
     _YEARS,
-    help="Roczniki: liczby lub zakresy, np. 2023-2025 albo 2020,2022; wymagane dla "
-    "pl.imgw.*, opcjonalne dla cz.chmi.hydro_daily (brak = lata opublikowane), "
-    "niedozwolone dla cz.chmi.meteo_daily",
-    help_en="Years: numbers or ranges, e.g. 2023-2025 or 2020,2022; required for "
-    "pl.imgw.*, optional for cz.chmi.hydro_daily (none = the published years), not "
-    "allowed for cz.chmi.meteo_daily",
+    help=message("commands.store_years_help"),
 )
 _MONTHS = _option(
     "months",
     "list",
-    "Miesiące 1–12 rozdzielone przecinkami (domyślnie wszystkie); tylko zbiory "
-    "pl.imgw.*",
-    "Comma-separated months 1–12 (default: all); pl.imgw.* datasets only",
+    message("commands.months_help"),
     items="int",
     minimum=1,
     maximum=12,
@@ -412,82 +359,78 @@ _MONTHS = _option(
 _PARAMS = _option(
     "params",
     "list",
-    "Parametry półroczne H, Q, T (tylko pl.imgw.hydro_semiannual; domyślnie wszystkie)",
-    "Semi-annual parameters H, Q, T (pl.imgw.hydro_semiannual only; default: all)",
+    message("commands.params_help"),
     choices=("H", "Q", "T"),
     items="choice",
 )
-_OUTPUT = _option(
-    "output",
+_OUTPUT_DIR = _option(
+    "output_dir",
     "path",
-    "Katalog pobierania odzwierciedlający ścieżki serwera (domyślnie ./data/downloaded)",
-    "Download directory mirroring the server paths (default: ./data/downloaded)",
-    default="./data/downloaded",
+    message("commands.output_dir_help"),
     aliases=("-o",),
     rest="local",
+    writes="add",
+    path_role="output",
+)
+_FORCE = _option(
+    "force",
+    "bool",
+    message("commands.force_help"),
+    default=False,
+    rest="local",
+    writes="replace",
 )
 _STATION_OPTION = _option(
     "station",
     "str",
-    "Kod stacji (9 cyfr IMGW-PIB albo identyfikator WIGOS)",
-    "Station code (9 digits of IMGW-PIB or a WIGOS identifier)",
+    message("commands.station_option_help"),
     pattern=_STATION,
     aliases=("-s",),
 )
 _STATIONS = _option(
     "stations",
     "list",
-    "Kody stacji (9 cyfr IMGW-PIB albo identyfikatory WIGOS) rozdzielone przecinkami",
-    "Comma-separated station codes (9 digits of IMGW-PIB or WIGOS identifiers)",
+    message("commands.stations_help"),
     items="str",
     pattern=_STATION,
     aliases=("-s",),
 )
 _ARCHIVE_STATIONS = replace(
     _STATIONS,
-    help="Kody stacji ČHMÚ (identyfikatory WIGOS, np. 0-203-1-001000) rozdzielone "
-    "przecinkami; wymagane dla zbiorów cz.chmi.*, niedozwolone dla pl.imgw.*",
-    help_en="Comma-separated ČHMÚ station codes (WIGOS identifiers, e.g. "
-    "0-203-1-001000); required for cz.chmi.* datasets, not allowed for pl.imgw.*",
+    help=message("commands.archive_stations_help"),
 )
 _PROVIDER = _option(
     "provider",
     "choice",
-    "Dostawca danych: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy dostawcy",
-    "Data provider: IMGW-PIB or CHMI (ČHMÚ); none = all providers",
+    message("commands.provider_help"),
     choices=_PROVIDERS,
 )
 _VARIABLES = _option(
     "variables",
     "list",
-    "Zmienne zbioru rozdzielone przecinkami, np. H,Q (domyślnie wszystkie)",
-    "Comma-separated dataset variables, e.g. H,Q (default: all)",
+    message("commands.variables_help"),
     items="str",
 )
 _YEAR_TYPE = _option(
     "year_type",
     "choice",
-    "Rodzaj roku: hydrological (XI–X) albo calendar; domyślnie według series.json",
-    "Year type: hydrological (November–October) or calendar; default from series.json",
+    message("commands.year_type_help"),
     choices=_YEAR_TYPES,
 )
 _START = _option(
     "start",
     "date",
-    "Pierwszy dzień zakresu rekordów (ISO RRRR-MM-DD, włącznie)",
-    "First day of the record range (ISO YYYY-MM-DD, inclusive)",
+    message("commands.start_help"),
 )
 _END = _option(
     "end",
     "date",
-    "Ostatni dzień zakresu rekordów (ISO RRRR-MM-DD, włącznie)",
-    "Last day of the record range (ISO YYYY-MM-DD, inclusive)",
+    message("commands.end_help"),
 )
 _LATITUDE = _option(
     "latitude",
     "float",
-    "Szerokość geograficzna punktu WGS84 (49,0–55,0)",
-    "WGS84 latitude of the point (49.0–55.0)",
+    message("commands.latitude_help"),
     required=True,
     minimum=49.0,
     maximum=55.0,
@@ -496,8 +439,7 @@ _LATITUDE = _option(
 _LONGITUDE = _option(
     "longitude",
     "float",
-    "Długość geograficzna punktu WGS84 (14,0–24,5)",
-    "WGS84 longitude of the point (14.0–24.5)",
+    message("commands.longitude_help"),
     required=True,
     minimum=14.0,
     maximum=24.5,
@@ -506,186 +448,109 @@ _LONGITUDE = _option(
 _METHOD = _option(
     "method",
     "choice",
-    "Metoda PMAXTP: POT albo AMP",
-    "PMAXTP method: POT or AMP",
+    message("commands.method_help"),
     choices=("POT", "AMP"),
     default="POT",
 )
 _IND_X = _option(
     "ind_x",
     "int",
-    "Indeks X komórki siatki PMAXTP (razem z --ind-y)",
-    "X index of the PMAXTP grid cell (together with --ind-y)",
+    message("commands.ind_x_help"),
     minimum=0,
 )
 _IND_Y = _option(
     "ind_y",
     "int",
-    "Indeks Y komórki siatki PMAXTP (razem z --ind-x)",
-    "Y index of the PMAXTP grid cell (together with --ind-x)",
+    message("commands.ind_y_help"),
     minimum=0,
 )
 _SERIES_VERSION = _option(
     "version",
     "path",
-    "Wersja szeregu: katalog wersji, series.json albo sidecar; bezwzględna albo "
-    "względna do root (zamiast dataset)",
-    "Series version: version directory, series.json or sidecar; absolute or "
-    "relative to root (instead of dataset)",
+    message("commands.series_version_help"),
+    path_role="input",
 )
 _SERIES_ROOT = replace(
     _ROOT,
     required=False,
-    help="Katalog magazynu: podstawa względnej wersji albo magazyn bieżącej wersji "
-    "zbioru (z dataset)",
-    help_en="Store directory: base of a relative version or store of the current "
-    "version of the dataset (with dataset)",
+    help=message("commands.series_root_help"),
 )
-_PATH = _option(
+# The one file of an export (DEV-19.1): the lines go to the standard output without it.
+_OUTPUT = _option(
+    "output",
     "path",
-    "path",
-    "Plik wyniku poza magazynem, w istniejącym katalogu (domyślnie standardowe wyjście)",
-    "Result file outside the store, in an existing directory (default: standard "
-    "output)",
-    aliases=("-p",),
+    message("commands.output_help"),
     rest="local",
-    writes="replace",
+    writes="add",
+    path_role="output",
 )
+_EXPORT_FORCE = replace(_FORCE, help=message("commands.export_force_help"))
 # Plan file written by the commands that are checks themselves.
 _PLAN_FILE = _option(
     "plan",
     "path",
-    "Plik planu imgw-plan/1 do zapisania poza magazynem",
-    "File to write the imgw-plan/1 plan to, outside the store",
+    message("commands.plan_file_help"),
     rest="local",
     writes="replace",
-)
-_TASKS = _option(
-    "tasks",
-    "list",
-    "Nazwy zadań projektu rozdzielone przecinkami (domyślnie wszystkie)",
-    "Comma-separated names of project tasks (default: all)",
-    items="str",
-    pattern=_TASK_PATTERN,
-    rest="local",
-)
-_TASK_NAME_OPTION = _option(
-    "name",
-    "str",
-    "Nazwa zadania: 1–64 znaki a-z, 0-9, _ lub -, na początku litera lub cyfra",
-    "Task name: 1–64 characters a-z, 0-9, _ or -, starting with a letter or digit",
-    required=True,
-    pattern=_TASK_PATTERN,
-    rest="local",
+    path_role="output",
 )
 # Language of the texts of the description commands (commands schema, commands guide).
 _LANGUAGE = _option(
     "lang",
     "choice",
-    "Język opisów: pl albo en (CLI: domyślnie $IMGW_LANG; REST: według "
-    "Accept-Language)",
-    "Language of the descriptions: pl or en (CLI: defaults to $IMGW_LANG; REST: by "
-    "Accept-Language)",
+    message("commands.language_help"),
     choices=LANGS,
-    default="pl",
+    default="en",
 )
-_LIMIT = _option("limit", "int", "Rozmiar strony", "Page size", minimum=1)
+_LIMIT = _option("limit", "int", message("commands.limit_help"), minimum=1)
 _OFFSET = _option(
-    "offset", "int", "Początek strony", "Start of the page", minimum=0, default=0
+    "offset", "int", message("commands.offset_help"), minimum=0, default=0
 )
 _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
+# force replaces the file of output: without output it has nothing to replace.
+_NEEDS_OUTPUT = {"force": ("output",)}
+# Plain files or the store, never both (DEV-19.1).
+_TARGETS = (("output_dir", "root"),)
 # The conflicting option of version+dataset+root is reported as dataset.
 _VERSION_OR_DATASET = (("version",), ("dataset", "root"))
 # Rules are (Polish, English) pairs.
-_STATIONS_RULE = (
-    "stations wymagane dla zbiorów cz.chmi.* i niedozwolone dla pl.imgw.*; kody "
-    "według gramatyki dostawcy zbioru",
-    "stations required for cz.chmi.* datasets and not allowed for pl.imgw.*; codes "
-    "in the grammar of the dataset's provider",
-)
-_MONTHS_RULE = (
-    "months wyłącznie dla zbiorów pl.imgw.*",
-    "months only for pl.imgw.* datasets",
-)
-_VARIABLES_RULE = (
-    "variables wyłącznie ze zmiennych zbioru",
-    "variables only from the variables of the dataset",
-)
-_START_RULE = ("start nie później niż end", "start not later than end")
-_HALF_YEAR_RULE = (
-    "szereg półroczny wyłącznie z year_type=hydrological",
-    "a semi-annual series only with year_type=hydrological",
-)
-_PATH_RULE = (
-    "path wewnątrz magazynu jest niedozwolona",
-    "path inside the store is not allowed",
-)
+_STATIONS_RULE = message("commands.stations_rule")
+_MONTHS_RULE = message("commands.months_rule")
+_VARIABLES_RULE = message("commands.variables_rule")
+_START_RULE = message("commands.start_rule")
+_HALF_YEAR_RULE = message("commands.half_year_rule")
+_OUTPUT_RULE = message("commands.output_rule")
 _ARCHIVE_RULES = (
-    (
-        "roczniki nie wcześniejsze niż pierwszy rocznik zbioru (first_year)",
-        "years not earlier than the first year of the dataset (first_year)",
-    ),
-    (
-        "years wymagane poza cz.chmi.meteo_daily, którego pliki obejmują całą "
-        "historię stacji (tam years niedozwolone)",
-        "years required except for cz.chmi.meteo_daily, whose files cover the whole "
-        "history of a station (years not allowed there)",
-    ),
+    message("commands.archive_rule_1"),
+    message("commands.archive_rule_2"),
     _STATIONS_RULE,
     _MONTHS_RULE,
-    (
-        "params wyłącznie dla pl.imgw.hydro_semiannual",
-        "params only for pl.imgw.hydro_semiannual",
-    ),
+    message("commands.archive_rule_3"),
 )
 _STORE_RULES = (
-    (
-        "zbiory jednego rodzaju: archiwa krajowe pl.imgw.* albo pliki stacji cz.chmi.*",
-        "datasets of one kind: country archives pl.imgw.* or station files cz.chmi.*",
-    ),
-    (
-        "roczniki nie wcześniejsze niż pierwszy rocznik każdego zbioru",
-        "years not earlier than the first year of each dataset",
-    ),
-    (
-        "years wymagane dla zbiorów pl.imgw.*, opcjonalne dla cz.chmi.hydro_daily "
-        "(brak = lata opublikowane w listingu stacji) i niedozwolone dla "
-        "cz.chmi.meteo_daily",
-        "years required for pl.imgw.* datasets, optional for cz.chmi.hydro_daily "
-        "(none = the years published in the station listing) and not allowed for "
-        "cz.chmi.meteo_daily",
-    ),
+    message("commands.store_rule_1"),
+    message("commands.store_rule_2"),
+    message("commands.store_rule_3"),
     _STATIONS_RULE,
     _MONTHS_RULE,
 )
 _SERIES_RULES = (
-    (
-        "dokładnie jedno z: version albo root+dataset (bieżąca wersja szeregu zbioru)",
-        "exactly one of: version or root+dataset (the current series version of "
-        "the dataset)",
-    ),
+    message("commands.series_rule_1"),
     _VARIABLES_RULE,
 )
 
 _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     _command(
         "datasets list",
-        "Wypisz zbiory z rejestru: klucze, dostawców, aliasy legacy, zmienne i "
-        "pierwszy rocznik.",
-        "List the datasets of the registry: keys, providers, legacy aliases, "
-        "variables and first year.",
+        message("commands.datasets_list_description"),
         (
             replace(
                 _FAMILY,
-                help="Rodzina zbiorów: hydro albo meteo; brak = wszystkie",
-                help_en="Dataset family: hydro or meteo; none = all",
+                help=message("commands.datasets_list_family_help"),
             ),
             replace(
                 _PROVIDER,
-                help="Dostawca zbiorów: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
-                "dostawcy",
-                help_en="Dataset provider: IMGW-PIB or CHMI (ČHMÚ); none = all "
-                "providers",
+                help=message("commands.datasets_list_provider_help"),
             ),
         ),
         function="datasets",
@@ -695,10 +560,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets files",
-        "Wypisz pliki źródłowe zbioru dla wybranych roczników albo stacji (offline, "
-        "bez pobierania).",
-        "List the source files of a dataset for the selected years or stations "
-        "(offline, without downloading).",
+        message("commands.datasets_files_description"),
         (_ARCHIVE_DATASET, _ARCHIVE_YEARS, _MONTHS, _PARAMS, _ARCHIVE_STATIONS),
         function="archive_files",
         result="list",
@@ -708,32 +570,29 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "datasets download",
-        "Pobierz pliki źródłowe zbioru do katalogu odzwierciedlającego ścieżki "
-        "serwera dostawcy.",
-        "Download the source files of a dataset to a directory mirroring the "
-        "provider's server paths.",
+        message("commands.datasets_download_description"),
         (
             _ARCHIVE_DATASET,
             _ARCHIVE_YEARS,
             _MONTHS,
             _PARAMS,
             _ARCHIVE_STATIONS,
-            _OUTPUT,
+            _OUTPUT_DIR,
+            _ROOT,
+            _FORCE,
         ),
         function="download_archives",
         check="check_command",
         result_type="DownloadReport",
         rules=_ARCHIVE_RULES,
-        # Files of the output directory are replaced (os.replace).
-        writes="replace",
+        exclusive=_TARGETS,
+        # New plain files or store versions; --force replaces existing plain files.
+        writes="add",
         network=True,
     ),
     _command(
         "datasets providers",
-        "Wypisz dostawców danych z rejestru: identyfikatory, kraje, licencje, wzorce "
-        "kodów stacji i zbiory.",
-        "List the data providers of the registry: identifiers, countries, licenses, "
-        "station code patterns and datasets.",
+        message("commands.datasets_providers_description"),
         (),
         function="providers",
         result="list",
@@ -742,43 +601,33 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "stations find",
-        "Znajdź stacje IMGW-PIB i ČHMÚ po nazwie, rzece albo prefiksie kodu.",
-        "Find IMGW-PIB and ČHMÚ stations by name, river or code prefix.",
+        message("commands.stations_find_description"),
         (
             replace(
                 _FAMILY,
-                help="Rodzaj stacji; brak = obie rodziny",
-                help_en="Station kind; none = both families",
+                help=message("commands.stations_find_family_help"),
             ),
             _option(
                 "query",
                 "str",
-                "Fragment nazwy lub rzeki albo prefiks kodu",
-                "Fragment of the name or river, or a code prefix",
+                message("commands.stations_find_query_help"),
                 aliases=("-q",),
             ),
             _option(
                 "source",
                 "choice",
-                "live: listy stacji dostawców na żywo; store: listy i katalogi "
-                "stacji zapisane w magazynie",
-                "live: the providers' station lists, live; store: station lists and "
-                "catalogs saved in the store",
+                message("commands.stations_find_source_help"),
                 choices=("live", "store"),
                 default="live",
             ),
             replace(
                 _ROOT,
                 required=False,
-                help="Katalog magazynu (wymagany przy source=store)",
-                help_en="Store directory (required with source=store)",
+                help=message("commands.stations_find_root_help"),
             ),
             replace(
                 _PROVIDER,
-                help="Dostawca stacji: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
-                "dostawcy",
-                help_en="Station provider: IMGW-PIB or CHMI (ČHMÚ); none = all "
-                "providers",
+                help=message("commands.stations_find_provider_help"),
             ),
         ),
         function="find_stations",
@@ -787,17 +636,8 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         method="GET",
         result_type="StationListEntry",
         rules=(
-            (
-                "root jest wymagany przy source=store i niedozwolony przy source=live",
-                "root is required with source=store and not allowed with source=live",
-            ),
-            (
-                "source=store bez provider pomija dostawców bez zapisanej listy "
-                "stacji; przy jawnym provider brak listy to błąd not_found",
-                "source=store without provider skips the providers without a saved "
-                "station list; with an explicit provider a missing list is a "
-                "not_found error",
-            ),
+            message("commands.stations_find_rule_1"),
+            message("commands.stations_find_rule_2"),
         ),
         network=True,
         # A live search rejects root (spec 2026-10-17 §13.10).
@@ -805,13 +645,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current hydro",
-        "Pobierz bieżące dane hydrologiczne z API IMGW.",
-        "Fetch current hydrological data from the IMGW API.",
+        message("commands.current_hydro_description"),
         (
             replace(
                 _STATION_OPTION,
-                help="Kod stacji (9 cyfr); brak = wszystkie stacje",
-                help_en="Station code (9 digits); none = all stations",
+                help=message("commands.current_hydro_station_option_help"),
                 pattern=_IMGW_STATION,
             ),
         ),
@@ -824,13 +662,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current meteo",
-        "Pobierz bieżące dane meteorologiczne z API IMGW.",
-        "Fetch current meteorological data from the IMGW API.",
+        message("commands.current_meteo_description"),
         (
             replace(
                 _STATION_OPTION,
-                help="Kod stacji (9 cyfr); brak = wszystkie stacje",
-                help_en="Station code (9 digits); none = all stations",
+                help=message("commands.current_hydro_station_option_help"),
                 pattern=_IMGW_STATION,
             ),
         ),
@@ -843,20 +679,17 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current synop",
-        "Pobierz bieżące dane synoptyczne z API IMGW.",
-        "Fetch current synoptic data from the IMGW API.",
+        message("commands.current_synop_description"),
         (
             replace(
                 _STATION_OPTION,
-                help="Kod stacji synoptycznej (5 cyfr); brak = wszystkie stacje",
-                help_en="Synoptic station code (5 digits); none = all stations",
+                help=message("commands.current_synop_station_option_help"),
                 pattern=_SYNOP_STATION,
             ),
             _option(
                 "station_name",
                 "str",
-                "Fragment nazwy stacji synoptycznej (bez wielkości liter)",
-                "Fragment of the synoptic station name (case-insensitive)",
+                message("commands.current_synop_station_name_help"),
             ),
         ),
         function="fetch_synop",
@@ -868,13 +701,11 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current warnings",
-        "Pobierz bieżące ostrzeżenia hydrologiczne i meteorologiczne IMGW.",
-        "Fetch the current IMGW hydrological and meteorological warnings.",
+        message("commands.current_warnings_description"),
         (
             replace(
                 _FAMILY,
-                help="Rodzaj ostrzeżeń: hydro albo meteo; brak = oba",
-                help_en="Warning kind: hydro or meteo; none = both",
+                help=message("commands.current_warnings_family_help"),
             ),
         ),
         function="fetch_warnings",
@@ -886,16 +717,12 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "current hydro-states",
-        "Pobierz stany wód stacji hydrologicznych ze współrzędnymi (mapa "
-        "hydro.imgw.pl).",
-        "Fetch the water states of hydrological stations with coordinates "
-        "(hydro.imgw.pl map).",
+        message("commands.current_hydro_states_description"),
         (
             _option(
                 "main_only",
                 "bool",
-                "Tylko stacje główne",
-                "Main stations only",
+                message("commands.current_hydro_states_main_only_help"),
                 default=False,
             ),
         ),
@@ -908,8 +735,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp fetch",
-        "Pobierz opady maksymalne PMAXTP dla punktu (na żywo, bez zapisu).",
-        "Fetch the PMAXTP maximum precipitation of a point (live, without saving).",
+        message("commands.pmaxtp_fetch_description"),
         (_LATITUDE, _LONGITUDE, _METHOD),
         function="fetch_pmaxtp",
         check="check_command",
@@ -919,8 +745,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp url",
-        "Zbuduj adres URL API PMAXTP dla punktu (offline, bez pobierania).",
-        "Build the PMAXTP API URL of a point (offline, without downloading).",
+        message("commands.pmaxtp_url_description"),
         (_LATITUDE, _LONGITUDE, _METHOD),
         function="build_pmaxtp_url",
         method="GET",
@@ -928,8 +753,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp check",
-        "Sprawdź komórkę PMAXTP w magazynie bez pobierania danych.",
-        "Check the PMAXTP cell in the store without downloading data.",
+        message("commands.pmaxtp_check_description"),
         (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
         function="check_pmaxtp",
         method="GET",
@@ -938,43 +762,47 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "pmaxtp sync",
-        "Pobierz komórkę PMAXTP dla punktu i zapisz ją jako wersję w magazynie.",
-        "Download the PMAXTP cell of a point and save it as a version in the store.",
-        (_ROOT, _LATITUDE, _LONGITUDE, _METHOD, _IND_X, _IND_Y),
+        message("commands.pmaxtp_sync_description"),
+        (
+            _ROOT,
+            _OUTPUT_DIR,
+            _FORCE,
+            _LATITUDE,
+            _LONGITUDE,
+            _METHOD,
+            _IND_X,
+            _IND_Y,
+        ),
         function="sync_pmaxtp",
         check="check_pmaxtp",
         method="POST",
         requires=_CELL_PAIR,
+        exclusive=_TARGETS,
         result_type="PMaXTPStoreResult",
         writes="add",
         network=True,
     ),
     _command(
         "pmaxtp read",
-        "Odczytaj zapisaną komórkę PMAXTP z magazynu (offline).",
-        "Read a saved PMAXTP cell from the store (offline).",
+        message("commands.pmaxtp_read_description"),
         (
             _ROOT,
             replace(
                 _IND_X,
                 required=True,
-                help="Indeks X komórki siatki PMAXTP",
-                help_en="X index of the PMAXTP grid cell",
+                help=message("commands.pmaxtp_read_ind_x_help"),
             ),
             replace(
                 _IND_Y,
                 required=True,
-                help="Indeks Y komórki siatki PMAXTP",
-                help_en="Y index of the PMAXTP grid cell",
+                help=message("commands.pmaxtp_read_ind_y_help"),
             ),
             _METHOD,
             _option(
                 "version",
                 "path",
-                "Wersja komórki: katalog wersji albo cell.json; bezwzględna albo "
-                "względna do root (domyślnie bieżąca)",
-                "Cell version: version directory or cell.json; absolute or relative "
-                "to root (default: the current one)",
+                message("commands.pmaxtp_read_version_help"),
+                path_role="input",
             ),
         ),
         function="read_pmaxtp",
@@ -983,19 +811,17 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store init",
-        "Utwórz pusty magazyn IMGW (znacznik imgw-store.json) we wskazanym katalogu.",
-        "Create an empty IMGW store (imgw-store.json marker) in the given directory.",
+        message("commands.store_init_description"),
         (_ROOT,),
         function="init_store",
+        store_only=True,
         check="check_command",
         result_type="StoreHandle",
         writes="add",
     ),
     _command(
         "store info",
-        "Pokaż stan magazynu IMGW i obsługiwane kontrakty (offline, bez zapisu).",
-        "Show the state of an IMGW store and the supported contracts (offline, "
-        "without writing).",
+        message("commands.store_info_description"),
         (_ROOT,),
         function="store_info",
         method="GET",
@@ -1003,17 +829,13 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store scan",
-        "Wypisz wersje i problemy magazynu IMGW (offline, bez zapisu).",
-        "List the versions and problems of an IMGW store (offline, without writing).",
+        message("commands.store_scan_description"),
         (
             _ROOT,
             _option(
                 "kind",
                 "choice",
-                "Rodzaj wpisów: archive, series, catalog, pmaxtp, observation albo "
-                "problem; brak = wszystkie",
-                "Entry kind: archive, series, catalog, pmaxtp, observation or "
-                "problem; none = all",
+                message("commands.store_scan_kind_help"),
                 choices=(
                     "archive",
                     "series",
@@ -1026,10 +848,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             ),
             replace(
                 _PROVIDER,
-                help="Dostawca wpisów: IMGW-PIB albo CHMI (ČHMÚ); brak = wszyscy "
-                "dostawcy (problemy bez slotu zawsze)",
-                help_en="Entry provider: IMGW-PIB or CHMI (ČHMÚ); none = all "
-                "providers (problems without a slot always)",
+                help=message("commands.store_scan_provider_help"),
             ),
         ),
         function="iter_store",
@@ -1039,10 +858,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store check",
-        "Sprawdź aktualność archiwów zbiorów: listing i HEAD (IMGW-PIB) albo sam "
-        "listing serwera (ČHMÚ), bez pobierania danych.",
-        "Check the freshness of the archives of datasets: listing and HEAD "
-        "(IMGW-PIB) or the server listing alone (ČHMÚ), without downloading data.",
+        message("commands.store_check_description"),
         (
             _ROOT,
             replace(_DATASETS, required=True),
@@ -1056,29 +872,24 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         result_type="StorePlan",
         rules=(
             *_STORE_RULES,
-            (
-                "plan zapisywany wyłącznie poza magazynem, w istniejącym katalogu",
-                "plan written only outside the store, in an existing directory",
-            ),
+            message("commands.store_check_rule_1"),
         ),
         # Listing and HEAD requests; the plan file is the effect of an option.
         network=True,
     ),
     _command(
         "store sync",
-        "Pobierz nowe lub brakujące archiwa do magazynu według planu albo wyboru "
-        "zbiorów i stacji.",
-        "Download new or missing archives into the store according to a plan or a "
-        "selection of datasets and stations.",
+        message("commands.store_sync_description"),
         (
             _ROOT,
+            _OUTPUT_DIR,
+            _FORCE,
             _option(
                 "plan",
                 "path",
-                "Plik planu imgw-plan/1 z komendy store check (zamiast datasets, "
-                "years, months i stations)",
-                "imgw-plan/1 plan file of the store check command (instead of "
-                "datasets, years, months and stations)",
+                message("commands.store_sync_plan_help"),
+                path_role="input",
+                store_only=True,
             ),
             _DATASETS,
             _STORE_YEARS,
@@ -1087,22 +898,19 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "series",
                 "bool",
-                "Buduj szeregi zbiorów po synchronizacji (--no-series wyłącza)",
-                "Build the series of the datasets after the synchronization "
-                "(--no-series disables it)",
+                message("commands.store_sync_series_help"),
                 default=True,
+                store_only=True,
             ),
         ),
         function="sync_store",
         check="check_store",
         method="POST",
         one_of=(("plan",), ("datasets",)),
+        exclusive=_TARGETS,
         result_type="SyncReport",
         rules=(
-            (
-                "plan wyklucza datasets, years, months i stations",
-                "plan excludes datasets, years, months and stations",
-            ),
+            message("commands.store_sync_rule_1"),
             *_STORE_RULES,
         ),
         writes="add",
@@ -1110,28 +918,23 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store catalog",
-        "Zbuduj wersjonowany katalog stacji stations.geojson jednego dostawcy.",
-        "Build the versioned station catalog stations.geojson of one provider.",
+        message("commands.store_catalog_description"),
         (
             _ROOT,
             replace(
                 _PROVIDER,
-                help="Dostawca katalogu: IMGW-PIB albo CHMI (ČHMÚ); jedna wersja "
-                "katalogu jednego dostawcy na wywołanie",
-                help_en="Catalog provider: IMGW-PIB or CHMI (ČHMÚ); one catalog "
-                "version of one provider per call",
+                help=message("commands.store_catalog_provider_help"),
                 default="IMGW-PIB",
             ),
             _option(
                 "user_locations",
                 "path",
-                "Plik CSV UTF-8 użytkownika z kolumnami "
-                "station_code,latitude,longitude[,source]",
-                "User's UTF-8 CSV file with the columns "
-                "station_code,latitude,longitude[,source]",
+                message("commands.store_catalog_user_locations_help"),
+                path_role="input",
             ),
         ),
         function="build_catalog",
+        store_only=True,
         check="check_catalog",
         method="POST",
         result_type="CatalogReport",
@@ -1140,51 +943,45 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "store export",
-        "Wyeksportuj rekordy jednej wersji archiwum z magazynu jako CSV albo JSONL "
-        "(offline, weryfikacja SHA-256).",
-        "Export the records of one archive version of the store as CSV or JSONL "
-        "(offline, SHA-256 verification).",
+        message("commands.store_export_description"),
         (
             _option(
                 "version",
                 "path",
-                "Wersja archiwum: katalog wersji, plik archiwum albo sidecar; "
-                "bezwzględna albo względna do root",
-                "Archive version: version directory, archive file or sidecar; "
-                "absolute or relative to root",
+                message("commands.store_export_version_help"),
                 required=True,
+                path_role="input",
             ),
             replace(
                 _ROOT,
                 required=False,
-                help="Katalog magazynu: podstawa wersji",
-                help_en="Store directory: base of the version",
+                help=message("commands.store_export_root_help"),
             ),
             _option(
                 "format",
                 "choice",
-                "Format wyniku: csv albo jsonl",
-                "Result format: csv or jsonl",
+                message("commands.store_export_format_help"),
                 choices=("csv", "jsonl"),
                 default="csv",
                 aliases=("-f",),
             ),
-            _PATH,
+            _OUTPUT,
+            _EXPORT_FORCE,
         ),
         function="export_archive",
         check="check_command",
         result="stream",
         method="GET",
+        requires=_NEEDS_OUTPUT,
         result_type="str",
-        rules=(_PATH_RULE,),
+        rules=(_OUTPUT_RULE,),
     ),
     _command(
         "series build",
-        "Zbuduj szereg Parquet zbioru z bieżących wersji archiwów magazynu.",
-        "Build the Parquet series of a dataset from the current archive versions of "
-        "the store.",
+        message("commands.series_build_description"),
         (_ROOT, replace(_SERIES_DATASET, required=True)),
         function="build_series",
+        store_only=True,
         check="check_series",
         method="POST",
         result_type="SeriesReport",
@@ -1192,10 +989,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series select",
-        "Wybierz stacje, zmienne i lata z bieżącego szeregu (bez zapisu; wejście "
-        "projektu).",
-        "Select stations, variables and years of the current series (without "
-        "writing; an input of a project).",
+        message("commands.series_select_description"),
         (
             _ROOT,
             replace(_SERIES_DATASET, required=True),
@@ -1203,8 +997,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _VARIABLES,
             replace(
                 _YEARS,
-                help="Roczniki: liczby lub zakresy (domyślnie wszystkie lata szeregu)",
-                help_en="Years: numbers or ranges (default: all years of the series)",
+                help=message("commands.series_select_years_help"),
             ),
             _YEAR_TYPE,
         ),
@@ -1214,22 +1007,13 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         rules=(
             _VARIABLES_RULE,
             _HALF_YEAR_RULE,
-            (
-                "stacje i roczniki wyłącznie z bieżącego szeregu",
-                "stations and years only of the current series",
-            ),
-            (
-                "kody stations według gramatyki dostawcy zbioru (IMGW-PIB: 9 cyfr, "
-                "ČHMÚ: identyfikator WIGOS)",
-                "stations codes in the grammar of the dataset's provider (IMGW-PIB: "
-                "9 digits, ČHMÚ: a WIGOS identifier)",
-            ),
+            message("commands.series_select_rule_1"),
+            message("commands.series_select_rule_2"),
         ),
     ),
     _command(
         "series read",
-        "Odczytaj wartości i flagi szeregu jednej stacji z magazynu.",
-        "Read the values and flags of one station's series from the store.",
+        message("commands.series_read_description"),
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
@@ -1248,19 +1032,14 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series summary",
-        "Pokaż pokrycie stacji i zmiennych szeregu ze spisu series.json (bez pyarrow).",
-        "Show the coverage of the stations and variables of a series from its "
-        "series.json index (without pyarrow).",
+        message("commands.series_summary_description"),
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
             _SERIES_DATASET,
             replace(
                 _STATIONS,
-                help="Kody stacji (9 cyfr IMGW-PIB albo identyfikatory WIGOS) "
-                "rozdzielone przecinkami (domyślnie wszystkie)",
-                help_en="Comma-separated station codes (9 digits of IMGW-PIB or WIGOS "
-                "identifiers; default: all)",
+                help=message("commands.series_summary_stations_help"),
             ),
             _VARIABLES,
         ),
@@ -1273,9 +1052,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
     ),
     _command(
         "series export",
-        "Wyeksportuj szereg jednej stacji jako CSV z atrybucją dostawcy danych.",
-        "Export the series of one station as CSV with the attribution of the data "
-        "provider.",
+        message("commands.series_export_description"),
         (
             _SERIES_VERSION,
             _SERIES_ROOT,
@@ -1288,219 +1065,69 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
             _option(
                 "format",
                 "choice",
-                "Format eksportu (tylko csv)",
-                "Export format (csv only)",
+                message("commands.series_export_format_help"),
                 choices=("csv",),
                 default="csv",
                 aliases=("-f",),
             ),
-            _PATH,
+            _OUTPUT,
+            _EXPORT_FORCE,
         ),
         function="export_series",
         check="check_command",
         result="stream",
         method="GET",
         one_of=_VERSION_OR_DATASET,
+        requires=_NEEDS_OUTPUT,
         result_type="str",
-        rules=(*_SERIES_RULES, _START_RULE, _HALF_YEAR_RULE, _PATH_RULE),
-    ),
-    _command(
-        "project init",
-        "Utwórz manifest projektu imgw-project.json wskazujący magazyn.",
-        "Create the imgw-project.json manifest of a project pointing to a store.",
-        (_PROJECT_DIR, _STORE_DIR),
-        function="init_project",
-        check="check_command",
-        result_type="Project",
-        writes="add",
-    ),
-    _command(
-        "project add",
-        "Dodaj zadanie do manifestu projektu.",
-        "Add a task to the project manifest.",
-        (
-            _PROJECT_DIR,
-            _TASK_NAME_OPTION,
-            _option(
-                "command",
-                "choice",
-                "Komenda zadania z katalogu, np. series select",
-                "Catalog command of the task, e.g. series select",
-                required=True,
-                choices=_TASK_COMMANDS,
-                rest="local",
-            ),
-            _option(
-                "options",
-                "object",
-                "Opcje komendy zadania jako obiekt JSON (bez root: magazyn wynika z "
-                "projektu)",
-                "Options of the task command as a JSON object (without root: the "
-                "store follows from the project)",
-                required=True,
-                rest="local",
-            ),
-            _option(
-                "geometry",
-                "path",
-                "Plik GeoJSON obszaru wyboru stacji w katalogu projektu (tylko "
-                "series select)",
-                "GeoJSON file of the station selection area in the project directory "
-                "(series select only)",
-                rest="local",
-            ),
-        ),
-        function="add_project_task",
-        check="check_command",
-        result_type="Project",
-        rules=(
-            (
-                "geometry wyłącznie dla zadań series select",
-                "geometry only for series select tasks",
-            ),
-            (
-                "zadanie series select wymaga jawnej opcji years",
-                "a series select task requires an explicit years option",
-            ),
-        ),
-        # Appends a task to the manifest (atomic write of the manifest).
-        writes="add",
-    ),
-    _command(
-        "project remove",
-        "Usuń zadanie z manifestu projektu.",
-        "Remove a task from the project manifest.",
-        (
-            _PROJECT_DIR,
-            replace(
-                _TASK_NAME_OPTION,
-                help="Nazwa usuwanego zadania",
-                help_en="Name of the task to remove",
-            ),
-        ),
-        function="remove_project_task",
-        check="check_command",
-        result_type="Project",
-        writes="replace",
-    ),
-    _command(
-        "project set-store",
-        "Wskaż nowy katalog magazynu projektu po weryfikacji przypiętych plików.",
-        "Point the project to a new store directory after verifying the pinned files.",
-        (
-            _PROJECT_DIR,
-            replace(
-                _STORE_DIR,
-                help="Nowy katalog magazynu IMGW projektu",
-                help_en="New IMGW store directory of the project",
-            ),
-        ),
-        function="set_project_store",
-        check="check_command",
-        result_type="Project",
-        writes="replace",
-    ),
-    _command(
-        "project download",
-        "Pobierz i przypnij dane zadań projektu.",
-        "Download and pin the data of the project tasks.",
-        (
-            _PROJECT_DIR,
-            _TASKS,
-            _option(
-                "plan",
-                "path",
-                "Plik planu imgw-plan/1 z komendy project check",
-                "imgw-plan/1 plan file of the project check command",
-                rest="local",
-            ),
-            _option(
-                "update",
-                "choice",
-                "Tryb: pinned (odtwórz przypięte wersje) albo upgrade (zmień piny)",
-                "Mode: pinned (restore the pinned versions) or upgrade (change the "
-                "pins)",
-                choices=("pinned", "upgrade"),
-                default="pinned",
-                rest="local",
-            ),
-        ),
-        function="download_project",
-        check="check_project",
-        result_type="ProjectReport",
-        # Pins (and re-pins with update=upgrade) in the manifest; the store grows.
-        writes="replace",
-        network=True,
-    ),
-    _command(
-        "project check",
-        "Sprawdź aktualność danych zadań projektu bez zapisu do magazynu.",
-        "Check the freshness of the data of the project tasks without writing to "
-        "the store.",
-        (_PROJECT_DIR, _TASKS, _PLAN_FILE),
-        function="check_project",
-        result_type="StorePlan",
-        # Listing and HEAD requests; the plan file is the effect of an option.
-        network=True,
-    ),
-    _command(
-        "project status",
-        "Pokaż stan przypiętych plików zadań projektu (offline).",
-        "Show the state of the pinned files of the project tasks (offline).",
-        (_PROJECT_DIR, _TASKS),
-        function="get_project_status",
-        result_type="ProjectReport",
-    ),
-    _command(
-        "project verify",
-        "Zweryfikuj sumy SHA-256 przypiętych plików projektu (offline).",
-        "Verify the SHA-256 sums of the pinned files of a project (offline).",
-        (_PROJECT_DIR, _TASKS),
-        function="verify_project",
-        result_type="ProjectReport",
+        rules=(*_SERIES_RULES, _START_RULE, _HALF_YEAR_RULE, _OUTPUT_RULE),
     ),
 )
 # The description commands close the catalog: commands schema names every command.
 _GUIDE = _command(
     "commands guide",
-    "Wygeneruj przewodnik dla agentów AI z katalogu komend i rejestrów: AGENTS.md "
-    "albo llms.txt, po polsku albo angielsku.",
-    "Generate the guide for AI agents from the command catalog and the registries: "
-    "AGENTS.md or llms.txt, in Polish or English.",
+    message("commands.commands_guide_description"),
     (
         _option(
             "format",
             "choice",
-            "Format przewodnika: agents (AGENTS.md) albo llms (llms.txt)",
-            "Guide format: agents (AGENTS.md) or llms (llms.txt)",
+            message("commands.commands_guide_format_help"),
             choices=("agents", "llms"),
             default="agents",
             aliases=("-f",),
         ),
         _LANGUAGE,
-        _PATH,
+        _OUTPUT,
+        _EXPORT_FORCE,
     ),
     function="agent_guide",
     check="check_command",
     result="stream",
     method="GET",
+    requires=_NEEDS_OUTPUT,
     result_type="str",
-    rules=(_PATH_RULE,),
+    rules=(_OUTPUT_RULE,),
 )
 _CATALOG += (
     _command(
+        "commands list",
+        message("commands.commands_list_description"),
+        (_LANGUAGE,),
+        function="list_commands",
+        method="GET",
+        result_type="dict",
+    ),
+    _command(
         "commands schema",
-        "Pokaż schemat JSON opcji komendy albo cały katalog komend imgw-commands/1.",
-        "Show the JSON Schema of the options of a command or the whole "
-        "imgw-commands/1 command catalog.",
+        message("commands.commands_schema_description"),
         (
             _option(
                 "command",
                 "choice",
-                "Nazwa komendy katalogu; brak = cały katalog imgw-commands/1",
-                "Name of a catalog command; none = the whole imgw-commands/1 catalog",
+                message("commands.commands_schema_command_help"),
                 choices=(
                     *(command.name for command, _ in _CATALOG),
+                    "commands list",
                     "commands schema",
                     _GUIDE[0].name,
                 ),
@@ -1545,7 +1172,7 @@ def _narrowed(command: DataCommand, owner: ProviderDescriptor) -> DataCommand | 
 
 def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
     """
-    Return the catalog of all 37 data commands or its view for one provider.
+    Return the catalog of all 38 data commands or its view for one provider.
 
     Parameters
     ----------
@@ -1562,12 +1189,12 @@ def data_commands(*, provider: str | None = None) -> tuple[DataCommand, ...]:
     -------
     tuple of DataCommand
         Commands in catalog order (groups ``datasets``, ``stations``,
-        ``current``, ``pmaxtp``, ``store``, ``series``, ``project``,
+        ``current``, ``pmaxtp``, ``store``, ``series``,
         ``commands``) with their options, the public function they call,
         the check twin, the result shape, the REST method, the validation
         rules and the effects of a run (``writes``, ``network``,
-        ``env_root_when``); texts for humans are Polish, with English
-        variants in ``description_en``, ``rules_en`` and ``help_en``.
+        ``env_root_when``); the texts for humans are catalog messages (English,
+        with a Polish variant).
 
     Raises
     ------
@@ -1610,7 +1237,11 @@ def _spec(command: object) -> DataCommand:
     spec = _BY_NAME.get(command) if isinstance(command, str) else None
     if spec is None:
         _fail(
-            f"Nieznana komenda {command!r}; dostępne: {', '.join(_BY_NAME)}",
+            message(
+                "commands.unknown_command_available",
+                command=command,
+                available=", ".join(_BY_NAME),
+            ),
             option="command",
             value=command,
             allowed=list(_BY_NAME),
@@ -1623,7 +1254,9 @@ def _boolean(option: CommandOption, value: object) -> bool | None:
         value = value.strip().lower() == "true"
     if not isinstance(value, bool):
         _fail(
-            f"Opcja {option.name} musi mieć wartość logiczną true albo false: {value!r}",
+            message(
+                "commands.option_must_boolean_true_false", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
@@ -1634,14 +1267,24 @@ def _boolean(option: CommandOption, value: object) -> bool | None:
 def _bounds(option: CommandOption, number: int) -> int:
     if option.minimum is not None and number < option.minimum:
         _fail(
-            f"Opcja {option.name} musi wynosić co najmniej {option.minimum:g}: {number}",
+            message(
+                "commands.option_must_least",
+                name=option.name,
+                minimum=option.minimum,
+                number=number,
+            ),
             option=option.name,
             value=number,
             minimum=option.minimum,
         )
     if option.maximum is not None and number > option.maximum:
         _fail(
-            f"Opcja {option.name} musi wynosić co najwyżej {option.maximum:g}: {number}",
+            message(
+                "commands.option_must_most",
+                name=option.name,
+                maximum=option.maximum,
+                number=number,
+            ),
             option=option.name,
             value=number,
             maximum=option.maximum,
@@ -1655,7 +1298,7 @@ def _integer(option: CommandOption, value: object) -> int:
     if isinstance(value, str) and _INTEGER.fullmatch(text := value.strip()):
         return _bounds(option, int(text))
     _fail(
-        f"Opcja {option.name} musi być liczbą całkowitą: {value!r}",
+        message("commands.option_must_integer", name=option.name, value=value),
         option=option.name,
         value=value,
     )
@@ -1669,7 +1312,9 @@ def _number(option: CommandOption, value: object) -> float:
             number = float(value)
     if not math.isfinite(number):
         _fail(
-            f"Opcja {option.name} musi być skończoną liczbą: {value!r}",
+            message(
+                "commands.option_must_finite_number", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
@@ -1680,14 +1325,23 @@ def _text(option: CommandOption, value: object) -> str:
     text = value.strip() if isinstance(value, str) else ""
     if not text:
         _fail(
-            f"Opcja {option.name} wymaga niepustego tekstu: {value!r}",
+            message(
+                "commands.option_needs_non_empty_text", name=option.name, value=value
+            ),
             option=option.name,
             value=value,
         )
     if option.pattern is not None and not re.search(option.pattern, text):
-        expected = _PATTERN_TEXT.get(option.pattern, f"wzorzec {option.pattern}")
+        expected = _PATTERN_TEXT.get(option.pattern) or message(
+            "commands.pattern_default", pattern=option.pattern
+        )
         _fail(
-            f"Opcja {option.name}: oczekiwano {expected}: {text!r}",
+            message(
+                "commands.option_expected",
+                name=option.name,
+                expected=expected,
+                text=text,
+            ),
             option=option.name,
             value=text,
             pattern=option.pattern,
@@ -1702,7 +1356,7 @@ def _date(option: CommandOption, value: object) -> date:
         with suppress(ValueError):
             return date.fromisoformat(text)
     _fail(
-        f"Opcja {option.name} wymaga daty ISO RRRR-MM-DD: {value!r}",
+        message("commands.option_needs_iso_date_yyyy", name=option.name, value=value),
         option=option.name,
         value=value,
     )
@@ -1712,7 +1366,7 @@ def _path(option: CommandOption, value: object) -> Path:
     text = os.fspath(value) if isinstance(value, str | os.PathLike) else None
     if not isinstance(text, str) or not text.strip() or "\0" in text:
         _fail(
-            f"Opcja {option.name} wymaga ścieżki: {value!r}",
+            message("commands.option_needs_path", name=option.name, value=value),
             option=option.name,
             value=value,
         )
@@ -1732,8 +1386,12 @@ def _choice_text(option: CommandOption, text: str) -> str:
         text = get_provider(text).id
     if text not in option.choices:
         _fail(
-            f"Nieprawidłowa wartość {text!r} opcji {option.name}; dozwolone: "
-            f"{', '.join(option.choices)}",
+            message(
+                "commands.invalid_value_option_allowed",
+                text=text,
+                name=option.name,
+                choices=", ".join(option.choices),
+            ),
             option=option.name,
             value=text,
             allowed=list(option.choices),
@@ -1744,8 +1402,12 @@ def _choice_text(option: CommandOption, text: str) -> str:
 def _choice(option: CommandOption, value: object) -> str:
     if not isinstance(value, str):
         _fail(
-            f"Opcja {option.name} wymaga jednej z wartości "
-            f"{', '.join(option.choices)}: {value!r}",
+            message(
+                "commands.option_needs_one_values",
+                name=option.name,
+                choices=", ".join(option.choices),
+                value=value,
+            ),
             option=option.name,
             value=value,
             allowed=list(option.choices),
@@ -1761,7 +1423,7 @@ def _texts(option: CommandOption, value: object) -> list[str]:
         raw = list(value)
     else:
         _fail(
-            f"Opcja {option.name} musi być listą wartości: {value!r}",
+            message("commands.option_must_list_values", name=option.name, value=value),
             option=option.name,
             value=value,
         )
@@ -1769,14 +1431,16 @@ def _texts(option: CommandOption, value: object) -> list[str]:
     for item in raw:
         if not isinstance(item, str):
             _fail(
-                f"Opcja {option.name} wymaga wartości tekstowych: {item!r}",
+                message(
+                    "commands.option_needs_text_values", name=option.name, item=item
+                ),
                 option=option.name,
                 value=item,
             )
         texts.extend(part.strip() for part in item.split(","))
     if not texts or "" in texts:
         _fail(
-            f"Opcja {option.name} wymaga niepustej listy wartości",
+            message("commands.option_needs_non_empty_list", name=option.name),
             option=option.name,
             value=value,
         )
@@ -1796,23 +1460,6 @@ def _list(option: CommandOption, value: object) -> tuple[object, ...]:
     return tuple(dict.fromkeys(texts))
 
 
-def _object(option: CommandOption, value: object) -> dict[str, object]:
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError as exc:
-            _fail(
-                f"Opcja {option.name} musi być obiektem JSON: {exc}", option=option.name
-            )
-    if not isinstance(value, Mapping):
-        _fail(
-            f"Opcja {option.name} musi być obiektem JSON: {value!r}",
-            option=option.name,
-            value=value,
-        )
-    return dict(value)
-
-
 _PARSERS: dict[str, Callable[[CommandOption, object], object]] = {
     "bool": _boolean,
     "int": _integer,
@@ -1822,14 +1469,13 @@ _PARSERS: dict[str, Callable[[CommandOption, object], object]] = {
     "path": _path,
     "choice": _choice,
     "list": _list,
-    "object": _object,
 }
 
 
 def _absolutize(options: Options) -> None:
     """Paths → absolute: ``version`` against ``root``, others against the CWD."""
     for name, value in list(options.items()):
-        if isinstance(value, Path) and name not in ("version", *_PROJECT_PATHS):
+        if isinstance(value, Path) and name != "version":
             options[name] = value.absolute()
     version = options.get("version")
     if isinstance(version, Path) and not version.is_absolute():
@@ -1856,30 +1502,34 @@ def _store_root(version: Path) -> Path:
     return _store_of(version) or version.parent
 
 
-def _outside_store(path: object) -> None:
-    if isinstance(path, Path) and (store := _store_of(path)) is not None:
-        _fail(
-            f"Plik wyniku musi leżeć poza magazynem IMGW ({store}): {path}",
-            option="path",
-            value=path,
-        )
-
-
 def _half_year(descriptor: DatasetDescriptor, year_type: object) -> None:
     if descriptor.time_unit == "half_year" and year_type == "calendar":
         _fail(
-            "Szereg półroczny obsługuje wyłącznie rok hydrologiczny",
+            message("commands.semi_annual_series_supports_only"),
             option="year_type",
             value=year_type,
         )
 
 
-def _rules_archives(options: Options, task: bool) -> None:
+def _rules_archives(options: Options) -> None:
     # Years, months, params and stations follow the dataset's provider (§2.3).
     _archives(options)
 
 
-def _rules_store_check(options: Options, task: bool) -> None:
+def _rules_download(options: Options) -> None:
+    # The selection of the files first; the store takes only the datasets it holds.
+    _archives(options)
+    descriptor = get_dataset(options["dataset"])
+    if "output_dir" not in options and not descriptor.in_store:
+        _fail(
+            message("commands.not_in_store", dataset=descriptor.key),
+            option="dataset",
+            value=descriptor.key,
+            reason="not_in_store",
+        )
+
+
+def _rules_store_check(options: Options) -> None:
     # One kind of datasets per call; selectors as in check_store (§4.2).
     _sync._selection(
         options["datasets"],
@@ -1889,20 +1539,29 @@ def _rules_store_check(options: Options, task: bool) -> None:
     )
 
 
-def _rules_store_sync(options: Options, task: bool) -> None:
+def _rules_store_sync(options: Options) -> None:
     if "plan" not in options:
-        _rules_store_check(options, task)
+        if "output_dir" in options:
+            # The plain selection needs the years of a station dataset, offline.
+            _sync._plain_archives(
+                options["datasets"],
+                options.get("years"),
+                options.get("months"),
+                options.get("stations"),
+            )
+            return
+        _rules_store_check(options)
         return
     selectors = ("datasets", "years", "months", "stations")
     given = [name for name in selectors if name in options]
     if given:
         _fail(
-            "Plan imgw-plan/1 wyklucza opcje datasets, years, months i stations",
+            message("commands.imgw_plan_1_plan_excludes"),
             option=given[0],
         )
 
 
-def _rules_stations(options: Options, task: bool) -> None:
+def _rules_stations(options: Options) -> None:
     _stations._search_kinds(
         options.get("kind"),
         options.get("query"),
@@ -1911,11 +1570,11 @@ def _rules_stations(options: Options, task: bool) -> None:
     )
 
 
-def _rules_coordinates(options: Options, task: bool) -> None:
+def _rules_coordinates(options: Options) -> None:
     _fetch._validate_poland_coords(options["latitude"], options["longitude"])
 
 
-def _rules_series_select(options: Options, task: bool) -> None:
+def _rules_series_select(options: Options) -> None:
     descriptor = get_dataset(options["dataset"])
     if "variables" in options:
         _reader._variables(options["variables"], descriptor)
@@ -1931,14 +1590,18 @@ def _rules_series_select(options: Options, task: bool) -> None:
     if foreign:
         # The codes as a list, like every other stations error (not a repr).
         raise IMGWValidationError(
-            f"Kody stacji spoza gramatyki {provider.short_name} zbioru "
-            f"{descriptor.key}: {', '.join(foreign)}; oczekiwano "
-            f"{provider.station_code_pattern}",
+            message(
+                "commands.station_codes_outside_grammar_dataset",
+                short_name=provider.short_name,
+                key=descriptor.key,
+                foreign=", ".join(foreign),
+                station_code_pattern=provider.station_code_pattern,
+            ),
             details={"option": "stations", "value": foreign},
         )
 
 
-def _rules_series(options: Options, task: bool) -> None:
+def _rules_series(options: Options) -> None:
     if "dataset" in options:
         descriptor = get_dataset(options["dataset"])
         if "variables" in options:
@@ -1947,45 +1610,24 @@ def _rules_series(options: Options, task: bool) -> None:
     start, end = options.get("start"), options.get("end")
     if isinstance(start, date) and isinstance(end, date) and start > end:
         _fail(
-            f"Początek zakresu {start} jest późniejszy niż koniec {end}",
+            message("commands.start_range_later_than_end", start=start, end=end),
             option="end",
             value=end.isoformat(),
         )
-    if not task:
-        _outside_store(options.get("path"))
+    _rules_result_file(options)
 
 
-def _rules_result_file(options: Options, task: bool) -> None:
-    _outside_store(options.get("path"))
-
-
-def _rules_project_add(options: Options, task: bool) -> None:
-    command = options["command"]
-    area = "geometry" in options
-    if area and command != "series select":
-        _fail(
-            "Wybór obszarem (geometry) dotyczy wyłącznie zadań series select",
-            option="geometry",
-        )
-    try:
-        # Przy wyborze obszarem stacje materializuje add_project_task z katalogu stacji.
-        nested = _validate(command, options["options"], task=True, area=area)
-    except IMGWValidationError as exc:
-        raise IMGWValidationError(
-            f"Opcje zadania {command}: {exc.detail}",
-            details={**exc.details, "option": "options"},
-        ) from exc
-    if command == "series select" and "years" not in nested:
-        _fail(
-            "Zadanie series select w projekcie wymaga jawnej opcji years",
-            option="options",
-        )
-    options["options"] = nested
+def _rules_result_file(options: Options) -> None:
+    output = options.get("output")
+    if isinstance(output, Path):
+        # A directory is no file; an existing file or a store is a conflict, which
+        # a plan reports and only the run refuses (DEV-19.10).
+        _export._file(output)
 
 
 _RULES: dict[str, Rule] = {
     "datasets files": _rules_archives,
-    "datasets download": _rules_archives,
+    "datasets download": _rules_download,
     "stations find": _rules_stations,
     "pmaxtp fetch": _rules_coordinates,
     "pmaxtp url": _rules_coordinates,
@@ -1998,79 +1640,119 @@ _RULES: dict[str, Rule] = {
     "series read": _rules_series,
     "series summary": _rules_series,
     "series export": _rules_series,
-    "project add": _rules_project_add,
     "commands guide": _rules_result_file,
 }
 
 
-def _validate(
-    command: object, options: object, *, task: bool, area: bool = False
-) -> Options:
-    """
-    Validate ``options`` of ``command``; ``task`` mode validates a project task.
-
-    A task does not give ``root`` (it follows from the project store, so it
-    counts as given in ``requires``/``one_of``) and keeps paths relative to
-    the project; ``area`` makes ``stations`` optional (area selection).
-    """
+def _validate(command: object, options: object) -> Options:
+    """Validate ``options`` of ``command`` (see `validate_command`)."""
     spec = _spec(command)
     if not isinstance(options, Mapping):
         _fail(
-            f"Opcje komendy {spec.name} muszą być mapowaniem nazwa → wartość",
+            message("commands.options_command_must_mapping_name", name=spec.name),
             option="options",
         )
     known = {option.name: option for option in spec.options}
     for key in options:
         if key not in known:
             _fail(
-                f"Nieznana opcja {key!r} komendy {spec.name}; dostępne: "
-                f"{', '.join(known)}",
+                message(
+                    "commands.unknown_option_command_available",
+                    key=key,
+                    name=spec.name,
+                    known=", ".join(known),
+                ),
                 option=str(key),
                 allowed=list(known),
             )
-    if task and "root" in options:
-        _fail(
-            "Zadanie projektu nie podaje root: magazyn wynika ze store_dir projektu",
-            option="root",
-        )
     result: Options = {}
     for option in spec.options:
         value = options.get(option.name)
         normalized = None if value is None else _PARSERS[option.type](option, value)
         if normalized is not None:
             result[option.name] = normalized
-    present = set(result) | ({"root"} if task and "root" in known else set())
-    for option in spec.options:
-        if (
-            option.required
-            and option.name not in present
-            and not (area and option.name == "stations")
-        ):
+    for group in spec.exclusive:
+        given = [name for name in group if name in result]
+        if len(given) > 1:
             _fail(
-                f"Brak wymaganej opcji {option.name} ({option.flag}) komendy "
-                f"{spec.name}",
+                message(
+                    "commands.options_exclude_each_other",
+                    first=given[0],
+                    second=given[1],
+                ),
+                option=given[1],
+                reason="exclusive_options",
+                options=list(group),
+            )
+    plain = "output_dir" in result
+    if plain:
+        for option in spec.options:
+            if option.store_only and options.get(option.name) is not None:
+                _fail(
+                    message(
+                        "commands.store_only_option",
+                        name=option.name,
+                        flag=option.flag,
+                    ),
+                    option=option.name,
+                    value=options[option.name],
+                    reason="store_only_option",
+                )
+    if (
+        not plain
+        and "root" in known
+        and "root" not in result
+        and "version" not in result
+    ):
+        # The store of a command without --root is the default root (DEV-19.2),
+        # under the conditions of env_root_when (a live search has no store).
+        defaults = {option.name: option.default for option in spec.options}
+        if all(
+            str(result.get(name, defaults.get(name))).strip() == value
+            for name, value in spec.env_root_when.items()
+        ):
+            result["root"] = store_root().root
+    present = set(result)
+    for option in spec.options:
+        if option.required and option.name not in present:
+            _fail(
+                message(
+                    "commands.missing_required_option_command",
+                    name=option.name,
+                    flag=option.flag,
+                    name_2=spec.name,
+                ),
                 option=option.name,
             )
     for key, needed in spec.requires.items():
         missing = [name for name in needed if name not in present]
         if key in present and missing:
             _fail(
-                f"Opcja {key} komendy {spec.name} wymaga także {', '.join(missing)}",
+                message(
+                    "commands.option_command_also_needs",
+                    key=key,
+                    name=spec.name,
+                    missing=", ".join(missing),
+                ),
                 option=missing[0],
             )
     if spec.one_of:
         matched = [group for group in spec.one_of if present.issuperset(group)]
         if len(matched) != 1:
-            groups = " albo ".join("+".join(group) for group in spec.one_of)
+            first, second = ("+".join(group) for group in spec.one_of)
             _fail(
-                f"Komenda {spec.name} wymaga dokładnie jednej grupy opcji: {groups}",
+                message(
+                    "commands.command_needs_exactly_one_group",
+                    name=spec.name,
+                    first=first,
+                    second=second,
+                ),
                 option=(matched[1] if matched else spec.one_of[0])[0],
             )
-    if not task:
-        _absolutize(result)
+    _absolutize(result)
     rule = _RULES.get(spec.name)
     if rule is not None:
-        rule(result, task)
+        rule(result)
     return result
 
 
@@ -2085,8 +1767,8 @@ def validate_command(
     ``float``, ISO text becomes ``date``, every form of ``years`` (``2024``,
     ``"2020-2023"``, ``"2020,2022"``, ``[2020, "2022-2023"]``) and ``months``
     becomes a sorted tuple of numbers, other lists become tuples without
-    duplicates, and paths become absolute (``version`` against ``root``;
-    ``store_dir`` and ``geometry`` stay relative to the project directory).
+    duplicates, and paths become absolute (``version`` against ``root``,
+    others against the working directory).
     ``None`` values and ``bool`` values equal to their default are omitted,
     so formatting the result with `format_command` and validating it again
     yields identical options. Coordinates are checked by the library
@@ -2114,35 +1796,15 @@ def validate_command(
         options is unknown or invalid, or a required option is missing;
         ``details.option`` names the offending option.
     """
-    return _validate(command, options, task=False)
+    return _validate(command, options)
 
 
 # --- formatowanie ----------------------------------------------------------------------------
 
 
-def _option_json(value: object) -> object:
-    """JSON value of a nested option; paths keep their given (relative) form."""
-    if isinstance(value, Mapping):
-        return {str(key): _option_json(item) for key, item in value.items()}
-    if isinstance(value, tuple | list):
-        return [_option_json(item) for item in value]
-    if isinstance(value, Path):
-        return value.as_posix()
-    if isinstance(value, date):
-        return value.isoformat()
-    return value
-
-
 def _argument(value: object) -> str:
     if isinstance(value, tuple):
         return ",".join(str(item) for item in value)
-    if isinstance(value, Mapping):
-        return json.dumps(
-            _option_json(value),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
     if isinstance(value, float):
         return repr(value)
     if isinstance(value, date):
@@ -2150,13 +1812,63 @@ def _argument(value: object) -> str:
     return str(value)
 
 
-def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
-    """
-    Format a command as a stable, ``shlex``-quoted CLI invocation.
+# The program a command line starts with (``format_command`` writes it).
+_PROGRAM = "imgw"
+# The flag of a run beside the options: the plan of ``check_command`` (ADR-002 D11).
+_CHECK_FLAG = "--check"
+# Flags that print a description of a command instead of calling it.
+_DESCRIBING_FLAGS = ("--help", "--schema")
 
-    Only the given options are emitted, after normalization, with their
-    canonical ``--kebab-case`` flags; ``bool`` options become ``--x`` or
-    ``--no-x``. No hidden options are added.
+
+def _run_check(spec: DataCommand, run: Mapping[str, object] | None) -> bool:
+    """Whether ``run`` asks for ``--check``; any other flag of a run is refused."""
+    given = {} if run is None else run
+    allowed = [] if spec.check is None else ["check"]
+    for name in given:
+        if name != "check":
+            _fail(
+                message("commands.not_a_run_flag", name=name, command=spec.name),
+                option=str(name),
+                allowed=allowed,
+            )
+    value = given.get("check")
+    if value is None or value is False:
+        return False
+    if value is not True:
+        _fail(
+            message(
+                "commands.option_must_boolean_true_false", name="check", value=value
+            ),
+            option="check",
+            value=value,
+        )
+    if spec.check is None:
+        _fail(
+            message("commands.command_has_no_check", command=spec.name),
+            option="check",
+            allowed=allowed,
+        )
+    return True
+
+
+def format_command(
+    command: str,
+    /,
+    *,
+    options: Mapping[str, object],
+    run: Mapping[str, object] | None = None,
+) -> str:
+    """
+    Write the canonical ``imgw`` command line of a call.
+
+    The options are written as `validate_command` normalizes them (dataset
+    keys, sorted years, absolute paths, the default root of a store command
+    that names none, ADR-007 D2), each with its canonical ``--kebab-case`` flag
+    in catalog order; a ``bool`` option is ``--x`` or ``--no-x`` and is left
+    out at its default. ``run`` adds ``--check`` last. Every word is
+    ``shlex``-quoted, so equal calls give equal text: `parse_command` reads
+    the line back into the same command and run and into options that
+    validate to the same call, whose line is this one again.
 
     Parameters
     ----------
@@ -2164,6 +1876,10 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
         Catalog command name.
     options : Mapping[str, object]
         Option values keyed by option name.
+    run : Mapping[str, object] or None, optional
+        The flags of a run beside the options: ``{"check": True}`` writes
+        ``--check`` (the plan of `check_command`) for a command that has it
+        (``DataCommand.check``); ``False`` or ``None`` leaves it out.
 
     Returns
     -------
@@ -2174,11 +1890,15 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
     Raises
     ------
     IMGWValidationError
-        If the command or its options are invalid (see `validate_command`).
+        If the command or its options are invalid (see `validate_command`),
+        or ``run`` names another flag, gives ``check`` a value that is not a
+        boolean or asks for ``--check`` of a command without it
+        (``details.option`` names it).
     """
     normalized = validate_command(command, options=options)
     spec = _BY_NAME[command]
-    words = ["imgw", *spec.name.split()]
+    check = _run_check(spec, run)
+    words = [_PROGRAM, *spec.name.split()]
     for option in spec.options:
         if option.name not in normalized:
             continue
@@ -2187,7 +1907,534 @@ def format_command(command: str, /, *, options: Mapping[str, object]) -> str:
             words.append(option.flag if value else f"--no-{option.flag[2:]}")
         else:
             words += [option.flag, _argument(value)]
+    if check:
+        words.append(_CHECK_FLAG)
     return " ".join(shlex.quote(word) for word in words)
+
+
+def _usage(detail: str, **details: object) -> NoReturn:
+    """Refuse a mistake of a command line: ``details.reason`` is ``usage``."""
+    raise IMGWValidationError(detail, details={"reason": "usage", **details})
+
+
+def _line_command(words: Sequence[str]) -> DataCommand:
+    """The catalog command that the first two words of a line name."""
+    groups = list(_GROUPS)
+    if not words:
+        _usage(
+            message("commands.line_needs_command", groups=", ".join(groups)),
+            allowed=groups,
+        )
+    group = words[0]
+    if group in _DESCRIBING_FLAGS:
+        _usage(message("commands.line_describes", flag=group))
+    if group not in _GROUPS:
+        _usage(
+            message(
+                "commands.line_unknown_group", group=group, groups=", ".join(groups)
+            ),
+            allowed=groups,
+        )
+    named = _BY_NAME.get(" ".join(words[:2]))
+    if named is not None:
+        return named
+    if words[1:2] and words[1] in _DESCRIBING_FLAGS:
+        _usage(message("commands.line_describes", flag=words[1]))
+    names = [spec.name for spec in _COMMANDS if spec.name.startswith(f"{group} ")]
+    _usage(
+        message(
+            "commands.line_needs_group_command", group=group, commands=", ".join(names)
+        ),
+        allowed=names,
+    )
+
+
+def _line_flags(spec: DataCommand) -> dict[str, tuple[CommandOption, bool | None]]:
+    """
+    The flags ``imgw <command>`` has for the options of ``spec``.
+
+    They are those of ``x-imgw.cli.flags``: the flag of an option, its short
+    aliases and ``--no-x`` of a ``bool`` option whose default is true. Each
+    maps to its option and to ``None`` for a flag that takes a value, or to
+    the value a switch gives.
+    """
+    flags: dict[str, tuple[CommandOption, bool | None]] = {}
+    for option in spec.options:
+        negative = f"--no-{option.flag[2:]}"
+        for flag in _flags(option):
+            flags[flag] = (option, None if option.type != "bool" else flag != negative)
+    return flags
+
+
+def _split_word(word: str) -> tuple[str, str | None]:
+    """A word as its flag and the value joined to it, as the CLI (Click) reads it."""
+    if word.startswith("--"):
+        flag, joined, value = word.partition("=")
+        return flag, value if joined else None
+    if word.startswith("-") and len(word) > 2:
+        return word[:2], word[2:]
+    return word, None
+
+
+def parse_command(line: str | Sequence[str], /) -> CommandCall:
+    """
+    Read an ``imgw`` command line into the call it makes, as the CLI reads it.
+
+    The first two words name a catalog command (``store sync``); the others
+    are the flags ``imgw`` has for it (spec §13.10, ADR-002 D2 and D11): the
+    flag of each option and its short alias (``--root``, ``-r``), ``--no-x``
+    of a ``bool`` option whose default is true and ``--check`` of a command
+    with a check twin. A flag takes its value from the next word or after
+    ``=`` (``--root=/data``; a short alias also joined, ``-r/data``), a list
+    option takes one value per occurrence of its flag, a later value of
+    another option wins and ``--`` ends the flags. Like the CLI, which
+    validates nothing, the options are the texts the CLI passes to
+    `run_command`; `validate_command` checks and normalizes them, and
+    `format_command` writes the call as its canonical line, so a line that
+    `format_command` wrote is read into a call it writes as the same line.
+
+    Parameters
+    ----------
+    line : str or Sequence[str]
+        The line, with or without the leading ``imgw``: a text is split like
+        a shell line (``shlex.split``), a sequence holds its words.
+
+    Returns
+    -------
+    CommandCall
+        The command, its options (the texts as given, ``True`` or ``False``
+        of a switch) and ``run`` (``{"check": True}`` for ``--check``).
+
+    Raises
+    ------
+    IMGWValidationError
+        A mistake of the line, with ``details.reason`` ``usage``: a text that
+        is no shell line, no command or one outside the catalog
+        (``details.allowed`` lists the groups, or the commands of the group),
+        ``--help`` or ``--schema`` (a description, not a call), an unknown
+        flag, a flag without its value or a switch with one
+        (``details.option`` names the option) or a word that is no flag;
+        ``details.command`` names the command the line named.
+    """
+    try:
+        words = shlex.split(line) if isinstance(line, str) else list(line)
+    except ValueError as exc:
+        _usage(message("commands.line_unreadable", error=reason(exc)))
+    if words[:1] == [_PROGRAM]:
+        del words[0]
+    spec = _line_command(words)
+    flags = _line_flags(spec)
+    name = spec.name
+    given: dict[str, object] = {}
+    lists: dict[str, list[str]] = {}
+    run: dict[str, object] = {}
+    rest = words[2:]
+    while rest:
+        word = rest.pop(0)
+        if word == "--":
+            if rest:
+                _usage(
+                    message("commands.line_extra_word", word=rest[0], command=name),
+                    command=name,
+                )
+            break
+        flag, joined = _split_word(word)
+        if flag == "-" or not flag.startswith("-"):
+            _usage(
+                message("commands.line_extra_word", word=word, command=name),
+                command=name,
+            )
+        if flag in _DESCRIBING_FLAGS:
+            _usage(message("commands.line_describes", flag=flag), command=name)
+        if flag == _CHECK_FLAG and spec.check is not None:
+            if joined is not None:
+                _usage(
+                    message("commands.line_switch_value", flag=flag, command=name),
+                    option="check",
+                    command=name,
+                )
+            run["check"] = True
+            continue
+        entry = flags.get(flag)
+        if entry is None:
+            _usage(
+                message("commands.line_unknown_option", flag=flag, command=name),
+                option=flag.lstrip("-").replace("-", "_"),
+                command=name,
+            )
+        option, switch = entry
+        if switch is not None:
+            if joined is not None:
+                _usage(
+                    message("commands.line_switch_value", flag=flag, command=name),
+                    option=option.name,
+                    command=name,
+                )
+            given[option.name] = switch
+            continue
+        if joined is None:
+            if not rest:
+                _usage(
+                    message("commands.line_needs_value", flag=flag, command=name),
+                    option=option.name,
+                    command=name,
+                )
+            joined = rest.pop(0)
+        if option.type == "list":
+            lists.setdefault(option.name, []).append(joined)
+        else:
+            given[option.name] = joined
+    given.update(lists)
+    options = {o.name: given[o.name] for o in spec.options if o.name in given}
+    return CommandCall(name, options, run)
+
+
+# --- komenda zapisanej wersji ----------------------------------------------------------------
+
+# ``details.reason`` of a version whose metadata does not give its command (ECO-054).
+_NOT_REBUILDABLE = "command_not_rebuildable"
+
+
+def _not_a_version(relative: str) -> NoReturn:
+    raise IMGWValidationError(
+        message("commands.not_a_version", version=relative),
+        details={"option": "version", "value": relative},
+    )
+
+
+def _no_version(base: Path, relative: str) -> IMGWStoreError:
+    return IMGWStoreError(
+        message("commands.version_not_found", root=base, version=relative),
+        code="not_found",
+        details={"version": relative},
+    )
+
+
+def _mismatch(relative: str, field: str, value: object, expected: object) -> NoReturn:
+    raise IMGWDataError(
+        message(
+            "commands.version_meta_mismatch",
+            version=relative,
+            field=field,
+            value=value,
+            expected=expected,
+        ),
+        details={"version": relative, "field": field},
+    )
+
+
+def _invalid_request(relative: str, field: str, value: object) -> NoReturn:
+    raise IMGWDataError(
+        message(
+            "commands.version_request_invalid",
+            version=relative,
+            field=field,
+            value=value,
+        ),
+        details={"version": relative, "field": field},
+    )
+
+
+def _not_rebuildable(detail: str, relative: str, **details: object) -> NoReturn:
+    raise IMGWError(
+        detail,
+        code="unsupported",
+        details={"reason": _NOT_REBUILDABLE, "version": relative, **details},
+    )
+
+
+def _missing_field(relative: str, field: str) -> NoReturn:
+    _not_rebuildable(
+        message(
+            "commands.version_command_missing_field", version=relative, field=field
+        ),
+        relative,
+        field=field,
+    )
+
+
+def _version_path(base: Path, version: PathArg) -> tuple[str, Path]:
+    """The text of ``version`` relative to the root and its path, checked."""
+    given = Path(version).expanduser()
+    if given.is_absolute():
+        try:
+            given = given.relative_to(base)
+        except ValueError:
+            raise IMGWValidationError(
+                message("commands.version_outside_root", version=given, root=base),
+                details={"option": "version", "value": str(given)},
+            ) from None
+    relative = given.as_posix()
+    return relative, _writer._validate_slot(base, relative)
+
+
+def _locate_version(base: Path, relative: str, path: Path) -> tuple[str, Path, str]:
+    """
+    Slot, directory and main file of the version ``path`` names.
+
+    ``path`` is the version directory, its main file, its sidecar, an
+    attachment (the PMAXTP ``response.json``) or a station file of a series
+    version (``stations/<code>.parquet``); only the layout of the store places
+    it, the data file itself need not exist.
+    """
+    parts = PurePosixPath(relative).parts
+    station_file = (
+        parts[:2] == ("series", "versions")
+        and len(parts) == 6
+        and parts[4] == "stations"
+    )
+    given: str | None = None
+    if path.is_dir():
+        directory = path
+    elif path.name.endswith(_reader._SIDECAR):
+        directory, given = path.parent, path.name.removesuffix(_reader._SIDECAR)
+    elif station_file:
+        directory = path.parent.parent
+    else:
+        directory, given = path.parent, path.name
+    if not directory.is_dir() or not _reader._VERSION_DIR.match(directory.name):
+        if path.exists():
+            _not_a_version(relative)
+        raise _no_version(base, relative)
+    where = directory.relative_to(base).parts
+    series = _reader._series_datasets()
+    attachments: tuple[str, ...] = ()
+    if where[:2] == ("archives", "versions") and len(where) >= 5:
+        found = _reader._scanned_archive_slot(base / "archives" / "versions", directory)
+        if found is None:
+            _not_a_version(relative)
+        slot, name = found[0], PurePosixPath(found[1]).name
+    elif where[:2] == ("series", "versions") and len(where) == 4 and where[2] in series:
+        slot, name = f"series:{series[where[2]].key}", _reader.SERIES_FILE
+    elif where[:2] == ("stations", "versions") and (
+        len(where) == 3 or (len(where) == 4 and where[2] in _NESTED_CATALOGS)
+    ):
+        owner = "IMGW-PIB" if len(where) == 3 else _NESTED_CATALOGS[where[2]]
+        slot, name = f"catalog:{_CATALOG_DATASETS[owner]}", CATALOG_FILE
+    elif (
+        where[:2] == ("pmaxtp", "versions")
+        and len(where) == 5
+        and where[2] in ("POT", "AMP")
+        and _reader._CELL.match(where[3])
+    ):
+        slot = f"pmaxtp:{_reader._PMAXTP_KEY}:{where[2]}/{where[3]}"
+        name, attachments = CELL_FILE, (RESPONSE_FILE,)
+    else:
+        _not_a_version(relative)
+    if given is not None and given not in (name, *attachments):
+        _not_a_version(relative)
+    return slot, directory, name
+
+
+def _version_meta(base: Path, relative: str, sidecar: Path) -> Meta:
+    """The sidecar of a version: missing is ``not_found``, invalid ``data_error``."""
+    try:
+        return _reader._load_meta(sidecar)
+    except _reader._Invalid as exc:
+        if exc.code == "missing_sidecar":
+            raise _no_version(base, relative) from exc
+        if isinstance(exc.__cause__, OSError):
+            raise io_error(exc.__cause__) from exc.__cause__
+        raise IMGWDataError(
+            message("reader.invalid_sidecar", sidecar=sidecar, exc=reason(exc)),
+            details={"version": relative},
+        ) from exc
+
+
+def _archive_call(
+    relative: str, meta: Meta, key: str, server_path: str
+) -> tuple[str, Options]:
+    """``store sync`` of an archive version, or ``store catalog`` of a station list."""
+    descriptor = get_dataset(key)
+    request = meta.request
+    if request.get("server_path", server_path) != server_path:
+        _mismatch(relative, "request.server_path", request["server_path"], server_path)
+    if descriptor.time_unit == "station_list":
+        # Station lists are downloaded by the catalog of their provider.
+        return "store catalog", {"provider": descriptor.provider}
+    unselected = message(
+        "commands.version_command_unselected",
+        version=relative,
+        dataset=key,
+        server_path=server_path,
+    )
+    archive = _archive_from_path(key, server_path)
+    if archive is None:
+        _not_rebuildable(unselected, relative, server_path=server_path)
+    for field in ("year", "month", "station_code", "param"):
+        if field in request and request[field] != getattr(archive, field):
+            _mismatch(
+                relative, f"request.{field}", request[field], getattr(archive, field)
+            )
+    options: Options = {"datasets": [key]}
+    if descriptor.archive_scope == "country":
+        options["years"] = [archive.year]
+        if archive.month is not None:
+            options["months"] = [archive.month]
+    else:
+        options["stations"] = [archive.station_code]
+        if descriptor.archive_scope == "station_year":
+            options["years"] = [archive.year]
+    try:
+        _, _, candidates, archives = _sync._selection(
+            options["datasets"],
+            options.get("years"),
+            options.get("months"),
+            options.get("stations"),
+        )
+    except IMGWValidationError:
+        _not_rebuildable(unselected, relative, server_path=server_path)
+    offered = (candidates.get(key) or ()) if candidates else archives
+    if server_path not in {item.server_path for item in offered}:
+        _not_rebuildable(unselected, relative, server_path=server_path)
+    return "store sync", options
+
+
+def _catalog_call(relative: str, meta: Meta, key: str) -> tuple[str, Options]:
+    """``store catalog`` of a catalog version built without a user's coordinates."""
+    provider = next(owner for owner, item in _CATALOG_DATASETS.items() if item == key)
+    if "user_locations" not in meta.request:
+        _missing_field(relative, "request.user_locations")
+    user = meta.request["user_locations"]
+    if isinstance(user, str) and user:
+        _not_rebuildable(
+            message(
+                "commands.version_command_user_locations",
+                version=relative,
+                name=user,
+                provider=provider,
+            ),
+            relative,
+            field="request.user_locations",
+        )
+    if user is not None:
+        _invalid_request(relative, "request.user_locations", user)
+    return "store catalog", {"provider": provider}
+
+
+def _pmaxtp_call(relative: str, meta: Meta, slot: str) -> tuple[str, Options]:
+    """``pmaxtp sync`` of the point and the cell a PMAXTP version was fetched for."""
+    method, cell = slot.rsplit(":", 1)[1].split("/")
+    ind_x, ind_y = (int(index) for index in cell.split("_"))
+    request = meta.request
+    for field, expected in (("method", method), ("ind_x", ind_x), ("ind_y", ind_y)):
+        if field in request and request[field] != expected:
+            _mismatch(relative, f"request.{field}", request[field], expected)
+    point: Options = {}
+    for field in ("latitude", "longitude"):
+        if field not in request:
+            _missing_field(relative, f"request.{field}")
+        value = request[field]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            _invalid_request(relative, f"request.{field}", value)
+        point[field] = value
+    return "pmaxtp sync", {**point, "method": method, "ind_x": ind_x, "ind_y": ind_y}
+
+
+def command_for_version(
+    version: str | os.PathLike[str],
+    *,
+    root: str | os.PathLike[str] | None = None,
+) -> CommandCall:
+    """
+    Give the data command that fetches a stored version again, from its metadata.
+
+    Offline and read-only: the version's sidecar (``imgw-meta/1``) and the
+    layout of the store give the call of the command that selects this data
+    in the store (ECO-054, ADR-008). The call has the shape `parse_command`
+    returns, so `format_command`, `check_command` and `run_command` take it:
+    it is the call `parse_command` reads from the canonical line of
+    `format_command`, with ``root`` the absolute root of the store (a store
+    command always names its root, ADR-007 D2) and no ``run`` flags.
+
+    ======================================  ========================================
+    Version                                 Command
+    ======================================  ========================================
+    IMGW-PIB archive                        ``store sync --datasets <key> --years
+                                            <year>`` (``--months <month>`` of a
+                                            monthly file)
+    ČHMÚ hydrological archive               ``store sync --datasets <key> --stations
+                                            <code> --years <year>``
+    ČHMÚ meteorological archive             ``store sync --datasets <key> --stations
+                                            <code>``
+    station list (both providers)           ``store catalog --provider <provider>``
+    station catalog                         ``store catalog --provider <provider>``
+    series version (or its station file)    ``series build --dataset <key>``
+    PMAXTP cell                             ``pmaxtp sync --latitude --longitude
+                                            --method --ind-x --ind-y``
+    ======================================  ========================================
+
+    The call is the narrowest one that selects the version's file; it may
+    select files beside it that the same options cover (the ``H``, ``Q`` and
+    ``T`` files of a half-year, every element of a ČHMÚ meteorological
+    station), each with its own plan item. A version whose metadata does not
+    give the call is refused, never guessed: a catalog built with a user's
+    coordinates file (only its name is recorded), a sidecar without a field
+    the call needs, or a file that ``store sync`` does not select.
+
+    Parameters
+    ----------
+    version : str or os.PathLike
+        A stored version: its directory, its main file (``StoreEntry.version``),
+        its sidecar, the PMAXTP ``response.json`` or a station file of a
+        series version; relative to ``root`` (an absolute path must lie in
+        it). The main file need not exist: the sidecar gives the call.
+    root : str, os.PathLike or None, optional
+        Store root; ``None`` takes the default root (`store_root`).
+
+    Returns
+    -------
+    CommandCall
+        The command, its options as the texts of its canonical line and an
+        empty ``run``; ``check_command(call.command, options=call.options)``
+        plans the version's file again.
+
+    Raises
+    ------
+    IMGWError
+        Code ``unsupported`` with ``details.reason="command_not_rebuildable"``
+        (``details.version``, and ``field`` or ``server_path``) when the
+        metadata does not give the call; the text says how to pin the version
+        instead.
+    IMGWStoreError
+        Code ``not_found`` (``details.version``) when the store has no such
+        version or its sidecar is missing; ``store_unavailable`` when the root
+        is not a supported store; ``validation_error`` when a path component
+        is a symbolic link.
+    IMGWValidationError
+        If ``version`` lies outside the root, contains ``..`` or names
+        something that is no version (``details.option="version"``).
+    IMGWDataError
+        If the sidecar is invalid or contradicts the layout (``details.version``,
+        ``details.field``); code ``io_error`` if it cannot be read.
+    """
+    base = _reader._open(store_root().root if root is None else root)
+    relative, path = _version_path(base, version)
+    slot, directory, name = _locate_version(base, relative, path)
+    meta = _version_meta(base, relative, directory / f"{name}{_reader._SIDECAR}")
+    kind, key = slot.split(":")[:2]
+    if meta.dataset_key != key:
+        _mismatch(relative, "dataset", meta.dataset, key)
+    if kind == "archive":
+        server_path = slot.removeprefix(f"archive:{key}:")
+        server_dir = get_dataset(key).server_dir
+        command, options = _archive_call(
+            relative, meta, key, f"{server_dir}/{server_path}"
+        )
+    elif kind == "series":
+        if meta.request.get("dataset", key) != key:
+            _mismatch(relative, "request.dataset", meta.request["dataset"], key)
+        command, options = "series build", {"dataset": key}
+    elif kind == "catalog":
+        command, options = _catalog_call(relative, meta, key)
+    else:
+        command, options = _pmaxtp_call(relative, meta, slot)
+    try:
+        line = format_command(command, options={"root": base, **options})
+    except IMGWValidationError as exc:
+        field = str(exc.details.get("option"))
+        _invalid_request(relative, f"request.{field}", options.get(field))
+    return parse_command(line)
 
 
 # --- dyspozytor ------------------------------------------------------------------------------
@@ -2210,7 +2457,9 @@ class _Notices:
 
 
 def _function(name: str) -> Callable[..., Any]:
-    return getattr(importlib.import_module(_MODULES[name]), name)
+    return cast(
+        Callable[..., Any], getattr(importlib.import_module(_MODULES[name]), name)
+    )
 
 
 def _call(name: str, options: Mapping[str, object], hooks: Mapping[str, object]) -> Any:
@@ -2222,7 +2471,7 @@ def _call(name: str, options: Mapping[str, object], hooks: Mapping[str, object])
     for key, value in options.items():
         parameter = parameters.get(key)
         if parameter is None:
-            raise TypeError(f"Funkcja {name} nie ma parametru {key}")
+            raise TypeError(f"The function {name} has no parameter {key}")
         if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
             args.append(value)
         else:
@@ -2242,7 +2491,7 @@ def _outcome(cancelled: bool, failures: int, successes: int) -> Status:
 def _status(result: object) -> Status:
     """Envelope status of a function result (spec §13.6)."""
     if isinstance(result, StorePlan):
-        states = [item.status for item in result.items]
+        states: list[str] = [item.status for item in result.items]
         states += [action.status for action in result.actions]
         failures = states.count("check_failed")
         return _outcome(result.cancelled, failures, len(states) - failures)
@@ -2256,19 +2505,11 @@ def _status(result: object) -> Status:
         )
     if isinstance(result, DownloadReport):
         # A ČHMÚ candidate the source does not publish is a successful item.
-        items = [item.status for item in result.items]
+        statuses = [item.status for item in result.items]
         return _outcome(
             result.cancelled,
-            items.count("failed"),
-            items.count("downloaded") + items.count("not_published"),
-        )
-    if isinstance(result, ProjectReport):
-        states = [*result.tasks.values(), *(file.status for file in result.files)]
-        failures = sum(s in ("failed", "stale_plan") for s in states)
-        return _outcome(
-            result.cancelled,
-            failures,
-            len(states) - failures - states.count("cancelled"),
+            statuses.count("failed"),
+            statuses.count("downloaded") + statuses.count("not_published"),
         )
     if isinstance(result, SeriesReport | CatalogReport | PMaXTPStoreResult):
         return _outcome(result.status == "cancelled", int(result.status == "failed"), 0)
@@ -2299,7 +2540,8 @@ def run_command(
     returned by the function, ``items`` is the slice
     ``[offset, offset + limit)`` (to the end without ``limit``). Stream
     commands (``store export``, ``series export``, ``commands guide``
-    without ``path``) return the iterator of text lines as ``result``; an
+    without ``output``) return the iterator of text lines as ``result``; with
+    ``output`` they write the one file and return its `OutputReport`; an
     error while iterating is raised from the iterator.
 
     Parameters
@@ -2366,7 +2608,7 @@ def _live(command: str, urls: Iterable[str]) -> StorePlan:
             PlanAction(
                 command,
                 "unverifiable",
-                f"Odczyt na żywo {url} (bez zapisu; aktualność znana dopiero po pobraniu)",
+                message("commands.live_read", url=url),
             )
             for url in urls
         ],
@@ -2376,7 +2618,7 @@ def _live(command: str, urls: Iterable[str]) -> StorePlan:
 def _twin(name: str, *, without: tuple[str, ...] = ()) -> Checker:
     def check(options: Options, hooks: Hooks) -> StorePlan:
         kept = {key: value for key, value in options.items() if key not in without}
-        return _call(name, kept, hooks)
+        return cast(StorePlan, _call(name, kept, hooks))
 
     return check
 
@@ -2393,12 +2635,15 @@ def _archives(options: Options) -> tuple[ArchiveFile, ...]:
 
 def _check_datasets_list(options: Options, hooks: Hooks) -> StorePlan:
     found = datasets(kind=options.get("kind"), provider=options.get("provider"))
-    return _reading("datasets list", f"Rejestr zbiorów (offline): {len(found)}")
+    return _reading(
+        "datasets list", message("commands.datasets_registry", count=len(found))
+    )
 
 
 def _check_datasets_providers(options: Options, hooks: Hooks) -> StorePlan:
     return _reading(
-        "datasets providers", f"Rejestr dostawców (offline): {len(providers())}"
+        "datasets providers",
+        message("commands.providers_registry", count=len(providers())),
     )
 
 
@@ -2406,26 +2651,56 @@ def _check_datasets_files(options: Options, hooks: Hooks) -> StorePlan:
     files = _archives(options)
     return _reading(
         "datasets files",
-        f"Pliki archiwów zbioru {options['dataset']} (offline, bez pobierania): "
-        f"{len(files)}",
+        message("commands.archive_files", dataset=options["dataset"], count=len(files)),
     )
 
 
 def _check_download(options: Options, hooks: Hooks) -> StorePlan:
-    output = cast(Path, options.get("output", _DEFAULT_OUTPUT.absolute()))
-    actions = []
-    for file in _archives(options):
-        target = output.joinpath(*file.server_path.split("/"))
-        exists = target.exists()
-        actions.append(
-            PlanAction(
+    files = _archives(options)
+    if "output_dir" in options:
+        directory = cast(Path, options["output_dir"])
+        targets = [(file.server_path, file.url) for file in files]
+        return _plan(
+            directory,
+            plain_actions(
                 "datasets download",
-                "unverifiable" if exists else "missing",
-                f"{file.url} → {target}"
-                + (" (istniejący plik zostanie zastąpiony)" if exists else ""),
-            )
+                directory,
+                targets,
+                force=bool(options.get("force")),
+            ),
         )
-    return _plan(output, actions)
+    root = cast(Path, options["root"])
+    refused = _writer.root_conflict_plan("datasets download", root)
+    if refused is not None:
+        return refused
+    # A root with the layout and no marker (store_unavailable) is no conflict: it raises.
+    stored = (
+        _writer.lenient_store(root).root.is_dir() and (root / _STORE_MARKER).is_file()
+    )
+    actions = []
+    try:
+        for file in files:
+            current = (
+                _store.current_version(root, slot=_fetch._archive_slot(file))
+                if stored
+                else None
+            )
+            actions.append(
+                PlanAction(
+                    "datasets download",
+                    "missing" if current is None else "unverifiable",
+                    message(
+                        "commands.download_to_store"
+                        if current is None
+                        else "commands.download_again",
+                        url=file.url,
+                        root=root,
+                    ),
+                )
+            )
+    except IMGWError as exc:
+        actions = [PlanAction("datasets download", "check_failed", reason(exc))]
+    return _plan(root, actions)
 
 
 def _check_stations(options: Options, hooks: Hooks) -> StorePlan:
@@ -2441,12 +2716,16 @@ def _check_stations(options: Options, hooks: Hooks) -> StorePlan:
         return _live("stations find", _stations._live_urls(kinds, owners))
     info = _store.store_info(root)
     action = (
-        PlanAction("stations find", "current", f"Odczyt list stacji z magazynu {root}")
+        PlanAction(
+            "stations find",
+            "current",
+            message("commands.read_station_lists", root=root),
+        )
         if info.supported
         else PlanAction(
             "stations find",
             "check_failed",
-            "; ".join(info.problems) or f"Katalog {root} nie jest magazynem IMGW",
+            "; ".join(info.problems) or message("commands.not_imgw_store", root=root),
         )
     )
     return _plan(root, [action])
@@ -2481,7 +2760,9 @@ def _check_pmaxtp_fetch(options: Options, hooks: Hooks) -> StorePlan:
 
 
 def _check_pmaxtp_url(options: Options, hooks: Hooks) -> StorePlan:
-    return _reading("pmaxtp url", f"Adres API PMAXTP (offline): {_pmaxtp_url(options)}")
+    return _reading(
+        "pmaxtp url", message("commands.pmaxtp_url", pmaxtp_url=_pmaxtp_url(options))
+    )
 
 
 def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
@@ -2495,13 +2776,17 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
             entry = _store.current_version(root, slot=f"pmaxtp:pl.imgw.pmaxtp:{cell}")
             found = None if entry is None else entry.version
     except IMGWError as exc:
-        action = PlanAction("pmaxtp read", "check_failed", str(exc))
+        action = PlanAction("pmaxtp read", "check_failed", reason(exc))
     else:
         action = (
-            PlanAction("pmaxtp read", "current", f"Odczyt komórki {cell} z {found}")
+            PlanAction(
+                "pmaxtp read",
+                "current",
+                message("commands.read_cell", cell=cell, found=found),
+            )
             if found is not None
             else PlanAction(
-                "pmaxtp read", "missing", f"Brak zapisanej komórki PMAXTP {cell}"
+                "pmaxtp read", "missing", message("commands.no_stored_cell", cell=cell)
             )
         )
     return _plan(root, [action])
@@ -2509,23 +2794,43 @@ def _check_pmaxtp_read(options: Options, hooks: Hooks) -> StorePlan:
 
 def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
     root = cast(Path, options["root"])
+    refused = _writer.root_conflict_plan("store init", root)
+    if refused is not None:
+        return refused
     info = _store.store_info(root)
     if info.supported:
         action = PlanAction(
-            "store init", "current", f"Magazyn IMGW już istnieje: {root}"
+            "store init", "current", message("commands.store_exists", root=root)
         )
-    elif not root.exists() or (root.is_dir() and not any(root.iterdir())):
+    elif not root.exists() or (root.is_dir() and not _writer._foreign_content(root)):
         action = PlanAction(
             "store init",
             "missing",
-            f"Zostanie utworzony znacznik {_STORE_MARKER} w {root}",
+            message(
+                "commands.marker_will_be_created", store_marker=_STORE_MARKER, root=root
+            ),
         )
+    elif root.is_dir() and _writer._has_layout(root):
+        # The layout of a store without its marker: init verifies it first (DEV-19.13).
+        try:
+            _writer._verify_layout(root)
+        except IMGWError as exc:
+            action = PlanAction("store init", "check_failed", reason(exc))
+        else:
+            action = PlanAction(
+                "store init",
+                "missing",
+                message(
+                    "commands.marker_will_be_created",
+                    store_marker=_STORE_MARKER,
+                    root=root,
+                ),
+            )
     else:
         action = PlanAction(
             "store init",
             "check_failed",
-            "; ".join(info.problems)
-            or f"Katalog {root} nie jest pustym magazynem IMGW",
+            "; ".join(info.problems),
         )
     return _plan(root, [action])
 
@@ -2533,37 +2838,67 @@ def _check_store_init(options: Options, hooks: Hooks) -> StorePlan:
 def _check_reading(command: str, key: str) -> Checker:
     def check(options: Options, hooks: Hooks) -> StorePlan:
         root = cast(Path, options[key])
-        return _reading(command, f"Operacja tylko do odczytu: {root}", root)
+        return _reading(
+            command, message("commands.read_only_operation", root=root), root
+        )
 
     return check
 
 
 def _check_store_sync(options: Options, hooks: Hooks) -> StorePlan:
+    if "output_dir" in options:
+        directory = cast(Path, options["output_dir"])
+        archives = _sync._plain_archives(
+            options["datasets"],
+            options.get("years"),
+            options.get("months"),
+            options.get("stations"),
+        )
+        return _plan(
+            directory,
+            plain_actions(
+                "store sync",
+                directory,
+                [(archive.server_path, archive.url) for archive in archives],
+                force=bool(options.get("force")),
+            ),
+        )
     root = cast(Path, options["root"])
     if "plan" not in options:
         selection = ("root", "datasets", "years", "months", "stations")
-        return _call(
-            "check_store", {k: v for k, v in options.items() if k in selection}, hooks
+        return cast(
+            StorePlan,
+            _call(
+                "check_store",
+                {k: v for k, v in options.items() if k in selection},
+                hooks,
+            ),
         )
     plan = StorePlan.from_json(options["plan"])
     if Path(plan.root).absolute() != root:
         _fail(
-            f"Plan dotyczy innego magazynu: {plan.root}",
+            message("commands.plan_concerns_another_store", root=plan.root),
             option="plan",
             value=options["plan"],
         )
     return plan
 
 
-def _export_action(command: str, what: str, path: object) -> PlanAction:
-    if not isinstance(path, Path):
-        return PlanAction(command, "current", f"Eksport {what} na standardowe wyjście")
-    exists = path.exists()
-    return PlanAction(
+def _export_actions(command: str, what: str, options: Options) -> list[PlanAction]:
+    """Plan of an export: the standard output, or the one plain file (DEV-19.10)."""
+    output = options.get("output")
+    if not isinstance(output, Path):
+        return [
+            PlanAction(
+                command, "current", message("commands.export_to_stdout", what=what)
+            )
+        ]
+    return plain_actions(
         command,
-        "newer" if exists else "missing",
-        f"Eksport {what} do {path}"
-        + (" (istniejący plik zostanie zastąpiony)" if exists else ""),
+        output.parent,
+        [(output.name, what)],
+        force=bool(options.get("force")),
+        single=True,
     )
 
 
@@ -2572,26 +2907,37 @@ def _check_store_export(options: Options, hooks: Hooks) -> StorePlan:
     try:
         _store.read_archive(version)
     except IMGWError as exc:
-        action = PlanAction("store export", "check_failed", str(exc))
+        actions = [PlanAction("store export", "check_failed", reason(exc))]
     else:
-        what = f"rekordów {version} ({options.get('format', 'csv')})"
-        action = _export_action("store export", what, options.get("path"))
-    return _plan(options.get("root") or _store_root(version), [action])
+        what = message(
+            "commands.export_records",
+            version=version,
+            format=options.get("format", "csv"),
+        )
+        actions = _export_actions("store export", what, options)
+    return _plan(options.get("root") or _store_root(version), actions)
 
 
 def _check_select(options: Options, hooks: Hooks) -> StorePlan:
     try:
         selection = _call("select_series", options, {})
     except IMGWError as exc:
-        status = "missing" if exc.code == "not_found" else "check_failed"
-        action = PlanAction("series select", status, str(exc))
+        status: Literal["missing", "check_failed"] = (
+            "missing" if exc.code == "not_found" else "check_failed"
+        )
+        action = PlanAction("series select", status, reason(exc))
     else:
         action = PlanAction(
             "series select",
             "current",
-            f"{selection.version}: stacje {', '.join(selection.stations)}; zmienne "
-            f"{', '.join(selection.variables)}; lata "
-            f"{', '.join(map(str, selection.years))} ({selection.year_type})",
+            message(
+                "commands.series_selection",
+                version=selection.version,
+                stations=", ".join(selection.stations),
+                variables=", ".join(selection.variables),
+                years=", ".join(map(str, selection.years)),
+                year_type=selection.year_type,
+            ),
         )
     return _plan(options["root"], [action])
 
@@ -2611,61 +2957,55 @@ def _check_series(command: str) -> Checker:
             _half_year(descriptor, options.get("year_type"))
         except IMGWError as exc:
             missing = exc.code == "not_found" and command != "series export"
-            action = PlanAction(
-                command, "missing" if missing else "check_failed", str(exc)
-            )
+            actions = [
+                PlanAction(
+                    command, "missing" if missing else "check_failed", reason(exc)
+                )
+            ]
         else:
-            action = (
-                _export_action(
+            actions = (
+                _export_actions(
                     command,
-                    f"szeregu stacji {options['station']} z {path}",
-                    options.get("path"),
+                    message(
+                        "commands.export_station_series",
+                        station=options["station"],
+                        path=path,
+                    ),
+                    options,
                 )
                 if command == "series export"
-                else PlanAction(command, "current", f"Odczyt szeregu {path} (offline)")
+                else [
+                    PlanAction(
+                        command, "current", message("commands.read_series", path=path)
+                    )
+                ]
             )
         base = root if isinstance(root, Path) else _store_root(options["version"])
-        return _plan(base, [action])
-
-    return check
-
-
-def _check_manifest(command: str) -> Checker:
-    def check(options: Options, hooks: Hooks) -> StorePlan:
-        directory = cast(Path, options["project_dir"])
-        manifest = directory / PROJECT_FILE
-        if command == "project init":
-            action = (
-                PlanAction(
-                    command, "current", f"Manifest projektu już istnieje: {manifest}"
-                )
-                if manifest.exists()
-                else PlanAction(
-                    command, "missing", f"Zostanie utworzony manifest {manifest}"
-                )
-            )
-        elif manifest.is_file():
-            action = PlanAction(
-                command, "newer", f"Zostanie zaktualizowany manifest {manifest}"
-            )
-        else:
-            action = PlanAction(
-                command, "check_failed", f"Brak manifestu projektu {manifest}"
-            )
-        return _plan(directory, [action])
+        return _plan(base, actions)
 
     return check
 
 
 def _check_commands_guide(options: Options, hooks: Hooks) -> StorePlan:
     # The guide is rendered offline from the package; the plan names its target.
-    path = options.get("path")
-    target = "standardowe wyjście"
-    if isinstance(path, Path):
-        replaced = " (istniejący plik zostanie zastąpiony)" if path.exists() else ""
-        target = f"{path}{replaced}"
-    language = options.get("lang", "pl")
-    detail = f"Przewodnik {options.get('format', 'agents')} ({language}) → {target}"
+    format_, language = options.get("format", "agents"), options.get("lang", "en")
+    output = options.get("output")
+    if isinstance(output, Path):
+        what = message("commands.guide_what", format=format_, language=language)
+        actions = plain_actions(
+            "commands guide",
+            output.parent,
+            [(output.name, what)],
+            force=bool(options.get("force")),
+            single=True,
+        )
+        return _plan(Path.cwd(), actions)
+    detail = message(
+        "commands.guide_plan",
+        format=format_,
+        language=language,
+        target=message("commands.standard_output"),
+    )
     return _reading("commands guide", detail)
 
 
@@ -2697,16 +3037,11 @@ _CHECKS: dict[str, Checker] = {
     "series read": _check_series("series read"),
     "series summary": _check_series("series summary"),
     "series export": _check_series("series export"),
-    "project init": _check_manifest("project init"),
-    "project add": _check_manifest("project add"),
-    "project remove": _check_manifest("project remove"),
-    "project set-store": _check_manifest("project set-store"),
-    "project download": _twin("check_project", without=("plan", "update")),
-    "project check": _twin("check_project", without=("plan",)),
-    "project status": _check_reading("project status", "project_dir"),
-    "project verify": _check_reading("project verify", "project_dir"),
+    "commands list": lambda options, hooks: _reading(
+        "commands list", message("commands.command_list_description")
+    ),
     "commands schema": lambda options, hooks: _reading(
-        "commands schema", "Opis katalogu komend imgw-commands/1 (offline)"
+        "commands schema", message("commands.commands_catalog_description")
     ),
     "commands guide": _check_commands_guide,
 }
@@ -2726,9 +3061,8 @@ def check_command(
 
     Commands with a check twin use it (``store sync`` → `check_store`,
     ``store catalog`` → `check_catalog`, ``series build`` → `check_series`,
-    ``pmaxtp sync`` → `check_pmaxtp`, ``project download`` →
-    `check_project`); commands that are checks themselves run without
-    writing their plan file. Every other command gets a general plan of
+    ``pmaxtp sync`` → `check_pmaxtp`); commands that are checks themselves run
+    without writing their plan file. Every other command gets a general plan of
     `PlanAction` items: validation, URLs and expected paths, without any
     request (read-only commands are reported ``current``, live reads
     ``unverifiable``).
@@ -2807,13 +3141,13 @@ def _value_schema(
         "bool": {"type": "boolean"},
         "date": {"type": "string", "format": "date"},
         "path": {"type": "string", "x-imgw-type": "path"},
-        "object": {"type": "object"},
     }
     return simple[type_]
 
 
-def _localized(polish: str, english: str, lang: Lang) -> str:
-    return english if lang == "en" else polish
+def _operation_id(command: str) -> str:
+    """``imgw_<group>_<verb>``: the one naming rule of REST, MCP tools and guide."""
+    return f"{_TOOL}_{command.replace(' ', '_').replace('-', '_')}"
 
 
 def _property(option: CommandOption, lang: Lang) -> dict[str, object]:
@@ -2822,7 +3156,11 @@ def _property(option: CommandOption, lang: Lang) -> dict[str, object]:
         schema["default"] = option.default
     if option.writes != "none":
         schema["x-imgw-writes"] = option.writes
-    schema["description"] = _localized(option.help, option.help_en, lang)
+    if option.path_role is not None:
+        schema["x-imgw-path-role"] = option.path_role
+    if option.store_only:
+        schema["x-imgw-store-only"] = True
+    schema["description"] = localize(option.help, lang)
     return schema
 
 
@@ -2836,7 +3174,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
     schema: dict[str, object] = {
         "$schema": _DIALECT,
         "title": spec.name,
-        "description": _localized(spec.description, spec.description_en, lang),
+        "description": localize(spec.description, lang),
         "type": "object",
         "properties": {option.name: _property(option, lang) for option in spec.options},
     }
@@ -2853,7 +3191,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
     schema["x-imgw"] = {
         "command": spec.name,
         # The one naming rule of REST operationId, MCP tools and the guide.
-        "operation_id": spec.name.replace(" ", "_").replace("-", "_"),
+        "operation_id": _operation_id(spec.name),
         "group": group,
         "function": spec.function,
         "check": spec.check,
@@ -2861,6 +3199,7 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
         "result_type": _RESULT_TYPES[spec.name],
         "writes": spec.writes,
         "network": spec.network,
+        "idempotent": spec.idempotent,
         "cli": {
             "command": f"imgw {spec.name}",
             "flags": {option.name: _flags(option) for option in spec.options},
@@ -2873,13 +3212,22 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
             "server_options": [o.name for o in spec.options if o.rest == "server"],
             "local_options": [o.name for o in spec.options if o.rest == "local"],
         },
-        "rules": list(spec.rules_en if lang == "en" else spec.rules),
+        "rules": [localize(rule, lang) for rule in spec.rules],
+        "examples": [
+            {"call": example.call, "result": copy.deepcopy(example.result)}
+            for example in EXAMPLES[spec.name]
+        ],
     }
+    meta = cast(dict[str, object], schema["x-imgw"])
+    if spec.exclusive:
+        meta["exclusive"] = [list(group) for group in spec.exclusive]
+    if spec.store_only:
+        meta["store_only"] = True
     return schema
 
 
 def command_schema(
-    command: str | None = None, /, *, lang: Lang = "pl"
+    command: str | None = None, /, *, lang: Lang = "en"
 ) -> dict[str, object]:
     """
     Describe the options of one command, or the whole catalog, as JSON Schema.
@@ -2894,17 +3242,25 @@ def command_schema(
     ``minimum``, ``maximum`` and ``pattern`` unchanged, ``requires`` →
     ``dependentRequired``, ``one_of`` → ``oneOf`` of ``required`` groups and
     other rules → ``x-imgw.rules``; an option whose value names a file the
-    command writes has ``x-imgw-writes`` (``add`` or ``replace``).
-    ``x-imgw`` also names the ``operation_id`` (REST ``operationId``, MCP
-    tool name), the group, the function, the check twin, the result shape
-    and type, the effects of a run (``writes``: ``none``, ``add`` or
-    ``replace``; ``network``), the CLI flags and the REST route.
+    command writes has ``x-imgw-writes`` (``add`` or ``replace``); a path
+    option has ``x-imgw-path-role`` (``input``, ``output`` or ``root``) and an
+    option valid only with a store ``x-imgw-store-only``; ``x-imgw.exclusive``
+    lists the groups of options of which at most one may be given
+    (``output_dir`` and ``root``) and ``x-imgw.store_only`` marks a command
+    without a plain mode.
+    ``x-imgw`` also names the ``operation_id`` (``imgw_<group>_<verb>``: the
+    REST ``operationId`` and the MCP tool name), the group, the function, the
+    check twin, the result shape and type, the effects of a run (``writes``:
+    ``none``, ``add`` or ``replace``; ``network``; ``idempotent``), the CLI
+    flags, the REST route and the ``examples``: each a canonical ``imgw``
+    line (``call``, as `format_command` writes it) and an excerpt of the
+    ``result`` of its envelope (AGI-2.2).
 
     Parameters
     ----------
     command : str or None, optional
         Catalog command name; ``None`` returns the whole catalog.
-    lang : {"pl", "en"}, optional
+    lang : {"en", "pl"}, optional
         Language of the texts: command and option descriptions, rules,
         group descriptions and error titles. Everything else (properties,
         types, enumerations, bounds, required groups, ``x-imgw`` fields
@@ -2915,7 +3271,7 @@ def command_schema(
     dict of {str : object}
         JSON Schema of the command options, or the ``imgw-commands/1``
         document with ``version``, ``lang``, ``result_schema``, ``groups``,
-        ``commands`` (37 schemas), ``errors`` (the error code registry) and
+        ``commands`` (38 schemas), ``errors`` (the error code registry) and
         ``exit_codes`` of the envelope statuses.
 
     Raises
@@ -2932,16 +3288,84 @@ def command_schema(
         "version": __version__,
         "lang": language,
         "result_schema": "imgw-result/1",
-        "groups": dict(_GROUPS_EN if language == "en" else _GROUPS),
+        "groups": {name: localize(text, language) for name, text in _GROUPS.items()},
         "commands": [_schema(spec, language) for spec in _COMMANDS],
         "errors": [
             {
                 "code": spec.code,
-                "title": _localized(spec.title, spec.title_en, language),
+                "title": localize(spec.title, language),
                 "exit_code": spec.exit_code,
                 "http_status": spec.http_status,
             }
             for spec in ERROR_CODES.values()
         ],
         "exit_codes": dict(_EXIT_CODES),
+    }
+
+
+def _summary(text: str) -> str:
+    """First sentence of a command description (a catalog ``summary``)."""
+    for match in _SENTENCE_BREAK.finditer(text):
+        if text[match.end()].isupper():
+            return text[: match.start() + 1]
+    return text
+
+
+def list_commands(*, lang: Lang = "en") -> dict[str, object]:
+    """
+    Summarize the command catalog: one short entry per command.
+
+    The summary is the first step of discovery: the tool names, what each
+    command does in one sentence, its effects and its REST route. The options
+    of one command come from `command_schema`.
+
+    Parameters
+    ----------
+    lang : {"en", "pl"}, optional
+        Language of the group titles and of the summaries.
+
+    Returns
+    -------
+    dict of {str : object}
+        ``imgw-command-list/1`` document with ``version``, ``lang``,
+        ``groups`` and ``commands``: per command in catalog order its
+        ``command``, ``operation_id``, ``group``, ``summary`` (the first
+        sentence of the description, at most 100 characters), ``writes``,
+        ``network``, ``idempotent``, ``check`` (the check twin), ``result``,
+        ``result_type`` and ``rest`` (method and path, or None).
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``lang`` is not a language of the catalog (``details.allowed``
+        lists the values).
+    """
+    language = cast(Lang, _choice(_LANGUAGE, lang))
+    entries: list[dict[str, object]] = []
+    for spec in _COMMANDS:
+        group, name = spec.name.split(" ", 1)
+        text = localize(spec.description, language)
+        entries.append(
+            {
+                "command": spec.name,
+                "operation_id": _operation_id(spec.name),
+                "group": group,
+                "summary": _summary(text),
+                "writes": spec.writes,
+                "network": spec.network,
+                "idempotent": spec.idempotent,
+                "check": spec.check,
+                "result": spec.result,
+                "result_type": _RESULT_TYPES[spec.name],
+                "rest": None
+                if spec.method is None
+                else {"method": spec.method, "path": f"/api/v1/{group}/{name}"},
+            }
+        )
+    return {
+        "schema": "imgw-command-list/1",
+        "version": __version__,
+        "lang": language,
+        "groups": {name: localize(text, language) for name, text in _GROUPS.items()},
+        "commands": entries,
     }

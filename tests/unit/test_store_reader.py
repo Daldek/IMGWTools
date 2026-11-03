@@ -15,6 +15,7 @@ import pytest
 import respx
 
 from imgwtools._parsing import normalize_archive
+from imgwtools._version import __version__
 from imgwtools.datasets import archive_files, get_dataset, station_source_files
 from imgwtools.exceptions import (
     IMGWDataError,
@@ -458,16 +459,16 @@ def test_series_validation_and_tampered_parquet(root):
 
     parquet = version.parent / "stations" / f"{STATION}.parquet"
     parquet.write_bytes(parquet.read_bytes() + b"\0")
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="checksum"):
         read_series(version, station=STATION, variables=["H"])
     parquet.unlink()
-    with pytest.raises(IMGWDataError, match="brak pliku"):
+    with pytest.raises(IMGWDataError, match="a missing file"):
         read_series_index(version)
 
     index = json.loads(version.read_text(encoding="utf-8"))
     index["schema"] = "imgw-series/2"
     version.write_text(json.dumps(index), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="checksum"):
         read_series_index(version)
 
 
@@ -490,7 +491,7 @@ def test_unknown_series_schema_is_a_scan_problem_not_a_version(root, offline):
     }
     assert problems == {(later, "unknown_schema")}
     assert [entry.version for entry in iter_store(root, kind="series")] == [version]
-    with pytest.raises(IMGWDataError, match="nieobsługiwany schemat szeregu"):
+    with pytest.raises(IMGWDataError, match="an unsupported series schema"):
         current_version(root, slot=SERIES_DAILY)
 
 
@@ -502,7 +503,7 @@ def test_catalog_is_verified_against_sidecar(complete, tmp_path):
     data = json.loads((copy / "stations.geojson").read_text(encoding="utf-8"))
     data["features"] = data["features"][:1]
     (copy / "stations.geojson").write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="Suma kontrolna"):
+    with pytest.raises(IMGWDataError, match="checksum"):
         read_catalog(copy)
 
 
@@ -563,11 +564,13 @@ def test_scan_reports_problems_and_tolerates_additional_fields(root, offline):
     assert valid.version == newest.path and valid.meta.extra["future"] is True
     assert read_meta(newest.path).sha256 == newest.sha256
 
-    with pytest.raises(IMGWDataError, match="Uszkodzona wersja"):
+    with pytest.raises(IMGWDataError, match="A corrupt version"):
         current_version(root, slot=DAILY_2024)
-    with pytest.raises(IMGWDataError, match="unknown_schema|nieobsługiwany schemat"):
+    with pytest.raises(
+        IMGWDataError, match="unknown_schema|an unsupported sidecar schema"
+    ):
         read_meta(oldest.path)
-    with pytest.raises(IMGWStoreError, match="Brak sidecara") as missing:
+    with pytest.raises(IMGWStoreError, match="No sidecar") as missing:
         read_meta(no_sidecar / "codz_2024.zip")
     assert missing.value.code == "not_found"
     with pytest.raises(IMGWValidationError):
@@ -613,7 +616,7 @@ def test_current_version_follows_last_modified_rule(root):
         "pmaxtp:POT:751_317",
         "archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024",
         "raba:archives/versions/dane_hydrologiczne/dobowe/2024/codz_2024",
-        # Station selectors exist only in project pins.
+        # Station selectors of series slots.
         "series:pl.imgw.hydro_daily:149190310",
         # Wrong key, selector or kind.
         "archive:pl.imgw.hydro_daily:codz_2024.zip",
@@ -629,9 +632,7 @@ def test_current_version_follows_last_modified_rule(root):
     ],
 )
 def test_current_version_rejects_slots_outside_the_grammar(root, slot):
-    with pytest.raises(
-        IMGWValidationError, match="oczekiwano archive:<klucz>"
-    ) as error:
+    with pytest.raises(IMGWValidationError, match="expected archive:<key>") as error:
         current_version(root, slot=slot)
     assert error.value.code == "validation_error"
     assert error.value.details == {"option": "slot", "value": slot}
@@ -681,6 +682,59 @@ def test_read_meta_rejects_wrong_required_field_types(root):
         with pytest.raises(IMGWDataError):
             read_meta(written.path)
     assert hashlib.sha256(written.path.read_bytes()).hexdigest() == written.sha256
+
+
+def test_meta_has_the_producer_and_version_the_sidecar_names_not_the_running_ones(
+    root,
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar = Path(f"{written.path}.meta.json")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert read_meta(written.path).producer == document["producer"] == "imgwtools"
+    assert read_meta(written.path).producer_version == __version__
+
+    # A version written by an earlier release keeps that release's number.
+    older = "3.0.0rc1"
+    assert older != __version__
+    sidecar.write_text(
+        json.dumps({**document, "producer_version": older}), encoding="utf-8"
+    )
+
+    (entry,) = iter_store(root, kind="archive")
+    for meta in (
+        read_meta(written.path),
+        entry.meta,
+        current_version(root, slot=DAILY_2024).meta,
+    ):
+        assert (meta.producer, meta.producer_version) == ("imgwtools", older)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"producer": None},
+        {"producer": "kartograf"},
+        {"producer_version": None},
+        {"producer_version": ""},
+    ],
+    ids=["no producer", "other producer", "no version", "empty version"],
+)
+def test_a_sidecar_without_its_producer_or_version_is_refused_not_filled_in(
+    root, change
+):
+    (written,) = store_archives(root, DAILY, [2024])
+    sidecar = Path(f"{written.path}.meta.json")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    for key, value in change.items():
+        document.pop(key)
+        if value is not None:
+            document[key] = value
+    sidecar.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(IMGWDataError):
+        read_meta(written.path)
+    (problem,) = iter_store(root, kind="problem")
+    assert (problem.slot, problem.problem_code) == (DAILY_2024, "invalid_meta")
 
 
 def test_read_series_resolves_version_or_current_series(complete, offline):
@@ -886,7 +940,7 @@ def test_scan_enforces_content_pair_and_registry_origin_of_known_datasets(
         document = {**original, **change}
         assert schema_errors(document, "imgw-meta/1") == []
         assert scan(document) == [("problem", DAILY_2024, "invalid_meta")]
-        with pytest.raises(IMGWDataError, match="rejestrze"):
+        with pytest.raises(IMGWDataError, match="the registry gives the dataset"):
             read_meta(written.path)
 
 
@@ -958,7 +1012,7 @@ def test_read_meta_gives_no_dataset_key_for_an_unknown_well_formed_key(root, off
     ]
     assert (sidecar.read_bytes(), sidecar.stat().st_mtime_ns) == before
     _rewrite_dataset(written.path, "pl.imgw.Hydro_day")
-    with pytest.raises(IMGWDataError, match="kluczem zbioru"):
+    with pytest.raises(IMGWDataError, match="must be a dataset key"):
         read_meta(written.path)
 
 
@@ -1002,7 +1056,7 @@ def test_series_index_reads_wigos_station_codes_without_pyarrow(
     )
     for code in ("0-203-1-cb900003", "12345678"):
         assert schema_errors(index_with(code), "imgw-series/1")
-        with pytest.raises(IMGWDataError, match="kod stacji"):
+        with pytest.raises(IMGWDataError, match="an invalid station code"):
             read_series_index(moved)
 
 
@@ -1133,11 +1187,11 @@ def test_reference_signal_is_the_newest_observation_of_the_current_version(
 
     broken = observe(newer.path, seen_at="2026-10-22T06:00:00Z", etag='"v5"')
     broken.write_text("{zepsuty", encoding="utf-8")
-    with pytest.raises(IMGWDataError, match="obserwacja"):
+    with pytest.raises(IMGWDataError, match="corrupt observation"):
         _reference_signal(root, slot=DAILY_2024)
     broken.unlink()
     observe(newer.path, etag='"v6"', content_sha256="3" * 64)
-    with pytest.raises(IMGWDataError, match="pola treści"):
+    with pytest.raises(IMGWDataError, match="the content fields differ"):
         _reference_signal(root, slot=DAILY_2024)
     assert (
         _reference_signal(root, slot="archive:pl.imgw.hydro_daily:2030/x.zip") is None
@@ -1188,4 +1242,4 @@ def test_registers_change_no_version_choice_of_series_or_catalog(tmp_path):
             check_series(root, dataset=DAILY).series_state,
         )
     assert outcomes["observed"] == outcomes["plain"]
-    assert outcomes["plain"][1] == "unchanged" and outcomes["plain"][3] == "created"
+    assert outcomes["plain"][1] == "unchanged" and outcomes["plain"][3] == "new"

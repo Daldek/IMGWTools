@@ -23,7 +23,7 @@ from tests.contract.support import FakeImgw
 
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 WRITE_TOKEN = "kontrakt-token"
-# Modules that stamp versions, plans and pins with the current time.
+# Modules that stamp versions and plans with the current time.
 _CLOCKED = (
     "imgwtools.store.writer",
     "imgwtools.store.series",
@@ -31,7 +31,6 @@ _CLOCKED = (
     "imgwtools.store.sync",
     "imgwtools.store.pmaxtp",
     "imgwtools.commands",
-    "imgwtools.project",
 )
 
 
@@ -47,14 +46,14 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT must not reach the commands under test."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+def no_imgw_root(monkeypatch):
+    """The developer's IMGW_ROOT must not reach the commands under test."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
 
 
 @pytest.fixture
 def frozen(monkeypatch):
-    """Freeze the clock of every module that stamps versions, plans and pins."""
+    """Freeze the clock of every module that stamps versions and plans."""
 
     class Frozen(datetime):
         @classmethod
@@ -83,7 +82,7 @@ def fixture_root(tmp_path_factory):
 def server(monkeypatch):
     """REST server settings: no store root, writes disabled, default page size."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("store_write_token", None),
         ("user_locations_dir", None),

@@ -2,7 +2,7 @@
 Entry point of the ``imgw`` command line.
 
 The groups ``datasets``, ``stations``, ``current``, ``pmaxtp``, ``store``,
-``series``, ``project`` and ``commands`` are generated from the command catalog
+``series`` and ``commands`` are generated from the command catalog
 by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``,
 ``imgw mcp`` and ``imgw admin`` stay outside the catalog. Examples::
 
@@ -11,7 +11,7 @@ by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``,
     imgw store sync --root /dane/imgw -d pl.imgw.hydro_daily -y 2024
     imgw series summary --root /dane/imgw -d pl.imgw.hydro_daily -s 149190310
     imgw commands schema --command "store sync"
-    imgw mcp --allow-writes
+    imgw mcp --allow-writes --allow-dir /dane/imgw
     imgw admin create --name "User1"
 
 ``imgw mcp`` serves the catalog to AI agents over MCP on stdin and stdout
@@ -19,31 +19,27 @@ by `imgwtools.cli._dispatch` (spec §13.10); ``imgw version``, ``imgw server``,
 command, which writes nothing to stdout, the channel of the protocol.
 """
 
-from typing import cast
+from pathlib import Path
 
 import typer
 from rich.console import Console
 
 from imgwtools._version import __version__
-from imgwtools.cli import admin
+from imgwtools.cli import admin, config_cmd
 from imgwtools.cli._dispatch import (
+    _HELP,
+    _LANG,
     ImgwCommand,
     ImgwGroup,
     _error_line,
     register_catalog,
 )
-from imgwtools.commands import Lang
-from imgwtools.exceptions import IMGWError
-
-_NO_MCP = "Serwer MCP wymaga dodatku: pip install imgwtools[mcp]"
+from imgwtools.config import settings
+from imgwtools.messages import message
 
 app = typer.Typer(
     name="imgw",
-    help=(
-        "Narzędzie do pobierania danych publicznych IMGW-PIB i ČHMÚ. Wynik komend "
-        "katalogu to koperta JSON imgw-result/1 na standardowym wyjściu; błąd to "
-        "JSON w ostatniej linii standardowego wyjścia błędów."
-    ),
+    help=message("cli.app_help", lang=_LANG),
     add_completion=False,
     cls=ImgwGroup,
 )
@@ -52,27 +48,40 @@ app = typer.Typer(
 console = Console()
 
 register_catalog(app)
-app.add_typer(admin.app, name="admin", help="Administracja (klucze API)")
+app.add_typer(admin.app, name="admin", help=message("cli.admin_group_help", lang=_LANG))
+app.add_typer(config_cmd.app, name="config")
 
 
-@app.command(cls=ImgwCommand)
-def version():
-    """Wyświetl wersję programu."""
+@app.command(cls=ImgwCommand, help=message("cli.version_help", lang=_LANG))
+def version() -> None:
+    """Print the version of the program."""
     console.print(f"[bold]IMGWTools[/bold] v{__version__}")
 
 
-@app.command(cls=ImgwCommand)
+@app.command(cls=ImgwCommand, help=message("cli.server_help", lang=_LANG))
 def server(
-    host: str = typer.Option("0.0.0.0", metavar="ADRES", help="Adres nasłuchu"),
-    port: int = typer.Option(8000, metavar="LICZBA", help="Port nasłuchu"),
-    reload: bool = typer.Option(
-        False, help="Przeładuj serwer po zmianie kodu (tryb deweloperski)"
+    host: str = typer.Option(
+        settings.host,
+        metavar=message("cli.metavar_address", lang=_LANG),
+        help=message("cli.server_host_help", lang=_LANG),
     ),
-):
-    """Uruchom serwer API: REST, web GUI i /mcp (przy IMGW_MCP_ENABLED=true)."""
+    port: int = typer.Option(
+        settings.port,
+        metavar=_HELP.metavars["int"],
+        help=message("cli.server_port_help", lang=_LANG),
+    ),
+    reload: bool = typer.Option(
+        False, help=message("cli.server_reload_help", lang=_LANG)
+    ),
+) -> None:
+    """Start the API server: REST, the web GUI and /mcp (with IMGW_MCP_ENABLED=true)."""
     import uvicorn
 
-    console.print(f"[bold green]Uruchamiam serwer na {host}:{port}[/bold green]")
+    console.print(
+        message("cli.server_starting", lang=_LANG, host=host, port=port),
+        style="bold green",
+        markup=False,
+    )
     uvicorn.run(
         "imgwtools.api.main:app",
         host=host,
@@ -81,40 +90,36 @@ def server(
     )
 
 
-@app.command(cls=ImgwCommand)
+@app.command(cls=ImgwCommand, help=message("cli.mcp_help", lang=_LANG))
 def mcp(
     allow_writes: bool = typer.Option(
-        False,
-        "--allow-writes",
-        envvar="IMGW_MCP_ALLOW_WRITES",
-        help="Zezwól na zapis: komendy zapisujące domyślnie zwracają plan "
-        "(check=true), a zapisują przy check=false",
+        settings.mcp_allow_writes,
+        "--allow-writes/--no-allow-writes",
+        help=message("cli.mcp_allow_writes_help", lang=_LANG),
     ),
-    lang: str = typer.Option(
-        "pl",
-        "--lang",
-        envvar="IMGW_LANG",
-        metavar="pl|en",
-        help="Język opisów narzędzi, instrukcji i tytułów błędów",
+    allow_dir: list[Path] = typer.Option(
+        [],
+        "--allow-dir",
+        help=message("cli.mcp_allow_dir_help", lang=_LANG),
     ),
-):
+) -> None:
     """
-    Uruchom serwer MCP dla agentów AI na standardowym wejściu i wyjściu.
+    Run the MCP server for AI agents on the standard input and output.
 
-    Narzędzia serwera to komendy katalogu. Bez --allow-writes serwer nie
-    zapisuje: komendy zapisujące zwracają plan imgw-plan/1.
+    The tools of the server are the catalog commands. Without --allow-writes the
+    server does not write: the writing commands return an imgw-plan/1 plan; with
+    it they write only inside the --allow-dir directories (repeatable).
     """
     try:
         from imgwtools.mcp.server import run_stdio
     except ImportError:
-        raise typer.Exit(_error_line("missing_dependency", _NO_MCP, {})) from None
-    try:
-        run_stdio(allow_writes=allow_writes, lang=cast(Lang, lang))
-    except IMGWError as exc:  # --lang outside pl and en
-        raise typer.Exit(_error_line(exc.code, exc.detail, exc.details)) from None
+        raise typer.Exit(
+            _error_line("missing_dependency", message("cli.mcp_needs_extra"), {})
+        ) from None
+    run_stdio(allow_writes=allow_writes, allow_dirs=allow_dir)
 
 
-def main():
+def main() -> None:
     """Entry point for CLI."""
     app()
 

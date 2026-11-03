@@ -5,6 +5,7 @@ import json
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -25,7 +26,7 @@ def offline(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", refuse)
 
 
-def sidecars(root: Path, slot: str, name: str) -> dict[str, dict]:
+def sidecars(root: Path, slot: str, name: str) -> dict[str, dict[str, Any]]:
     return {
         directory.name: json.loads(
             (directory / f"{name}.meta.json").read_text(encoding="utf-8")
@@ -120,9 +121,9 @@ def test_fresh_builds_are_identical_under_frozen_clock(tmp_path, monkeypatch):
 
 
 def test_local_reference_data_does_not_leak_into_fixture_catalog(
-    tmp_path, isolated_data_dir
+    tmp_path, isolated_reference_dir
 ):
-    static = isolated_data_dir / "hydro_stations_locations.csv"
+    static = isolated_reference_dir / "hydro_stations_locations.csv"
     static.write_text(
         "station_code,latitude,longitude\n149190312,50.0512,19.9512\n",
         encoding="utf-8",
@@ -176,12 +177,12 @@ def test_unknown_schema_variant_adds_unparsed_series_version(tmp_path):
 
 
 def test_rejects_unknown_variant_and_non_empty_root(tmp_path):
-    with pytest.raises(IMGWValidationError, match="wariant"):
-        build_fixture_store(tmp_path / "x", variant="partial")  # type: ignore[arg-type]
+    with pytest.raises(IMGWValidationError, match="Unknown fixture variant"):
+        build_fixture_store(tmp_path / "x", variant="partial")
     assert not (tmp_path / "x").exists()
     (tmp_path / "busy").mkdir()
     (tmp_path / "busy" / "file.txt").write_text("x")
-    with pytest.raises(IMGWStoreError, match="pustego"):
+    with pytest.raises(IMGWStoreError, match="needs an empty directory"):
         build_fixture_store(tmp_path / "busy")
 
 

@@ -735,6 +735,8 @@ Statusy pozycji (nie wyjątki): `unverifiable` z `error="nieopublikowany"`; `che
 
 ## 12. Projekty i odtwarzalność
 
+> **Zastąpione przez ADR-008** (2026-10-31): projekty przeniesiono do Archiwisty. Treść kanoniczna (§3.1) i rejestr obserwacji (§3.2) obowiązują dla magazynu.
+
 - Zadanie `imgw-project/1` dotyczy jednego zbioru (`options.dataset`), a więc jednego dostawcy; projekt może łączyć zadania IMGW i ČHMÚ bez nowych kluczy. Kryterium IMGW-19 nr 2 („zadanie ze stacjami IMGW i ČHMÚ”) realizuje projekt z zadaniami obu dostawców.
 - `add_project_task` waliduje opcje przez `validate_command` (gramatyka kodów dostawcy zbioru). Wybór obszarem czyta bieżący katalog dostawcy zbioru i przypina jego plik (`catalog`).
 - `download_project` synchronizuje potrzebne archiwa: dla ČHMÚ stacje zadania × `years` (brak = lata opublikowane), buduje albo używa ponownie (`reused`) szeregów i przypina pliki.

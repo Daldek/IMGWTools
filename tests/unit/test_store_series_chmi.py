@@ -17,7 +17,7 @@ import pyarrow.parquet as pq
 import pytest
 import respx
 
-from imgwtools.datasets import archive_files, get_dataset
+from imgwtools.datasets import ArchiveFile, archive_files, get_dataset
 from imgwtools.fetch import DownloadResult
 from imgwtools.store import current_version, init_store, write_archive
 from imgwtools.store.series import build_series, check_series
@@ -48,9 +48,17 @@ HYDRO_GETS = {
     H2_2004: "h900002_2004_get",
     H2_2006: "h900002_2006_get",
 }
+
+
+def _meteo_get(archive: ArchiveFile) -> str:
+    code = archive.station_code
+    assert code is not None
+    return f"m{code.rsplit('-', 1)[1]}_{archive.param}_get"
+
+
 # Station 90001 has every element, 90000000002 only precipitation.
 METEO_GETS = {
-    archive: f"m{archive.station_code.rsplit('-', 1)[1]}_{archive.param}_get"
+    archive: _meteo_get(archive)
     for archive in archive_files(METEO, stations=[FULL, RAIN])
     if archive.station_code == FULL or archive.param == "SRA"
 }
@@ -129,7 +137,7 @@ def test_station_with_an_unpublished_year_matches_the_spec_example(root):
 
     report = build_series(root, dataset=HYDRO, on_notice=notices.append)
 
-    assert (report.status, report.stations, report.problems) == ("created", 1, ())
+    assert (report.status, report.stations, report.problems) == ("new", 1, ())
     version = report.version.parent
     assert version.parent == root / "series" / "versions" / "chmi_hydro_daily"
     parquet = version / "stations" / f"{S2}.parquet"
@@ -172,8 +180,9 @@ def test_station_with_an_unpublished_year_matches_the_spec_example(root):
         ]
     ]
     provider_notice = (
-        "Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie komercyjne pod "
-        "warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian."
+        "The CC BY 4.0 licence permits copying, changes and commercial use provided "
+        "that the author ČHMÚ is credited, the licence is given and the changes are "
+        "marked."
     )
     assert [(notice.code, notice.text) for notice in notices] == [
         ("license_terms", f"{CHMI_ATTRIBUTION}. {provider_notice}")
@@ -185,7 +194,7 @@ def test_hydro_calendar_covers_leap_day_one_missing_row_and_november(root):
 
     report = build_series(root, dataset=HYDRO)
 
-    assert (report.status, report.stations) == ("created", 2)
+    assert (report.status, report.stations) == ("new", 2)
     index = index_of(report)
     assert index["periods"] == [
         ["2004-01-01", "2004-12-31"],
@@ -247,7 +256,7 @@ def test_meteo_series_keeps_quality_and_source_flags_with_element_periods(root):
 
     report = build_series(root, dataset=METEO)
 
-    assert (report.status, report.stations) == ("created", 2)
+    assert (report.status, report.stations) == ("new", 2)
     index = index_of(report)
     assert index["year_type"] == "calendar"
     assert index["periods"] == [["2023-10-20", "2023-11-19"]]
@@ -328,7 +337,7 @@ def test_second_build_is_reused_without_writing(root):
     assert tree(root) == before
     for dataset, report in again.items():
         assert (report.status, report.version, report.stations) == (
-            "reused",
+            "unchanged",
             first[dataset].version,
             first[dataset].stations,
         )
@@ -371,9 +380,9 @@ def test_sync_reuses_the_series_after_mass_republication(root, server):
         ),
     )
     first = sync_store(root, datasets=[HYDRO], stations=[S1, S2])
-    assert [item.status for item in first.items] == ["created"] * 4
+    assert [item.status for item in first.items] == ["new"] * 4
     (created,) = first.series
-    assert (created.status, created.stations) == ("created", 2)
+    assert (created.status, created.stations) == ("new", 2)
     names = ("h900001_2023", "h900001_2024", "h900002_2004", "h900002_2006")
     serve(
         server,
@@ -390,7 +399,7 @@ def test_sync_reuses_the_series_after_mass_republication(root, server):
     assert [item.status for item in report.items] == ["relabeled"] * 4
     # Same (slot, SHA-256) pairs: the series is reused, no version is added.
     (reused,) = report.series
-    assert (reused.status, reused.version) == ("reused", created.version)
+    assert (reused.status, reused.version) == ("unchanged", created.version)
     assert series_versions(root, "chmi_hydro_daily") == [created.version.parent.name]
     plan = check_store(root, datasets=[HYDRO], stations=[S1, S2])
     assert plan.series_state == {"chmi_hydro_daily": "current"}
@@ -400,7 +409,7 @@ def test_sync_reuses_the_series_after_reserialization(root, server):
     serve(server, "hydro_listing", *FIRST)
     first = sync_store(root, datasets=[HYDRO], stations=[S1])
     (created,) = first.series
-    assert created.status == "created"
+    assert created.status == "new"
     serve(
         server,
         "hydro_listing_reserialized",
@@ -414,7 +423,7 @@ def test_sync_reuses_the_series_after_reserialization(root, server):
     assert [item.status for item in report.items] == ["unchanged", "unchanged"]
     assert "content_unchanged" in {notice.code for notice in notices}
     (reused,) = report.series
-    assert (reused.status, reused.version) == ("reused", created.version)
+    assert (reused.status, reused.version) == ("unchanged", created.version)
     assert series_versions(root, "chmi_hydro_daily") == [created.version.parent.name]
 
 
@@ -431,9 +440,9 @@ def test_sync_builds_a_new_series_version_after_a_correction(root, server):
 
     report = sync_store(root, datasets=[HYDRO], stations=[S1])
 
-    assert [item.status for item in report.items] == ["unchanged", "created"]
+    assert [item.status for item in report.items] == ["unchanged", "new"]
     (new,) = report.series
-    assert new.status == "created" and new.version != old.version
+    assert new.status == "new" and new.version != old.version
     assert old.version.read_bytes() == old_bytes
     assert new.version.read_bytes() != old_bytes
     assert current_version(root, slot=f"series:{HYDRO}").version == new.version
@@ -454,15 +463,15 @@ def test_sync_of_meteo_builds_once_and_rebuilds_after_new_csv_bytes(root, server
     first = sync_store(root, datasets=[METEO], stations=[FULL, RAIN])
     # Elements of station 90000000002 that are not published do not block it.
     assert [item.status for item in first.items] == [
-        "created",
+        "new",
         *["unchanged"] * 3,
-        *["created"] * 4,
+        *["new"] * 4,
     ]
     (created,) = first.series
-    assert (created.status, created.stations) == ("created", 2)
+    assert (created.status, created.stations) == ("new", 2)
     assert (
         sync_store(root, datasets=[METEO], stations=[FULL, RAIN]).series[0].status
-        == "reused"
+        == "unchanged"
     )
     serve(
         server,
@@ -474,7 +483,7 @@ def test_sync_of_meteo_builds_once_and_rebuilds_after_new_csv_bytes(root, server
     report = sync_store(root, datasets=[METEO], stations=[FULL])
 
     (rebuilt,) = report.series
-    assert rebuilt.status == "created" and rebuilt.version != created.version
+    assert rebuilt.status == "new" and rebuilt.version != created.version
     rows = {row["date"]: row for row in station_table(rebuilt, FULL).to_pylist()}
     assert rows[date(2023, 10, 21)]["P_value"] == 2.6
 
@@ -497,7 +506,7 @@ def test_imgw_series_keep_the_layout_of_3_0_0(root):
 
     report = build_series(root, dataset="pl.imgw.hydro_daily", on_notice=notices.append)
 
-    assert report.status == "created"
+    assert report.status == "new"
     index = index_of(report)
     assert all(
         set(entry) == {"file", "sha256", "rows", "variables"}
@@ -528,7 +537,6 @@ def test_imgw_series_keep_the_layout_of_3_0_0(root):
         for entry in meta["extra"]["source_files"]
     )
     assert [notice.text for notice in notices] == [
-        f"{attribution}. Do użytku prywatnego i badawczego; inne zastosowania "
-        "wymagają sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej "
-        "wartości."
+        f"{attribution}. For private and research use; other uses require checking "
+        "the IMGW-PIB terms, including the exceptions for high-value data."
     ]

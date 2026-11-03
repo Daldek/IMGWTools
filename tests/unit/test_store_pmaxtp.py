@@ -56,7 +56,7 @@ def test_cell_key_comes_from_api_response(store):
             on_notice=notices.append,
         )
     assert route.call_count == 1
-    assert (result.status, result.ind_x, result.ind_y) == ("created", 751, 317)
+    assert (result.status, result.ind_x, result.ind_y) == ("new", 751, 317)
     relative = result.version.relative_to(store.root)
     assert relative.parts[:4] == ("pmaxtp", "versions", "POT", "751_317")
     raw = result.version.read_bytes()
@@ -101,7 +101,7 @@ def test_second_point_in_same_cell_reuses_version_and_amp_is_separate(store):
     assert second.status == "unchanged" and second.version == first.version
     assert second.result.latitude == 52.2301
     assert len(list(first.version.parents[1].iterdir())) == 1
-    assert amp.status == "created"
+    assert amp.status == "new"
     assert amp.version.relative_to(store.root).parts[:4] == (
         "pmaxtp",
         "versions",
@@ -175,7 +175,7 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
             )
         with pytest.raises(IMGWValidationError):
             sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01, ind_x=751)
-        with pytest.raises(IMGWValidationError, match="poza siatką PMAXTP"):
+        with pytest.raises(IMGWValidationError, match="outside the PMAXTP grid"):
             sync_pmaxtp(store, method="POT", latitude=54.9, longitude=23.9)
         for payload in (empty, no_index):
             route.mock(return_value=httpx.Response(200, json=payload))
@@ -186,7 +186,7 @@ def test_mismatched_user_indices_and_empty_data_create_nothing(store):
         matched = sync_pmaxtp(
             store, method="POT", latitude=52.23, longitude=21.01, ind_x=751, ind_y=317
         )
-    assert matched.status == "created"
+    assert matched.status == "new"
 
 
 @pytest.mark.parametrize(
@@ -222,7 +222,7 @@ def test_check_pmaxtp_makes_no_request_and_writes_nothing(store):
         )
         assert (
             plan.actions[0].status == "unverifiable"
-            and "brak lokalnej wersji" in plan.actions[0].detail
+            and "no local version" in plan.actions[0].detail
         )
         assert tree(store.root) == before
         route = recorded(router, FIRST)
@@ -253,7 +253,7 @@ def test_read_pmaxtp_offline_current_and_explicit_version(store):
         old = sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01)
         route.mock(return_value=httpx.Response(200, json=changed))
         new = sync_pmaxtp(store, method="POT", latitude=52.23, longitude=21.01)
-    assert new.status == "created" and new.version != old.version
+    assert new.status == "new" and new.version != old.version
     with respx.mock:  # offline: any HTTP request would fail
         current = read_pmaxtp(store.root, method="POT", ind_x=751, ind_y=317)
         previous = read_pmaxtp(
@@ -296,5 +296,5 @@ def test_method_defaults_to_pot_in_check_sync_and_read(store):
 
 def test_unknown_method_names_the_option(store):
     with pytest.raises(IMGWValidationError) as error:
-        check_pmaxtp(store, latitude=52.23, longitude=21.01, method="XYZ")  # type: ignore[arg-type]
+        check_pmaxtp(store, latitude=52.23, longitude=21.01, method="XYZ")
     assert error.value.details == {"option": "method", "allowed": ["POT", "AMP"]}

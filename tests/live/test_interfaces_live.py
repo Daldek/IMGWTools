@@ -1,9 +1,9 @@
 """
 Live regression of the three interfaces on real IMGW servers (plan U16, spec §13).
 
-Skipped unless ``IMGW_LIVE=1``::
+Marked ``live``; the gate leaves them out and ``-m live`` runs them::
 
-    IMGW_LIVE=1 .venv/bin/python -m pytest tests/live
+    uv run pytest tests/live -m live
 
 Every catalog command runs on a small selection (one month of one year, one
 station, one PMAXTP cell, ``limit``) through ``run_command``, the installed
@@ -70,14 +70,11 @@ import pytest
 from imgwtools import (
     ERROR_CODES,
     CommandResult,
+    ErrorCode,
     IMGWError,
     __version__,
-    add_project_task,
     build_catalog,
-    command_schema,
     current_version,
-    download_project,
-    init_project,
     init_store,
     run_command,
     sync_pmaxtp,
@@ -87,6 +84,8 @@ from imgwtools.config import settings
 from tests.contract.support import (
     canonical,
     cli_words,
+    command_document,
+    current_path,
     envelope_errors,
     imgw_executable,
     rest_request,
@@ -94,15 +93,11 @@ from tests.contract.support import (
     slots,
     snapshot,
     unversioned,
-    version_slot,
 )
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("IMGW_LIVE") != "1",
-    reason="regresja na żywo serwerów IMGW: ustaw IMGW_LIVE=1",
-)
+pytestmark = pytest.mark.live
 
-CATALOG = command_schema()
+CATALOG = command_document()
 EXIT_CODES: dict[str, int] = CATALOG["exit_codes"]
 SPECS: dict[str, dict[str, Any]] = {
     schema["x-imgw"]["command"]: schema["x-imgw"] for schema in CATALOG["commands"]
@@ -137,11 +132,6 @@ WRITES = {
     "store sync",
     "store catalog",
     "series build",
-    "project init",
-    "project add",
-    "project remove",
-    "project set-store",
-    "project download",
 }
 
 DAILY = "pl.imgw.hydro_daily"
@@ -155,13 +145,11 @@ SYNOP = "12375"  # WARSZAWA-OKĘCIE
 LATITUDE, LONGITUDE = 50.06, 19.94  # Kraków
 ARCHIVE_SLOT = f"archive:{DAILY}:{YEAR}/codz_{YEAR}_{MONTH:02d}.zip"
 SERIES_SLOT = f"series:{DAILY}"
-PROJECT_DIR = "projekt"
 # Store snapshots built from IMGW by the session (Case.store).
-SEEDS = ("empty", "synced", "full", "pinned")
+SEEDS = ("empty", "synced", "full")
 # Placeholders resolved after seeding: a working-directory path, the store root,
 # versions relative to the root and the indices of the stored PMAXTP cell.
 WORK = "<work>/"
-PROJECT = WORK + PROJECT_DIR
 ROOT, ARCHIVE, SERIES, CELL_X, CELL_Y = (
     "<root>",
     "<archive>",
@@ -182,16 +170,14 @@ class Case:
     ``store``: snapshot restored as the store root before every interface —
     ``"empty"``, ``"synced"`` (one hydro archive and its series), ``"full"``
     (plus the station catalog, a PMAXTP cell and a meteo archive without
-    series), ``"pinned"`` (after the project download), ``"absent"`` (no
-    directory) or ``"plain"`` (a directory that is no store); ``None`` = no
-    root. ``project``: snapshot of the project directory. ``clean``: entries of
-    the working directory removed before every interface. ``live``: current
-    data, compared by structure.
+    series), ``"absent"`` (no directory) or ``"plain"`` (a directory that is
+    no store); ``None`` = no root. ``clean``: entries of the working directory
+    removed before every interface. ``live``: current data, compared by
+    structure.
     """
 
     options: dict[str, object]
     store: str | None = None
-    project: str | None = None
     clean: tuple[str, ...] = ()
     live: bool = False
 
@@ -206,7 +192,7 @@ class Failure:
 
     command: str
     options: dict[str, object]
-    code: str
+    code: ErrorCode
     store: str | None = None
     reason: str | None = None
 
@@ -256,7 +242,7 @@ CASES: dict[str, list[Case]] = {
     ],
     "datasets download": [
         Case(
-            {"dataset": PHENOMENA, "years": YEAR, "output": WORK + "pobrane"},
+            {"dataset": PHENOMENA, "years": YEAR, "output_dir": WORK + "pobrane"},
             clean=("pobrane",),
         )
     ],
@@ -326,36 +312,7 @@ CASES: dict[str, list[Case]] = {
             "full",
         )
     ],
-    "project init": [
-        Case({"project_dir": PROJECT, "store_dir": ROOT}, "full", clean=(PROJECT_DIR,))
-    ],
-    "project add": [
-        Case(
-            {
-                "project_dir": PROJECT,
-                "name": "komorka",
-                "command": "pmaxtp read",
-                "options": {"ind_x": CELL_X, "ind_y": CELL_Y},
-            },
-            "full",
-            "p_init",
-        )
-    ],
-    "project remove": [
-        Case({"project_dir": PROJECT, "name": "komorka"}, "full", "p_tasks")
-    ],
-    "project set-store": [
-        Case(
-            {"project_dir": PROJECT, "store_dir": WORK + "nowy-magazyn"},
-            "pinned",
-            "p_done",
-            clean=("nowy-magazyn",),
-        )
-    ],
-    "project download": [Case({"project_dir": PROJECT}, "full", "p_tasks")],
-    "project check": [Case({"project_dir": PROJECT}, "full", "p_tasks")],
-    "project status": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
-    "project verify": [Case({"project_dir": PROJECT}, "pinned", "p_done")],
+    "commands list": [Case({}), Case({"lang": "en"})],
     "commands schema": [Case({"command": "store sync"})],
     "commands guide": [Case({}), Case({"format": "llms", "lang": "en"})],
 }
@@ -512,7 +469,7 @@ def unavailable(answers: Iterable[Any]) -> bool:
                 continue
             if answer.envelope is None or answer.data is not None:
                 continue
-            document = answer.envelope.to_json()
+            document: object = answer.envelope.to_json()
         elif isinstance(answer, subprocess.CompletedProcess):
             if answer.returncode == _SOURCE.exit_code:
                 return True
@@ -626,68 +583,45 @@ class Live:
         """Python runs in the working directory of the CLI and the server."""
         with pytest.MonkeyPatch.context() as patch:
             patch.chdir(self.work)
-            patch.setattr(settings, "data_dir", Path(DATA_DIR))
-            patch.delenv("IMGW_STORE_ROOT", raising=False)
+            patch.setattr(settings, "reference_dir", Path(DATA_DIR))
+            patch.delenv("IMGW_ROOT", raising=False)
             yield
 
     def save(self, name: str, source: Path) -> None:
         shutil.copytree(source, self.seeds / name, symlinks=True)
 
     def seed(self) -> None:
-        """Snapshots of the store and of the project, built once from IMGW."""
-        root, project = self.root, self.work / PROJECT_DIR
+        """Snapshots of the store, built once from IMGW."""
+        root = self.root
         with self.local():
             init_store(root)
             self.save("empty", root)
             synced = _patiently(
                 lambda: sync_store(root, datasets=[DAILY], years=[YEAR], months=[MONTH])
             )
-            assert [item.status for item in synced.items] == ["created"], synced
-            assert [series.status for series in synced.series] == ["created"], synced
+            assert [item.status for item in synced.items] == ["new"], synced
+            assert [series.status for series in synced.series] == ["new"], synced
             self.save("synced", root)
             catalog = _patiently(lambda: build_catalog(root))
-            assert catalog.status == "created", catalog
+            assert catalog.status == "new", catalog
             cell = _patiently(
                 lambda: sync_pmaxtp(root, latitude=LATITUDE, longitude=LONGITUDE)
             )
-            assert cell.status == "created", cell
+            assert cell.status == "new", cell
             precip = _patiently(
                 lambda: sync_store(
                     root, datasets=[PRECIP], years=[YEAR], months=[MONTH], series=False
                 )
             )
-            assert [item.status for item in precip.items] == ["created"], precip
+            assert [item.status for item in precip.items] == ["new"], precip
             self.save("full", root)
             self.values = {
                 ROOT: str(root),
-                ARCHIVE: current_version(root, slot=ARCHIVE_SLOT)
-                .version.relative_to(root)
-                .as_posix(),
-                SERIES: current_version(root, slot=SERIES_SLOT)
-                .version.relative_to(root)
-                .as_posix(),
+                ARCHIVE: current_path(root, ARCHIVE_SLOT).relative_to(root).as_posix(),
+                SERIES: current_path(root, SERIES_SLOT).relative_to(root).as_posix(),
                 CELL_X: cell.ind_x,
                 CELL_Y: cell.ind_y,
             }
-            init_project(project, store_dir=root)
-            self.save("p_init", project)
-            add_project_task(
-                project,
-                name="dobowe",
-                command="store sync",
-                options={"datasets": [DAILY], "years": str(YEAR), "months": [MONTH]},
-            )
-            add_project_task(
-                project,
-                name="komorka",
-                command="pmaxtp read",
-                options={"ind_x": cell.ind_x, "ind_y": cell.ind_y},
-            )
-            self.save("p_tasks", project)
-            pinned = _patiently(lambda: download_project(project))
-            assert set(pinned.tasks.values()) == {"current"}, pinned
-            self.save("p_done", project)
-            self.save("pinned", root)
 
     def resolve(self, value: object) -> object:
         if isinstance(value, str):
@@ -703,15 +637,10 @@ class Live:
         return value
 
     def restore(self, case: Case | Failure) -> None:
-        """Bring the store, project and cleaned directories to the case's start."""
-        project = case.project if isinstance(case, Case) else None
+        """Bring the store and cleaned directories to the case's start."""
         clean = case.clean if isinstance(case, Case) else ()
-        for name in (*clean, PROJECT_DIR):
+        for name in clean:
             _remove(self.work / name)
-        if project is not None:
-            shutil.copytree(
-                self.seeds / project, self.work / PROJECT_DIR, symlinks=True
-            )
         if case.store is None:
             return
         _remove(self.root)
@@ -725,8 +654,6 @@ class Live:
         places = {name: self.work / name for name in case.clean}
         if case.store is not None:
             places["magazyn"] = self.root
-        if case.project is not None:
-            places[PROJECT_DIR] = self.work / PROJECT_DIR
         return {name: snapshot(path) for name, path in places.items() if path.exists()}
 
     # --- interfaces -------------------------------------------------------------
@@ -930,13 +857,12 @@ class Live:
         missing = []
         document = answer.envelope.to_json(root=root)
         for slot in sorted(set(slots(document)) - set(unversioned(document))):
-            wanted = version_slot(slot)
             try:
-                entry = current_version(self.root, slot=wanted)
+                entry = current_version(self.root, slot=slot)
             except IMGWError as exc:
                 missing.append(f"slot {slot}: {exc.code}")
             else:
-                if entry is None or entry.slot != wanted:
+                if entry is None or entry.slot != slot:
                     missing.append(f"slot {slot}: brak bieżącej wersji")
         return missing
 
@@ -1096,7 +1022,10 @@ class Live:
         if answered.headers["content-type"] != "application/problem+json":
             problems["rest"].append(f"typ treści {answered.headers['content-type']}")
         problems["rest"] += schema_errors(body, "problem+json")
-        if (body.get("code"), body.get("title")) != (failure.code, spec.title):
+        if (body.get("code"), body.get("title")) != (
+            failure.code,
+            spec.title.localized("pl"),
+        ):
             problems["rest"].append(
                 f"kod i tytuł {body.get('code')}, {body.get('title')}"
             )
@@ -1105,14 +1034,13 @@ class Live:
         if failure.reason is not None:
             if body.get("details", {}).get("reason") != failure.reason:
                 problems["rest"].append(f"details {body.get('details')}")
-        elif error is not None and str(self.base) not in error.detail + canonical(
-            _plain(error.details)
+        elif (
+            error is not None
+            and str(self.base) not in error.detail + canonical(_plain(error.details))
+            and [body.get("detail"), body.get("details")]
+            != [error.detail, _plain(error.details)]
         ):
-            if [body.get("detail"), body.get("details")] != [
-                error.detail,
-                _plain(error.details),
-            ]:
-                problems["rest"].append(f"inny opis błędu niż w Pythonie: {body}")
+            problems["rest"].append(f"inny opis błędu niż w Pythonie: {body}")
 
         self.record(
             "error",
@@ -1163,9 +1091,9 @@ def live(tmp_path_factory) -> Iterator[Live]:
     env = {
         key: value for key, value in os.environ.items() if not key.startswith("IMGW_")
     }
-    env["IMGW_DATA_DIR"] = DATA_DIR
+    env["IMGW_REFERENCE_DIR"] = DATA_DIR
     served = env | {
-        "IMGW_STORE_ROOT": str(base / "magazyn"),
+        "IMGW_ROOT": str(base / "magazyn"),
         "IMGW_STORE_WRITES_ENABLED": "true",
         "IMGW_STORE_WRITE_TOKEN": TOKEN,
     }

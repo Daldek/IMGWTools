@@ -46,9 +46,13 @@ from imgwtools.fetch import (
     DownloadResult,
     _archive_response,
     _archive_slot,
+    _download_plain,
     download_hydro_data,
     download_meteo_data,
 )
+from imgwtools.messages import Message, message, reason
+from imgwtools.messages.sync import MESSAGES
+from imgwtools.output import resolve_target
 from imgwtools.store.reader import _Reference, _reference_signal
 from imgwtools.store.series import (
     SeriesState,
@@ -62,6 +66,7 @@ from imgwtools.store.series import (
 )
 from imgwtools.store.types import (
     Cancel,
+    DownloadItem,
     Notice,
     NoticeHook,
     OperationResult,
@@ -75,15 +80,21 @@ from imgwtools.store.types import (
     StorePlan,
     SyncReport,
 )
-from imgwtools.store.writer import write_archive
+from imgwtools.store.writer import (
+    refuse_root,
+    root_conflict_plan,
+    version_file,
+    write_archive,
+)
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
-CANCELLED = "anulowano"
-NO_SIGNAL = "brak porównywalnego nagłówka ETag/Last-Modified"
-NO_LISTING_SIGNAL = "brak porównywalnego sygnału"
+CANCELLED = message("common.cancelled")
+NO_SIGNAL = message("sync.no_comparable_header")
+NO_LISTING_SIGNAL = message("sync.no_comparable_signal")
 
 _HREF = re.compile(r"""href\s*=\s*["']([^"'#?]+)""", re.IGNORECASE)
-_DONE = {"created", "relabeled", "unchanged", "reused"}
+_DONE = {"new", "relabeled", "unchanged"}
+_VersionStatus = Literal["new", "unchanged", "relabeled"]
 _SYNC = "store sync"
 # File-name grammar of per-station archives (spec 2026-10-18 §2.3); group 1 is
 # the station code.
@@ -127,21 +138,26 @@ def _head(client: httpx.Client, archive: ArchiveFile) -> _Signal | None:
     )
 
 
-# Prefixes of the server errors of a check; any other check_failed reason is a
-# data error (unreadable listing or local version).
-_HTTP_ERRORS = (
-    "Przekroczono czas odpowiedzi serwera ",
-    "Błąd HTTP ",
-    "Błąd połączenia z ",
+# Start of the English text of each server error of a check, before its first
+# placeholder. A saved plan keeps only the text, so ``_failure_code`` tells a
+# server error from any other check_failed reason (an unreadable listing or
+# local version, a data error) by these prefixes.
+_HTTP_ERRORS = tuple(
+    MESSAGES[name].en.partition("{")[0]
+    for name in ("timeout_waiting_for_server", "http_error", "connection_error")
 )
 
 
-def _http_error(exc: Exception, *, source: str = "IMGW") -> str:
+def _http_error(exc: Exception, *, source: str = "IMGW") -> Message:
     if isinstance(exc, httpx.TimeoutException):
-        return f"{_HTTP_ERRORS[0]}{source}: {exc}"
+        return message(
+            "sync.timeout_waiting_for_server", source=source, reason=reason(exc)
+        )
     if isinstance(exc, httpx.HTTPStatusError):
-        return f"{_HTTP_ERRORS[1]}{exc.response.status_code}: {exc.request.url}"
-    return f"{_HTTP_ERRORS[2]}{source}: {exc}"
+        return message(
+            "sync.http_error", status=exc.response.status_code, url=exc.request.url
+        )
+    return message("sync.connection_error", source=source, reason=reason(exc))
 
 
 def _failure_code(error: str | None) -> ErrorCode:
@@ -245,11 +261,13 @@ def _read_listing(client: httpx.Client, url: str, *, source: str) -> _Listing:
     except httpx.HTTPError as exc:
         return _Listing({}, _http_error(exc, source=source))
     if response.status_code != 200:
-        return _Listing({}, f"{_HTTP_ERRORS[1]}{response.status_code}: {url}")
+        return _Listing(
+            {}, message("sync.http_error", status=response.status_code, url=url)
+        )
     try:
         entries = parse_listing(response.content, url=url)
     except IMGWDataError as exc:
-        return _Listing({}, str(exc))
+        return _Listing({}, reason(exc))
     return _Listing({entry.name: entry for entry in entries})
 
 
@@ -269,7 +287,7 @@ def _no_files(descriptor: DatasetDescriptor, code: str) -> PlanAction:
     return PlanAction(
         _SYNC,
         "unverifiable",
-        f"stacja {code}: brak plików zbioru {descriptor.key} u źródła",
+        message("sync.station_no_files", code=code, key=descriptor.key),
     )
 
 
@@ -330,9 +348,11 @@ def _station_targets(
             if archive is not None:
                 listed[match[1]][archive.server_path] = (archive, entry)
         if not known:
-            failures[directory] = (
-                f"Nieczytelny listing {provider.base_url}{directory}/: "
-                f"brak plików zbioru {descriptor.key}"
+            failures[directory] = message(
+                "sync.listing_without_dataset_files",
+                base_url=provider.base_url,
+                directory=directory,
+                key=descriptor.key,
             )
     requested: dict[str, list[ArchiveFile]] = defaultdict(list)
     for archive in candidates or ():
@@ -344,7 +364,11 @@ def _station_targets(
         if candidates is None:
             if failures:
                 actions.extend(
-                    PlanAction(_SYNC, "check_failed", f"stacja {code}: {error}")
+                    PlanAction(
+                        _SYNC,
+                        "check_failed",
+                        message("sync.station_error", code=code, error=error),
+                    )
                     for error in failures.values()
                 )
             elif files:
@@ -412,7 +436,7 @@ def _check_target(root: Path, target: _Target) -> PlanItem:
     try:
         reference = _reference_signal(root, slot=_archive_slot(archive))
     except IMGWDataError as exc:
-        return _listed_item(root, archive, "check_failed", error=str(exc))
+        return _listed_item(root, archive, "check_failed", error=reason(exc))
     if target.error is not None:
         return _listed_item(
             root, archive, "check_failed", reference=reference, error=target.error
@@ -593,7 +617,7 @@ def _descriptors(datasets: Iterable[str]) -> list[DatasetDescriptor]:
     """Measurement series datasets of the request, without repetitions."""
     if isinstance(datasets, str):
         raise IMGWValidationError(
-            "Parametr datasets musi być listą kluczy zbiorów",
+            message("sync.parameter_datasets_must_list_dataset"),
             details={"option": "datasets", "value": datasets},
         )
     found: dict[str, DatasetDescriptor] = {}
@@ -602,7 +626,7 @@ def _descriptors(datasets: Iterable[str]) -> list[DatasetDescriptor]:
         found.setdefault(descriptor.key, descriptor)
     if not found:
         raise IMGWValidationError(
-            "Wybierz co najmniej jeden zbiór", details={"option": "datasets"}
+            message("sync.choose_least_one_dataset"), details={"option": "datasets"}
         )
     return list(found.values())
 
@@ -616,13 +640,12 @@ def _country_archives(
     """Country archives (IMGW-PIB) of the request, in the 3.0.0 order."""
     if stations is not None:
         raise IMGWValidationError(
-            "Archiwa IMGW-PIB obejmują cały kraj; opcja stations dotyczy wyłącznie "
-            "zbiorów stacji ČHMÚ",
+            message("sync.imgw_pib_archives_cover_whole"),
             details={"option": "stations", "value": None},
         )
     if years is None:
         raise IMGWValidationError(
-            "Zbiory IMGW-PIB wymagają opcji years",
+            message("sync.imgw_pib_datasets_need_option"),
             details={"option": "years", "value": None},
         )
     selected_years = parse_years(years, option="years")
@@ -657,13 +680,12 @@ def _station_request(
     keys = ", ".join(descriptor.key for descriptor in descriptors)
     if stations is None:
         raise IMGWValidationError(
-            f"Zbiory {keys} wymagają opcji stations: kodów stacji (pliki źródła "
-            "obejmują pojedyncze stacje)",
+            message("sync.datasets_need_option_stations_station", keys=keys),
             details={"option": "stations", "value": None},
         )
     if months is not None:
         raise IMGWValidationError(
-            f"Opcja months nie dotyczy zbiorów {keys}: pliki stacji nie są miesięczne",
+            message("sync.option_months_does_not_apply", keys=keys),
             details={"option": "months", "value": None},
         )
     codes: tuple[str, ...] = ()
@@ -709,9 +731,10 @@ def _selection(
     per_station = {descriptor.archive_scope != "country" for descriptor in descriptors}
     if len(per_station) > 1:
         raise IMGWValidationError(
-            "Jedno wywołanie obejmuje zbiory jednego rodzaju: archiwa krajowe "
-            "IMGW-PIB (bez opcji stations) albo pliki stacji ČHMÚ (z opcją "
-            f"stations); podano {', '.join(item.key for item in descriptors)}",
+            message(
+                "sync.one_call_covers_datasets_one",
+                names=", ".join(item.key for item in descriptors),
+            ),
             details={"option": "stations", "value": None},
         )
     if per_station == {True}:
@@ -745,12 +768,12 @@ def _plan_target(root: Path, plan: PathArg) -> Path:
     resolved, store = target.resolve(), root.resolve()
     if resolved == store or store in resolved.parents:
         raise IMGWValidationError(
-            f"Plan musi być zapisany poza magazynem: {target}",
+            message("sync.plan_must_written_outside_store", target=target),
             details={"option": "plan", "value": str(target)},
         )
     if not target.parent.is_dir():
         raise IMGWValidationError(
-            f"Katalog pliku planu nie istnieje: {target.parent}",
+            message("sync.directory_plan_file_does_not", parent=target.parent),
             details={"option": "plan", "value": str(target)},
         )
     return target
@@ -814,15 +837,15 @@ def check_store(
     cancel : Cancel or None, optional
         Polled before each listing and archive; once it returns ``True`` the
         remaining archives are listed as ``unverifiable`` with error
-        ``"anulowano"``.
+        ``"cancelled"``.
 
     Returns
     -------
     StorePlan
         ``imgw-plan/1`` plan with one item per archive: ``current``,
         ``newer``, ``missing`` (published but not stored), ``unverifiable``
-        (no comparable signal, ``"nieopublikowany"`` when the file is not
-        published, or ``"anulowano"``) or ``check_failed`` (listing or HEAD
+        (no comparable signal, ``"not published"`` when the file is not
+        published, or ``"cancelled"``) or ``check_failed`` (listing or HEAD
         error, unreadable listing, local version or observation). IMGW-PIB
         items compare every header present on both sides (``signal="head"``);
         ČHMÚ items carry ``station_code``, ``signal="listing"``, the listing
@@ -850,10 +873,15 @@ def check_store(
         the years/months are missing, invalid or rejected for the datasets, or
         ``plan`` lies inside the store or in a missing directory.
     """
-    path = _root(root)
     descriptors, codes, candidates, archives = _selection(
         datasets, years, months, stations
     )
+    refused = root_conflict_plan("store sync", root)
+    if refused is not None:
+        if plan is not None:
+            refused.to_json(_plan_target(refused.root, plan))
+        return refused
+    path = _root(root)
     listed = descriptors[0].archive_scope != "country"
     target = _plan_target(path, plan) if plan is not None else None
     made = 0
@@ -946,7 +974,7 @@ def _check_one(
     try:
         local = _current_version(root, archive)
     except IMGWDataError as exc:
-        return _item(archive, "check_failed", error=str(exc))
+        return _item(archive, "check_failed", error=reason(exc))
     directory = PurePosixPath(archive.server_path).parent.as_posix()
     if directory not in listings:
         try:
@@ -1015,17 +1043,18 @@ def _download(
             archive.month,
             cast(Literal["T", "Q", "H"] | None, archive.param),
         )
-    subtype = "klimat" if slug == "meteo_climate_daily" else "opad"
+    subtype: Literal["klimat", "opad"] = (
+        "klimat" if slug == "meteo_climate_daily" else "opad"
+    )
     return download_meteo_data("dobowe", subtype, archive.year, archive.month)
 
 
 def _result(
     item: PlanItem,
     status: Literal[
-        "created",
+        "new",
         "relabeled",
         "unchanged",
-        "reused",
         "failed",
         "stale_plan",
         "cancelled",
@@ -1058,21 +1087,23 @@ def _stale(item: PlanItem, signal: _Signal | None) -> bool:
 
 
 def sync_store(
-    root: PathArg | StoreHandle,
+    root: PathArg | StoreHandle | None = None,
     /,
     *,
+    output_dir: PathArg | None = None,
+    force: bool = False,
     datasets: Iterable[str] | None = None,
     years: YearsArg | None = None,
     months: MonthsArg | None = None,
     stations: Iterable[str] | None = None,
     plan: StorePlan | PathArg | None = None,
-    series: bool = True,
+    series: bool | None = None,
     on_progress: ProgressHook | None = None,
     on_notice: NoticeHook | None = None,
     cancel: Cancel | None = None,
 ) -> SyncReport:
     """
-    Download the archives that a plan marks as new or missing.
+    Download the archives that a plan marks as new or missing, or write them as plain files.
 
     Without ``plan`` the plan is built by :func:`check_store` from the given
     selectors; ``plan`` and the selectors are mutually exclusive. Before each
@@ -1083,14 +1114,32 @@ def sync_store(
     items are never downloaded. An ``unverifiable`` item is downloaded (then
     deduplicated by SHA-256) only in a sync without a supplied plan; from a
     supplied plan it stays ``unchanged`` with a ``source_unverifiable``
-    warning. An unpublished item (``"nieopublikowany"``) stays ``unchanged``
+    warning. An unpublished item (``"not published"``) stays ``unchanged``
     and does not block the series. Failures of single archives are reported
     per slot, not raised.
 
+    With ``output_dir`` (plain mode, DEV-19.1) the selected archives are
+    written as ordinary files ``<output_dir>/<server_path>`` like
+    ``datasets download`` does: there is no local version to compare with, so
+    every selected file is fetched, an existing target without ``force`` is a
+    ``conflict`` that lists every path before the first request, and no series
+    is built (a plan and ``series`` act on versions, DEV-19.17). ČHMÚ station
+    files need ``years`` in plain mode, because the years of a store sync come
+    from the server listing.
+
     Parameters
     ----------
-    root : str, os.PathLike or StoreHandle
-        Root of an existing IMGW store.
+    root : str, os.PathLike, StoreHandle or None, optional
+        Root of an existing IMGW store; None (with no ``output_dir``) is the
+        store at the default root (``IMGW_ROOT``, ``[imgw] root`` of
+        ``nogat.toml`` or ``<data_dir>/imgw``).
+    output_dir : str, os.PathLike or None, optional
+        Plain mode: directory of the files, created when missing. Excludes
+        ``root``.
+    force : bool, optional
+        Plain mode: replace existing target files (each atomically; nothing
+        else is deleted). Store mode: fetch every selected archive again, also
+        the ones the plan calls ``current``; a version is never overwritten.
     datasets : Iterable[str] or None, optional
         Dataset keys, slugs or legacy aliases; required when ``plan`` is not
         given.
@@ -1103,10 +1152,12 @@ def sync_store(
         ČHMÚ station codes, as in :func:`check_store`.
     plan : StorePlan, str, os.PathLike or None, optional
         Plan from :func:`check_store`, or the path of its ``imgw-plan/1`` JSON file.
-        Must refer to the same store root.
-    series : bool, optional
+        Must refer to the same store root. Store mode only.
+    series : bool or None, optional
         Rebuild the series of every dataset in the plan with :func:`build_series`
-        once all its archives synchronized successfully. Defaults to ``True``.
+        once all its archives synchronized successfully. None (default) means
+        ``True`` in store mode; any value is a ``validation_error`` in plain
+        mode.
     on_progress : ProgressHook or None, optional
         Called after each archive with its operation status; also forwarded to
         :func:`check_store` and :func:`build_series`.
@@ -1121,37 +1172,68 @@ def sync_store(
     Returns
     -------
     SyncReport
-        One :class:`OperationResult` per plan item (``created``, ``relabeled``,
-        ``unchanged``, ``reused``, ``failed``, ``stale_plan`` or
+        One :class:`OperationResult` per plan item (``new``, ``relabeled``,
+        ``unchanged``, ``failed``, ``stale_plan`` or
         ``cancelled``), then one ``failed`` result without a slot for every
         ``check_failed`` station action of the plan (a ČHMÚ listing that could
         not be read), one :class:`SeriesReport` per dataset when ``series`` is
         true (``failed`` or ``cancelled`` without building when the dataset
-        has incomplete inputs) and the overall cancellation flag.
+        has incomplete inputs), the overall cancellation flag and ``files``:
+        the versions with their size, SHA-256 and status (store mode) or the
+        files written, ``written`` or ``replaced`` (plain mode). A plain file
+        written is an item ``new``; an unpublished ČHMÚ candidate is
+        ``unchanged``.
 
     Raises
     ------
     IMGWValidationError
         If both ``plan`` and selectors are given, ``datasets`` is missing
         without a plan, the plan refers to another store, or the selectors are
-        invalid (see :func:`check_store`).
+        invalid (see :func:`check_store`); if both ``output_dir`` and ``root``
+        are given (``details["reason"]="exclusive_options"``); if ``plan`` or
+        ``series`` is given with ``output_dir``
+        (``details["reason"]="store_only_option"``).
+    IMGWError
+        ``conflict`` in plain mode before any request (``output_exists``,
+        ``duplicate_output_name``, ``output_in_store``; ``details["paths"]`` is
+        the output directory when it is or lies in a store, else every
+        offending path); in store mode when ``root`` nests a store
+        (``nested_store``) or holds other files and is no store (``not_empty``).
     IMGWDataError
-        If the plan file cannot be read.
+        If the plan file cannot be read or the marker of ``root`` is unreadable.
     IMGWStoreError
         If ``root`` is not a supported IMGW store.
     """
-    path = _root(root)
+    target = resolve_target(
+        output_dir=output_dir,
+        root=root.root if isinstance(root, StoreHandle) else root,
+    )
+    if target.mode == "plain":
+        return _sync_plain(
+            target.path,
+            force=force,
+            datasets=datasets,
+            years=years,
+            months=months,
+            stations=stations,
+            plan=plan,
+            series=series,
+            on_progress=on_progress,
+            on_notice=on_notice,
+            cancel=cancel,
+        )
+    refuse_root(target.path)
+    path = _root(target.path)
+    build = True if series is None else series
     if plan is not None and any(
         option is not None for option in (datasets, years, months, stations)
     ):
-        raise IMGWValidationError(
-            "Podaj plan albo selektory datasets/years/months/stations, nie oba naraz"
-        )
+        raise IMGWValidationError(message("sync.give_plan_selectors_datasets_years"))
     explicit = plan is None
     if plan is None:
         if datasets is None:
             raise IMGWValidationError(
-                "Bez planu wymagany jest parametr datasets",
+                message("sync.without_plan_parameter_datasets_required"),
                 details={"option": "datasets", "value": None},
             )
         plan = check_store(
@@ -1167,7 +1249,9 @@ def sync_store(
     elif not isinstance(plan, StorePlan):
         plan = StorePlan.from_json(plan)
     if Path(plan.root).expanduser().absolute() != path:
-        raise IMGWValidationError(f"Plan dotyczy innego magazynu: {plan.root}")
+        raise IMGWValidationError(
+            message("sync.plan_concerns_another_store", root=plan.root)
+        )
 
     def cancelled() -> bool:
         return cancel is not None and cancel()
@@ -1191,6 +1275,7 @@ def sync_store(
                     path,
                     item,
                     explicit=explicit,
+                    force=force,
                     cancel=cancel,
                     on_notice=on_notice,
                 )
@@ -1218,7 +1303,7 @@ def sync_store(
     ]
 
     reports: list[SeriesReport] = []
-    if series:
+    if build:
         for dataset in dict.fromkeys(item.archive.dataset for item in plan.items):
             outcome = [
                 result
@@ -1238,7 +1323,11 @@ def sync_store(
                         0,
                         (),
                         (
-                            f"Pominięto budowę szeregu {dataset}: niekompletne wejścia {', '.join(blocking)}",
+                            message(
+                                "sync.series_skipped",
+                                dataset=dataset,
+                                blocking=", ".join(blocking),
+                            ),
                         ),
                     )
                 )
@@ -1254,10 +1343,125 @@ def sync_store(
                         )
                     )
                 except IMGWError as exc:
-                    reports.append(SeriesReport("failed", None, 0, (), (str(exc),)))
+                    reports.append(SeriesReport("failed", None, 0, (), (reason(exc),)))
     was_cancelled = stop or any(result.status == "cancelled" for result in results)
+    files = tuple(
+        version_file(result.version, cast(_VersionStatus, result.status))
+        for result in results
+        if result.version is not None and result.status in _DONE
+    ) + tuple(file for report in reports for file in report.files)
     return SyncReport(
-        items=(*results, *unchecked), series=tuple(reports), cancelled=was_cancelled
+        items=(*results, *unchecked),
+        series=tuple(reports),
+        cancelled=was_cancelled,
+        files=files,
+    )
+
+
+def _plain_archives(
+    datasets: Iterable[str],
+    years: YearsArg | None,
+    months: MonthsArg | None,
+    stations: Iterable[str] | None,
+) -> list[ArchiveFile]:
+    """
+    The archives a plain sync writes: the selection of the store, resolved offline.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the selectors are invalid (see `_selection`), or a ČHMÚ dataset of
+        station-year files has no ``years``: the store reads them from the
+        server listing, which a plain write does not use.
+    """
+    descriptors, _, candidates, archives = _selection(datasets, years, months, stations)
+    if not candidates:
+        return archives
+    unnamed = [d.key for d in descriptors if candidates[d.key] is None]
+    if unnamed:
+        raise IMGWValidationError(
+            message("sync.plain_needs_years", keys=", ".join(unnamed)),
+            details={
+                "option": "years",
+                "value": None,
+                "reason": "years_required_in_plain_mode",
+            },
+        )
+    chosen: dict[str, ArchiveFile] = {}
+    for descriptor in descriptors:
+        for archive in candidates[descriptor.key] or ():
+            chosen.setdefault(archive.server_path, archive)
+    return list(chosen.values())
+
+
+def _plain_result(item: DownloadItem) -> OperationResult:
+    """Per-file outcome of a plain download as the operation of a sync."""
+    if item.status == "downloaded":
+        return OperationResult(item.slot, "new", item.path, None)
+    if item.status == "not_published":
+        return OperationResult(item.slot, "unchanged", None, item.error)
+    if item.status == "cancelled":
+        return OperationResult(item.slot, "cancelled", None, CANCELLED)
+    return OperationResult(
+        item.slot, "failed", None, item.error, error_code=item.error_code
+    )
+
+
+def _sync_plain(
+    directory: Path,
+    *,
+    force: bool,
+    datasets: Iterable[str] | None,
+    years: YearsArg | None,
+    months: MonthsArg | None,
+    stations: Iterable[str] | None,
+    plan: StorePlan | PathArg | None,
+    series: bool | None,
+    on_progress: ProgressHook | None,
+    on_notice: NoticeHook | None,
+    cancel: Cancel | None,
+) -> SyncReport:
+    """
+    Write the selected archives as plain files below ``directory`` (DEV-19.9, DEV-19.17).
+
+    Raises
+    ------
+    IMGWValidationError
+        If ``plan`` or ``series`` is given (they act on versions), ``datasets``
+        is missing or the selectors are invalid.
+    IMGWError
+        ``conflict`` before the first request (see ``download_archives``).
+    """
+    for name, given in (("plan", plan), ("series", series)):
+        if given is not None:
+            raise IMGWValidationError(
+                message("sync.store_only_option", name=name),
+                details={
+                    "option": name,
+                    "value": str(given),
+                    "reason": "store_only_option",
+                },
+            )
+    if datasets is None:
+        raise IMGWValidationError(
+            message("sync.without_plan_parameter_datasets_required"),
+            details={"option": "datasets", "value": None},
+        )
+    archives = _plain_archives(datasets, years, months, stations)
+    items, written = _download_plain(
+        archives,
+        directory,
+        force=force,
+        timeout=DOWNLOAD_TIMEOUT,
+        on_progress=on_progress,
+        on_notice=on_notice,
+        cancel=cancel,
+    )
+    return SyncReport(
+        items=tuple(_plain_result(item) for item in items),
+        series=(),
+        cancelled=any(item.status == "cancelled" for item in items),
+        files=tuple(written),
     )
 
 
@@ -1267,11 +1471,12 @@ def _sync_one(
     item: PlanItem,
     *,
     explicit: bool,
+    force: bool,
     cancel: Cancel | None,
     on_notice: NoticeHook | None,
 ) -> OperationResult:
     local = root / item.local_path if item.local_path is not None else None
-    if item.status == "current":
+    if item.status == "current" and not force:
         return _result(item, "unchanged", version=local)
     if item.status == "check_failed":
         return _result(
@@ -1288,7 +1493,11 @@ def _sync_one(
                     Notice(
                         "warning",
                         "source_unverifiable",
-                        f"{item.archive.server_path}: {item.error}; pominięto przy synchronizacji z planu",
+                        message(
+                            "sync.skipped_sync_from_plan",
+                            server_path=item.archive.server_path,
+                            error=item.error,
+                        ),
                     )
                 )
             return _result(item, "unchanged", version=local, error=item.error)
@@ -1297,7 +1506,11 @@ def _sync_one(
                 Notice(
                     "warning",
                     "source_unverifiable",
-                    f"{item.archive.server_path}: {item.error}; pobieranie i porównanie sumy SHA-256",
+                    message(
+                        "sync.download_and_compare",
+                        server_path=item.archive.server_path,
+                        error=item.error,
+                    ),
                 )
             )
     try:
@@ -1310,10 +1523,10 @@ def _sync_one(
             error_code="source_unavailable",
         )
     if _stale(item, signal):
-        message = f"{item.archive.server_path}: nagłówki serwera zmieniły się od sprawdzenia planu"
+        text = message("sync.stale_plan", server_path=item.archive.server_path)
         if on_notice is not None:
-            on_notice(Notice("warning", "stale_plan", message))
-        return _result(item, "stale_plan", version=local, error=message)
+            on_notice(Notice("warning", "stale_plan", text))
+        return _result(item, "stale_plan", version=local, error=text)
     try:
         response = _download(item.archive, client=client)
         written = write_archive(
@@ -1333,7 +1546,7 @@ def _sync_one(
         return _result(
             item,
             "failed",
-            error=str(exc),
+            error=reason(exc),
             error_code=exc.code if isinstance(exc, IMGWError) else "io_error",
         )
     return _result(item, written.status, version=written.path)

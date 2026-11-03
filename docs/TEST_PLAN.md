@@ -26,8 +26,15 @@ Zainstalowane w `.venv`: pytest 9.0, pytest-cov 7.0, pytest-asyncio 1.3 (`asynci
 > `test_parsing_chmi.py`, `test_store_content.py` i kontrakt `tests/contract/test_chmi_contract.py` (IMGW-15..19 na
 > `build_fixture_store(variant="complete_pl_cz")`), a na żywo `tests/live/test_chmi_live.py`; wsparcie agentów —
 > `test_agent_guide.py` (test dryfu `AGENTS.md`/`llms.txt`), `test_catalog_effects.py`, `test_catalog_i18n.py`,
-> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan: 2208 testów
-> (2129 offline, 79 na żywo; `pytest --collect-only`).
+> `test_mcp_*.py` oraz kontrakty `tests/contract/test_mcp_contract.py` i `test_mcp_http_contract.py`. Stan z 2026-10-19: 2213 testów
+> (2134 offline, 79 na żywo; `pytest --collect-only`).
+>
+> **Aktualizacja 2026-10-25 (ADR-005, ADR-006, ADR-007):** opisy poniżej, w których występują `Settings.data_dir=./data`,
+> `store_root`, zapis przez `.part`, `output` jako katalog pobierania albo `path` eksportu, opisują stan sprzed tych decyzji;
+> obowiązują nazwy `root` (`IMGW_ROOT`), `output_dir`, `output`, `force`, staging `.imgw-incoming/` i statusy `new`/`unchanged`.
+> Zapis danych pokrywają `tests/unit/test_output.py`, `test_plain_output.py`, `test_default_root.py`,
+> `test_store_marker.py`, `test_cli_interrupt.py` (SIGINT i SIGTERM prawdziwych poleceń) oraz odmowy zapisu REST i MCP w
+> `test_api_commands.py` i `test_mcp_calls.py`. Stan: 2409 testów (2329 offline, 80 na żywo; `docs/TESTING.md`).
 
 Komendy bazowe:
 
@@ -90,7 +97,7 @@ budowanym `MagicMock` (ok. 10 linii boilerplate na test).
 6. **Placeholder w API** – `api/routes/hydro.py:38-45` i `api/routes/meteo.py:33-38` zwracają 2 stacje na sztywno (`# TODO`).
 7. **CLI** – `cli/main.py:36-39` `version` czyta `__version__` z `_version.py`; `cli/list_cmd.py:102-107` `datasets` liczy zakres z
    `get_available_years`; teksty `--help` z docstringów (ASCII).
-8. **Magazyn (zamiast DB)** – publikacja wersji tylko przez rename bez zastępowania (`store/writer.py`), sidecar
+8. **Magazyn (zamiast DB)** – publikacja wersji dowiązaniami twardymi bez zastępowania, zatwierdzana dowiązanym na końcu sidecarem (`store/writer.py`), sidecar
    `imgw-meta/1` z pełnym SHA, `check_*` bez zapisu i bez GET danych, nieznany schemat (`imgw-store/2`, `imgw-meta/2`)
    raportowany, a nie parsowany; `pyarrow` wymagany wyłącznie na ścieżkach Parquet (`IMGWStoreDependencyError`).
 9. **Kodowanie** – `IMGW_ENCODING = "cp1250"` w dwóch miejscach (`stations.py`, `_parsing/common.py`), reeksport w `parsers.py`.
@@ -119,7 +126,7 @@ Cel: **>= 80% TOTAL** z `--cov=imgwtools`. Poniżej realistyczne cele per moduł
 oraz wariant pesymistyczny.
 
 > Arytmetyka poniżej dotyczy stanu 2.2.0 (2586 instrukcji). Wiersze `db/*` i `cli/db.py` nie istnieją od 3.0.0; moduły
-> magazynu (`store/*`, `commands.py`, `project.py`, `datasets.py`, `_parsing/*`) mają własne testy z sekcji 4.9, a próg
+> magazynu (`store/*`, `commands.py`, `datasets.py`, `_parsing/*`) mają własne testy z sekcji 4.9, a próg
 > 80% mierzy się na bieżącym kodzie (`pytest --cov=imgwtools`).
 
 | Moduł | Stmts | Pokryte dziś | Cel (stmts) | Cel % | Uwagi / koszt |
@@ -351,20 +358,20 @@ Testy publiczne nie mogą wymagać importu Kartografa ani sieci.
 | Plik | Co utrwala |
 |---|---|
 | `test_store_types.py` | niemutowalne typy, `StorePlan.to_json/from_json` (round-trip, `cancelled`, pola addytywne), wyjątki dziedziczą z `IMGWError`, instrukcja `pip install imgwtools[store]` |
-| `test_store_writer.py` | pochodzenie i sidecar `imgw-meta/1`, `relabeled`/`unchanged`, współbieżni pisarze, brak zastąpienia pustego celu, jawna odmowa FS bez atomowego rename, sprzątanie po przerwaniu + `fsync`, wykrycie Kartografa bez importu, ucieczka ścieżek |
+| `test_store_writer.py` | pochodzenie i sidecar `imgw-meta/1`, `relabeled`/`unchanged`, współbieżni pisarze, przerwana publikacja (katalog bez sidecara) pomijana i uzupełniana, inne bajty pod tą nazwą nigdy nie zastąpione, nieudane zatwierdzenie (EIO, Ctrl+C) nie usuwa plików przejętych przez równoległy zapis, jawna odmowa FS bez dowiązań twardych (`not_atomic`, także znacznik), sprzątanie po przerwaniu + `fsync`, wykrycie Kartografa bez importu, ucieczka ścieżek |
 | `test_store_sync.py` | `check_store` tylko listing + `HEAD` (pięć statusów), round-trip planu, `stale_plan` bez GET, nowy hash = nowa wersja, ten sam hash pod nowym sygnałem = `relabeled`, `unverifiable`/`check_failed` nie są pobierane, anulowanie bez połowicznej wersji, seria tylko z kompletnych wejść |
 | `test_store_series.py` | `check_series` offline, migawki dobowe/miesięczne/półroczne (29 II, rok hydrologiczny, `accumulated`), `reused` bez writera Parquet, brak pyarrow → `IMGWStoreDependencyError`, import rdzenia bez pyarrow |
-| `test_store_catalog.py` | listy stacji archiwizowane najpierw, pierwszeństwo położeń API → statyczny (`isolated_data_dir`) → użytkownik, obrys Polski bez GIS, RFC 7946, `unchanged` przy identycznej treści, `check_catalog` tylko `HEAD` |
+| `test_store_catalog.py` | listy stacji archiwizowane najpierw, pierwszeństwo położeń API → statyczny (`isolated_data_dir`) → użytkownik, obrys Polski bez GIS, RFC 7946, `unchanged` przy identycznej treści, `check_catalog` tylko `HEAD`, `meteo_kind` z bieżących szeregów klimatycznego i opadowego |
 | `test_store_pmaxtp.py` | klucz komórki z odpowiedzi, ta sama komórka bez nowej wersji, AMP osobno, błędne indeksy/puste dane bez zapisu, odczyt offline |
 | `test_store_reader.py` | odczyt na katalogu read-only bez sieci i zapisu, zakresy dat zgodne z parserem, problemy skanu, nieznany `imgw-store/2` raportowany, walidacja pól `Meta` |
 | `test_series_export.py` | CSV: nagłówek z jednostkami, formuły atrybucji raz, każdy dzień, `year_type`, kolumny półrocza, atomowy zapis `.part` |
 | `test_datasets.py`, `test_coverage.py` | rejestr `pl.imgw.*` i `archive_files` (granice 2000/2001, 2022/2023, 29 II), pokrycie per stacja × zmienna |
 | `test_store_fixtures.py`, `test_fixture_builder.py` | stałe nagrania i archiwa, `build_fixture_store` (warianty, determinizm przy zamrożonym zegarze, brak przecieku danych referencyjnych) |
-| `test_commands.py`, `test_project.py` | katalog komend (walidacja offline, `format_command` round-trip, `check_command` bez zapisu, jedno publiczne API na działanie), `imgw-project/1` (ścisła walidacja, przypięcia, lock, `set-store`) |
+| `test_commands.py` | katalog komend (walidacja offline, `format_command` round-trip, `check_command` bez zapisu, jedno publiczne API na działanie); `test_project.py` (manifest projektu) usunięto z projektami (ADR-008) |
 | `test_public_store_api.py` | jedna lista `__all__`, te same obiekty w `imgwtools.store`, frozen dataclasses, keyword-only, import bez pyarrow i bez `imgwtools.db` |
 
-Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_store.py`, `test_cli_api_parity.py`, `test_project_contract.py`
-– pełna ścieżka HEAD→plan→sync→series→catalog→CSV→projekt→verify/restore, JSON Schemas §11 i parytet ścieżek/SHA CLI = API.
+Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_store.py`, `test_cli_api_parity.py`
+– pełna ścieżka HEAD→plan→sync→series→catalog→CSV, JSON Schemas §11 i parytet ścieżek/SHA CLI = API; `test_project_contract.py` (projekt→verify/restore) usunięto z projektami (ADR-008).
 
 ### 4.14 `tests/unit/test_api_system.py` (nowy; `api_client`)
 
@@ -387,7 +394,7 @@ Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_sto
 - `test_download_urls_daily_2022_2023_counts_13` – 12 + 1. [boundary 2022/2023]
 - `test_download_urls_start_gt_end_400`, `test_download_urls_semi_annual_with_param`.
 - Dawne testy `GET /api/v1/hydro/data` (cache DB) – usunięte wraz z endpointem w 3.0.0; trasy magazynu REST testuje
-  `tests/unit/test_api_store.py` (503 bez `IMGW_STORE_ROOT`, 403 przy wyłączonych zapisach/braku tokenu, ograniczenie `version`
+  `tests/unit/test_api_store.py` (503 bez `IMGW_ROOT`, 403 przy wyłączonych zapisach/braku tokenu, ograniczenie `version`
   do `versions/`, parytet z Python API) i `tests/unit/test_api_download_registry.py` (URL-e z rejestru).
 
 ### 4.16 `tests/unit/test_api_meteo.py`
@@ -431,7 +438,7 @@ Kontrakt końcowy (T25, zrobione 2026-10-18): `tests/contract/test_versioned_sto
 
 - `test_all_help_screens_exit_0` – parametrize: `--help`, `version --help`, `server --help`, `fetch --help`, `fetch hydro --help`, `fetch meteo --help`,
   `fetch current --help`, `fetch pmaxtp --help`, `fetch warnings --help`, `list --help`, `list stations --help`, `list datasets --help`, `list intervals --help`,
-  `admin --help`, `admin keys/create/revoke/delete/stats --help`. Grupy `store`, `series`, `pmaxtp`, `project` (help = opisy katalogu komend)
+  `admin --help`, `admin keys/create/revoke/delete/stats --help`. Grupy `store`, `series`, `pmaxtp` (help = opisy katalogu komend)
   pokrywa już `test_cli_store_project.py::test_help_texts_and_flags_are_the_catalog`. [pułapka 7; Typer wiring]
 - `test_version_prints_package_version` – `__version__` w output, nie `1.0.0`. [regresja]
 - `test_server_command_delegates_to_uvicorn` – `monkeypatch.setattr("uvicorn.run", fake)`; asercja argumentów (host/port/reload). Pokrywa linie bez startu serwera.
@@ -470,8 +477,8 @@ i nie blokuje ponowienia), ponowne pobranie nadpisuje zamiast „pomijam”, bł
 
 ### 4.24 CLI magazynu (`tests/unit/test_cli_store_project.py`; zastępuje dawny `test_cli_db.py`; testy istnieją)
 
-- rejestracja każdej komendy `store`/`series`/`pmaxtp`/`project`, help i flagi z katalogu, te same opcje do dispatchera;
-- `store init`, `series build`, `store check --plan` + `store sync`, `pmaxtp sync`, `series export`, komendy `project` dają te same ścieżki
+- rejestracja każdej komendy `store`/`series`/`pmaxtp`, help i flagi z katalogu, te same opcje do dispatchera;
+- `store init`, `series build`, `store check --plan` + `store sync`, `pmaxtp sync`, `series export` dają te same ścieżki
   i SHA co Python API (stały zegar);
 - `--check` używa `check_command` i nic nie zapisuje; plan wewnątrz magazynu odrzucony po polsku; błędne opcje po polsku;
 - Ctrl+C zgłasza anulowanie i raport częściowy, drugi Ctrl+C przerywa natychmiast.

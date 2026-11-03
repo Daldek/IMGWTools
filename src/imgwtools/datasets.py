@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from imgwtools.exceptions import IMGWValidationError
+from imgwtools.messages import Message, message
 from imgwtools.urls import IMGW_PUBLIC_DATA_URL
 
 YearsArg = int | str | Iterable[int | str]
@@ -77,7 +78,8 @@ class License:
         License identifier, e.g. ``"IMGW-PIB"`` (IMGW-PIB terms of use) or
         ``"CC-BY-4.0"``.
     attribution : str
-        Required attribution formula of the source files (in Polish).
+        Required attribution formula of the source files; it keeps its (Polish)
+        wording in every language, because sidecars and exports persist it.
     url : str
         URL of the license or terms of use.
     terms_url : str or None, optional
@@ -117,7 +119,8 @@ class ProviderDescriptor:
         Formula marking processed forms (series, catalog, exports), without
         a final full stop.
     notice : str
-        Text of the ``license_terms`` notice that follows the attribution.
+        Text of the ``license_terms`` notice that follows the attribution (a
+        catalog message).
     station_code_pattern : str
         Regular expression of the provider's station codes.
     datasets : tuple of str
@@ -136,6 +139,30 @@ class ProviderDescriptor:
     station_code_pattern: str
     datasets: tuple[str, ...]
 
+    def license_notice(self, attribution: str | None = None) -> Message:
+        """
+        Text of the ``license_terms`` notice of data of this provider.
+
+        Parameters
+        ----------
+        attribution : str or None, optional
+            The attribution formula the written data carries (the source one
+            with the processed-data formula appended for a derived form);
+            the provider's source formula by default.
+
+        Returns
+        -------
+        Message
+            The attribution followed by the provider's notice.
+        """
+        return message(
+            "datasets.license_notice",
+            attribution=self.license.attribution
+            if attribution is None
+            else attribution,
+            notice=self.notice,
+        )
+
 
 @dataclass(frozen=True)
 class DatasetDescriptor:
@@ -152,7 +179,8 @@ class DatasetDescriptor:
     kind : {"hydro", "meteo"} or None
         Data family; None for PMAXTP.
     title : str
-        Polish title of the dataset, e.g. ``"Dane hydrologiczne dobowe"``.
+        English title of the dataset (a catalog message), e.g. ``"Daily
+        hydrological data"``; ``localize(title, "pl")`` is the Polish title.
     server_dir : str or None
         Directory on the provider's server, relative to its ``base_url``,
         e.g. ``"dane_hydrologiczne/dobowe"``; None for PMAXTP.
@@ -185,7 +213,8 @@ class DatasetDescriptor:
         What one source file covers: the whole country, one station and
         year, or the whole history of one station and element.
     variable_notes : Mapping of str to str, optional
-        Convention of each variable (in Polish), e.g. the day of a sum.
+        Convention of each variable (English catalog messages), e.g. the day of
+        a sum; the series metadata keeps the English text.
     measurement_fields : tuple of {"quality", "source_flag"}, optional
         Additional ``Measurement`` fields the dataset fills.
     content_form : str or None, optional
@@ -193,8 +222,6 @@ class DatasetDescriptor:
         dataset's files; None when only the bytes identify the content.
     volatile_fields : tuple of str, optional
         Volatile fields of ``content_form``; empty without a form.
-    title_en : str, optional
-        English title of the dataset, e.g. ``"Daily hydrological data"``.
     """
 
     key: str
@@ -217,7 +244,6 @@ class DatasetDescriptor:
     measurement_fields: tuple[Literal["quality", "source_flag"], ...] = ()
     content_form: str | None = None
     volatile_fields: tuple[str, ...] = ()
-    title_en: str = ""
 
 
 @dataclass(frozen=True)
@@ -272,13 +298,12 @@ class ArchiveFile:
 
 _LICENSE = License(
     "IMGW-PIB",
-    "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy",
+    message("legal.imgw_attribution"),
     "https://danepubliczne.imgw.pl/regulations",
 )
 _CHMI_LICENSE = License(
     "CC-BY-4.0",
-    "Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, "
-    "licencja CC BY 4.0",
+    message("legal.chmi_attribution"),
     "https://creativecommons.org/licenses/by/4.0/",
     "https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti",
 )
@@ -298,8 +323,7 @@ _DATASETS = (
         key="pl.imgw.hydro_daily",
         slug="hydro_daily",
         kind="hydro",
-        title="Dane hydrologiczne dobowe",
-        title_en="Daily hydrological data",
+        title=message("datasets.title_hydro_daily"),
         server_dir="dane_hydrologiczne/dobowe",
         parser="parse_daily_csv",
         variables={"H": "cm", "Q": "m3/s", "T": "degC"},
@@ -315,8 +339,7 @@ _DATASETS = (
         key="pl.imgw.hydro_monthly",
         slug="hydro_monthly",
         kind="hydro",
-        title="Dane hydrologiczne miesięczne",
-        title_en="Monthly hydrological data",
+        title=message("datasets.title_hydro_monthly"),
         server_dir="dane_hydrologiczne/miesieczne",
         parser="parse_monthly_csv",
         variables=_HYDRO_STATS,
@@ -332,8 +355,7 @@ _DATASETS = (
         key="pl.imgw.hydro_semiannual",
         slug="hydro_semiannual",
         kind="hydro",
-        title="Dane hydrologiczne półroczne i roczne",
-        title_en="Semi-annual and annual hydrological data",
+        title=message("datasets.title_hydro_semiannual"),
         server_dir="dane_hydrologiczne/polroczne_i_roczne",
         parser="parse_semi_annual_csv",
         variables=_HYDRO_STATS,
@@ -349,8 +371,7 @@ _DATASETS = (
         key="pl.imgw.meteo_climate_daily",
         slug="meteo_climate_daily",
         kind="meteo",
-        title="Dane meteorologiczne dobowe ze stacji klimatycznych",
-        title_en="Daily meteorological data from climate stations",
+        title=message("datasets.title_meteo_climate_daily"),
         server_dir="dane_meteorologiczne/dobowe/klimat",
         parser="parse_meteo_climate_daily",
         variables={
@@ -373,8 +394,7 @@ _DATASETS = (
         key="pl.imgw.meteo_precip_daily",
         slug="meteo_precip_daily",
         kind="meteo",
-        title="Dane meteorologiczne dobowe ze stacji opadowych",
-        title_en="Daily meteorological data from precipitation stations",
+        title=message("datasets.title_meteo_precip_daily"),
         server_dir="dane_meteorologiczne/dobowe/opad",
         parser="parse_meteo_precip_daily",
         variables={"P": "mm", "snow_cover": "cm", "fresh_snow": "cm"},
@@ -390,8 +410,7 @@ _DATASETS = (
         key="pl.imgw.hydro_stations",
         slug="hydro_stations",
         kind="hydro",
-        title="Lista stacji hydrologicznych",
-        title_en="List of hydrological stations",
+        title=message("datasets.title_hydro_stations"),
         server_dir="dane_hydrologiczne",
         parser="parse_stations_csv",
         variables={},
@@ -407,8 +426,7 @@ _DATASETS = (
         key="pl.imgw.meteo_stations",
         slug="meteo_stations",
         kind="meteo",
-        title="Lista stacji meteorologicznych",
-        title_en="List of meteorological stations",
+        title=message("datasets.title_meteo_stations"),
         server_dir="dane_meteorologiczne",
         parser="parse_stations_csv",
         variables={},
@@ -424,8 +442,7 @@ _DATASETS = (
         key="pl.imgw.pmaxtp",
         slug="pmaxtp",
         kind=None,
-        title="Opady maksymalne prawdopodobne PMAXTP",
-        title_en="Probable maximum precipitation PMAXTP",
+        title=message("datasets.title_pmaxtp"),
         server_dir=None,
         parser=None,
         variables={"ks": "mm", "sg": "mm", "rb": "mm"},
@@ -441,8 +458,7 @@ _DATASETS = (
         key="pl.imgw.hydro_phenomena",
         slug="hydro_phenomena",
         kind="hydro",
-        title="Zjawiska hydrologiczne dobowe",
-        title_en="Daily hydrological phenomena",
+        title=message("datasets.title_hydro_phenomena"),
         server_dir="dane_hydrologiczne/dobowe",
         parser=None,
         variables={},
@@ -458,8 +474,7 @@ _DATASETS = (
         key="pl.imgw.meteo_climate_monthly",
         slug="meteo_climate_monthly",
         kind="meteo",
-        title="Dane meteorologiczne miesięczne ze stacji klimatycznych",
-        title_en="Monthly meteorological data from climate stations",
+        title=message("datasets.title_meteo_climate_monthly"),
         server_dir="dane_meteorologiczne/miesieczne/klimat",
         parser=None,
         variables={},
@@ -475,8 +490,7 @@ _DATASETS = (
         key="pl.imgw.meteo_precip_monthly",
         slug="meteo_precip_monthly",
         kind="meteo",
-        title="Dane meteorologiczne miesięczne ze stacji opadowych",
-        title_en="Monthly meteorological data from precipitation stations",
+        title=message("datasets.title_meteo_precip_monthly"),
         server_dir="dane_meteorologiczne/miesieczne/opad",
         parser=None,
         variables={},
@@ -492,8 +506,7 @@ _DATASETS = (
         key="pl.imgw.meteo_synop_monthly",
         slug="meteo_synop_monthly",
         kind="meteo",
-        title="Dane meteorologiczne miesięczne ze stacji synoptycznych",
-        title_en="Monthly meteorological data from synoptic stations",
+        title=message("datasets.title_meteo_synop_monthly"),
         server_dir="dane_meteorologiczne/miesieczne/synop",
         parser=None,
         variables={},
@@ -509,8 +522,7 @@ _DATASETS = (
         key="pl.imgw.meteo_climate_terms",
         slug="meteo_climate_terms",
         kind="meteo",
-        title="Dane meteorologiczne terminowe ze stacji klimatycznych",
-        title_en="Meteorological data at observation times from climate stations",
+        title=message("datasets.title_meteo_climate_terms"),
         server_dir="dane_meteorologiczne/terminowe/klimat",
         parser=None,
         variables={},
@@ -526,8 +538,7 @@ _DATASETS = (
         key="cz.chmi.hydro_daily",
         slug="chmi_hydro_daily",
         kind="hydro",
-        title="ČHMÚ — dane hydrologiczne dobowe (H, Q, T)",
-        title_en="ČHMÚ — daily hydrological data (H, Q, T)",
+        title=message("datasets.title_chmi_hydro_daily"),
         server_dir="hydrology/historical/data/daily",
         parser="parse_chmi_hydro_daily",
         variables={"H": "cm", "Q": "m3/s", "T": "degC"},
@@ -541,11 +552,9 @@ _DATASETS = (
         provider="CHMI",
         archive_scope="station_year",
         variable_notes={
-            "H": "Średni dobowy stan wody (HD); data = dzień z DT (…T00:00:00Z)",
-            "Q": "Średni dobowy przepływ (QD), równy średniej 24 przepływów "
-            "godzinowych o etykietach 00–23Z tej daty (doba według etykiet Z; "
-            "UTC albo stały SEČ — niepotwierdzone przez ČHMÚ)",
-            "T": "Średnia dobowa temperatura wody (TD)",
+            "H": message("datasets.note_chmi_hydro_daily_h"),
+            "Q": message("datasets.note_chmi_hydro_daily_q"),
+            "T": message("datasets.note_chmi_hydro_daily_t"),
         },
         content_form=_CHMI_JSON,
         volatile_fields=_CHMI_VOLATILE,
@@ -554,8 +563,7 @@ _DATASETS = (
         key="cz.chmi.meteo_daily",
         slug="chmi_meteo_daily",
         kind="meteo",
-        title="ČHMÚ — dane meteorologiczne dobowe (opad, temperatura powietrza)",
-        title_en="ČHMÚ — daily meteorological data (precipitation, air temperature)",
+        title=message("datasets.title_chmi_meteo_daily"),
         server_dir="meteorology/climate/historical_csv/data/daily",
         parser="parse_chmi_meteo_daily",
         variables={"P": "mm", "Tmean": "degC", "Tmax": "degC", "Tmin": "degC"},
@@ -569,14 +577,10 @@ _DATASETS = (
         provider="CHMI",
         archive_scope="station_element",
         variable_notes={
-            "P": "Suma opadu (SRA) od terminu porannego (06:00Z) dnia D do terminu "
-            "porannego dnia D+1, przypisana do D",
-            "Tmean": "Średnia dobowa temperatura powietrza (T, AVG) = "
-            "(T06 + T13 + 2·T20)/4 z terminów UTC dnia D",
-            "Tmax": "Maksymalna temperatura powietrza (TMA) okresu "
-            "(D−1 20:00, D 20:00] UTC, przypisana do D",
-            "Tmin": "Minimalna temperatura powietrza (TMI) okresu "
-            "(D−1 20:00, D 20:00] UTC, przypisana do D",
+            "P": message("datasets.note_chmi_meteo_daily_p"),
+            "Tmean": message("datasets.note_chmi_meteo_daily_tmean"),
+            "Tmax": message("datasets.note_chmi_meteo_daily_tmax"),
+            "Tmin": message("datasets.note_chmi_meteo_daily_tmin"),
         },
         measurement_fields=("quality", "source_flag"),
     ),
@@ -584,8 +588,7 @@ _DATASETS = (
         key="cz.chmi.hydro_stations",
         slug="chmi_hydro_stations",
         kind="hydro",
-        title="ČHMÚ — wykaz stacji hydrologicznych",
-        title_en="ČHMÚ — list of hydrological stations",
+        title=message("datasets.title_chmi_hydro_stations"),
         server_dir="hydrology/historical/metadata",
         parser="parse_chmi_stations",
         variables={},
@@ -604,8 +607,7 @@ _DATASETS = (
         key="cz.chmi.meteo_stations",
         slug="chmi_meteo_stations",
         kind="meteo",
-        title="ČHMÚ — wykaz stacji meteorologicznych",
-        title_en="ČHMÚ — list of meteorological stations",
+        title=message("datasets.title_chmi_meteo_stations"),
         server_dir="meteorology/climate/historical/metadata",
         parser="parse_chmi_stations",
         variables={},
@@ -625,15 +627,13 @@ _PROVIDERS = (
     ProviderDescriptor(
         id="IMGW-PIB",
         short_name="IMGW-PIB",
-        name="Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy",
+        name=message("legal.imgw_name"),
         country="PL",
         key_prefix="pl.imgw",
         base_url=f"{IMGW_PUBLIC_DATA_URL}/",
         license=_LICENSE,
-        processed_attribution="Dane Instytutu Meteorologii i Gospodarki Wodnej – "
-        "Państwowego Instytutu Badawczego zostały przetworzone",
-        notice="Do użytku prywatnego i badawczego; inne zastosowania wymagają "
-        "sprawdzenia warunków IMGW-PIB, także wyjątków dla danych o wysokiej wartości.",
+        processed_attribution=message("legal.imgw_processed_attribution"),
+        notice=message("datasets.provider_notice_imgw"),
         station_code_pattern=r"^[0-9]{9}$",
         datasets=tuple(item.key for item in _DATASETS if item.provider == "IMGW-PIB"),
     ),
@@ -645,10 +645,8 @@ _PROVIDERS = (
         key_prefix="cz.chmi",
         base_url="https://opendata.chmi.cz/",
         license=_CHMI_LICENSE,
-        processed_attribution="Dane ČHMÚ zostały przetworzone (normalizacja i "
-        "zmiana formatu)",
-        notice="Licencja CC BY 4.0 dopuszcza kopiowanie, zmiany i użycie komercyjne "
-        "pod warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian.",
+        processed_attribution=message("legal.chmi_processed_attribution"),
+        notice=message("datasets.provider_notice_chmi"),
         station_code_pattern=rf"^{_WIGOS_CODE}$",
         datasets=tuple(item.key for item in _DATASETS if item.provider == "CHMI"),
     ),
@@ -670,17 +668,15 @@ _ALLOWED = [descriptor.key for descriptor in _DATASETS]
 _UNSUPPORTED = {
     "meteo/dobowe/synop": (
         "per_station",
-        "Archiwa meteo/dobowe/synop są publikowane osobno dla każdej stacji i nie "
-        "mają zbioru w rejestrze; użyj pl.imgw.meteo_synop_monthly",
+        message("datasets.meteo_dobowe_synop_archives_published"),
     ),
     "meteo/terminowe/synop": (
         "per_station",
-        "Archiwa meteo/terminowe/synop są publikowane osobno dla każdej stacji i "
-        "nie mają zbioru w rejestrze; użyj pl.imgw.meteo_synop_monthly",
+        message("datasets.meteo_terminowe_synop_archives_published"),
     ),
     "meteo/terminowe/opad": (
         "not_published",
-        "Dane meteo/terminowe/opad nie istnieją na serwerach IMGW",
+        message("datasets.meteo_terminowe_opad_data_do"),
     ),
 }
 # Suffix of the file name and the last year of the first folder of the
@@ -733,7 +729,11 @@ def get_provider(provider: str, /) -> ProviderDescriptor:
         return _PROVIDER_BY_NAME[provider]
     allowed = [item.id for item in _PROVIDERS]
     raise IMGWValidationError(
-        f"Nieznany dostawca danych: {provider!r}; dozwolone: {', '.join(allowed)}",
+        message(
+            "datasets.unknown_data_provider_allowed",
+            provider=provider,
+            allowed=", ".join(allowed),
+        ),
         details={
             "option": "provider",
             "value": provider if isinstance(provider, str) else repr(provider),
@@ -774,7 +774,7 @@ def datasets(
     """
     if kind is not None and kind not in ("hydro", "meteo"):
         raise IMGWValidationError(
-            f"Nieprawidłowy rodzaj zbioru: {kind!r}; dozwolone: hydro, meteo",
+            message("datasets.invalid_kind_dataset_allowed_hydro", kind=kind),
             details={"option": "kind", "value": kind, "allowed": ["hydro", "meteo"]},
         )
     owner = None if provider is None else get_provider(provider).id
@@ -820,9 +820,9 @@ def get_dataset(dataset: str, /) -> DatasetDescriptor:
         ) is not None:
             return descriptor
         if dataset in _UNSUPPORTED:
-            reason, message = _UNSUPPORTED[dataset]
+            reason, text = _UNSUPPORTED[dataset]
             raise IMGWValidationError(
-                message,
+                text,
                 details={
                     "option": "dataset",
                     "value": dataset,
@@ -831,7 +831,11 @@ def get_dataset(dataset: str, /) -> DatasetDescriptor:
                 },
             )
     raise IMGWValidationError(
-        f"Nieznany zbiór IMGW: {dataset!r}; dozwolone klucze: {', '.join(_ALLOWED)}",
+        message(
+            "datasets.unknown_imgw_dataset_allowed_keys",
+            dataset=dataset,
+            allowed=", ".join(_ALLOWED),
+        ),
         details={
             "option": "dataset",
             "value": dataset if isinstance(dataset, str) else repr(dataset),
@@ -899,7 +903,9 @@ def _items(value: object, option: str) -> list[int | str]:
         raw = list(value)
     else:
         raise IMGWValidationError(
-            f"Opcja {option} musi być liczbą, tekstem lub listą: {value!r}",
+            message(
+                "datasets.option_must_number_text_list", option=option, value=value
+            ),
             details={"option": option, "value": repr(value)},
         )
     items: list[int | str] = []
@@ -910,12 +916,12 @@ def _items(value: object, option: str) -> list[int | str]:
             items.append(item)
         else:
             raise IMGWValidationError(
-                f"Nieprawidłowa wartość opcji {option}: {item!r}",
+                message("datasets.invalid_value_option", option=option, item=item),
                 details={"option": option, "value": repr(item)},
             )
     if not items or "" in items:
         raise IMGWValidationError(
-            f"Opcja {option} wymaga niepustej listy wartości",
+            message("datasets.option_needs_non_empty_list", option=option),
             details={"option": option, "value": repr(value)},
         )
     return items
@@ -954,12 +960,16 @@ def parse_years(value: YearsArg, /, *, option: str = "years") -> tuple[int, ...]
             end = int(match.group(2) or start)
         else:
             raise IMGWValidationError(
-                f"Nieprawidłowy rok lub zakres lat w opcji {option}: {item!r}",
+                message(
+                    "datasets.invalid_year_range_years_option", option=option, item=item
+                ),
                 details={"option": option, "value": item},
             )
         if not 1 <= start <= end <= 9999:
             raise IMGWValidationError(
-                f"Nieprawidłowy zakres lat w opcji {option}: {item!r}",
+                message(
+                    "datasets.invalid_range_years_option", option=option, item=item
+                ),
                 details={"option": option, "value": item},
             )
         years.update(range(start, end + 1))
@@ -993,13 +1003,17 @@ def parse_months(value: MonthsArg, /, *, option: str = "months") -> tuple[int, .
         if isinstance(item, str):
             if not _MONTH.fullmatch(item):
                 raise IMGWValidationError(
-                    f"Opcja {option} musi zawierać liczby całkowite: {item!r}",
+                    message(
+                        "datasets.option_must_contain_integers",
+                        option=option,
+                        item=item,
+                    ),
                     details={"option": option, "value": item},
                 )
             item = int(item)
         if not 1 <= item <= 12:
             raise IMGWValidationError(
-                "Miesiące muszą należeć do zakresu 1–12",
+                message("datasets.months_must_range_1_12"),
                 details={"option": option, "value": item},
             )
         months.add(item)
@@ -1011,8 +1025,7 @@ def _parse_params(
 ) -> tuple[str, ...]:
     if dataset.key != "pl.imgw.hydro_semiannual":
         raise IMGWValidationError(
-            f"Opcja params dotyczy wyłącznie zbioru pl.imgw.hydro_semiannual, "
-            f"nie {dataset.key}",
+            message("datasets.option_params_applies_only_dataset", key=dataset.key),
             details={"option": "params", "value": dataset.key},
         )
     items = [
@@ -1022,7 +1035,7 @@ def _parse_params(
     ]
     if not items or any(item not in _PARAMS for item in items):
         raise IMGWValidationError(
-            f"Nieprawidłowe parametry półroczne: {items!r}; dozwolone: H, Q, T",
+            message("datasets.invalid_semi_annual_parameters_allowed", items=items),
             details={"option": "params", "value": items, "allowed": list(_PARAMS)},
         )
     return tuple(param for param in _PARAMS if param in items)
@@ -1146,7 +1159,7 @@ def archive_files(
     descriptor = get_dataset(dataset)
     if descriptor.server_dir is None or descriptor.time_unit == "station_list":
         raise IMGWValidationError(
-            f"Zbiór {descriptor.key} nie udostępnia archiwów rocznych",
+            message("datasets.dataset_has_no_annual_archives", key=descriptor.key),
             details={"option": "dataset", "value": descriptor.key},
         )
     if descriptor.archive_scope == "country":
@@ -1162,8 +1175,11 @@ def _minimum_year(years: tuple[int, ...], descriptor: DatasetDescriptor) -> None
     """Reject years before ``first_year`` of the dataset (``details.minimum``)."""
     if descriptor.first_year is not None and years[0] < descriptor.first_year:
         raise IMGWValidationError(
-            f"Nieprawidłowe roczniki zbioru {descriptor.key}; minimalny rok: "
-            f"{descriptor.first_year}",
+            message(
+                "datasets.invalid_years_dataset_first_year",
+                key=descriptor.key,
+                first_year=descriptor.first_year,
+            ),
             details={
                 "option": "years",
                 "value": list(years),
@@ -1184,13 +1200,12 @@ def _country_archives(
     key = descriptor.key
     if stations is not None:
         raise IMGWValidationError(
-            f"Archiwa zbioru {key} obejmują cały kraj; opcja stations dotyczy "
-            "wyłącznie zbiorów z plikami stacji (cz.chmi.*)",
+            message("datasets.archives_dataset_cover_whole_country", key=key),
             details={"option": "stations", "value": key},
         )
     if years is None:
         raise IMGWValidationError(
-            f"Zbiór {key} wymaga opcji years (roczniki archiwów)",
+            message("datasets.dataset_needs_option_years_years", key=key),
             details={"option": "years", "value": None},
         )
     selected_years = parse_years(years)
@@ -1283,7 +1298,7 @@ def _parse_stations(
     """Station codes of the provider's grammar, sorted, without duplicates."""
     if isinstance(stations, str) or not isinstance(stations, Iterable):
         raise IMGWValidationError(
-            "Opcja stations musi być listą kodów stacji, nie pojedynczym tekstem",
+            message("datasets.option_stations_must_list_station"),
             details={"option": "stations", "value": str(stations)},
         )
     items = list(stations)
@@ -1295,9 +1310,12 @@ def _parse_stations(
     ]
     if not items or invalid:
         raise IMGWValidationError(
-            f"Nieprawidłowe kody stacji {provider.short_name}: "
-            f"{', '.join(invalid) or '(brak)'}; oczekiwano co najmniej jednego "
-            f"kodu zgodnego z {provider.station_code_pattern}, np. 0-203-1-001000",
+            message(
+                "datasets.invalid_station_codes_expected_least",
+                short_name=provider.short_name,
+                codes=", ".join(invalid) or message("common.none"),
+                station_code_pattern=provider.station_code_pattern,
+            ),
             details={"option": "stations", "value": invalid},
         )
     return tuple(sorted(set(items)))
@@ -1316,16 +1334,22 @@ def _station_archives(
     provider = get_provider(descriptor.provider)
     if months is not None:
         raise IMGWValidationError(
-            f"Opcja months nie dotyczy zbioru {key}: pliki {provider.short_name} "
-            "nie są miesięczne",
+            message(
+                "datasets.option_months_does_not_apply",
+                key=key,
+                short_name=provider.short_name,
+            ),
             details={"option": "months", "value": key},
         )
     if params is not None:
         _parse_params(params, descriptor)
     if stations is None:
         raise IMGWValidationError(
-            f"Zbiór {key} wymaga opcji stations: kodów stacji {provider.short_name} "
-            "(archiwa obejmują pojedyncze stacje)",
+            message(
+                "datasets.dataset_needs_option_stations_station",
+                key=key,
+                short_name=provider.short_name,
+            ),
             details={"option": "stations", "value": None},
         )
     codes = _parse_stations(stations, provider)
@@ -1333,8 +1357,11 @@ def _station_archives(
     if descriptor.archive_scope == "station_element":
         if years is not None:
             raise IMGWValidationError(
-                f"Pliki {provider.short_name} zbioru {key} obejmują całą historię "
-                "stacji; opcja years nie dotyczy tego zbioru",
+                message(
+                    "datasets.files_dataset_cover_whole_history",
+                    short_name=provider.short_name,
+                    key=key,
+                ),
                 details={"option": "years", "value": key},
             )
         return tuple(
@@ -1350,8 +1377,7 @@ def _station_archives(
         )
     if years is None:
         raise IMGWValidationError(
-            f"Zbiór {key} wymaga opcji years: bez listingu serwera lata "
-            "opublikowane nie są znane",
+            message("datasets.dataset_needs_option_years_without", key=key),
             details={"option": "years", "value": None},
         )
     selected_years = parse_years(years)

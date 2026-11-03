@@ -17,7 +17,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from imgwtools._version import __version__
 from imgwtools.datasets import (
@@ -36,6 +36,8 @@ from imgwtools.exceptions import (
     io_error,
 )
 from imgwtools.fetch import DownloadResult
+from imgwtools.messages import message, reason
+from imgwtools.output import STORE_MARKERS, FileResult, store_below
 from imgwtools.store.content import CONTENT_FORMS, content_sha256
 from imgwtools.store.types import (
     Cancel,
@@ -43,9 +45,11 @@ from imgwtools.store.types import (
     NoticeHook,
     Observation,
     PathArg,
+    PlanAction,
     Progress,
     ProgressHook,
     StoreHandle,
+    StorePlan,
     VersionResult,
 )
 
@@ -55,7 +59,12 @@ _CONTENT_CODE = "content_unchanged"
 # Trees directly under a store root written only by IMGWTools; the reader reports
 # anything unexpected there, so the Kartograf probe does not walk into them.
 _MANAGED_TREES = frozenset({"archives", "series", "stations", "pmaxtp", ".incoming"})
-_PATH_CONFLICT = {"reason": "path_conflict"}
+_NESTED = {"reason": "nested_store"}
+_NOT_EMPTY = {"reason": "not_empty"}
+# Server state kept in the default root: not store content (DEV-19.13).
+_STATE_FILES = frozenset({"api_keys.json"})
+# Trees whose presence is the layout of an IMGW store (without its staging directory).
+_LAYOUT_TREES = frozenset({"archives", "series", "stations", "pmaxtp"})
 OBSERVATION_SCHEMA = "imgw-observation/1"
 # Observation register of an archive slot, beside its version directories.
 _OBSERVATIONS = "observations"
@@ -129,6 +138,44 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def version_file(
+    path: Path, status: Literal["new", "unchanged", "relabeled"]
+) -> FileResult:
+    """
+    The ``files[]`` entry of a stored version (DEV-19.19).
+
+    The size and the SHA-256 are those the sidecar recorded when the file was
+    written, so nothing is read or hashed again.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Absolute path of the version's main file.
+    status : {"new", "unchanged", "relabeled"}
+        The version status of the result.
+
+    Returns
+    -------
+    FileResult
+        ``path``, ``size_bytes``, ``sha256`` and ``status``.
+
+    Raises
+    ------
+    IMGWDataError
+        If the sidecar lacks the size or the hash.
+    """
+    sidecar = path.with_name(f"{path.name}.meta.json")
+    try:
+        meta = json.loads(sidecar.read_text(encoding="utf-8"))
+        return FileResult(path, int(meta["size_bytes"]), str(meta["sha256"]), status)
+    except OSError as exc:
+        raise io_error(exc) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise IMGWDataError(
+            message("writer.sidecar_without_size_or_hash", sidecar=sidecar)
+        ) from exc
+
+
 def _link(source: Path, target: Path) -> None:
     """
     Publish ``source`` under ``target`` by a hard link, never replacing an entry.
@@ -147,8 +194,7 @@ def _link(source: Path, target: Path) -> None:
     except (OSError, NotImplementedError) as exc:
         if isinstance(exc, NotImplementedError) or exc.errno in _NO_HARDLINK:
             raise IMGWStoreConflictError(
-                "Magazyn wymaga systemu plików z dowiązaniami twardymi "
-                f"(wyłączna publikacja bez zastąpienia): {target}",
+                message("writer.store_needs_file_system_hard", target=target),
                 details={"reason": "not_atomic"},
             ) from exc
         raise
@@ -178,8 +224,18 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
     ``os.link`` never replaces an entry, so concurrent writers of the same
     content end in one version, and a file already present with the same
     bytes is kept, which completes an interrupted publication. This is the
-    publication model of Kartograf (its D18, D21, D22): it needs hard links
-    only (ext4, APFS, NTFS, SMB), not an OS-specific no-replace rename.
+    publication model of Kartograf (its D18, D21, D22): it needs a file
+    system with hard links (ext4, APFS, NTFS, SMB shares that support them;
+    not FAT or exFAT), not an OS-specific no-replace rename.
+
+    On failure (``KeyboardInterrupt`` included) no file is removed from
+    ``target``: a concurrent writer of the same bytes may already have kept
+    a data file linked here and committed its own sidecar. The linked data
+    files stay as an interrupted publication that the next write of the
+    same content completes; directories created by this call are removed
+    only while empty. A linked sidecar is never removed (that version is
+    committed with all its data files); an unlinked one stays in
+    ``staging``, which the caller removes.
 
     Parameters
     ----------
@@ -208,7 +264,6 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
     directories = sorted({(target / name).parent for name in data} | {target})
     committed = target / sidecar
     made: list[Path] = []
-    linked: list[Path] = []
     try:
         if committed.exists() or committed.is_symlink():
             # A committed version is never extended (e.g. by a newer attachment).
@@ -228,18 +283,12 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
                     or _sha256_file(destination) != _sha256_file(source)
                 ):
                     raise
-                continue
-            linked.append(destination)
         for directory in directories:
             _fsync_dir(directory)
         _link(staging / sidecar, committed)
-    except FileExistsError:
-        # Another writer owns these entries; nothing created here is removed.
-        raise
     except BaseException:
-        for path in reversed(linked):
-            with contextlib.suppress(OSError):
-                path.unlink()
+        # Linked files may already belong to another writer's committed version;
+        # only directories created here go, and rmdir refuses non-empty ones.
         for directory in reversed(made):
             with contextlib.suppress(OSError):
                 directory.rmdir()
@@ -251,11 +300,11 @@ def _publish_dir(staging: Path, target: Path, sidecar: str) -> None:
 def _safe_root(root: PathArg) -> Path:
     supplied = Path(root).expanduser().absolute()
     if ".." in supplied.parts:
-        raise IMGWValidationError("Ścieżka magazynu nie może zawierać '..'")
+        raise IMGWValidationError(message("writer.store_path_must_not_contain"))
     for part in (supplied, *supplied.parents):
         if part.is_symlink():
             raise IMGWStoreError(
-                f"Dowiązanie symboliczne w ścieżce magazynu: {part}",
+                message("writer.symbolic_link_store_path", part=part),
                 code="validation_error",
             )
     return supplied
@@ -268,90 +317,215 @@ def _marker(path: Path) -> str | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         schema = payload["schema"]
         if not isinstance(schema, str):
-            raise ValueError("nieprawidłowy schemat")
+            raise ValueError("invalid schema")
         return schema
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise IMGWStoreError(f"Nieczytelny znacznik: {path}") from exc
+        raise IMGWDataError(
+            message("writer.unreadable_marker", path=path),
+            details={"reason": "invalid_marker"},
+        ) from exc
 
 
-def _kartograf_project(path: Path) -> Path | None:
-    if not path.exists():
+def _nested_problem(path: Path) -> str | None:
+    """
+    Say why a root would nest a store in another store (DEV-19.14), or None.
+
+    The check looks at the marker file names of every tool (``STORE_MARKERS``),
+    so it needs nothing from Kartograf: in the ancestors of the root, at the
+    root (the marker of another tool) and below it, where the managed trees of
+    this store are not entered.
+    """
+    for ancestor in path.parents:
+        for name in STORE_MARKERS:
+            if (ancestor / name).is_file():
+                return message(
+                    "writer.store_inside_another_store", ancestor=ancestor, marker=name
+                )
+    foreign = next(
+        (name for name in STORE_MARKERS if name != _MARKER and (path / name).is_file()),
+        None,
+    )
+    if foreign is not None:
+        return message("writer.root_holds_another_store", path=path, marker=foreign)
+    below = store_below(
+        path, skip=_MANAGED_TREES if (path / _MARKER).is_file() else frozenset()
+    )
+    if below is not None:
+        found = next(name for name in STORE_MARKERS if (below / name).is_file())
+        return message("writer.store_below_the_root", folder=below, marker=found)
+    return None
+
+
+def _check_nested(path: Path) -> None:
+    """Refuse a root that would nest a store in another store (DEV-19.14)."""
+    problem = _nested_problem(path)
+    if problem is not None:
+        raise IMGWStoreConflictError(problem, details=_NESTED)
+
+
+def _refusal(path: Path) -> tuple[Literal["nested_store", "not_empty"], str] | None:
+    """
+    Say why a write turns a root away with ``conflict``, or None (DEV-19.10).
+
+    Two roots are refused: one that would nest a store in another store
+    (``nested_store``) and one that holds other files and is no store
+    (``not_empty``: no marker, no layout of a store, something else inside, or
+    no directory at all). The layout of a store without its marker is no
+    ``conflict`` (``store_unavailable``, ``no_marker``).
+
+    Raises
+    ------
+    IMGWDataError
+        If the marker of the root is unreadable.
+    """
+    problem = _nested_problem(path)
+    if problem is not None:
+        return "nested_store", problem
+    if (
+        _marker(path / _MARKER) is None
+        and not _has_layout(path)
+        and path.exists()
+        and (not path.is_dir() or _foreign_content(path))
+    ):
+        return "not_empty", message("writer.directory_not_empty_imgw_store", path=path)
+    return None
+
+
+def refuse_root(root: PathArg | StoreHandle) -> Path:
+    """
+    Refuse a root that a write turns away with ``conflict`` (DEV-19.10, DEV-19.14).
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+
+    Returns
+    -------
+    pathlib.Path
+        The absolute root.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..``.
+    IMGWStoreError
+        If the root path contains a symbolic link.
+    IMGWDataError
+        If the marker of the root is unreadable (``details.reason``
+        ``invalid_marker``).
+    IMGWStoreConflictError
+        If the root nests a store (``details.reason`` ``nested_store``) or
+        holds other files and is no store (``not_empty``).
+    """
+    path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
+    refusal = _refusal(path)
+    if refusal is not None:
+        raise IMGWStoreConflictError(refusal[1], details={"reason": refusal[0]})
+    return path
+
+
+def root_conflict_plan(command: str, root: PathArg | StoreHandle) -> StorePlan | None:
+    """
+    Plan the refusal of a root that a write turns away with ``conflict``, or None.
+
+    The run of every command that writes a store refuses such a root
+    (`refuse_root`); the plan shows the same refusal as one ``conflict`` action
+    for the root instead of failing, like a plain plan does for an output
+    directory in a store (DEV-19.10, DEV-19.14). It is a successful result and
+    nothing else is checked, so no request is made. A root that is no
+    ``conflict`` is not handled here: the layout of a store without its marker
+    (``store_unavailable``, ``no_marker``) is raised by the caller's own check
+    and an unreadable marker is raised here.
+
+    Parameters
+    ----------
+    command : str
+        Name of the command the action refers to, e.g. ``"series build"``.
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+
+    Returns
+    -------
+    StorePlan or None
+        Plan with the one ``conflict`` action (``path`` the root, ``reason``
+        ``nested_store`` or ``not_empty``), or None when the root is neither.
+
+    Raises
+    ------
+    IMGWValidationError
+        If the root path contains ``..``.
+    IMGWStoreError
+        If the root path contains a symbolic link.
+    IMGWDataError
+        If the marker of the root is unreadable (``details.reason``
+        ``invalid_marker``).
+    """
+    path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
+    refusal = _refusal(path)
+    if refusal is None:
         return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        output = payload.get("output_dir")
-        if not isinstance(output, str) or not output:
-            raise ValueError("brak output_dir")
-        return (path.parent / output).resolve()
-    except (OSError, ValueError, TypeError, AttributeError) as exc:
-        raise IMGWStoreError(f"Nieczytelny manifest Kartografa: {path}") from exc
+    action = PlanAction(
+        command,
+        "unverifiable",
+        refusal[1],
+        action="conflict",
+        path=path,
+        reason=refusal[0],
+    )
+    return StorePlan("imgw-plan/1", path, datetime.now(UTC), (), {}, (action,))
 
 
-def _overlaps(left: Path, right: Path) -> bool:
-    return left == right or left in right.parents or right in left.parents
+def _has_layout(path: Path) -> bool:
+    """Whether the root holds a tree of an IMGW store (with or without a marker)."""
+    return any((path / name).is_dir() for name in _LAYOUT_TREES)
 
 
-def _check_kartograf(path: Path) -> None:
-    # Parent markers need not be at the requested root; an unrelated project manifest
-    # beside the store is harmless unless its output points at the store. Below an
-    # existing store root only foreign trees are probed: the store's own managed
-    # trees (_MANAGED_TREES) are skipped so their sidecars are never parsed here.
-    for ancestor in (path, *path.parents):
-        if ancestor != path and (ancestor / _MARKER).exists():
-            raise IMGWStoreConflictError(
-                f"Magazyn IMGW jest już przodkiem katalogu: {ancestor}",
-                details=_PATH_CONFLICT,
-            )
-        output = _kartograf_project(ancestor / "kartograf-project.json")
-        if output is not None and _overlaps(path, output):
-            raise IMGWStoreConflictError(
-                f"Ścieżka koliduje z magazynem Kartografa: {output}",
-                details=_PATH_CONFLICT,
-            )
-        versions = ancestor / "versions"
-        if versions.is_dir() and _has_kartograf_meta(versions):
-            raise IMGWStoreConflictError(
-                f"Ścieżka koliduje z wersjami Kartografa: {versions}",
-                details=_PATH_CONFLICT,
-            )
-    if path.is_dir():
-        store_root = (path / _MARKER).exists()
-        for base, dirs, files in os.walk(path, followlinks=False):
-            folder = Path(base)
-            if folder != path and _MARKER in files:
-                _marker(folder / _MARKER)
-                raise IMGWStoreConflictError(
-                    f"Zagnieżdżony magazyn IMGW: {folder}", details=_PATH_CONFLICT
-                )
-            if "kartograf-project.json" in files:
-                output = _kartograf_project(folder / "kartograf-project.json")
-                if output is not None and _overlaps(path, output):
-                    raise IMGWStoreConflictError(
-                        f"Ścieżka koliduje z magazynem Kartografa: {output}",
-                        details=_PATH_CONFLICT,
+def _foreign_content(path: Path) -> bool:
+    """Whether a root holds anything but the state files of the server."""
+    return any(entry.name not in _STATE_FILES for entry in path.iterdir())
+
+
+def _unmarked(path: Path) -> IMGWStoreError:
+    """The layout of a store without its marker: ``imgw store init`` verifies it."""
+    return IMGWStoreError(
+        message("writer.layout_without_marker", path=path),
+        details={"reason": "no_marker"},
+    )
+
+
+def _verify_layout(path: Path) -> None:
+    """Verify the layout of a root without a marker before one is written (DEV-19.13)."""
+    problems: list[str] = []
+    known = _LAYOUT_TREES | _STATE_FILES | {".incoming"}
+    for entry in sorted(path.iterdir()):
+        if entry.name not in known:
+            problems.append(message("writer.unexpected_root_entry", name=entry.name))
+    for name in sorted(_LAYOUT_TREES):
+        tree = path / name
+        if tree.is_symlink() or (tree.exists() and not tree.is_dir()):
+            problems.append(message("writer.layout_tree_not_directory", name=name))
+            continue
+        for sidecar in tree.rglob("*.meta.json") if tree.is_dir() else ():
+            try:
+                schema = json.loads(sidecar.read_text(encoding="utf-8")).get("schema")
+            except (OSError, ValueError, AttributeError):
+                schema = None
+            if sidecar.is_symlink() or schema != "imgw-meta/1":
+                problems.append(
+                    message(
+                        "writer.foreign_sidecar",
+                        sidecar=sidecar.relative_to(path).as_posix(),
                     )
-            if folder.name == "versions" and _has_kartograf_meta(folder):
-                raise IMGWStoreConflictError(
-                    f"Ścieżka koliduje z wersjami Kartografa: {folder}",
-                    details=_PATH_CONFLICT,
                 )
-            dirs[:] = [
-                name
-                for name in dirs
-                if not (folder / name).is_symlink()
-                and not (store_root and folder == path and name in _MANAGED_TREES)
-            ]
-
-
-def _has_kartograf_meta(versions: Path) -> bool:
-    for sidecar in versions.rglob("*.meta.json"):
-        if sidecar.is_symlink():
-            raise IMGWStoreConflictError(
-                f"Dowiązanie w wersjach: {sidecar}", details=_PATH_CONFLICT
-            )
-        if _marker(sidecar) == "kartograf-meta/1":
-            return True
-    return False
+    if problems:
+        raise IMGWDataError(
+            message("writer.layout_not_imgw_store", path=path, count=len(problems)),
+            details={
+                "reason": "invalid_layout",
+                "problems": [str(problem) for problem in problems[:20]],
+            },
+        )
 
 
 def _validate_slot(root: Path, relative: str) -> Path:
@@ -362,33 +536,42 @@ def _validate_slot(root: Path, relative: str) -> Path:
         or relative.startswith("/")
         or "\\" in relative
     ):
-        raise IMGWValidationError(f"Niebezpieczna ścieżka archiwum: {relative}")
+        raise IMGWValidationError(
+            message("writer.unsafe_archive_path", relative=relative)
+        )
     result = root.joinpath(*parts)
     for path in (result, *result.parents):
         if path == root.parent:
             break
         if path.is_symlink():
             raise IMGWStoreError(
-                f"Dowiązanie w ścieżce slotu: {path}", code="validation_error"
+                message("writer.link_slot_path", path=path), code="validation_error"
             )
     return result
 
 
 def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> StoreHandle:
     """
-    Create a new store marker only in an empty, non-conflicting directory.
+    Write the marker of a store: ``imgw store init`` (DEV-19.13).
 
-    The marker ``imgw-store.json`` is published atomically and never replaces
-    a competing marker. If the root already holds a marker (including one
-    created concurrently), the existing store is opened instead.
+    A new, missing or empty root (the state file ``api_keys.json`` of the
+    server does not count) gets the marker ``imgw-store.json`` with the fields
+    ``schema``, ``tool``, ``created_at``, ``producer_version`` and
+    ``created_by``. A root that has the layout of a store (``archives/``,
+    ``series/``, ``stations/`` or ``pmaxtp/``) but no marker is verified first
+    (every sidecar is ``imgw-meta/1``, nothing foreign lies beside the trees)
+    and then marked. The marker is published atomically by a hard link and
+    never replaces a competing marker; like every write to the store, this
+    needs a file system with hard links. If the root already holds a marker
+    (including one created concurrently), the existing store is opened.
 
     Parameters
     ----------
     root : str or os.PathLike
         Store root directory; created (with parents) if it does not exist.
     created_at : datetime.datetime or None, optional
-        Timezone-aware creation time recorded in the marker as UTC; omitted
-        from the marker when ``None``.
+        Timezone-aware creation time recorded in the marker as UTC; the
+        current time by default.
 
     Returns
     -------
@@ -403,28 +586,42 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
         If the root path contains a symbolic link (code ``validation_error``),
         a relevant marker is unreadable or the existing marker is not a
         supported store (code ``store_unavailable``).
+    IMGWDataError
+        If the layout of a root without a marker is not that of an IMGW store
+        (``details.reason`` ``invalid_layout``, ``details.problems``).
     IMGWStoreConflictError
-        If the directory is not empty and has no marker, it is nested in or
-        contains another IMGW store, it overlaps a Kartograf store, or the
-        file system cannot create the hard link used to publish the marker
-        atomically (e.g. SMB, FAT); code ``conflict``.
+        If the directory holds other files and no layout, it is nested in or
+        contains another store (``details.reason`` ``nested_store``) or the file
+        system cannot create the hard link used to publish the marker (e.g.
+        FAT, exFAT, some NAS or FUSE file systems, the macOS SMB client;
+        ``details.reason`` ``not_atomic``); code ``conflict``.
     """
     path = _safe_root(root)
-    _check_kartograf(path)
+    _check_nested(path)
     marker = path / _MARKER
     if marker.exists():
         return open_store(path)
-    if path.exists() and (not path.is_dir() or any(path.iterdir())):
-        raise IMGWStoreConflictError(
-            f"Katalog nie jest pustym magazynem IMGW: {path}", details=_PATH_CONFLICT
-        )
+    if path.exists():
+        if not path.is_dir():
+            raise IMGWStoreConflictError(
+                message("writer.directory_not_empty_imgw_store", path=path),
+                details=_NOT_EMPTY,
+            )
+        if _has_layout(path):
+            _verify_layout(path)
+        elif _foreign_content(path):
+            raise IMGWStoreConflictError(
+                message("writer.directory_not_empty_imgw_store", path=path),
+                details=_NOT_EMPTY,
+            )
     path.mkdir(parents=True, exist_ok=True)
     payload: dict[str, str] = {
         "schema": "imgw-store/1",
+        "tool": "imgw",
+        "created_at": _utc(created_at or datetime.now(UTC)),
+        "producer_version": __version__,
         "created_by": f"imgwtools {__version__}",
     }
-    if created_at is not None:
-        payload["created_at"] = _utc(created_at)
     temporary = path / f".{_MARKER}.{uuid.uuid4().hex}.tmp"
     try:
         _write_json(temporary, payload)
@@ -436,8 +633,11 @@ def init_store(root: PathArg, /, *, created_at: datetime | None = None) -> Store
             return open_store(path)
         except OSError as exc:
             raise IMGWStoreConflictError(
-                "System plików nie obsługuje atomowego zapisu znacznika magazynu "
-                f"(dowiązanie twarde): {path} ({exc.strerror})",
+                message(
+                    "writer.file_system_does_not_support",
+                    path=path,
+                    strerror=exc.strerror,
+                ),
                 details={"reason": "not_atomic"},
             ) from exc
         _fsync_dir(path)
@@ -469,17 +669,112 @@ def open_store(root: PathArg, /) -> StoreHandle:
         unreadable or of an unsupported schema.
     """
     path = _safe_root(root)
+    if _marker(path / _MARKER) is None and _has_layout(path):
+        raise _unmarked(path)
     if _marker(path / _MARKER) != "imgw-store/1":
         raise IMGWStoreError(
-            f"Brak znacznika lub nieobsługiwany magazyn IMGW: {path}",
+            message("writer.no_marker_unsupported_imgw_store", path=path),
             details={"reason": "unsupported"},
         )
     return StoreHandle(path, "imgw-store/1")
 
 
+def _complete_marker(handle: StoreHandle) -> None:
+    """Add the fields of DEV-19.12 that an older marker lacks (a root file, not a version)."""
+    marker = handle.root / _MARKER
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    wanted = {
+        "tool": "imgw",
+        "producer_version": __version__,
+        "created_at": _utc(datetime.fromtimestamp(marker.stat().st_mtime, UTC)),
+    }
+    missing = {key: value for key, value in wanted.items() if key not in payload}
+    if not missing:
+        return
+    temporary = marker.with_name(f".{_MARKER}.{uuid.uuid4().hex}.tmp")
+    try:
+        _write_json(temporary, {**payload, **missing})
+        os.replace(temporary, marker)
+        _fsync_dir(handle.root)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def prepare_store(root: PathArg | StoreHandle) -> StoreHandle:
+    """
+    Open the store at ``root`` for a write; the first write creates the marker.
+
+    The root must not nest a store. A root with a marker is opened (an older
+    marker gains the fields of DEV-19.12); a new or empty root gets its marker
+    now, as `init_store` writes it (DEV-19.13); a root with the layout of a
+    store and no marker is ``store_unavailable``, and ``imgw store init``
+    verifies it.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+
+    Returns
+    -------
+    StoreHandle
+        Handle of the store, which exists and has its marker.
+
+    Raises
+    ------
+    IMGWStoreError
+        If the layout has no marker (``details.reason`` ``no_marker``) or the
+        marker is not a supported store.
+    IMGWStoreConflictError
+        If the root nests a store or holds foreign files and no layout.
+    """
+    path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
+    _check_nested(path)
+    if (path / _MARKER).exists():
+        handle = open_store(path)
+        _complete_marker(handle)
+        return handle
+    if _has_layout(path):
+        raise _unmarked(path)
+    return init_store(path)
+
+
+def lenient_store(root: PathArg | StoreHandle) -> StoreHandle:
+    """
+    Open the store at ``root`` for a plan or a read of derived data; nothing is created.
+
+    A missing or empty root is an empty store (every file of a plan is new); a
+    root with a layout and no marker is ``store_unavailable`` with the hint to
+    run ``imgw store init``.
+
+    Parameters
+    ----------
+    root : str, os.PathLike or StoreHandle
+        Store root directory or an open store handle.
+
+    Returns
+    -------
+    StoreHandle
+        Handle of the store, which need not exist yet.
+
+    Raises
+    ------
+    IMGWStoreError
+        If the root is another kind of directory or its marker is unsupported.
+    """
+    path = _safe_root(root.root if isinstance(root, StoreHandle) else root)
+    if (path / _MARKER).exists():
+        return open_store(path)
+    if _has_layout(path):
+        raise _unmarked(path)
+    if path.exists() and (not path.is_dir() or _foreign_content(path)):
+        return open_store(path)  # raises: not an IMGW store
+    return StoreHandle(path, "imgw-store/1")
+
+
 def _utc(moment: datetime) -> str:
     if moment.tzinfo is None:
-        raise IMGWValidationError("Data musi mieć strefę czasową")
+        raise IMGWValidationError(message("writer.date_must_have_time_zone"))
     return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
@@ -545,8 +840,7 @@ def _cleanup(incoming: Path, *, on_notice: NoticeHook | None = None) -> None:
                 Notice(
                     "warning",
                     "leftover_incoming",
-                    "Usunięto porzucony staging starszy niż 24 h: "
-                    f".incoming/{child.name}",
+                    message("writer.abandoned_staging_removed", name=child.name),
                 )
             )
 
@@ -593,14 +887,16 @@ def _existing(
         ):
             continue
         if directory.is_symlink() or not directory.is_dir():
-            raise IMGWStoreConflictError(f"Nieprawidłowa wersja archiwum: {directory}")
+            raise IMGWStoreConflictError(
+                message("writer.invalid_archive_version", directory=directory)
+            )
         meta_path = directory / f"{name}.meta.json"
         if not meta_path.exists() and not meta_path.is_symlink():
             continue
         try:
             source = directory / name
             if source.is_symlink() or meta_path.is_symlink():
-                raise ValueError("dowiązanie w wersji")
+                raise ValueError("link in the version")
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             digest = hashlib.sha256()
             with source.open("rb") as stream:
@@ -611,10 +907,10 @@ def _existing(
                 or digest.hexdigest() != meta["sha256"]
                 or not isinstance(meta["extra"]["version"]["label"], str)
             ):
-                raise ValueError("niespójna suma, schemat lub etykieta")
+                raise ValueError("inconsistent checksum, schema or label")
         except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
             raise IMGWStoreConflictError(
-                f"Uszkodzona wersja archiwum: {directory}"
+                message("writer.corrupt_archive_version", directory=directory)
             ) from exc
         except OSError as exc:
             raise io_error(exc) from exc
@@ -645,7 +941,9 @@ def _archive_signal(version: Path, meta: dict[str, Any]) -> tuple[Any, Any]:
     """
     http = meta["extra"].get("http")
     if not isinstance(http, dict):
-        raise IMGWStoreConflictError(f"Uszkodzona wersja archiwum: {version}")
+        raise IMGWStoreConflictError(
+            message("writer.corrupt_archive_version", directory=version)
+        )
     return http.get("etag"), http.get("last_modified")
 
 
@@ -749,7 +1047,9 @@ def _publish_observation(
     """
     if not _is_seen_at(observation.seen_at):
         raise IMGWValidationError(
-            f"Czas obserwacji musi mieć postać RRRR-MM-DDTGG:MM:SSZ: {observation.seen_at!r}"
+            message(
+                "writer.observation_time_must_have_form", seen_at=observation.seen_at
+            )
         )
     name = _observation_name(observation)
     register = _validate_slot(root, f"{slot}/{_OBSERVATIONS}")
@@ -770,13 +1070,15 @@ def _publish_observation(
         )
         _fsync_dir(staging)
         if cancel is not None and cancel():
-            raise IMGWCancelledError("Anulowano zapis obserwacji")
+            raise IMGWCancelledError(message("writer.observation_write_cancelled"))
         try:
             register.mkdir()
         except FileExistsError:
             if not _is_register(register):
                 raise IMGWStoreConflictError(
-                    f"Rejestr obserwacji nie jest katalogiem: {register}"
+                    message(
+                        "writer.observation_register_not_directory", register=register
+                    )
                 ) from None
         else:
             _fsync_dir(register.parent)
@@ -786,7 +1088,7 @@ def _publish_observation(
             # The same signal on the same day is already recorded; keep that file.
             if target.is_symlink() or not target.is_file():
                 raise IMGWStoreConflictError(
-                    f"Kolizja pliku obserwacji: {target}"
+                    message("writer.observation_file_collision", target=target)
                 ) from None
         else:
             _fsync_dir(register)
@@ -802,7 +1104,12 @@ def _content_of(data: bytes, *, form: str, filename: str) -> str:
         return content_sha256(data, form=form)
     except IMGWDataError as exc:
         raise IMGWDataError(
-            f"Plik {filename} nie spełnia formy treści {form}: {exc}"
+            message(
+                "writer.file_does_not_meet_content",
+                filename=filename,
+                form=form,
+                exc=reason(exc),
+            )
         ) from exc
 
 
@@ -931,17 +1238,22 @@ def _content_unchanged(
         recorded = (
             observation.relative_to(root).as_posix()
             if observation is not None
-            else "brak (sygnałem odniesienia jest bieżąca wersja)"
+            else message("writer.no_observation_reference")
         )
         on_notice(
             Notice(
                 "info",
                 _CONTENT_CODE,
-                f"Treść bez zmian w {slot}: pobrane bajty (SHA-256 {sha}) mają tę "
-                f"samą treść kanoniczną {form} (content_sha256 "
-                f"{meta.content_sha256}) co bieżąca wersja "
-                f"{current.relative_to(root).as_posix()} (SHA-256 {meta.sha256}); "
-                f"nowej wersji nie zapisano, obserwacja: {recorded}",
+                message(
+                    "writer.content_unchanged",
+                    slot=slot,
+                    sha=sha,
+                    form=form,
+                    content_sha256=meta.content_sha256,
+                    current=current.relative_to(root).as_posix(),
+                    sha256=meta.sha256,
+                    recorded=recorded,
+                ),
             )
         )
     label = cast(Mapping[str, object], meta.extra["version"])["label"]
@@ -995,7 +1307,7 @@ def write_archive(
     response : DownloadResult
         Downloaded bytes and HTTP headers (``ETag``, ``Last-Modified``).
     on_progress : ProgressHook or None, optional
-        Called once with a ``created`` progress event after publication.
+        Called once with a ``new`` progress event after publication.
     on_notice : NoticeHook or None, optional
         Called with a ``leftover_incoming`` warning for every abandoned
         staging directory removed from ``.incoming``, with the
@@ -1009,7 +1321,7 @@ def write_archive(
     Returns
     -------
     VersionResult
-        ``status`` is ``"created"`` for new content, ``"relabeled"`` for
+        ``status`` is ``"new"`` for new content, ``"relabeled"`` for
         already stored bytes with a new HTTP signal, or ``"unchanged"``
         when bytes and signal match an existing version or the bytes carry
         the canonical content of the current version (then ``path`` and
@@ -1039,9 +1351,8 @@ def write_archive(
     IMGWCancelledError
         If ``cancel`` returns ``True`` before publication.
     """
-    handle = open_store(root.root if isinstance(root, StoreHandle) else root)
+    handle = prepare_store(root)
     path = handle.root
-    _check_kartograf(path)
     descriptor = get_dataset(archive.dataset)
     provider = get_provider(descriptor.provider)
     _validate_slot(path, f"archives/versions/{archive.server_path}")
@@ -1049,9 +1360,13 @@ def write_archive(
     if descriptor.server_dir is None or not archive.server_path.startswith(
         descriptor.server_dir + "/"
     ):
-        raise IMGWValidationError(f"Ścieżka nie odpowiada zbiorowi {archive.dataset}")
+        raise IMGWValidationError(
+            message("writer.path_does_not_belong_dataset", dataset=archive.dataset)
+        )
     if relative.suffix.lower() not in _SUFFIXES.get(provider.id, ()):
-        raise IMGWValidationError(f"Niedozwolony typ archiwum: {relative}")
+        raise IMGWValidationError(
+            message("writer.disallowed_type_archive", relative=relative)
+        )
     slot_dir = f"archives/versions/{relative.parent.as_posix()}/{relative.stem}"
     slot = _validate_slot(path, slot_dir)
     filename = relative.name
@@ -1063,7 +1378,7 @@ def write_archive(
         else _content_of(response.data, form=form, filename=archive.server_path)
     )
     if cancel is not None and cancel():
-        raise IMGWCancelledError("Anulowano zapis archiwum")
+        raise IMGWCancelledError(message("writer.archive_write_cancelled"))
     incoming = path / ".incoming"
     incoming.mkdir(exist_ok=True)
     _cleanup(incoming, on_notice=on_notice)
@@ -1090,7 +1405,7 @@ def write_archive(
                 )
             except (TypeError, ValueError, OverflowError) as exc:
                 raise IMGWValidationError(
-                    "Nieprawidłowy nagłówek Last-Modified"
+                    message("writer.invalid_last_modified_header")
                 ) from exc
             label = published.date().isoformat()
             label_source = "last_modified"
@@ -1132,7 +1447,7 @@ def write_archive(
         ):
             label += "+" + hashlib.sha256(_canonical(signal)).hexdigest()[:8]
         if cancel is not None and cancel():
-            raise IMGWCancelledError("Anulowano zapis archiwum")
+            raise IMGWCancelledError(message("writer.archive_write_cancelled"))
         request: dict[str, object] = {
             "server_path": archive.server_path,
             "year": archive.year,
@@ -1182,24 +1497,35 @@ def write_archive(
             _publish_dir(staging, target, f"{filename}.meta.json")
         except FileExistsError as exc:
             for old_file, old_meta in _existing(slot, filename, archive=True):
-                if old_file.parent == target and old_meta["sha256"] == sha:
-                    if signal == _archive_signal(old_file.parent, old_meta):
-                        return VersionResult("unchanged", old_file, sha, label)
-            raise IMGWStoreConflictError(f"Kolizja katalogu wersji: {target}") from exc
+                if (
+                    old_file.parent == target
+                    and old_meta["sha256"] == sha
+                    and signal == _archive_signal(old_file.parent, old_meta)
+                ):
+                    return VersionResult("unchanged", old_file, sha, label)
+            raise IMGWStoreConflictError(
+                message("writer.version_directory_collision", target=target)
+            ) from exc
         if on_progress is not None:
             on_progress(
-                Progress(1, 1, "archive", "created", f"Zapisano archiwum {filename}")
+                Progress(
+                    1,
+                    1,
+                    "archive",
+                    "new",
+                    message("writer.archive_written", filename=filename),
+                )
             )
         if on_notice is not None:
             on_notice(
                 Notice(
                     "info",
                     _ATTRIBUTION_CODE,
-                    f"{provider.license.attribution}. {provider.notice}",
+                    provider.license_notice(),
                 )
             )
         return VersionResult(
-            "relabeled" if matching else "created", target / filename, sha, label
+            "relabeled" if matching else "new", target / filename, sha, label
         )
     finally:
         if staging.exists():

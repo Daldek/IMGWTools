@@ -15,6 +15,7 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -30,13 +31,14 @@ from mcp.client.streamable_http import streamable_http_client
 
 import imgwtools.api
 import imgwtools.api.main
-from imgwtools import ERROR_CODES, command_schema
+from imgwtools import ERROR_CODES
 from imgwtools.config import settings
-from imgwtools.exceptions import IMGWValidationError
 from imgwtools.mcp._calls import STREAM_LIMIT
 from imgwtools.mcp.server import create_server
+from tests.contract.support import command_document
 
 HOST = "127.0.0.1:8000"
+ENGLISH = {"Accept-Language": "en"}  # what the MCP server asks REST for
 INITIALIZE = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -50,7 +52,7 @@ INITIALIZE = {
 # Tools with a REST route, in catalog order (spec §6.3, mode http).
 ROUTES = [
     schema["x-imgw"]["operation_id"]
-    for schema in command_schema()["commands"]
+    for schema in command_document(lang="en")["commands"]
     if schema["x-imgw"]["rest"] is not None
 ]
 
@@ -61,9 +63,9 @@ GUIDE = importlib.import_module("imgwtools.agent_guide")
 
 @pytest.fixture(autouse=True)
 def server(monkeypatch):
-    """A REST server without a store, MCP off, Polish, default hosts and page."""
+    """A REST server without a store, MCP off, IMGW_LANG Polish, default hosts and page."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("api_max_limit", 1000),
         ("lang", "pl"),
@@ -81,11 +83,11 @@ def reimported(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return importlib.import_module("imgwtools.api.main")
 
 
-def enabled(monkeypatch: pytest.MonkeyPatch, *, lang: str = "pl") -> FastAPI:
+def enabled(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     """The REST application of a server with ``IMGW_MCP_ENABLED=true``."""
     monkeypatch.setattr(settings, "mcp_enabled", True)
-    monkeypatch.setattr(settings, "lang", lang)
-    return reimported(monkeypatch).app
+    app: FastAPI = reimported(monkeypatch).app
+    return app
 
 
 @asynccontextmanager
@@ -103,7 +105,7 @@ async def connected(app: FastAPI, *, mode: str = "auto") -> AsyncIterator[Client
         yield client
 
 
-def dumped(tools) -> list[dict]:
+def dumped(tools) -> list[dict[str, Any]]:
     return [
         tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in tools
     ]
@@ -113,11 +115,12 @@ def compact(document: object) -> str:
     return json.dumps(document, ensure_ascii=False, separators=(",", ":"))
 
 
-def error_of(result) -> dict:
+def error_of(result) -> dict[str, Any]:
     """The error document of a tool result (text = structured content)."""
     assert result.is_error is True
     assert result.content[0].text == compact(result.structured_content)
-    return result.structured_content
+    document: dict[str, Any] = result.structured_content
+    return document
 
 
 async def post_initialize(app: FastAPI, host: str, **headers: str) -> httpx.Response:
@@ -136,36 +139,39 @@ async def post_initialize(app: FastAPI, host: str, **headers: str) -> httpx.Resp
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("lang", "client_mode"), [("pl", "auto"), ("pl", "legacy"), ("en", "auto")]
-)
-async def test_mcp_serves_the_rest_routes_as_tools_in_the_language_of_imgw_lang(
-    lang, client_mode, monkeypatch
+@pytest.mark.parametrize("client_mode", ["auto", "legacy"])
+async def test_mcp_serves_the_rest_routes_as_english_tools_whatever_imgw_lang_says(
+    client_mode, monkeypatch
 ):
-    app = enabled(monkeypatch, lang=lang)
-    async with Client(create_server(mode="http", lang=lang)) as memory:
+    app = enabled(monkeypatch)
+    async with Client(create_server(mode="http")) as memory:
         expected = (await memory.list_tools()).tools
 
     async with connected(app, mode=client_mode) as client:
         tools = (await client.list_tools()).tools
-        answered = await client.call_tool("datasets_providers", {})
+        answered = await client.call_tool("imgw_datasets_providers", {})
 
     assert [tool.name for tool in tools] == ROUTES
     assert dumped(tools) == dumped(expected)
-    rest = TestClient(app).get("/api/v1/datasets/providers", params={"limit": 50})
+    english = {
+        schema["x-imgw"]["operation_id"]: schema["description"]
+        for schema in command_document(lang="en")["commands"]
+    }
+    assert all(tool.description.startswith(english[tool.name]) for tool in tools)
+    rest = TestClient(app).get(
+        "/api/v1/datasets/providers", params={"limit": 50}, headers=ENGLISH
+    )
     assert answered.is_error is False
     assert answered.structured_content == rest.json()
     assert answered.content[0].text == rest.text
 
 
-async def test_a_problem_of_rest_is_the_error_result_in_the_server_language(
-    monkeypatch,
-):
-    app = enabled(monkeypatch, lang="en")
+async def test_a_problem_of_rest_is_the_english_error_result(monkeypatch):
+    app = enabled(monkeypatch)
     arguments = {"latitude": "1", "longitude": 21.01}
 
     async with connected(app) as client:
-        result = await client.call_tool("pmaxtp_fetch", arguments)
+        result = await client.call_tool("imgw_pmaxtp_fetch", arguments)
 
     problem = TestClient(app).get(
         "/api/v1/pmaxtp/fetch", params=arguments, headers={"Accept-Language": "en"}
@@ -175,7 +181,7 @@ async def test_a_problem_of_rest_is_the_error_result_in_the_server_language(
     assert error_of(result) == {
         key: body[key] for key in ("code", "title", "detail", "details")
     }
-    assert body["title"] == ERROR_CODES["validation_error"].title_en
+    assert body["title"] == ERROR_CODES["validation_error"].title
 
 
 # --------------------------------------------------------------------------
@@ -188,7 +194,7 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
 
     async with connected(app) as client:
         result = await client.call_tool(
-            "store_sync",
+            "imgw_store_sync",
             {"datasets": ["pl.imgw.hydro_daily"], "years": [2024], "check": False},
         )
 
@@ -200,8 +206,17 @@ async def test_a_write_through_http_is_forbidden(monkeypatch):
 @pytest.mark.parametrize(
     ("tool", "arguments", "option"),
     [
-        ("store_info", {"root": "/srv/imgw"}, "root"),
-        ("store_export", {"version": "archives/x.zip", "path": "wynik.csv"}, "path"),
+        ("imgw_store_info", {"root": "/srv/imgw"}, "root"),
+        (
+            "imgw_store_export",
+            {"version": "archives/x.zip", "output": "wynik.csv"},
+            "output",
+        ),
+        (
+            "imgw_store_export",
+            {"version": "archives/x.zip", "force": True},
+            "force",
+        ),
     ],
 )
 async def test_server_and_local_options_are_refused_by_rest(
@@ -239,7 +254,7 @@ async def test_a_stream_over_256_kib_is_refused_and_rest_stops_producing_it(
 
     with anyio.fail_after(60):  # an endless stream nobody stops never answers
         async with connected(app) as client:
-            result = await client.call_tool("commands_guide", {})
+            result = await client.call_tool("imgw_commands_guide", {})
 
     document = error_of(result)
     assert document["code"] == "validation_error"
@@ -301,12 +316,13 @@ def test_without_the_mcp_extra_an_enabled_mcp_is_an_unknown_route_and_a_warning(
     assert "pip install imgwtools[mcp]" in caplog.text
 
 
-def test_an_enabled_mcp_refuses_imgw_lang_outside_pl_and_en(monkeypatch):
-    with pytest.raises(IMGWValidationError) as caught:
-        enabled(monkeypatch, lang="de")
+async def test_an_enabled_mcp_does_not_read_imgw_lang(monkeypatch):
+    monkeypatch.setattr(
+        settings, "lang", "de"
+    )  # the CLI refuses it, /mcp does not care
+    app = enabled(monkeypatch)
 
-    assert caught.value.details == {
-        "option": "IMGW_LANG",
-        "value": "de",
-        "allowed": ["pl", "en"],
-    }
+    async with connected(app) as client:
+        tools = (await client.list_tools()).tools
+
+    assert [tool.name for tool in tools] == ROUTES

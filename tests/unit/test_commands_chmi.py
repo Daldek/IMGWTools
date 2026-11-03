@@ -20,7 +20,6 @@ from imgwtools import (
     check_command,
     command_schema,
     data_commands,
-    format_command,
     providers,
     run_command,
     validate_command,
@@ -31,7 +30,6 @@ from imgwtools.cli.main import app as cli_app
 from imgwtools.config import settings
 from imgwtools.store import init_store
 from tests.contract.support import canonical, cli_words, rest_request, violations
-from tests.unit.test_commands import parse
 from tests.unit.test_store_catalog_chmi import SOURCES, build
 from tests.unit.test_store_catalog_chmi import serve as serve_catalog
 from tests.unit.test_store_sync_chmi import BASE, FIRST
@@ -47,16 +45,16 @@ FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
-def no_store_root(monkeypatch):
-    """The developer's IMGW_STORE_ROOT must not reach the CLI under test."""
-    monkeypatch.delenv("IMGW_STORE_ROOT", raising=False)
+def no_imgw_root(monkeypatch):
+    """The developer's IMGW_ROOT must not reach the CLI under test."""
+    monkeypatch.delenv("IMGW_ROOT", raising=False)
 
 
 @pytest.fixture
 def server(monkeypatch):
     """REST server without a store root, writes disabled, default page size."""
     for name, value in (
-        ("store_root", None),
+        ("root", None),
         ("store_writes_enabled", False),
         ("store_write_token", None),
         ("user_locations_dir", None),
@@ -97,8 +95,8 @@ def chmi():
 # --------------------------------------------------------------------------
 
 
-def test_catalog_has_37_commands_and_datasets_providers_lists_both_providers():
-    assert len(data_commands()) == 37
+def test_catalog_has_30_commands_and_datasets_providers_lists_both_providers():
+    assert len(data_commands()) == 30
 
     listed = run_command("datasets providers", options={})
     planned = check_command("datasets providers", options={})
@@ -151,7 +149,7 @@ def test_chmi_view_of_the_catalog_drops_imgw_only_commands_and_narrows_choices()
 
     groups = {command.name.split()[0] for command in view}
     assert not groups & {"current", "pmaxtp"}
-    assert len(view) == 27  # 37 without five current and five pmaxtp commands
+    assert len(view) == 20  # 30 without five current and five pmaxtp commands
     for command in view:
         for option in command.options:
             if option.name in ("dataset", "datasets"):
@@ -181,7 +179,7 @@ def test_chmi_view_of_the_catalog_drops_imgw_only_commands_and_narrows_choices()
 
 
 # --------------------------------------------------------------------------
-# validate_command and format_command
+# validate_command
 # --------------------------------------------------------------------------
 
 
@@ -279,7 +277,7 @@ VALID = [
     ("datasets files", {"dataset": "chmi_meteo_daily", "stations": FULL}),
     (
         "datasets download",
-        {"dataset": METEO, "stations": [FULL], "output": "/tmp/pobrane dane"},
+        {"dataset": METEO, "stations": [FULL], "output_dir": "/tmp/pobrane dane"},
     ),
     ("datasets providers", {"limit": 1}),
     ("stations find", {"provider": "cz.chmi", "kind": "hydro", "query": "spindleruv"}),
@@ -312,15 +310,9 @@ VALID = [
 
 
 @pytest.mark.parametrize(("command", "options"), VALID)
-def test_chmi_examples_round_trip_through_format_command(command, options):
+def test_chmi_examples_normalize_to_options_of_the_command_schema(command, options):
     normalized = validate_command(command, options=options)
 
-    text = format_command(command, options=options)
-    name, parsed = parse(text)
-
-    assert name == command
-    assert validate_command(command, options=parsed) == normalized
-    assert format_command(command, options=parsed) == text
     assert violations(jsonable(normalized), command_schema(command)) == []
 
 
@@ -366,7 +358,7 @@ def test_store_check_and_sync_pass_stations_through_the_catalog(tmp_path):
         (S1, "missing"),
         (S1, "missing"),
     ]
-    assert [item.status for item in synced.result.items] == ["created", "created"]
+    assert [item.status for item in synced.result.items] == ["new", "new"]
 
 
 def test_unpublished_files_count_as_successful_items_of_a_download(tmp_path):
@@ -374,7 +366,7 @@ def test_unpublished_files_count_as_successful_items_of_a_download(tmp_path):
         "dataset": HYDRO,
         "stations": [S2],
         "years": "2004-2005",
-        "output": tmp_path / "pobrane",
+        "output_dir": tmp_path / "pobrane",
     }
     with respx.mock(assert_all_called=False) as router:
         serve_files(router, "h900002_2005_get")
@@ -403,7 +395,7 @@ def test_check_of_a_live_chmi_search_names_its_sources_without_requests():
 
 
 def test_source_unavailable_title_is_neutral_and_the_detail_names_chmi(server):
-    assert ERROR_CODES["source_unavailable"].title == "Źródło danych niedostępne"
+    assert ERROR_CODES["source_unavailable"].title == "Data source unavailable"
     with respx.mock(assert_all_called=False) as router:
         serve_catalog(router, "hydro_now_outage")
         response = TestClient(rest_app).get(
@@ -414,7 +406,7 @@ def test_source_unavailable_title_is_neutral_and_the_detail_names_chmi(server):
     assert response.status_code == 502
     assert (problem["code"], problem["title"]) == (
         "source_unavailable",
-        "Źródło danych niedostępne",
+        "Data source unavailable",
     )
     assert "ČHMÚ" in problem["detail"]
     assert problem["details"]["url"] == HYDRO_NOW
@@ -450,7 +442,7 @@ def test_chmi_commands_answer_alike_in_python_cli_and_rest(
         store = init_store(tmp_path / "store")
         build(store)
         root = store.root
-        monkeypatch.setattr(server, "store_root", root)
+        monkeypatch.setattr(server, "root", root)
     local = options if root is None else {"root": root, **options}
 
     start = len(chmi.calls)
@@ -478,7 +470,7 @@ def test_store_catalog_of_chmi_is_planned_alike_in_python_cli_and_rest(
     tmp_path, monkeypatch, server, frozen, chmi
 ):
     root = init_store(tmp_path / "store").root
-    monkeypatch.setattr(server, "store_root", root)
+    monkeypatch.setattr(server, "root", root)
     options = {"provider": "CHMI"}
 
     python = check_command("store catalog", options={"root": root, **options})

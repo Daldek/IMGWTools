@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from os import PathLike
 from pathlib import Path
@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from imgwtools._jsonable import jsonable
 from imgwtools.exceptions import IMGWDataError, IMGWValidationError
+from imgwtools.messages import DEFAULT_LANG, Lang, message, reason
+from imgwtools.output import FileResult
 
 if TYPE_CHECKING:
     from imgwtools.datasets import ArchiveFile, License, ProviderDescriptor
@@ -35,12 +37,13 @@ class Progress:
         Total number of units in the operation.
     unit : str
         Kind of unit being counted, e.g. ``"archive"``, ``"station"``,
-        ``"row"``, ``"task"`` or ``"file"``.
+        ``"row"`` or ``"file"``.
     status : str
-        Outcome or state of the current unit, e.g. ``"created"`` or
+        Outcome or state of the current unit, e.g. ``"new"`` or
         ``"failed"``.
     message : str
-        Human-readable message (in Polish).
+        Human-readable message: a catalog `Message` (English; render it in
+        another language with ``Message.localized``).
     """
 
     current: int
@@ -63,7 +66,8 @@ class Notice:
         Stable machine-readable identifier, e.g. ``"license_terms"`` or
         ``"source_unverifiable"``.
     text : str
-        Human-readable message (in Polish).
+        Human-readable message: a catalog `Message` (English; render it in
+        another language with ``Message.localized``).
     """
 
     level: Literal["info", "warning", "error"]
@@ -109,16 +113,25 @@ class StoreInfo:
         marker is missing or unreadable.
     supported : bool
         Whether this library can open the store; False also for a missing or
-        unreadable marker or a marker without ``created_by``.
+        unreadable marker.
     contracts : Mapping of str to str
         Contract versions supported by the library, keyed by ``store``,
-        ``meta``, ``series``, ``plan``, ``project``, ``pmaxtp`` and
-        ``observation``.
+        ``meta``, ``series``, ``plan``, ``pmaxtp`` and ``observation``.
     problems : tuple of str
         Human-readable descriptions of detected problems.
     providers : tuple of ProviderDescriptor, optional
         Data providers the library knows (identifier, display name,
         datasets, license and attribution).
+    problem_codes : tuple of str, optional
+        Machine-readable code of each problem: one per entry of ``problems``,
+        in the same order, and empty for a supported store. ``"missing_store"``
+        (the root does not exist), ``"missing_marker"`` (no marker file: the
+        root is no store, or holds the layout of one and ``imgw store init``
+        writes the marker), ``"invalid_marker"`` (the marker is not JSON or has
+        no ``schema`` text) and ``"unsupported_store"`` (the marker names
+        another store schema: see ``schema``). A consumer decides by the code
+        and shows the text; `iter_store` gives the entry of the same problem
+        the same code in ``StoreEntry.problem_code``.
     """
 
     root: Path
@@ -128,6 +141,7 @@ class StoreInfo:
     contracts: Mapping[str, str]
     problems: tuple[str, ...]
     providers: tuple[ProviderDescriptor, ...] = ()
+    problem_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -137,13 +151,12 @@ class VersionResult:
 
     Attributes
     ----------
-    status : {"created", "unchanged", "relabeled", "reused"}
-        ``"created"`` for new content, ``"unchanged"`` when identical
+    status : {"new", "unchanged", "relabeled"}
+        ``"new"`` for new content, ``"unchanged"`` when identical
         content and HTTP signal already exist (or, for a dataset with a
         canonical form, other bytes carry the content of the current
         version), ``"relabeled"`` when identical bytes were published with a
-        new HTTP signal under a new label, ``"reused"`` when an existing
-        version is reused.
+        new HTTP signal under a new label.
     path : Path
         Path of the version's main file.
     sha256 : str
@@ -161,7 +174,7 @@ class VersionResult:
         reference signal is the current version's own.
     """
 
-    status: Literal["created", "unchanged", "relabeled", "reused"]
+    status: Literal["new", "unchanged", "relabeled"]
     path: Path
     sha256: str
     label: str
@@ -197,7 +210,7 @@ class PlanItem:
         Size reported by the server (``Content-Length`` or the listing), or
         None.
     error : str or None
-        Reason for an unverifiable or failed check, e.g. ``"nieopublikowany"``.
+        Reason for an unverifiable or failed check, e.g. ``"not published"``.
     station_code : str or None, optional
         Station of a per-station file (ČHMÚ), None for country archives.
     signal : {"head", "listing"}, optional
@@ -228,7 +241,11 @@ class PlanItem:
 @dataclass(frozen=True)
 class PlanAction:
     """
-    Planned non-archive action, e.g. building a series, catalog or project.
+    Planned non-archive action, e.g. building a series or a catalog.
+
+    A plain write (``output_dir``, DEV-19.10) lists each target as one action
+    with ``action``, ``path`` and, for a conflict, ``reason``; a store write
+    whose root would nest a store lists one ``conflict`` action (DEV-19.14).
 
     Attributes
     ----------
@@ -236,14 +253,64 @@ class PlanAction:
         Name of the data command the action refers to, e.g.
         ``"series build"``.
     status : {"current", "newer", "missing", "unverifiable", "check_failed"}
-        Freshness state of the action's result.
+        Freshness state of the action's result; a plain target is
+        ``"missing"`` when it would be written and ``"unverifiable"`` when it
+        exists (replaced or in conflict): a plan that lists conflicts is a
+        successful result.
     detail : str
-        Human-readable explanation (in Polish).
+        Human-readable explanation: a catalog `Message` (English).
+    action : {"write", "replace", "conflict"} or None, optional
+        What a plain write does to the target: ``"write"`` a new file,
+        ``"replace"`` an existing file (only with ``force``), ``"conflict"``
+        a target that cannot be written; None outside plain writes.
+    path : Path or None, optional
+        Absolute path of the plain target, or None.
+    reason : {"duplicate_output_name", "output_exists", "output_in_store", "nested_store", "not_empty"} or None, optional
+        Why the target is a ``"conflict"``, or None. ``"nested_store"`` is the
+        root of a store write that would nest a store in another store and
+        ``"not_empty"`` a root that holds other files and is no store
+        (``path`` is that root).
     """
 
     command: str
     status: Literal["current", "newer", "missing", "unverifiable", "check_failed"]
     detail: str
+    action: Literal["write", "replace", "conflict"] | None = None
+    path: Path | None = None
+    reason: (
+        Literal[
+            "duplicate_output_name",
+            "output_exists",
+            "output_in_store",
+            "nested_store",
+            "not_empty",
+        ]
+        | None
+    ) = None
+
+    def _document(self) -> dict[str, Any]:
+        """The fields of the ``imgw-plan/1`` action; the plain ones only when it has them."""
+        document: dict[str, Any] = {
+            "command": self.command,
+            "status": self.status,
+            "detail": self.detail,
+        }
+        if self.action is not None:
+            document.update(action=self.action, path=self.path, reason=self.reason)
+        return document
+
+
+def _restore_action(row: Mapping[str, Any]) -> PlanAction:
+    """Rebuild a `PlanAction` from its ``imgw-plan/1`` document, plain fields included."""
+    path = row.get("path")
+    return PlanAction(
+        row["command"],
+        row["status"],
+        row["detail"],
+        action=row.get("action"),
+        path=None if path is None else Path(path),
+        reason=row.get("reason"),
+    )
 
 
 @dataclass(frozen=True)
@@ -259,8 +326,7 @@ class StorePlan:
     schema : {"imgw-plan/1"}
         Version of the plan contract.
     root : Path
-        Root the plan was checked against (store, project or output
-        directory).
+        Root the plan was checked against (store or output directory).
     checked_at : datetime
         Time of the check.
     items : tuple of PlanItem
@@ -335,7 +401,7 @@ class StorePlan:
                 for item in self.items
             ],
             "series_state": dict(self.series_state),
-            "actions": [asdict(action) for action in self.actions],
+            "actions": [action._document() for action in self.actions],
             "requests": dict(self.requests) if self.requests is not None else None,
         }
 
@@ -361,6 +427,10 @@ class StorePlan:
         target = Path(path)
         payload = self._document()
         payload["root"] = str(self.root)
+        payload["actions"] = [
+            {**action, "path": str(action["path"])} if "path" in action else action
+            for action in payload["actions"]
+        ]
         payload["checked_at"] = (
             self.checked_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         )
@@ -414,18 +484,26 @@ class StorePlan:
                 != (row["year"], row["month"], row["param"], row["year_type"])
                 or (station is not None and station != source.station_code)
             ):
-                raise ValueError(f"Nieznana ścieżka źródłowa: {row['server_path']}")
+                raise ValueError(
+                    message("types.unknown_source_path", server_path=row["server_path"])
+                )
             if row["url"] != source.url:
                 raise ValueError(
-                    f"Adres {row['url']} nie odpowiada rejestrowi zbiorów: {source.url}"
+                    message(
+                        "types.url_does_not_match_dataset",
+                        url=row["url"],
+                        url_2=source.url,
+                    )
                 )
             return source
 
         def restore_signal(row: dict[str, Any]) -> Literal["head", "listing"]:
             signal = row.get("signal", "head")
             if signal not in ("head", "listing"):
-                raise ValueError(f"Nieznany sygnał pozycji planu: {signal!r}")
-            return signal
+                raise ValueError(
+                    message("types.unknown_signal_plan_item", signal=signal)
+                )
+            return cast(Literal["head", "listing"], signal)
 
         def restore_requests(value: object) -> dict[str, int] | None:
             if value is None:
@@ -434,13 +512,13 @@ class StorePlan:
                 isinstance(count, int) and not isinstance(count, bool) and count >= 0
                 for count in value.values()
             ):
-                raise ValueError("Pole requests planu musi mapować nazwy na liczby ≥ 0")
+                raise ValueError(message("types.requests_field_plan_must_map"))
             return {str(name): count for name, count in value.items()}
 
         try:
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
             if payload["schema"] != "imgw-plan/1":
-                raise ValueError("Nieobsługiwana wersja planu")
+                raise ValueError(message("types.unsupported_version_plan"))
             items = tuple(
                 PlanItem(
                     archive=restore_archive(row),
@@ -471,59 +549,50 @@ class StorePlan:
                 items=items,
                 series_state=payload["series_state"],
                 actions=tuple(
-                    PlanAction(
-                        **{k: action[k] for k in ("command", "status", "detail")}
-                    )
-                    for action in payload.get("actions", [])
+                    _restore_action(action) for action in payload.get("actions", [])
                 ),
                 cancelled=payload["cancelled"],
                 requests=restore_requests(payload.get("requests")),
             )
         except (OSError, ValueError, TypeError, KeyError, IMGWValidationError) as exc:
-            raise IMGWDataError(f"Nie można odczytać planu IMGW: {exc}") from exc
+            raise IMGWDataError(
+                message("types.cannot_read_imgw_plan", exc=reason(exc))
+            ) from exc
 
 
 @dataclass(frozen=True)
 class OperationResult:
     """
-    Result of a single per-slot operation in a sync or project report.
+    Result of a single per-slot operation in a sync report.
 
     Attributes
     ----------
     slot : str or None
         Slot (spec §13.7) of the processed file, e.g.
-        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; the project task
-        name is kept separately in ``task``; None when the item has no slot
-        (e.g. an error of a whole project task).
-    status : {"created", "relabeled", "unchanged", "reused", "restored_by_content", "failed", "stale_plan", "cancelled"}
+        ``archive:pl.imgw.hydro_daily:2024/codz_2024.zip``; None when the item
+        has no slot.
+    status : {"new", "relabeled", "unchanged", "failed", "stale_plan", "cancelled"}
         Outcome of the operation; ``"stale_plan"`` means the remote signal
-        changed since the plan was made and the item was not downloaded;
-        ``"restored_by_content"`` means a project pin was restored by an
-        equivalent version with the same canonical content (a success).
+        changed since the plan was made and the item was not downloaded.
     version : Path or None
         Absolute path of the resulting version's main file, or None.
     error : str or None
         Error description of a failed, stale or skipped item, or None.
-    task : str or None, optional
-        Name of the project task the item belongs to, or None outside projects.
     error_code : ErrorCode or None, optional
         Error code from ``ERROR_CODES`` of a failed item, or None.
     """
 
     slot: str | None
     status: Literal[
-        "created",
+        "new",
         "relabeled",
         "unchanged",
-        "reused",
-        "restored_by_content",
         "failed",
         "stale_plan",
         "cancelled",
     ]
     version: Path | None
     error: str | None
-    task: str | None = None
     error_code: ErrorCode | None = None
 
 
@@ -534,25 +603,30 @@ class SeriesReport:
 
     Attributes
     ----------
-    status : {"created", "reused", "cancelled", "failed"}
-        ``"reused"`` when an existing version was built from the same inputs
+    status : {"new", "unchanged", "cancelled", "failed"}
+        ``"unchanged"`` when an existing version was built from the same inputs
         and nothing was written.
     version : Path or None
         Path of the version's ``series.json``, or None.
     stations : int
         Number of stations in the series.
     source_files : tuple of Path
-        Absolute paths of the input archive versions (for ``"reused"``, the
+        Absolute paths of the input archive versions (for ``"unchanged"``, the
         inputs recorded in the reused version's sidecar).
     problems : tuple of str
         Human-readable descriptions of problems, e.g. blocking slots.
+    files : tuple of FileResult, optional
+        The version of ``version`` as ``files[]`` (DEV-19.19): its size and
+        SHA-256 from the sidecar and the status of the report; empty when
+        nothing was built.
     """
 
-    status: Literal["created", "reused", "cancelled", "failed"]
+    status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     stations: int
     source_files: tuple[Path, ...]
     problems: tuple[str, ...]
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -568,11 +642,17 @@ class SyncReport:
         Outcomes of the series builds triggered by the sync.
     cancelled : bool
         Whether the sync was cancelled.
+    files : tuple of FileResult, optional
+        The files of the run as ``files[]`` (DEV-19.19): in store mode the
+        archive and series versions with their sidecar size and SHA-256 and
+        their status (``new``, ``unchanged``, ``relabeled``); in plain mode the
+        files written (``written``, ``replaced``).
     """
 
     items: tuple[OperationResult, ...]
     series: tuple[SeriesReport, ...]
     cancelled: bool
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -593,8 +673,8 @@ class DownloadItem:
     path : Path or None
         Absolute path of the written file, or None when nothing was written.
     error : str or None
-        Error description (in Polish) of a failed item (``"nieopublikowany"``
-        for an unpublished one), or None.
+        Error description of a failed item (``"not published"`` for an
+        unpublished one), or None.
     error_code : ErrorCode or None
         Error code from ``ERROR_CODES`` of a failed item, or None.
     """
@@ -610,20 +690,31 @@ class DownloadItem:
 @dataclass(frozen=True)
 class DownloadReport:
     """
-    Report of downloading archive files to a plain directory.
+    Report of downloading archive files, plain or into the store.
 
     Attributes
     ----------
-    output : Path
-        Absolute target directory.
+    mode : {"plain", "store"}
+        ``"plain"``: ordinary files in ``output_dir``; ``"store"``: versions
+        in the store at ``root``.
+    output_dir : Path or None
+        Absolute target directory of a plain download, else None.
+    root : Path or None
+        Absolute store root of a store download, else None.
     items : tuple of DownloadItem
         Per-file outcomes in download order.
+    files : tuple of FileResult
+        The files that were written, in download order: ``written`` or
+        ``replaced`` (plain), ``new``, ``unchanged`` or ``relabeled`` (store).
     cancelled : bool
         Whether the download was cancelled.
     """
 
-    output: Path
+    mode: Literal["plain", "store"]
+    output_dir: Path | None
+    root: Path | None
     items: tuple[DownloadItem, ...]
+    files: tuple[FileResult, ...]
     cancelled: bool
 
 
@@ -634,7 +725,7 @@ class CatalogReport:
 
     Attributes
     ----------
-    status : {"created", "unchanged", "cancelled", "failed"}
+    status : {"new", "unchanged", "cancelled", "failed"}
         Outcome of the build.
     version : Path or None
         Path of the version's ``stations.geojson``, or None.
@@ -649,15 +740,19 @@ class CatalogReport:
         Human-readable descriptions of problems.
     provider : str, optional
         ``ProviderDescriptor.id`` of the catalog's provider.
+    files : tuple of FileResult, optional
+        The catalog version as ``files[]`` (DEV-19.19), empty when nothing was
+        built.
     """
 
-    status: Literal["created", "unchanged", "cancelled", "failed"]
+    status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     station_count: int
     without_location: int
     from_series: int
     problems: tuple[str, ...]
     provider: str = "IMGW-PIB"
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -699,6 +794,16 @@ class Meta:
         ``provider`` field of the sidecar, e.g. ``"IMGW-PIB"`` or ``"CHMI"``.
     country : str, optional
         ``country`` field of the sidecar, e.g. ``"PL"`` or ``"CZ"``.
+    producer : str, optional
+        ``producer`` field of the sidecar (DEV-19.16): the package that wrote
+        the version. Readers accept only ``"imgwtools"``.
+    producer_version : str or None, optional
+        ``producer_version`` field of the sidecar (DEV-19.16): the version of
+        that package when it wrote the version, so a sidecar written by an
+        older release keeps the older number and the running package never
+        stands in for it. ``imgw-meta/1`` requires the field, so every
+        sidecar a reader accepts has it; None only in a ``Meta`` built
+        without it.
     """
 
     schema: str
@@ -714,6 +819,8 @@ class Meta:
     content_form: str | None = None
     provider: str = "IMGW-PIB"
     country: str = "PL"
+    producer: str = "imgwtools"
+    producer_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -782,17 +889,22 @@ class StoreEntry:
         Path of the version's main file or of the observation file; for a
         problem, the path of the faulty element.
     meta : Meta or None
-        Parsed sidecar of a valid version, None for observations and
-        problems.
+        Parsed sidecar of a valid version, None for observations, problems
+        and skipped versions.
     problem_code : str or None
         Machine-readable problem code, e.g. ``"missing_sidecar"``, or None.
     problem : str or None
-        Human-readable problem description (in Polish), or None.
+        Human-readable problem description, or None.
     observation : Observation or None, optional
         Parsed observation of an ``"observation"`` entry, None otherwise.
     provider : str or None, optional
         ``ProviderDescriptor.id`` of the slot's dataset; None for a problem
         without a slot.
+    skipped : bool, optional
+        True for a version the caller named in ``iter_store(skip_versions=...)``:
+        ``kind``, ``slot``, ``version`` and ``provider`` come from its place
+        in the store, ``meta`` is None because its sidecar was not read, and
+        nothing was checked about it. False for every other entry.
     """
 
     kind: Literal["archive", "series", "catalog", "pmaxtp", "observation", "problem"]
@@ -803,6 +915,7 @@ class StoreEntry:
     problem: str | None
     observation: Observation | None = None
     provider: str | None = None
+    skipped: bool = False
 
 
 @dataclass(frozen=True)
@@ -935,7 +1048,7 @@ class PMaXTPStoreResult:
 
     Attributes
     ----------
-    status : {"created", "unchanged", "cancelled", "failed"}
+    status : {"new", "unchanged", "cancelled", "failed"}
         Outcome of the operation.
     version : Path or None
         Path of the version's ``cell.json``, or None.
@@ -945,13 +1058,17 @@ class PMaXTPStoreResult:
         Cell Y index (taken from the server response once known), or None.
     result : PMaXTPResult or None
         Stored PMAXTP data, or None.
+    files : tuple of FileResult, optional
+        ``cell.json`` as ``files[]`` (DEV-19.19) and, in plain mode, the raw
+        ``response.json`` too; empty when nothing was written or found.
     """
 
-    status: Literal["created", "unchanged", "cancelled", "failed"]
+    status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     ind_x: int | None
     ind_y: int | None
     result: PMaXTPResult | None
+    files: tuple[FileResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -963,7 +1080,7 @@ class CommandOption:
     ----------
     name : str
         Python option name in ``snake_case``, equal to the function parameter.
-    type : {"str", "int", "float", "bool", "date", "path", "list", "choice", "object"}
+    type : {"str", "int", "float", "bool", "date", "path", "list", "choice"}
         Value type of the option.
     required : bool
         Whether the option is required.
@@ -972,7 +1089,8 @@ class CommandOption:
     choices : tuple of str
         Allowed values for ``"choice"`` options (or list items), empty otherwise.
     help : str
-        Help text (in Polish).
+        Help text: an English catalog message (``localize(help, "pl")`` is the
+        Polish text).
     default : object, optional
         Default value published in the schema, or None.
     aliases : tuple of str, optional
@@ -986,19 +1104,23 @@ class CommandOption:
     rest : {"param", "server", "local"}, optional
         REST role: request parameter, server configuration value, or absent
         from REST (local only).
-    help_en : str, optional
-        English help text, the same information as ``help`` (non-empty for
-        every catalog option).
     writes : {"none", "add", "replace"}, optional
-        Effect of giving the option: ``"add"`` writes only new files,
-        ``"replace"`` may overwrite an existing file (e.g. ``path`` of an
-        export or ``plan`` of ``store check``); ``"none"`` writes nothing.
+        Effect of giving the option: ``"add"`` writes only new files
+        (``output_dir``, ``output`` of an export), ``"replace"`` may overwrite
+        an existing file (``force``, ``plan`` of ``store check``); ``"none"``
+        writes nothing.
+    path_role : {"input", "output", "root"} or None, optional
+        Role of a ``"path"`` option (AGI-2.3): ``"input"`` a file or directory
+        that is read, ``"output"`` where plain files or an export are written
+        (``output_dir``, ``output``, a plan file), ``"root"`` a store
+        directory; None for other types.
+    store_only : bool, optional
+        Whether the option acts on versions and is valid only with a store
+        (DEV-19.17): with ``output_dir`` it is a ``validation_error``.
     """
 
     name: str
-    type: Literal[
-        "str", "int", "float", "bool", "date", "path", "list", "choice", "object"
-    ]
+    type: Literal["str", "int", "float", "bool", "date", "path", "list", "choice"]
     required: bool
     flag: str
     choices: tuple[str, ...]
@@ -1010,21 +1132,22 @@ class CommandOption:
     maximum: float | None = None
     pattern: str | None = None
     rest: Literal["param", "server", "local"] = "param"
-    help_en: str = ""
     writes: Writes = "none"
+    path_role: Literal["input", "output", "root"] | None = None
+    store_only: bool = False
 
 
 @dataclass(frozen=True)
 class DataCommand:
     """
-    Data command available in the CLI, REST API and projects.
+    Data command available in the CLI, REST API, MCP and the web GUI.
 
     Attributes
     ----------
     name : str
         Command name, e.g. ``"store sync"``.
     description : str
-        Command description (in Polish), matching ``--help``.
+        Command description, an English catalog message, matching ``--help``.
     options : tuple of CommandOption
         Options accepted by the command.
     function : str
@@ -1040,11 +1163,8 @@ class DataCommand:
     one_of : tuple of tuple of str, optional
         Alternative groups of required options (``oneOf``).
     rules : tuple of str, optional
-        Other validation rules (in Polish), published as ``x-imgw.rules``.
-    description_en : str, optional
-        English description, the same information as ``description``.
-    rules_en : tuple of str, optional
-        English rules, in the order and number of ``rules``.
+        Other validation rules (English catalog messages), published as
+        ``x-imgw.rules``.
     writes : {"none", "add", "replace"}, optional
         Effect of a run (not of its check): ``"none"`` changes no file or
         store, ``"add"`` writes only new files, versions, a manifest or a
@@ -1052,9 +1172,19 @@ class DataCommand:
         (a manifest, a result file, a file of a download directory).
     network : bool, optional
         Whether a run connects to a source server for some option values.
+    idempotent : bool, optional
+        Whether repeating a run with the same options on the same source data
+        changes nothing more (a stored version is reported ``unchanged``, a
+        file is rewritten with the same bytes); the MCP ``idempotentHint``.
     env_root_when : Mapping of str to str, optional
-        Option values under which an absent ``root`` comes from
-        ``IMGW_STORE_ROOT`` (CLI, MCP stdio); empty means always.
+        Option values under which an absent ``root`` is the default store root
+        (``IMGW_ROOT``, ``[imgw] root`` or ``<data_dir>/imgw``); empty means always.
+    exclusive : tuple of tuple of str, optional
+        Groups of options that exclude each other: at most one option of a
+        group may be given (``output_dir`` and ``root``, DEV-19.1).
+    store_only : bool, optional
+        Whether the command's input or result is the store, so that it has no
+        plain mode (DEV-19.18); its rules say so.
     """
 
     name: str
@@ -1067,11 +1197,37 @@ class DataCommand:
     requires: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     one_of: tuple[tuple[str, ...], ...] = ()
     rules: tuple[str, ...] = ()
-    description_en: str = ""
-    rules_en: tuple[str, ...] = ()
     writes: Writes = "none"
     network: bool = False
+    idempotent: bool = True
     env_root_when: Mapping[str, str] = field(default_factory=dict)
+    exclusive: tuple[tuple[str, ...], ...] = ()
+    store_only: bool = False
+
+
+@dataclass(frozen=True)
+class CommandCall:
+    """
+    The call an ``imgw`` command line makes, read by ``parse_command``.
+
+    Attributes
+    ----------
+    command : str
+        Command name, e.g. ``"store sync"``.
+    options : dict of str to object
+        The options the line gave, in catalog order, as the CLI passes them
+        to ``run_command``: the text of a value (a list option has one text
+        per occurrence of its flag, commas kept) and ``True`` or ``False`` of a
+        switch. Nothing is validated or normalized; ``validate_command`` does
+        that.
+    run : dict of str to object
+        The flags of a run beside the options: ``{"check": True}`` for
+        ``--check`` (the call is a ``check_command``), otherwise empty.
+    """
+
+    command: str
+    options: dict[str, object]
+    run: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -1123,7 +1279,11 @@ class CommandResult[T]:
     notices: tuple[Notice, ...]
 
     def to_json(
-        self, *, root: PathArg | None = None, server: bool = False
+        self,
+        *,
+        root: PathArg | None = None,
+        server: bool = False,
+        lang: Lang = DEFAULT_LANG,
     ) -> dict[str, object]:
         """
         Convert the envelope to an ``imgw-result/1`` document.
@@ -1133,11 +1293,14 @@ class CommandResult[T]:
         root : str or os.PathLike or None, optional
             Store root; absolute paths below it become POSIX paths relative to
             it, other absolute paths stay absolute. Relative paths of the
-            result (project pins, relative to the project's store) stay
-            relative in every working directory.
+            result (a Parquet file to its series version) stay relative in
+            every working directory.
         server : bool, optional
             REST mode: the root is written as ``"."`` and its prefix is
             removed from every text.
+        lang : {"en", "pl"}, optional
+            Language of the catalog messages in the result and the notices
+            (English by default, AGI-9.2).
 
         Returns
         -------
@@ -1153,7 +1316,9 @@ class CommandResult[T]:
             "result": self.result,
             "notices": self.notices,
         }
-        return cast(dict[str, object], jsonable(document, root=root, server=server))
+        return cast(
+            dict[str, object], jsonable(document, root=root, server=server, lang=lang)
+        )
 
 
 @dataclass(frozen=True)
@@ -1183,128 +1348,3 @@ class SeriesSelection:
     variables: tuple[str, ...]
     years: tuple[int, ...]
     year_type: Literal["hydrological", "calendar"]
-
-
-@dataclass(frozen=True)
-class ProjectFile:
-    """
-    File pinned by a project task.
-
-    Attributes
-    ----------
-    role : {"series", "station_series", "catalog", "input"}
-        Role of the file in the task.
-    path : Path
-        Version file path relative to the project's store directory.
-    sha256 : str
-        Full SHA-256 hex digest of the file.
-    station_code : str or None, optional
-        Station code (``STATION_CODE_PATTERN``: nine IMGW-PIB digits or a
-        WIGOS identifier); required for ``"station_series"`` files.
-    content_sha256 : str or None, optional
-        ``content_sha256`` of the pinned archive version (canonical form);
-        None for pins of datasets without a canonical form.
-    content_form : str or None, optional
-        ``content_form`` of the pinned archive version; present exactly when
-        ``content_sha256`` is.
-    """
-
-    role: Literal["series", "station_series", "catalog", "input"]
-    path: Path
-    sha256: str
-    station_code: str | None = None
-    content_sha256: str | None = None
-    content_form: str | None = None
-
-
-@dataclass(frozen=True)
-class ProjectTask:
-    """
-    Task stored in an ``imgw-project/1`` manifest.
-
-    Attributes
-    ----------
-    name : str
-        Unique task name.
-    command : str
-        Data command the task runs, e.g. ``"series select"``.
-    options : Mapping of str to object
-        Command options in manifest form (JSON lists, relative POSIX paths).
-    geometry_sha256 : Mapping of str to str or None
-        SHA-256 of the geometry file used for selection by area, keyed by
-        its path, or None.
-    pinned_at : datetime or None
-        UTC time of pinning, or None for an unpinned task.
-    imgwtools_version : str or None
-        Package version that pinned the task, or None for an unpinned task.
-    files : tuple of ProjectFile
-        Pinned files.
-    """
-
-    name: str
-    command: str
-    options: Mapping[str, object]
-    geometry_sha256: Mapping[str, str] | None
-    pinned_at: datetime | None
-    imgwtools_version: str | None
-    files: tuple[ProjectFile, ...]
-
-
-@dataclass(frozen=True)
-class ProjectReport:
-    """
-    Report of a project download, status or verification.
-
-    Attributes
-    ----------
-    tasks : Mapping of str to {"unpinned", "current", "content_match", "missing", "changed", "upgraded", "failed", "cancelled"}
-        State of each processed task, keyed by task name; ``"content_match"``
-        means every pin is current or matched by an equivalent version with
-        the same canonical content (at least one), never silently current.
-    files : tuple of OperationResult
-        Per-file outcomes with the §13.7 slot of the pinned file (a station
-        file of a series has the selector ``series:<key>:<station_code>``)
-        and the task name in ``task``; an error of a whole task has
-        ``slot=None``, and failed items carry ``error_code``.
-    cancelled : bool
-        Whether the operation was cancelled.
-    """
-
-    tasks: Mapping[
-        str,
-        Literal[
-            "unpinned",
-            "current",
-            "content_match",
-            "missing",
-            "changed",
-            "upgraded",
-            "failed",
-            "cancelled",
-        ],
-    ]
-    files: tuple[OperationResult, ...]
-    cancelled: bool
-
-
-@dataclass(frozen=True)
-class Project:
-    """
-    Project defined by an ``imgw-project/1`` manifest.
-
-    Attributes
-    ----------
-    path : Path
-        Absolute project directory.
-    store_dir : Path
-        Normalised absolute path of the project's store.
-    tasks : tuple of ProjectTask
-        Tasks defined in the manifest.
-    extensions : Mapping of str to object, optional
-        Top-level ``extensions`` of the manifest, preserved on rewrite.
-    """
-
-    path: Path
-    store_dir: Path
-    tasks: tuple[ProjectTask, ...]
-    extensions: Mapping[str, object] = field(default_factory=dict)

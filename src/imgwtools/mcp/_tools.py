@@ -3,20 +3,22 @@ MCP tools generated from the command catalog (spec 2026-10-19 §6.3–§6.4).
 
 Every catalog command is one tool (mode ``http``: every command with a REST
 route), in catalog order: the name is ``x-imgw.operation_id``, the title ``imgw
-<command>``, the description the catalog description in the server language,
-followed by the rules and, for a writing command, the sentence of the mode. The
-input schema is the command schema of `command_schema` without ``$schema``,
-``title``, ``description`` (it is the tool description), ``x-imgw`` and the
-``x-imgw-*`` keywords, and without the options the mode does not offer
-(``read``: writing options; ``http``: options outside REST, the others as the
-REST route takes them); ``required``, ``dependentRequired`` and ``oneOf`` keep
-only the offered options. A stdio server with ``IMGW_STORE_ROOT`` makes ``root``
-optional, list commands page by ``limit`` (50 by default, at most
-``IMGW_API_MAX_LIMIT``), ``lang`` defaults to the server language and commands
-with a check twin take a ``check`` argument, fixed to ``true`` for a writing
-command of a server without writes. The annotations tell whether the schema
-allows a write (``readOnlyHint``), whether that write may replace content
-(``destructiveHint``) and whether the command reaches a source server
+<command>``, the description the English catalog description, followed by the
+rules and, for a writing command, the sentence of the mode (the server speaks
+English only, AGI-9.2). The input schema is the command schema of
+`command_schema` without ``$schema``, ``title``, ``description`` (it is the tool
+description), ``x-imgw`` and the ``x-imgw-*`` keywords, and without the options
+the mode does not offer (``read``: writing options; ``http``: options outside
+REST, the others as the REST route takes them); ``required``,
+``dependentRequired`` and ``oneOf`` keep only the offered options. A stdio
+server makes ``root`` optional (it defaults to the store root), list commands page by
+``limit`` (50 by default, at most ``IMGW_API_MAX_LIMIT``), ``lang`` defaults to
+``en`` and commands with a check twin take a ``check`` argument, fixed to
+``true`` for a writing command of a server without writes. The annotations (all
+five on every tool) give the title, whether the schema allows a write
+(``readOnlyHint``), whether that write may replace content (``destructiveHint``,
+false for a read-only tool), whether repeating a call changes nothing more
+(``idempotentHint``) and whether the command reaches a source server
 (``openWorldHint``); they are hints for the client, not a safeguard.
 """
 
@@ -29,7 +31,7 @@ from typing import Any, Literal, cast
 import mcp.types as types
 
 from imgwtools.agent_guide import _PAGE_SIZE
-from imgwtools.commands import Lang, command_schema, data_commands
+from imgwtools.commands import command_schema, data_commands
 from imgwtools.config import settings
 from imgwtools.store.types import CommandOption, DataCommand
 
@@ -38,27 +40,16 @@ __all__ = ["MODES", "CatalogTool", "Mode", "catalog_tools"]
 Mode = Literal["read", "write", "http"]
 MODES: tuple[Mode, ...] = ("read", "write", "http")
 
-_RULES = {"pl": "Reguły:", "en": "Rules:"}
+_RULES = "Rules:"
 # Sentence of a writing command: the server without writes plans, the server
 # with writes plans by default (spec 2026-10-19 §6.4).
-_NO_WRITES = {
-    "pl": "Serwer MCP działa bez zapisu: wywołanie zwraca plan imgw-plan/1 (check).",
-    "en": "The MCP server runs without writes: a call returns the imgw-plan/1 plan "
-    "(check).",
-}
-_WRITES = {
-    "pl": "Domyślnie check=true (plan); zapis wymaga check=false.",
-    "en": "check=true by default (a plan); writing requires check=false.",
-}
-_CHECK = {
-    "pl": "Tylko plan imgw-plan/1 bez zapisu i bez pobierania",
-    "en": "Only the imgw-plan/1 plan, without writing or downloading",
-}
-_FIXED_CHECK = {
-    "pl": f"{_CHECK['pl']} (serwer bez zapisu)",
-    "en": f"{_CHECK['en']} (server without writes)",
-}
-_SERVER_ROOT = {"pl": "magazyn serwera MCP", "en": "the MCP server's store"}
+_NO_WRITES = (
+    "The MCP server runs without writes: a call returns the imgw-plan/1 plan (check)."
+)
+_WRITES = "check=true by default (a plan); writing requires check=false."
+_CHECK = "Only the imgw-plan/1 plan, without writing or downloading"
+_FIXED_CHECK = f"{_CHECK} (server without writes)"
+_SERVER_ROOT = "the MCP server's store"
 
 
 @dataclass(frozen=True)
@@ -74,9 +65,6 @@ class CatalogTool:
         Catalog command the tool runs.
     mode : {"read", "write", "http"}
         Mode of the server.
-    lang : {"pl", "en"}
-        Language of the server: texts of the tool, error titles and the
-        default of a ``lang`` option.
     check : bool or None
         Default of the ``check`` argument; None when the tool has none.
     fixed : bool
@@ -84,9 +72,6 @@ class CatalogTool:
         without writes).
     refused : frozenset of str
         Writing options refused with ``forbidden`` (server without writes).
-    root : str or None
-        ``IMGW_STORE_ROOT`` of a stdio server, the default ``root`` under the
-        command's ``env_root_when``.
     limit : tuple of (int, int) or None
         Default and maximum ``limit`` of a list command.
     route : tuple of (str, str) or None
@@ -96,11 +81,9 @@ class CatalogTool:
     definition: types.Tool
     command: DataCommand
     mode: Mode
-    lang: Lang
     check: bool | None
     fixed: bool
     refused: frozenset[str]
-    root: str | None
     limit: tuple[int, int] | None
     route: tuple[str, str] | None
 
@@ -154,15 +137,12 @@ def _rest_properties(
     }
 
 
-def _root_text(spec: DataCommand, lang: Lang) -> str:
-    """Note on ``root`` of a stdio server with ``IMGW_STORE_ROOT``."""
-    store = _SERVER_ROOT[lang]
+def _root_text(spec: DataCommand) -> str:
+    """Note on ``root`` of a stdio server: the default store root."""
     if not spec.env_root_when:
-        default = "domyślnie" if lang == "pl" else "default"
-        return f"{default}: {store}"
+        return f"default: {_SERVER_ROOT}"
     condition = ", ".join(f"{key}={value}" for key, value in spec.env_root_when.items())
-    when = "domyślnie przy" if lang == "pl" else "default with"
-    return f"{when} {condition}: {store}"
+    return f"default with {condition}: {_SERVER_ROOT}"
 
 
 def _check_kind(spec: DataCommand, mode: Mode) -> tuple[bool | None, bool]:
@@ -182,8 +162,6 @@ def _tool(
     schema: Mapping[str, Any],
     *,
     mode: Mode,
-    lang: Lang,
-    root: str | None,
 ) -> CatalogTool:
     meta = schema["x-imgw"]
     catalog = cast(Mapping[str, Mapping[str, Any]], schema["properties"])
@@ -203,24 +181,21 @@ def _tool(
     }
     dropped = {option.name for option in spec.options} - set(properties)
 
-    server_root = root if mode != "http" and "root" in properties else None
-    if server_root is not None:
+    if mode != "http" and "root" in properties:
         description = properties["root"]["description"]
-        properties["root"]["description"] = f"{description}; {_root_text(spec, lang)}"
+        properties["root"]["description"] = f"{description}; {_root_text(spec)}"
         dropped.add("root")  # given by the server when absent (spec §3.5)
     limit: tuple[int, int] | None = None
     if spec.result == "list":
         maximum = settings.api_max_limit
         limit = (min(_PAGE_SIZE, maximum), maximum)
         properties["limit"].update(default=limit[0], maximum=maximum)
-    if "lang" in properties:
-        properties["lang"]["default"] = lang
     check, fixed = _check_kind(spec, mode)
     if check is not None:
         properties["check"] = (
-            {"const": True, "default": True, "description": _FIXED_CHECK[lang]}
+            {"const": True, "default": True, "description": _FIXED_CHECK}
             if fixed
-            else {"type": "boolean", "default": check, "description": _CHECK[lang]}
+            else {"type": "boolean", "default": check, "description": _CHECK}
         )
 
     input_schema: dict[str, Any] = {"type": "object", "properties": properties}
@@ -253,17 +228,20 @@ def _tool(
     lines = [cast(str, schema["description"])]
     rules = cast(list[str], meta["rules"])
     if rules:
-        lines.append("\n".join([_RULES[lang], *(f"- {rule}" for rule in rules)]))
+        lines.append("\n".join([_RULES, *(f"- {rule}" for rule in rules)]))
     if spec.writes != "none":
-        lines.append(_NO_WRITES[lang] if fixed else _WRITES[lang])
+        lines.append(_NO_WRITES if fixed else _WRITES)
+    title = f"imgw {spec.name}"
     definition = types.Tool(
         name=cast(str, meta["operation_id"]),
-        title=f"imgw {spec.name}",
+        title=title,
         description="\n\n".join(lines),
         input_schema=input_schema,
         annotations=types.ToolAnnotations(
+            title=title,
             read_only_hint=not writable,
-            destructive_hint=destructive if writable else None,
+            destructive_hint=writable and destructive,
+            idempotent_hint=spec.idempotent,
             open_world_hint=spec.network,
         ),
         _meta={"imgwtools/command": spec.name},
@@ -273,19 +251,15 @@ def _tool(
         definition=definition,
         command=spec,
         mode=mode,
-        lang=lang,
         check=check,
         fixed=fixed,
         refused=frozenset(refused),
-        root=server_root,
         limit=limit,
         route=None if mode != "http" else (route["method"], route["path"]),
     )
 
 
-def catalog_tools(
-    *, mode: Mode, lang: Lang, root: str | None = None
-) -> dict[str, CatalogTool]:
+def catalog_tools(*, mode: Mode) -> dict[str, CatalogTool]:
     """
     Build the tools of a server mode from the command catalog.
 
@@ -296,11 +270,6 @@ def catalog_tools(
         to ``true``) and without writing options; ``write``: every command,
         writing ones planning by default; ``http``: the commands with a REST
         route, with their REST options, POST routes only planning.
-    lang : {"pl", "en"}
-        Language of the texts and default of ``lang`` options.
-    root : str or None, optional
-        ``IMGW_STORE_ROOT`` of a stdio server; makes ``root`` optional
-        (ignored in mode ``http``, where REST takes the server's store).
 
     Returns
     -------
@@ -308,12 +277,12 @@ def catalog_tools(
         Tools by name, in catalog order.
     """
     specs = {spec.name: spec for spec in data_commands()}
-    document = command_schema(lang=lang)
+    document = command_schema(lang="en")
     tools: dict[str, CatalogTool] = {}
     for schema in cast(list[dict[str, Any]], document["commands"]):
         meta = schema["x-imgw"]
         if mode == "http" and meta["rest"] is None:
             continue
-        tool = _tool(specs[meta["command"]], schema, mode=mode, lang=lang, root=root)
+        tool = _tool(specs[meta["command"]], schema, mode=mode)
         tools[tool.definition.name] = tool
     return tools

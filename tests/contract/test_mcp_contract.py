@@ -27,24 +27,21 @@ from mcp.types import CallToolResult
 
 from imgwtools import (
     ERROR_CODES,
-    add_project_task,
     check_command,
-    command_schema,
-    download_project,
-    init_project,
     run_command,
 )
+from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
 from tests.contract.support import (
-    DAILY,
     H2024,
     NEW,
-    RABA,
     V3,
     FakeImgw,
     canonical,
     cli_words,
+    command_document,
     envelope_errors,
+    mcp_text,
     snapshot,
     stamps,
 )
@@ -56,7 +53,7 @@ from tests.contract.test_interface_contract import (
     Setting,
     fresh_store,
     recorded,  # noqa: F401 (fixture)
-    relative_data_dir,  # noqa: F401 (fixture)
+    relative_reference_dir,  # noqa: F401 (fixture)
     resolved,
     rooted,
     served_root,  # noqa: F401 (fixture)
@@ -74,19 +71,19 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
     }
 
 
-def call(command: str, options: dict[str, object], *, mode: str) -> CallToolResult:
+def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
-    name = command_schema(command)["x-imgw"]["operation_id"]
+    name = command_document(command)["x-imgw"]["operation_id"]
 
     async def answer() -> CallToolResult:
-        async with Client(create_server(mode=mode)) as client:
+        async with Client(create_server(mode=mode, allow_dirs=(Path("/"),))) as client:
             return await client.call_tool(name, arguments(options))
 
     return anyio.run(answer)
 
 
 def writing(command: str) -> bool:
-    return command_schema(command)["x-imgw"]["writes"] != "none"
+    return bool(command_document(command)["x-imgw"]["writes"] != "none")
 
 
 def run(command: str, options: dict[str, object]) -> CallToolResult:
@@ -99,10 +96,10 @@ def run(command: str, options: dict[str, object]) -> CallToolResult:
 def assert_envelope(answered: CallToolResult, python, printed, root) -> None:
     """MCP structured content = Python envelope; MCP text = the CLI stdout line."""
     document = answered.structured_content
-    assert answered.is_error is False, answered.content[0].text
+    assert answered.is_error is False, mcp_text(answered)
     assert envelope_errors(document) == []
     assert canonical(document) == canonical(python.to_json(root=root))
-    assert answered.content[0].text + "\n" == printed.stdout
+    assert mcp_text(answered) + "\n" == printed.stdout
 
 
 def assert_stream(
@@ -110,9 +107,9 @@ def assert_stream(
 ) -> None:
     """MCP text = the lines Python yields; the envelope sums them up."""
     data = "".join(python.result)
-    default = command_schema(command)["properties"]["format"]["default"]
-    assert answered.is_error is False, answered.content[0].text
-    assert answered.content[0].text == data
+    default = command_document(command)["properties"]["format"]["default"]
+    assert answered.is_error is False, mcp_text(answered)
+    assert mcp_text(answered) == data
     assert answered.structured_content == {
         "schema": "imgw-result/1",
         "command": command,
@@ -141,7 +138,7 @@ def test_every_rest_command_answers_alike_in_mcp_python_and_cli(
     served_root,  # noqa: F811
     recorded,  # noqa: F811
     frozen,
-    relative_data_dir,  # noqa: F811
+    relative_reference_dir,  # noqa: F811
 ):
     for case in CASES[command]:
         writes = case.store in ("empty", "fixture")
@@ -210,8 +207,6 @@ def test_without_writes_a_write_is_its_plan_of_check_in_python_and_cli(
 # Local commands without a REST route
 # --------------------------------------------------------------------------
 
-TASK = {"dataset": DAILY, "stations": [RABA], "years": [2024]}
-
 
 @dataclass(frozen=True)
 class Local:
@@ -237,49 +232,13 @@ def _store_init(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
 def _datasets_download(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
     imgw.publish(H2024, V3, NEW)
     output = tmp_path / "pobrane"
-    options = {"dataset": "hydro/dobowe", "years": [2024], "output": output}
+    options = {"dataset": "hydro/dobowe", "years": [2024], "output_dir": output}
     return Local(options, output, _gone(output))
-
-
-def _project_init(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
-    project = tmp_path / "projekt"
-    options = {"project_dir": project, "store_dir": "../magazyn"}
-    return Local(options, project, _gone(project))
-
-
-def _project_add(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
-    project = tmp_path / "projekt"
-
-    def reset() -> None:
-        shutil.rmtree(project, ignore_errors=True)
-        init_project(project, store_dir="../store")
-
-    options = {
-        "project_dir": project,
-        "name": "raba",
-        "command": "series select",
-        "options": TASK,
-    }
-    return Local(options, project, reset)
-
-
-def _pinned(tmp_path: Path, fixture_root: Path, imgw: FakeImgw) -> Local:
-    shutil.copytree(fixture_root, tmp_path / "store")
-    project = tmp_path / "project"
-    imgw.publish(H2024, V3, NEW)
-    init_project(project, store_dir="../store")
-    add_project_task(project, name="raba", command="series select", options=TASK)
-    assert download_project(project).tasks == {"raba": "current"}
-    return Local({"project_dir": project}, tmp_path, lambda: None)
 
 
 LOCAL = {
     "store init": _store_init,
     "datasets download": _datasets_download,
-    "project init": _project_init,
-    "project add": _project_add,
-    "project status": _pinned,
-    "project verify": _pinned,
 }
 
 
@@ -312,9 +271,16 @@ def test_every_local_command_answers_alike_in_mcp_python_and_cli(
 # --------------------------------------------------------------------------
 
 
-# The CLI reports every code with an exit code (the others are REST's own).
+# The CLI reports every code with an exit code (the others are REST's own), except
+# `forbidden`: no CLI command refuses a write, so there is no scenario that makes the CLI
+# and MCP answer alike; the MCP refusal is checked in tests/unit/test_mcp_calls.py.
 @pytest.mark.parametrize(
-    "code", [code for code, spec in ERROR_CODES.items() if spec.exit_code is not None]
+    "code",
+    [
+        code
+        for code, spec in ERROR_CODES.items()
+        if spec.exit_code is not None and code != "forbidden"
+    ],
 )
 def test_every_error_of_the_cli_is_the_same_document_in_mcp(
     code, cli, tmp_path, fixture_root, imgw, monkeypatch
