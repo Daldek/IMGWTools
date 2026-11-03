@@ -206,11 +206,15 @@ def _silence_stdout() -> None:
 
 
 def _utf8_streams() -> None:
-    """Write stdout and stderr in UTF-8, as `_write_lines` writes the data lines."""
+    """Write stdout and stderr in UTF-8 with LF line ends, as `_write_lines` does.
+
+    On Windows the text streams default to the code page and turn a line end
+    into CRLF; the envelope and the error line are the same bytes everywhere.
+    """
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
-            reconfigure(encoding="utf-8")
+            reconfigure(encoding="utf-8", newline="\n")
 
 
 # --- błędy -----------------------------------------------------------------------------------

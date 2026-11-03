@@ -3,6 +3,7 @@
 import functools
 import hashlib
 import importlib
+import io
 import json
 import os
 import shlex
@@ -908,6 +909,21 @@ def test_cli_catalog_installed_imgw_writes_utf8_whatever_the_locale(monkeypatch)
         "pmaxtp", "fetch", "--latitude", "1", "--longitude", "1", capture_output=True
     )
     assert "(49.0–55.0)" in refused.stderr.decode("utf-8").splitlines()[-1]
+
+
+def test_cli_streams_are_utf8_with_lf_like_on_windows(monkeypatch):
+    # A Windows console stream: code page cp1252 and "\n" written as "\r\n".
+    streams = {
+        name: io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
+        for name in ("stdout", "stderr")
+    }
+    for name, stream in streams.items():
+        monkeypatch.setattr(sys, name, stream)
+    _dispatch._utf8_streams()
+    for stream in streams.values():
+        stream.write('{"detail":"ł"}\n')
+        stream.flush()
+        assert stream.buffer.getvalue() == '{"detail":"ł"}\n'.encode()
 
 
 def test_cli_catalog_installed_imgw_stream_ends_quietly_when_the_reader_leaves(
