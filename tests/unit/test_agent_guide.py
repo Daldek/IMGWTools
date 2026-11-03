@@ -287,7 +287,7 @@ def test_rest_guide_follows_accept_language_as_agents_md():
 def test_output_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
     target = tmp_path / "AGENTS.md"
     if existing:
-        target.write_text("stara treść\n", encoding="utf-8")
+        target.write_bytes("stara treść\n".encode())
     args = ["commands", "guide", "--lang", "en", "--output", str(target)]
     if existing:
         args.append("--force")

@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterator, Mapping
 from datetime import date
 from pathlib import Path
@@ -46,6 +47,15 @@ PROCESSED = (
 (H2024,) = archive_files(DAILY, years=[2024])
 (O1995,) = archive_files(PRECIP, years=[1995])
 (O2001,) = archive_files(PRECIP, years=[2001], months=[1])
+# ``--allow-dir`` of an MCP server that may touch every path of a test: the root
+# of the file system. On Windows ``/`` is only the root of the working drive, so
+# the drives of the working and of the temporary directory (``tmp_path``).
+ANYWHERE = tuple(
+    dict.fromkeys(
+        Path(Path(directory).anchor)
+        for directory in (Path.cwd(), tempfile.gettempdir())
+    )
+)
 
 
 def _json(name: str) -> Any:
@@ -430,6 +440,11 @@ def canonical(document: object) -> str:
     )
 
 
+def in_json(text: str) -> str:
+    """``text`` inside a JSON string: a Windows path with its backslashes doubled."""
+    return json.dumps(text, ensure_ascii=False)[1:-1]
+
+
 def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     """
     ``imgw`` arguments of ``options`` given in their JSON form (spec §13.10).
@@ -504,7 +519,9 @@ def unversioned(value: object) -> Iterator[str]:
 
 def imgw_executable() -> list[str]:
     """Command line of the installed ``imgw`` script (module run as a fallback)."""
-    script = Path(sys.executable).with_name("imgw")
+    script = Path(sys.executable).with_name(
+        "imgw.exe" if sys.platform == "win32" else "imgw"
+    )
     if script.exists():
         return [str(script)]
     return [sys.executable, "-m", "imgwtools.cli.main"]

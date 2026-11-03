@@ -5,6 +5,7 @@ import hashlib
 import io
 import os
 import stat
+import sys
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -425,6 +426,10 @@ def test_cancel_or_failure_leaves_previous_export_untouched(
     assert sorted(path.name for path in tmp_path.iterdir()) == ["out.csv", "store"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows has no permission bits: stat gives 0o666, or 0o444 when read-only",
+)
 def test_exported_file_mode_follows_umask(hydro_year, tmp_path):
     previous = os.umask(0o022)
     try:

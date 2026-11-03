@@ -33,6 +33,7 @@ from imgwtools import (
 from imgwtools.mcp._tools import Mode
 from imgwtools.mcp.server import create_server
 from tests.contract.support import (
+    ANYWHERE,
     H2024,
     NEW,
     V3,
@@ -76,7 +77,7 @@ def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolRes
     name = command_document(command)["x-imgw"]["operation_id"]
 
     async def answer() -> CallToolResult:
-        async with Client(create_server(mode=mode, allow_dirs=(Path("/"),))) as client:
+        async with Client(create_server(mode=mode, allow_dirs=ANYWHERE)) as client:
             return await client.call_tool(name, arguments(options))
 
     return anyio.run(answer)

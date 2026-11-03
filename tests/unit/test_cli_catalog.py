@@ -71,7 +71,9 @@ CATALOG = command_schema(lang="pl")
 EXIT_CODES = CATALOG["exit_codes"]
 FROZEN_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
-INSTALLED = Path(sys.executable).with_name("imgw")
+INSTALLED = Path(sys.executable).with_name(
+    "imgw.exe" if sys.platform == "win32" else "imgw"
+)
 # Last stderr line of a failed command (spec §13.5).
 CLI_ERROR = {
     "type": "object",

@@ -23,6 +23,7 @@ lines of the server mode.
 
 import os
 import re
+import shlex
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
@@ -468,12 +469,18 @@ def _year_range(match: re.Match[str]) -> str:
 
 
 def _command_line(step: _Step, lang: Lang) -> str:
-    """The ``imgw`` line of a step: `format_command` with the symbols put back."""
+    """
+    The ``imgw`` line of a step: `format_command` with the symbols put back.
+
+    `format_command` writes the store root absolute, on Windows with the drive
+    of the working directory; the line names it as given, the same everywhere.
+    """
     options = cast(
         Mapping[str, object], _substituted(step.options, lambda s: s.stand_in)
     )
     run = {"check": True} if step.check else None
     line = format_command(cast(str, step.command), options=options, run=run)
+    line = line.replace(shlex.quote(str(Path(_STORE).absolute())), _STORE)
     line = _YEAR_RUN.sub(_year_range, line)
     for symbol in _SYMBOLS:
         line = line.replace(symbol.stand_in, symbol.name(lang))

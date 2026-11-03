@@ -35,6 +35,11 @@ def config_file(monkeypatch, tmp_path, text):
     monkeypatch.setenv("NOGAT_CONFIG", str(path))
 
 
+def root_line(root):
+    """``[imgw] root`` as a TOML literal string, so Windows backslashes stay."""
+    return f"[imgw]\nroot = '{root}'\n"
+
+
 # --------------------------------------------------------------------------
 # Resolution: --root > IMGW_ROOT > [imgw] root > <data_dir>/imgw
 # --------------------------------------------------------------------------
@@ -45,13 +50,13 @@ def test_the_root_is_the_imgw_directory_of_the_data_directory_by_default(tmp_pat
 
 
 def test_the_imgw_section_of_nogat_toml_sets_the_root(monkeypatch, tmp_path):
-    config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{tmp_path / "from-file"}"\n')
+    config_file(monkeypatch, tmp_path, root_line(tmp_path / "from-file"))
 
     assert store_root().root == tmp_path / "from-file"
 
 
 def test_the_variable_wins_over_the_file(monkeypatch, tmp_path):
-    config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{tmp_path / "from-file"}"\n')
+    config_file(monkeypatch, tmp_path, root_line(tmp_path / "from-file"))
     monkeypatch.setenv("IMGW_ROOT", str(tmp_path / "from-env"))
 
     assert store_root().root == tmp_path / "from-env"
@@ -78,7 +83,7 @@ def test_the_public_store_root_names_the_root_its_source_and_the_marker(
         tmp_path / "data" / "imgw", "default", None, False
     )
 
-    config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{tmp_path / "from-file"}"\n')
+    config_file(monkeypatch, tmp_path, root_line(tmp_path / "from-file"))
     (tmp_path / "from-file").mkdir()
     (tmp_path / "from-file" / "imgw-store.json").write_text("{}", encoding="utf-8")
     assert imgwtools.store_root() == imgwtools.StoreRoot(
@@ -137,7 +142,7 @@ def test_config_show_reports_the_root_and_where_it_comes_from(
         monkeypatch.setenv("IMGW_ROOT", str(expected))
     if setup == "file":
         expected = tmp_path / "from-file"
-        config_file(monkeypatch, tmp_path, f'[imgw]\nroot = "{expected}"\n')
+        config_file(monkeypatch, tmp_path, root_line(expected))
     expected.mkdir(parents=True)
     (expected / "a.txt").write_bytes(b"abc")
 

@@ -281,12 +281,14 @@ def test_to_json_writes_a_plan_as_its_imgw_plan_document(tmp_path):
 
 
 def test_to_json_server_mode_keeps_the_root_inside_urls_and_other_paths():
+    root = Path("/data").absolute()  # as the server has it: on Windows with a drive
     text = (
-        "Plik https://danepubliczne.imgw.pl/data/a.zip do /data/a.zip, nie /srv/data/b"
+        f"Plik https://danepubliczne.imgw.pl/data/a.zip do {root / 'a.zip'},"
+        " nie /srv/data/b"
     )
     envelope = CommandResult("datasets files", False, "ok", text, ())
 
-    served = envelope.to_json(root="/data", server=True)
+    served = envelope.to_json(root=root, server=True)
 
     assert served["result"] == (
         "Plik https://danepubliczne.imgw.pl/data/a.zip do a.zip, nie /srv/data/b"
