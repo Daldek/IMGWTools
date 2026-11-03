@@ -1,86 +1,86 @@
-# IMGWTools - Narzędzie do pobierania danych IMGW i ČHMÚ
+# IMGWTools - A tool for downloading IMGW and ČHMÚ data
 
-Biblioteka Python i narzędzia do pobierania danych publicznych z Instytutu Meteorologii i Gospodarki Wodnej (IMGW-PIB), a od 3.0.0 także z Czeskiego Instytutu Hydrometeorologicznego (Český hydrometeorologický ústav, ČHMÚ). Dane pochodzą z serwisów [IMGW Dane Publiczne](https://danepubliczne.imgw.pl/) i [ČHMÚ Open Data](https://opendata.chmi.cz/).
+A Python library and tools for downloading public data from the Institute of Meteorology and Water Management (IMGW-PIB) and, since 3.0.0, also from the Czech Hydrometeorological Institute (Český hydrometeorologický ústav, ČHMÚ). The data come from the [IMGW Dane Publiczne](https://danepubliczne.imgw.pl/) (IMGW public data) and [ČHMÚ Open Data](https://opendata.chmi.cz/) services.
 
-Obsługuje również dane z modeli probabilistycznych opadów maksymalnych (PMAXTP) z serwisu [IMGW Klimat](https://klimat.imgw.pl/opady-maksymalne/).
-
----
-
-## Funkcjonalności
-
-- **Biblioteka Python** - `pip install imgwtools` do integracji z innymi projektami
-- **CLI** - `imgw`, komendy generowane z katalogu komend
-- **REST API** - FastAPI z dokumentacją OpenAPI/Swagger, trasy generowane z tego samego katalogu
-- **Serwer MCP** - `imgw mcp` (dodatek `imgwtools[mcp]`) i punkt `/mcp` serwera REST: komendy katalogu jako narzędzia dla agentów AI, domyślnie bez zapisu
-- **Web GUI** - formularze pobierania, wyszukiwarka stacji i mapa interaktywna (dane IMGW-PIB)
-
-Od 3.0.0 wszystkie interfejsy korzystają z jednego katalogu 30 komend (`imgw commands list`, `imgw commands schema`): ta sama nazwa opcji w Pythonie, CLI (`--nazwa-opcji`), REST (parametr albo pole JSON) i MCP (argument narzędzia), ta sama walidacja, jedna koperta wyniku `imgw-result/1` i jeden rejestr kodów błędów (`ERROR_CODES`). Wynik maszynowy (koperta, błędy, powiadomienia, opisy katalogu, przewodnik dla agentów AI, serwer MCP) jest po angielsku; polskie teksty dostaje się na prośbę (`--lang pl`, `Accept-Language: pl`), a pomoc i linie CLI dla człowieka są po polsku (`IMGW_LANG=en` przełącza je na angielski). Przewodnik dla agentów AI: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) i [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt).
-
-**Obsługiwane dane:**
-- Aktualne dane hydrologiczne, meteorologiczne i synoptyczne przez API IMGW
-- Historyczne dane archiwalne IMGW-PIB (ZIP/CSV) i ČHMÚ (JSON/CSV per stacja) — rejestr 17 zbiorów dwóch dostawców (`pl.imgw.*`, `cz.chmi.*`)
-- Ostrzeżenia hydrologiczne i meteorologiczne
-- Dane PMAXTP (opady maksymalne prawdopodobne)
-- Listy stacji (wyszukiwanie IMGW-PIB i ČHMÚ) i stany wody stacji hydro IMGW ze współrzędnymi
-
-**Kluczowa zasada:** serwer HTTP niczego nie zapisuje, dopóki administrator nie ustawi `IMGW_ROOT` i nie włączy zapisu; generuje bezpośrednie linki do serwerów IMGW-PIB i ČHMÚ, a dane bieżące przekazuje na żywo. Komenda zapisująca (CLI, Python) ma dwa sposoby zapisu i nigdy nie pisze do katalogu roboczego: `-o`/`--output-dir` zapisuje same pliki, bez metadanych; `--root` albo `IMGW_ROOT` zapisuje do magazynu wersjonowanego. Bez żadnego z nich zapis idzie do magazynu w katalogu danych użytkownika (`<data_dir>/imgw`, `imgw config show --json` pokazuje korzeń i jego źródło). Pojedynczy plik eksportu: `--output PLIK`.
-
-**Wersjonowany magazyn danych** (opcjonalny, od 3.0.0):
-- niezmienne wersje archiwów IMGW-PIB i ČHMÚ 1:1 z sumami SHA-256, nagłówkami HTTP i licencją w sidecarze `*.meta.json`,
-- sprawdzanie aktualności bez pobierania (IMGW-PIB: listing + `HEAD`, ČHMÚ: jeden listing katalogu serwera) i plan `imgw-plan/1`,
-- szeregi stacji w Parquet, katalogi stacji `stations.geojson` obu dostawców, komórki PMAXTP, eksport CSV/JSONL,
-- komenda, która pobiera zapisaną wersję jeszcze raz, odtwarzana z jej sidecara (`command_for_version`, dla pinów projektów Archiwisty),
-- czytelny offline z dysku lokalnego lub udziału sieciowego, bez bazy danych.
+It also supports data from the probabilistic models of maximum precipitation (PMAXTP) from the [IMGW Klimat](https://klimat.imgw.pl/opady-maksymalne/) service.
 
 ---
 
-## Instalacja
+## Features
+
+- **Python library** - `pip install imgwtools` for integration with other projects
+- **CLI** - `imgw`, commands generated from the command catalog
+- **REST API** - FastAPI with OpenAPI/Swagger documentation, routes generated from the same catalog
+- **MCP server** - `imgw mcp` (extra `imgwtools[mcp]`) and the `/mcp` endpoint of the REST server: the catalog commands as tools for AI agents, read-only by default
+- **Web GUI** - download forms, station search and an interactive map (IMGW-PIB data)
+
+Since 3.0.0 all interfaces use one catalog of 30 commands (`imgw commands list`, `imgw commands schema`): the same option name in Python, CLI (`--option-name`), REST (parameter or JSON field) and MCP (tool argument), the same validation, one result envelope `imgw-result/1` and one error code registry (`ERROR_CODES`). Machine output (envelope, errors, notices, catalog descriptions, the guide for AI agents, the MCP server) is in English; Polish texts are available on request (`--lang pl`, `Accept-Language: pl`), while CLI help and human-readable CLI lines are in Polish (`IMGW_LANG=en` switches them to English). Guide for AI agents: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/main/AGENTS.md) and [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/main/llms.txt).
+
+**Supported data:**
+- Current hydrological, meteorological and synoptic data through the IMGW API
+- Historical archive data of IMGW-PIB (ZIP/CSV) and ČHMÚ (JSON/CSV per station) — a registry of 17 datasets of two providers (`pl.imgw.*`, `cz.chmi.*`)
+- Hydrological and meteorological warnings
+- PMAXTP data (probable maximum precipitation)
+- Station lists (IMGW-PIB and ČHMÚ search) and water levels of IMGW hydro stations with coordinates
+
+**Key principle:** the HTTP server writes nothing until the administrator sets `IMGW_ROOT` and enables writes; it generates direct links to the IMGW-PIB and ČHMÚ servers and passes current data through live. A writing command (CLI, Python) has two ways of writing and never writes to the working directory: `-o`/`--output-dir` writes plain files only, without metadata; `--root` or `IMGW_ROOT` writes to the versioned store. Without either, writes go to the store in the user data directory (`<data_dir>/imgw`; `imgw config show --json` shows the root and its source). A single export file: `--output FILE`.
+
+**Versioned data store** (optional, since 3.0.0):
+- immutable 1:1 versions of IMGW-PIB and ČHMÚ archives with SHA-256 checksums, HTTP headers and the license in a `*.meta.json` sidecar,
+- freshness checks without downloading (IMGW-PIB: listing + `HEAD`, ČHMÚ: one listing of the server directory) and an `imgw-plan/1` plan,
+- station series in Parquet, `stations.geojson` station catalogs of both providers, PMAXTP cells, CSV/JSONL export,
+- the command that downloads a stored version again, reconstructed from its sidecar (`command_for_version`, for the pins of Archiwista projects),
+- readable offline from a local disk or a network share, without a database.
+
+---
+
+## Installation
 
 ```bash
-# Tylko biblioteka (minimalne zależności: httpx, pydantic, pydantic-settings, platformdirs)
+# Library only (minimal dependencies: httpx, pydantic, pydantic-settings, platformdirs)
 pip install imgwtools
 
-# Z CLI
+# With CLI
 pip install imgwtools[cli]
 
-# Z REST API
+# With REST API
 pip install imgwtools[api]
 
-# Z magazynem wersjonowanym i szeregami Parquet (pyarrow)
+# With the versioned store and Parquet series (pyarrow)
 pip install imgwtools[store]
 
-# Z eksportem do DataFrame (PMaXTPData.to_dataframe)
+# With DataFrame export (PMaXTPData.to_dataframe)
 pip install imgwtools[pandas]
 
-# Z serwerem MCP dla agentów AI (imgw mcp; zawiera CLI)
+# With the MCP server for AI agents (imgw mcp; includes the CLI)
 pip install imgwtools[mcp]
 
-# Pełna instalacja (CLI + API + MCP + magazyn + pandas)
+# Full installation (CLI + API + MCP + store + pandas)
 pip install imgwtools[full]
 
-# Dla deweloperów (z repozytorium; uv, środowisko z uv.lock)
+# For developers (from the repository; uv, environment from uv.lock)
 git clone https://github.com/Daldek/IMGWTools.git
 cd IMGWTools
 uv sync --locked
 ```
 
-Zapis do magazynu wersjonowanego wymaga systemu plików z dowiązaniami twardymi — tak jak magazyn Kartografa (jego ADR-036). Linux, macOS i Windows (ext4, APFS, NTFS) oraz udział SMB obsługujący dowiązania twarde działają; na FAT/exFAT, części NAS i FUSE oraz na udziale SMB zamontowanym w macOS `store init` i każdy zapis kończą się błędem `conflict` (`details.reason="not_atomic"`). Odczyt magazynu dowiązań nie wymaga. Zapis zwykłych plików (`--output-dir`, `--output`) dowiązań nie używa i działa także na FAT/exFAT i SMB.
+Writing to the versioned store requires a file system with hard links — the same as Kartograf's store (its ADR-036). Linux, macOS and Windows (ext4, APFS, NTFS) and SMB shares that support hard links work; on FAT/exFAT, some NAS and FUSE file systems, and on an SMB share mounted on macOS, `store init` and every write end with the `conflict` error (`details.reason="not_atomic"`). Reading the store does not need hard links. Writing plain files (`--output-dir`, `--output`) does not use hard links and also works on FAT/exFAT and SMB.
 
 ---
 
-## Szybki start
+## Quick start
 
-Pełne przewodniki po każdym interfejsie: [docs/USAGE.md](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md).
+Full guides to each interface: [docs/USAGE.md](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md).
 
 ### Python
 
 ```python
 from imgwtools import fetch_pmaxtp
 
-# Pobierz dane dla Warszawy (method: "POT" — domyślnie — albo "AMP")
+# Fetch data for Warsaw (method: "POT" — the default — or "AMP")
 result = fetch_pmaxtp(52.23, 21.01, method="POT")
 precip = result.data.get_precipitation(15, 50)
-print(f"Opad 15-min, p=50%: {precip} mm")  # opad [mm] dla t=15 min, p=50%
+print(f"Precipitation 15 min, p=50%: {precip} mm")  # precipitation [mm] for t=15 min, p=50%
 ```
 
 ### CLI
@@ -91,11 +91,11 @@ imgw datasets files -d hydro/dobowe -y 2023 -m 1
 imgw stations find -k hydro -q wisla --limit 5
 imgw current hydro -s 150160180
 imgw pmaxtp fetch --lat 52.23 --lon 21.01 --method AMP
-imgw datasets download -d hydro/miesieczne -y 2023 -o dane          # zwykłe pliki w katalogu dane/
-imgw store sync -d pl.imgw.hydro_monthly -y 2023                    # magazyn wersjonowany w <data_dir>/imgw
+imgw datasets download -d hydro/miesieczne -y 2023 -o dane          # plain files in the dane/ directory
+imgw store sync -d pl.imgw.hydro_monthly -y 2023                    # versioned store in <data_dir>/imgw
 ```
 
-stdout to jedna linia JSON — koperta `imgw-result/1`; `imgw commands list` wypisuje wszystkie komendy katalogu.
+stdout is one JSON line — the `imgw-result/1` envelope; `imgw commands list` prints all commands of the catalog.
 
 ### REST API
 
@@ -105,9 +105,9 @@ curl "http://localhost:8000/api/v1/current/hydro?station=150160180"
 curl "http://localhost:8000/api/v1/datasets/files?dataset=hydro/dobowe&years=2023&months=1"
 ```
 
-### Serwer MCP
+### MCP server
 
-`imgw mcp` (dodatek `imgwtools[mcp]`) to serwer MCP na stdio; konfiguracja klienta (np. `mcpServers` w pliku ustawień):
+`imgw mcp` (extra `imgwtools[mcp]`) is an MCP server on stdio; client configuration (e.g. `mcpServers` in the settings file):
 
 ```json
 {
@@ -121,102 +121,102 @@ curl "http://localhost:8000/api/v1/datasets/files?dataset=hydro/dobowe&years=202
 }
 ```
 
-Domyślnie bez zapisu (komendy zapisujące zwracają plan); zapis włącza `--allow-writes` i tylko w katalogach z `--allow-dir` (np. `"args": ["mcp", "--allow-writes", "--allow-dir", "/dane/imgw"]`); korzeń poza nimi kończy się błędem `forbidden`.
+Read-only by default (writing commands return a plan); `--allow-writes` enables writes, and only in directories given with `--allow-dir` (e.g. `"args": ["mcp", "--allow-writes", "--allow-dir", "/dane/imgw"]`); a root outside them ends with the `forbidden` error.
 
 ---
 
-## Agenci AI: AGENTS.md, llms.txt i serwer MCP
+## AI agents: AGENTS.md, llms.txt and the MCP server
 
-Agent (asystent w edytorze, aplikacja czatu, skrypt z modelem językowym) poznaje IMGWTools z jednego źródła zgodnego z kodem:
+An agent (an editor assistant, a chat application, a script with a language model) learns IMGWTools from one source that matches the code:
 
-- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md) — przewodnik: zasada „sprawdź → uruchom → przeczytaj”, odwzorowanie Python/CLI/REST/MCP, koperta i statusy, kody błędów, zbiory obu dostawców z regułami opcji, tabele komend ze skutkami, typowe przepływy (m.in. „opady dobowe ze stacji Poznań”, stacja ČHMÚ) i lista „czego nie robić”;
-- [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt) — skrót według llms.txt v2 z odnośnikami do dokumentacji; ten sam plik serwuje `GET /llms.txt`;
-- `imgw commands guide [--format agents|llms] [--lang en|pl] [--output PLIK] [--force]` albo `agent_guide()` w Pythonie — oba pliki wygenerowane na bieżąco (domyślnie po angielsku, `--lang pl` daje polski); `GET /api/v1/commands/guide`.
+- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/main/AGENTS.md) — the guide: the "check → run → read" rule, the Python/CLI/REST/MCP mapping, the envelope and statuses, error codes, the datasets of both providers with option rules, command tables with effects, typical flows (e.g. "daily precipitation at the Poznań station", a ČHMÚ station) and a "what not to do" list;
+- [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/main/llms.txt) — a summary following llms.txt v2 with links to the documentation; `GET /llms.txt` serves the same file;
+- `imgw commands guide [--format agents|llms] [--lang en|pl] [--output FILE] [--force]` or `agent_guide()` in Python — both files generated on the fly (English by default, `--lang pl` gives Polish); `GET /api/v1/commands/guide`.
 
-`AGENTS.md` i `llms.txt` to pliki pochodne katalogu komend, rejestrów i szablonów `src/imgwtools/_data/agents/` — nie edytuje się ich ręcznie (zasady pracy nad kodem: `CLAUDE.md`).
+`AGENTS.md` and `llms.txt` are derived from the command catalog, the registries and the templates in `src/imgwtools/_data/agents/` — they are not edited by hand (rules for working on the code: `CLAUDE.md`).
 
-Język, skutki komend i konfiguracja serwera MCP (stdio i `/mcp`): [przewodnik użycia](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#agenci-ai-język-skutki-komend-i-serwer-mcp).
-
----
-
-## Konfiguracja
-
-Ustawienie pochodzi z pierwszego z: opcji wiersza poleceń, zmiennej `IMGW_<KLUCZ>`, pliku `.env`, zmiennej `NOGAT_<KLUCZ>` (klucze wspólne `data_dir`, `cache_dir`, `lang`), sekcji `[imgw]` i `[nogat]` pliku `nogat.toml`, wartości domyślnej. Najważniejsze zmienne: `IMGW_ROOT` (korzeń magazynu), `IMGW_LANG` (`pl` albo `en`), `IMGW_DATA_DIR`, `IMGW_CACHE_DIR`, `IMGW_REFERENCE_DIR`, `IMGW_MCP_ENABLED`. `imgw config show --json` wypisuje każdy klucz z wartością i źródłem.
-
-Pełna tabela zmiennych, przykład `nogat.toml` i kopia zapasowa magazynu: [Konfiguracja](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#konfiguracja).
+Language, command effects and MCP server configuration (stdio and `/mcp`): [usage guide](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#ai-agents-language-command-effects-and-the-mcp-server).
 
 ---
 
-## Źródła danych
+## Configuration
 
-IMGWTools nie dystrybuuje danych IMGW-PIB ani ČHMÚ, a serwer domyślnie ich nie przechowuje — każde pobranie i zapis jest świadomą decyzją użytkownika lub administratora (`--output-dir`, `--output`, `--root`, `IMGW_ROOT`; bez nich CLI i Python zapisują do magazynu w katalogu danych użytkownika). Poniżej zestawienie wykorzystywanych źródeł.
+A setting comes from the first of: the command-line option, the `IMGW_<KEY>` variable, the `.env` file, the `NOGAT_<KEY>` variable (shared keys `data_dir`, `cache_dir`, `lang`), the `[imgw]` and `[nogat]` sections of the `nogat.toml` file, the default value. The most important variables: `IMGW_ROOT` (store root), `IMGW_LANG` (`pl` or `en`), `IMGW_DATA_DIR`, `IMGW_CACHE_DIR`, `IMGW_REFERENCE_DIR`, `IMGW_MCP_ENABLED`. `imgw config show --json` prints every key with its value and source.
 
-| Źródło | Operator | Warunki korzystania |
+Full table of variables, a `nogat.toml` example and store backup: [Configuration](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#configuration).
+
+---
+
+## Data sources
+
+IMGWTools does not distribute IMGW-PIB or ČHMÚ data, and the server does not store them by default — every download and write is a deliberate decision of the user or administrator (`--output-dir`, `--output`, `--root`, `IMGW_ROOT`; without them the CLI and Python write to the store in the user data directory). Below is a summary of the sources used.
+
+| Source | Operator | Terms of use |
 |--------|----------|---------------------|
-| Archiwum pomiarowo-obserwacyjne — `danepubliczne.imgw.pl/data` (hydro/meteo, ZIP/CSV) | IMGW-PIB | Nieodpłatnie do celów prywatnych i naukowych; dane o wysokiej wartości — w każdym celu; część zastosowań komercyjnych wymaga umowy; obowiązkowa atrybucja. [Regulamin](https://danepubliczne.imgw.pl/regulations)
-| API czasu rzeczywistego — `danepubliczne.imgw.pl/api/data` (hydro, synop, meteo, ostrzeżenia) | IMGW-PIB | Jak wyżej ([regulamin](https://danepubliczne.imgw.pl/regulations))
-| PMAXTP — `klimat.imgw.pl/opady-maksymalne` | IMGW-PIB | Wskazanie źródła IMGW-PIB (dane ze strony `klimat.imgw.pl/opady-maksymalne`) oraz cytowanie monografii Projektu PMAXTP (red. B. Ozga-Zieliński, IMGW-PIB, Warszawa 2022; monografia: Open Access, CC-BY 4.0); przy danych przetworzonych — adnotacja o przetworzeniu; korzystanie na własne ryzyko. [Regulamin](https://klimat.imgw.pl/opady-maksymalne/) |
-| Mapa stacji ze współrzędnymi — `hydro-back.imgw.pl/map/stations/hydrologic` (backend serwisu `hydro.imgw.pl`) | IMGW-PIB | Regulamin serwisu hydro.imgw.pl (akceptacja przez rozpoczęcie korzystania); obowiązuje ogólna zasada wskazania źródła IMGW-PIB. [Regulamin](https://hydro.imgw.pl/#/regulamin) |
-| Archiwa i metadane stacji — `opendata.chmi.cz` (`hydrology/historical`, `hydrology/now/metadata`, `meteorology/climate/historical_csv`, `meteorology/climate/historical/metadata`, `meteorology/climate/now/metadata`) | ČHMÚ (Český hydrometeorologický ústav) | Licencja [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): kopiowanie, zmiany i użycie komercyjne pod warunkiem uznania autorstwa ČHMÚ, podania licencji i oznaczenia zmian ([warunki ČHMÚ](https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti)). ČHMÚ nie narzuca formuły; IMGWTools zapisuje „Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, licencja CC BY 4.0”, a przy postaciach przetworzonych dodaje „Dane ČHMÚ zostały przetworzone (normalizacja i zmiana formatu)” |
+| Measurement and observation archive — `danepubliczne.imgw.pl/data` (hydro/meteo, ZIP/CSV) | IMGW-PIB | Free of charge for private and scientific purposes; high-value data — for any purpose; some commercial uses require an agreement; attribution is mandatory. [Terms](https://danepubliczne.imgw.pl/regulations)
+| Real-time API — `danepubliczne.imgw.pl/api/data` (hydro, synop, meteo, warnings) | IMGW-PIB | As above ([terms](https://danepubliczne.imgw.pl/regulations))
+| PMAXTP — `klimat.imgw.pl/opady-maksymalne` | IMGW-PIB | Citing IMGW-PIB as the source (data from the `klimat.imgw.pl/opady-maksymalne` page) and citing the monograph of the PMAXTP Project (ed. B. Ozga-Zieliński, IMGW-PIB, Warsaw 2022; monograph: Open Access, CC-BY 4.0); for processed data — a note that the data were processed; use at your own risk. [Terms](https://klimat.imgw.pl/opady-maksymalne/) |
+| Station map with coordinates — `hydro-back.imgw.pl/map/stations/hydrologic` (backend of the `hydro.imgw.pl` service) | IMGW-PIB | Terms of the hydro.imgw.pl service (accepted by starting to use it); the general rule of citing IMGW-PIB as the source applies. [Terms](https://hydro.imgw.pl/#/regulamin) |
+| Archives and station metadata — `opendata.chmi.cz` (`hydrology/historical`, `hydrology/now/metadata`, `meteorology/climate/historical_csv`, `meteorology/climate/historical/metadata`, `meteorology/climate/now/metadata`) | ČHMÚ (Český hydrometeorologický ústav) | License [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): copying, changes and commercial use provided that ČHMÚ is credited as the author, the license is given and changes are indicated ([ČHMÚ terms](https://www.chmi.cz/vylou%C4%8Den%C3%AD-odpov%C4%9Bdnosti)). ČHMÚ does not prescribe a wording; IMGWTools writes "Źródło danych: Český hydrometeorologický ústav (ČHMÚ), https://opendata.chmi.cz, licencja CC BY 4.0" (data source: …, license CC BY 4.0), and for processed forms adds "Dane ČHMÚ zostały przetworzone (normalizacja i zmiana formatu)" (ČHMÚ data have been processed (normalization and format change)) |
 
-Obowiązek podania atrybucji przy publikacji wyników spoczywa na użytkowniku pobierającym dane.
+The obligation to give attribution when publishing results rests with the user who downloads the data.
 
-### Dane referencyjne (listy stacji, współrzędne, opisy formatów)
+### Reference data (station lists, coordinates, format descriptions)
 
-Repozytorium **nie zawiera** danych IMGW. Pliki referencyjne używane przez narzędzia (listy stacji, współrzędne, opisy formatów) pobierz jednorazowo — po instalacji pakietu (`pip install -e .`), bez żadnych argumentów:
+The repository **does not contain** IMGW data. Download the reference files used by the tools (station lists, coordinates, format descriptions) once — after installing the package (`pip install -e .`), without any arguments:
 
 ```bash
 python -m imgwtools.reference_data
 ```
 
-Pobrane pliki trafiają do katalogu danych referencyjnych (`IMGW_REFERENCE_DIR`, domyślnie `<cache_dir>/imgw/reference`, np. `~/.cache/nogat/imgw/reference`; patrz „Konfiguracja”) i pochodzą z IMGW-PIB — podlegają warunkom IMGW-PIB (nie licencji MIT projektu).
+The downloaded files go to the reference data directory (`IMGW_REFERENCE_DIR`, by default `<cache_dir>/imgw/reference`, e.g. `~/.cache/nogat/imgw/reference`; see "Configuration") and come from IMGW-PIB — they are subject to the IMGW-PIB terms (not the project's MIT license).
 
-Jedyne dołączone do pakietu zbiory geograficzne to obrysy granic Polski `src/imgwtools/_data/poland_border_wgs84.geojson` i Czech `src/imgwtools/_data/czechia_border_wgs84.geojson` (kontrola położeń w katalogach stacji) z Natural Earth 1:10m Admin 0 – Countries v5.1.2 — domena publiczna ([warunki](https://www.naturalearthdata.com/about/terms-of-use/)), nie dane IMGW-PIB ani ČHMÚ.
-
----
-
-## Dokumentacja
-
-Przewodnik użycia ([docs/USAGE.md](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md)), sekcje:
-
-- [Użycie jako biblioteka Python](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#użycie-jako-biblioteka-python)
-- [Szybki start (CLI)](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#szybki-start-cli)
-- [REST API](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#rest-api)
-- [Web GUI](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#web-gui)
-- [Agenci AI: język, skutki komend i serwer MCP](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#agenci-ai-język-skutki-komend-i-serwer-mcp)
-- [Struktura danych źródeł](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#struktura-danych-źródeł)
-- [Docker](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#docker)
-- [Konfiguracja](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#konfiguracja)
-- [Magazyn wersjonowany (opcjonalny)](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#magazyn-wersjonowany-opcjonalny)
-- [Zmiany w wersji 3.0.0](https://github.com/Daldek/IMGWTools/blob/master/docs/USAGE.md#zmiany-w-wersji-300)
-
-Pozostałe dokumenty:
-
-- [`CLAUDE.md`](https://github.com/Daldek/IMGWTools/blob/master/CLAUDE.md) - Instrukcje dla Claude Code
-- [`docs/CODEBASE.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/CODEBASE.md) - Referencja kodu i modułów (publiczne API, katalog komend, formaty danych; [struktura projektu](https://github.com/Daldek/IMGWTools/blob/master/docs/CODEBASE.md#struktura-projektu-z-readme))
-- [`docs/TESTING.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/TESTING.md) - Testy: układ, znaczniki, uruchamianie ([instrukcje testów z README](https://github.com/Daldek/IMGWTools/blob/master/docs/TESTING.md#testy-z-readme))
-- [`docs/CHANGELOG.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/CHANGELOG.md) - Historia zmian (w tym BREAKING 3.0.0)
-- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/DECISIONS.md) - Rejestr decyzji (ADR-001: magazyn wersjonowany, ADR-002: jeden katalog komend, ADR-003: dostawca ČHMÚ, ADR-004: wsparcie agentów AI, ADR-005: środowisko użytkownika, ADR-006: katalog komunikatów, ADR-007: zapis danych, ADR-008: projekty przeniesione do Archiwisty)
-- [`docs/ARCHITECTURE.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/ARCHITECTURE.md) - Architektura systemu
-- [`docs/PRD.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/PRD.md) - Wymagania produktu
-- [`docs/PROGRESS.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/PROGRESS.md) - Stan bieżący, kolejne kroki, pytania otwarte
-- [`docs/HISTORY.md`](https://github.com/Daldek/IMGWTools/blob/master/docs/HISTORY.md) - Historia wydań i zamknięte prace
-- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/master/AGENTS.md), [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/master/llms.txt) - Przewodnik dla agentów AI (generowany: `imgw commands guide`)
+The only geographic datasets bundled with the package are the border outlines of Poland `src/imgwtools/_data/poland_border_wgs84.geojson` and Czechia `src/imgwtools/_data/czechia_border_wgs84.geojson` (position checks in station catalogs) from Natural Earth 1:10m Admin 0 – Countries v5.1.2 — public domain ([terms](https://www.naturalearthdata.com/about/terms-of-use/)), not IMGW-PIB or ČHMÚ data.
 
 ---
 
-## Problemy i wsparcie
+## Documentation
 
-Zgłoś problemy w sekcji [Issues](https://github.com/Daldek/IMGWTools/issues).
+Usage guide ([docs/USAGE.md](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md)), sections:
+
+- [Using as a Python library](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#using-as-a-python-library)
+- [Quick start (CLI)](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#quick-start-cli)
+- [REST API](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#rest-api)
+- [Web GUI](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#web-gui)
+- [AI agents: language, command effects and the MCP server](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#ai-agents-language-command-effects-and-the-mcp-server)
+- [Source data structure](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#source-data-structure)
+- [Docker](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#docker)
+- [Configuration](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#configuration)
+- [Versioned store (optional)](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#versioned-store-optional)
+- [Changes in version 3.0.0](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#changes-in-version-300)
+
+Other documents:
+
+- [`CLAUDE.md`](https://github.com/Daldek/IMGWTools/blob/main/CLAUDE.md) - Instructions for Claude Code
+- [`docs/CODEBASE.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/CODEBASE.md) - Code and module reference (public API, command catalog, data formats; [project structure](https://github.com/Daldek/IMGWTools/blob/main/docs/CODEBASE.md#project-structure-from-readme))
+- [`docs/TESTING.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/TESTING.md) - Tests: layout, markers, running ([test instructions from the README](https://github.com/Daldek/IMGWTools/blob/main/docs/TESTING.md#tests-from-readme))
+- [`docs/CHANGELOG.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/CHANGELOG.md) - Change history (including BREAKING 3.0.0)
+- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/DECISIONS.md) - Decision log (ADR-001: versioned store, ADR-002: one command catalog, ADR-003: ČHMÚ provider, ADR-004: AI agent support, ADR-005: user environment, ADR-006: message catalog, ADR-007: writing data, ADR-008: projects moved to Archiwista)
+- [`docs/ARCHITECTURE.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/ARCHITECTURE.md) - System architecture
+- [`docs/PRD.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/PRD.md) - Product requirements
+- [`docs/PROGRESS.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/PROGRESS.md) - Current status, next steps, open questions
+- [`docs/HISTORY.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/HISTORY.md) - Release history and closed work
+- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/main/AGENTS.md), [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/main/llms.txt) - Guide for AI agents (generated: `imgw commands guide`)
 
 ---
 
-## Licencja
+## Issues and support
 
-Projekt udostępniony na licencji MIT. Szczegóły w pliku [`LICENSE`](https://github.com/Daldek/IMGWTools/blob/master/LICENSE).
+Report issues in the [Issues](https://github.com/Daldek/IMGWTools/issues) section.
 
 ---
 
-## Autor
+## License
+
+The project is released under the MIT license. Details in the [`LICENSE`](https://github.com/Daldek/IMGWTools/blob/main/LICENSE) file.
+
+---
+
+## Author
 
 - [Piotr de Bever](https://www.linkedin.com/in/piotr-de-bever/)
