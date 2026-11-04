@@ -19,6 +19,7 @@ import dataclasses
 import re
 import shlex
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -31,7 +32,7 @@ from obserwator import (
     validate_command,
 )
 from obserwator.output import OutputReport
-from obserwator.store.types import Page, StorePlan
+from obserwator.store.types import StorePlan
 from tests.contract.support import input_schemas
 from tests.unit.test_commands import SAMPLES
 from tests.unit.test_commands_chmi import VALID as CHMI_SAMPLES
@@ -99,10 +100,19 @@ def test_every_catalog_example_call_is_a_canonical_line(
 
 def _fields(type_: type) -> set[str]:
     """The keys of the JSON form of a result type (``obserwator._jsonable``)."""
+    named = {"schema"} if hasattr(type_, "SCHEMA") else set()
     if issubclass(type_, BaseModel):
-        return set(type_.model_fields)
+        return named | set(type_.model_fields)
     assert dataclasses.is_dataclass(type_), type_
-    return {field.name for field in dataclasses.fields(type_)}
+    return named | {field.name for field in dataclasses.fields(type_)}
+
+
+def assert_document(excerpt: dict[str, Any], type_: type) -> None:
+    """``excerpt`` names fields of ``type_`` and the ``schema`` of its document."""
+    assert set(excerpt) <= _fields(type_)
+    schema = getattr(type_, "SCHEMA", None)
+    if "schema" in excerpt and schema is not None:
+        assert excerpt["schema"] == schema
 
 
 @pytest.mark.parametrize(("meta", "example"), CATALOG_EXAMPLES)
@@ -112,16 +122,18 @@ def test_every_catalog_example_result_names_fields_of_the_result(meta, example):
     item = getattr(obserwator, meta["result_type"], None)
 
     if call.run.get("check"):
-        assert set(excerpt) <= _fields(StorePlan)
+        assert_document(excerpt, StorePlan)
     elif meta["result"] == "list":
-        assert set(excerpt) <= _fields(Page)
-        assert all(set(entry) <= _fields(item) for entry in excerpt["items"])
+        # The items of a page: the first one is excerpted.
+        assert isinstance(excerpt, list)
+        (first,) = excerpt
+        assert_document(first, item)
     elif meta["result"] == "stream":
         if "output" in call.options:
-            assert set(excerpt) <= _fields(OutputReport)
+            assert_document(excerpt, OutputReport)
         else:
             assert isinstance(excerpt, str)
     elif item is None:
         assert isinstance(excerpt, dict if meta["result_type"] == "dict" else str)
     else:
-        assert set(excerpt) <= _fields(item)
+        assert_document(excerpt, item)

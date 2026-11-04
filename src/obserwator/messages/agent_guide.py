@@ -120,9 +120,9 @@ MESSAGES = {
     ),
     "rule_read_offline": Text(
         "**Read offline:** `store info`, `store scan`, `series summary`, `series "
-        "read` (`limit`/`offset`), `pmaxtp read` — without downloading again.",
+        "read` (`limit`/`cursor`), `pmaxtp read` — without downloading again.",
         "**Czytaj offline:** `store info`, `store scan`, `series summary`, `series "
-        "read` (`limit`/`offset`), `pmaxtp read` — bez ponownego pobierania.",
+        "read` (`limit`/`cursor`), `pmaxtp read` — bez ponownego pobierania.",
     ),
     "rule_decide_by_codes": Text(
         "**Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the "
@@ -191,8 +191,8 @@ MESSAGES = {
         "po zgodzie użytkownika.",
     ),
     "flow_next_pages": Text(
-        "next pages: `--offset`.",
-        "kolejne strony: `--offset`.",
+        "next pages: `--cursor` = `page.next_cursor`.",
+        "kolejne strony: `--cursor` = `page.next_cursor`.",
     ),
     "summary": Text(
         "Version {version}. Providers: {providers}. Datasets in the registry: "

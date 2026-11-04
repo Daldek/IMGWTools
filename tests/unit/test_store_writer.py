@@ -363,7 +363,7 @@ def test_stale_staging_removed_with_notice(tmp_path):
     assert not old.exists() and new.exists()
     leftovers = [item for item in notices if item.code == "leftover_incoming"]
     assert len(leftovers) == 1
-    assert leftovers[0].level == "warning" and ".incoming/old" in leftovers[0].text
+    assert leftovers[0].level == "warning" and ".incoming/old" in leftovers[0].message
 
 
 def test_stale_staging_removed_concurrently_does_not_abort(tmp_path, monkeypatch):

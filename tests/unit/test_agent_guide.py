@@ -322,6 +322,7 @@ def test_output_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
     assert (envelope["status"], envelope["result"]) == (
         "ok",
         {
+            "schema": "obserwator-output/1",
             "output": str(target),
             "files": [
                 {

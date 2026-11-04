@@ -48,6 +48,7 @@ from obserwator import (
     sync_store,
 )
 from obserwator.datasets import get_dataset
+from obserwator.store.types import page_cursor
 from obserwator.testing import build_fixture_store, fixture_files
 from tests.contract.conftest import _CLOCKED, FROZEN_AT
 from tests.contract.support import (
@@ -668,7 +669,7 @@ def test_imgw_17_k3_a_new_metadata_envelope_creates_no_version(
     assert observation["same_content_as"] == listed
     (unchanged,) = [notice for notice in notices if notice.code == "content_unchanged"]
     assert unchanged.level == "info"
-    assert "archive:cz.chmi.hydro_stations:meta1.json" in unchanged.text
+    assert "archive:cz.chmi.hydro_stations:meta1.json" in unchanged.message
 
     chmi.serve("hydro_stations_regenerated_head")
     plan = check_catalog(root, provider="CHMI")
@@ -806,7 +807,7 @@ def test_imgw_18_k1_coverage_and_gaps_equal_a_computation_by_hand(dataset, pl_cz
     )
 
     summary = run_command("series summary", options={"root": pl_cz, "dataset": dataset})
-    items = summary.to_json(root=pl_cz)["result"]["items"]
+    items = summary.to_json(root=pl_cz)["result"]
     index = load(version_of(pl_cz, f"series:{dataset}"))
 
     assert [{key: item[key] for key in keys} for item in items] == expected
@@ -1083,7 +1084,7 @@ RUNS = [
             "station": FULL,
             "variables": ["P", "Tmax"],
             "limit": 5,
-            "offset": 5,
+            "cursor": page_cursor(5),
         },
         "served",
     ),
@@ -1176,16 +1177,13 @@ def assert_mcp_alike(
         default = input_schema(command)["properties"]["format"]["default"]
         assert answered.content[0].text == data
         assert answered.structured_content == {
-            "schema": "obserwator-result/1",
-            "command": command,
-            "check": False,
-            "status": python.status,
+            **replace(python, result=None).to_json(root=root),
             "result": {
+                "schema": "obserwator-stream/1",
                 "format": options.get("format", default),
                 "bytes": len(data.encode("utf-8")),
                 "lines": data.count("\n"),
             },
-            "notices": replace(python, result=None).to_json(root=root)["notices"],
         }
         return
     assert canonical(answered.structured_content) == canonical(
@@ -1467,7 +1465,7 @@ def test_imgw_19_k3_every_chmi_sidecar_and_export_names_cc_by_and_chmi(pl_cz):
                 export_archive(entry.version, format=format_, on_notice=notices.append)
             )
             assert lines, entry.version
-            assert [(n.level, n.code, n.text) for n in notices] == [
+            assert [(n.level, n.code, n.message) for n in notices] == [
                 ("info", "license_terms", terms)
             ]
             exported += 1

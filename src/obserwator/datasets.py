@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from types import MappingProxyType
-from typing import Literal
+from typing import ClassVar, Literal
 
 from obserwator.exceptions import ObserwatorValidationError
 from obserwator.messages import Message, message
@@ -127,6 +127,8 @@ class ProviderDescriptor:
         Keys of the provider's datasets in registry order.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-provider/1"
+
     id: str
     short_name: str
     name: str
@@ -224,6 +226,8 @@ class DatasetDescriptor:
         Volatile fields of ``content_form``; empty without a form.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-dataset/1"
+
     key: str
     slug: str
     kind: Literal["hydro", "meteo"] | None
@@ -283,6 +287,8 @@ class ArchiveFile:
         Station of a per-station file (WIGOS identifier), None for files
         covering the whole country.
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-archive-file/1"
 
     dataset: str
     server_path: str

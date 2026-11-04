@@ -27,6 +27,7 @@ from obserwator.exceptions import ERROR_CODES
 from obserwator.messages import localize
 from obserwator.stations import HYDRO_MAP_API_URL
 from obserwator.store import current_version, init_store
+from obserwator.store.types import page_cursor
 from obserwator.testing import build_fixture_store
 from tests.contract.support import (
     DAILY,
@@ -66,7 +67,7 @@ METEO_WARNINGS = [
 MAP = {"stations": [{"id": RABA, "n": "RABA GÓRNA", "la": 49.61, "lo": 20.05}]}
 # Read commands (GET): command, query, whether the server inserts its root.
 GET_CASES = [
-    ("datasets list", {"kind": "hydro", "limit": "2", "offset": "1"}, False),
+    ("datasets list", {"kind": "hydro", "limit": "2", "cursor": page_cursor(1)}, False),
     (
         "datasets files",
         {"dataset": "hydro/dobowe", "years": ["2022-2023", "2024"], "months": "1,2"},
@@ -610,20 +611,42 @@ def test_api_list_limit_defaults_to_and_is_capped_by_the_server_maximum(
 ):
     monkeypatch.setattr(settings, "api_max_limit", 3)
 
-    default = client.get("/api/v1/datasets/list").json()["result"]
-    last = client.get("/api/v1/datasets/list", params={"limit": 3, "offset": 16})
+    default = client.get("/api/v1/datasets/list").json()
+    last = client.get(
+        "/api/v1/datasets/list", params={"limit": 3, "cursor": page_cursor(16)}
+    )
     above = client.get("/api/v1/datasets/list", params={"limit": 4})
     zero = client.get("/api/v1/datasets/list", params={"limit": 0})
 
-    assert (default["limit"], default["offset"], default["total"]) == (3, 0, 17)
-    assert len(default["items"]) == 3
-    assert len(last.json()["result"]["items"]) == 1
+    assert len(default["result"]) == 3
+    assert (default["page"]["total"], default["page"]["truncated"]) == (17, True)
+    assert len(last.json()["result"]) == 1
     assert problem(above, 400, "validation_error")["details"] == {
         "option": "limit",
         "value": 4,
         "maximum": 3,
     }
     assert problem(zero, 400, "validation_error")["details"]["option"] == "limit"
+
+
+def test_api_list_next_cursor_answers_the_next_page(client):
+    first = client.get("/api/v1/datasets/list", params={"limit": 10}).json()
+    second = client.get(
+        "/api/v1/datasets/list",
+        params={"limit": 10, "cursor": first["page"]["next_cursor"]},
+    ).json()
+    whole = client.get("/api/v1/datasets/list", params={"limit": 20}).json()
+
+    assert first["page"]["truncated"] is True
+    assert second["page"] == {"total": 17, "next_cursor": None, "truncated": False}
+    assert first["result"] + second["result"] == whole["result"]
+
+
+@pytest.mark.parametrize("cursor", ["!!", "MQ=", "eA", ""])
+def test_api_malformed_cursor_is_400_naming_the_cursor(client, cursor):
+    response = client.get("/api/v1/datasets/list", params={"cursor": cursor})
+
+    assert problem(response, 400, "validation_error")["details"]["option"] == "cursor"
 
 
 @pytest.mark.parametrize(
@@ -660,7 +683,8 @@ def test_api_exports_stream_the_cli_lines_with_status_and_notice_headers(
     notices = response.headers["x-obserwator-notices"]
     assert notices.isascii()
     assert json.loads(notices) == [
-        {"level": n.level, "code": n.code, "text": n.text} for n in expected.notices
+        {"level": n.level, "code": n.code, "message": n.message}
+        for n in expected.notices
     ]
     assert "license_terms" in {notice["code"] for notice in json.loads(notices)}
 
@@ -704,11 +728,11 @@ def test_api_stream_notices_follow_accept_language_and_the_data_does_not(
     }
     assert polish.headers["x-obserwator-notices"].isascii()
     assert notices["pl"] == [
-        {"level": n.level, "code": n.code, "text": localize(n.text, "pl")}
+        {"level": n.level, "code": n.code, "message": localize(n.message, "pl")}
         for n in expected.notices
     ]
-    assert [item["text"] for item in notices["en"]] == [
-        n.text for n in expected.notices
+    assert [item["message"] for item in notices["en"]] == [
+        n.message for n in expected.notices
     ]
     assert notices["pl"] != notices["en"]
     for response, lang in ((english, "en"), (polish, "pl")):
@@ -811,7 +835,7 @@ def test_api_stations_find_needs_the_root_only_for_the_store_source(client, live
     stored = client.get("/api/v1/stations/find", params={"source": "store"})
 
     assert found.status_code == 200
-    assert found.json()["result"]["total"] >= 1
+    assert found.json()["page"]["total"] >= 1
     problem(stored, 503, "store_unavailable")
 
 
@@ -1139,6 +1163,6 @@ def test_api_hiding_a_server_directory_keeps_imgw_urls_intact(client, monkeypatc
         "/api/v1/datasets/files", params={"dataset": DAILY, "years": "2024"}
     )
 
-    [item] = response.json()["result"]["items"]
+    [item] = response.json()["result"]
     assert item["url"] == H2024.url
     assert "/data/dane_pomiarowo_obserwacyjne/" in item["url"]

@@ -424,7 +424,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
         before = {name: stamps(root) for name, root in stores.items()}
         for name, root in stores.items():
             info = store_info(root)
-            assert (info.supported, info.schema, info.problems) == (
+            assert (info.supported, info.store_schema, info.problems) == (
                 True,
                 "obserwator-store/1",
                 (),
@@ -473,7 +473,7 @@ def test_read_only_scan_reports_unknown_schema_and_problems_without_touching_sto
         assert {name: stamps(root) for name, root in stores.items()} == before
 
         info = store_info(future)
-        assert (info.exists, info.schema, info.supported) == (
+        assert (info.exists, info.store_schema, info.supported) == (
             True,
             "obserwator-store/2",
             False,

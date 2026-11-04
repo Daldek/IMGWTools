@@ -54,7 +54,7 @@ from obserwator import (
     sync_store,
 )
 from obserwator.fetch import _IDENTIFY, _archive_slot
-from obserwator.store.types import StorePlan
+from obserwator.store.types import StorePlan, page_cursor
 from tests.contract.support import obserwator_executable
 from tests.live.test_interfaces_live import (
     CALL_TIMEOUT,
@@ -144,7 +144,12 @@ CASES: dict[str, list[Case]] = {
     "series select": [Case({**HYDRO_SELECTION}, "full")],
     "series read": [
         Case(
-            {"dataset": METEO, "station": METEO_STATION, "limit": 5, "offset": 1},
+            {
+                "dataset": METEO,
+                "station": METEO_STATION,
+                "limit": 5,
+                "cursor": page_cursor(1),
+            },
             "full",
         )
     ],
@@ -180,7 +185,7 @@ def _statuses(document: Mapping[str, Any], key: str = "items") -> list[str]:
 # What the Python answer of a case must say (the other interfaces equal it).
 EXPECTED: dict[tuple[str, int], Callable[[Mapping[str, Any]], bool]] = {
     ("datasets list", 0): lambda d: (
-        [item["key"] for item in d["result"]["items"]]
+        [item["key"] for item in d["result"]]
         == [
             "cz.chmi.hydro_daily",
             "cz.chmi.meteo_daily",
@@ -189,19 +194,19 @@ EXPECTED: dict[tuple[str, int], Callable[[Mapping[str, Any]], bool]] = {
         ]
     ),
     ("datasets files", 0): lambda d: (
-        [item["year"] for item in d["result"]["items"]] == [*PUBLISHED, UNPUBLISHED]
+        [item["year"] for item in d["result"]] == [*PUBLISHED, UNPUBLISHED]
     ),
-    ("datasets files", 1): lambda d: d["result"]["total"] == 4,
+    ("datasets files", 1): lambda d: d["page"]["total"] == 4,
     ("datasets download", 0): lambda d: (
         _statuses(d) == ["downloaded", "downloaded", "not_published"]
     ),
     ("stations find", 0): lambda d: (
-        STATION in {item["station_code"] for item in d["result"]["items"]}
+        STATION in {item["station_code"] for item in d["result"]}
     ),
     ("stations find", 1): lambda d: (
-        [(item["station_code"], item["provider"]) for item in d["result"]["items"]]
+        [(item["station_code"], item["provider"]) for item in d["result"]]
         == [(STATION, "CHMI")]
-        and d["result"]["items"][0]["latitude"] is not None
+        and d["result"][0]["latitude"] is not None
     ),
     ("store info", 0): lambda d: (
         [provider["id"] for provider in d["result"]["providers"]]

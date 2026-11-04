@@ -385,9 +385,9 @@ MESSAGES = {
         "Page size",
         "Rozmiar strony",
     ),
-    "offset_help": Text(
-        "Start of the page",
-        "Początek strony",
+    "cursor_help": Text(
+        "Page to read: page.next_cursor of the previous page (opaque)",
+        "Strona do odczytu: page.next_cursor poprzedniej strony (nieprzezroczysty)",
     ),
     "commands_guide_description": Text(
         "Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or "

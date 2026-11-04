@@ -138,6 +138,7 @@ def test_obserwator_scenario_prints_the_envelopes_of_run_command_and_writes_alik
     assert newer["result"]["series"] == []
     assert [returned[i]["result"]["status"] for i in (6, 7, 9)] == ["new"] * 3
     assert returned[8]["result"] == {
+        "schema": "obserwator-output/1",
         "output": str(work / "raba.csv"),
         "files": [
             {

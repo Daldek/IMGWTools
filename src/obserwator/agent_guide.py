@@ -704,7 +704,7 @@ def _instructions(
             lines.append("No default store: give `root`.")
     lines += [
         f"Lists: `limit` {_PAGE_SIZE} by default, at most `OBSERWATOR_API_MAX_LIMIT`; "
-        "next pages: `offset`.",
+        "next pages: `cursor` = `page.next_cursor` while `page.truncated`.",
         "Full guide (commands, datasets, error codes, flows): the "
         "`obserwator_commands_guide` tool.",
     ]

@@ -166,7 +166,7 @@ def test_csv_has_units_header_formulas_once_and_every_day(hydro_year, tmp_path):
     assert {row["year"] for row in data} == {"2024"}
     assert progress[-1].current == progress[-1].total == 366
     assert [
-        (notice.code, SOURCE in notice.text and PROCESSED in notice.text)
+        (notice.code, SOURCE in notice.message and PROCESSED in notice.message)
         for notice in notices
     ] == [("license_terms", True)]
 

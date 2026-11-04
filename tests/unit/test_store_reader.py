@@ -244,7 +244,7 @@ def test_every_reader_works_on_read_only_store_without_writes_or_network(
     before = tree(root)
 
     info = store_info(root)
-    assert (info.exists, info.schema, info.supported, info.problems) == (
+    assert (info.exists, info.store_schema, info.supported, info.problems) == (
         True,
         "obserwator-store/1",
         True,
@@ -652,7 +652,7 @@ def test_unknown_store_version_is_reported_not_raised(tmp_path):
         '{"schema":"obserwator-store/2","created_by":"obserwator 9"}', encoding="utf-8"
     )
     info = store_info(future)
-    assert (info.exists, info.schema, info.supported) == (
+    assert (info.exists, info.store_schema, info.supported) == (
         True,
         "obserwator-store/2",
         False,
@@ -665,7 +665,11 @@ def test_unknown_store_version_is_reported_not_raised(tmp_path):
     assert unsupported.value.code == "store_unavailable"
 
     missing = store_info(tmp_path / "absent")
-    assert (missing.exists, missing.schema, missing.supported) == (False, None, False)
+    assert (missing.exists, missing.store_schema, missing.supported) == (
+        False,
+        None,
+        False,
+    )
     assert not (tmp_path / "absent").exists()
     empty = tmp_path / "empty"
     empty.mkdir()

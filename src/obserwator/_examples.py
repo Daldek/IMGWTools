@@ -8,8 +8,8 @@ Paths are absolute (``/data/obserwator`` is the store of the examples), so the l
 the same in every working directory and under every default store root.
 
 The result is an excerpt of the ``result`` of the ``obserwator-result/1`` envelope in
-its JSON form: some fields of the result object; for a list command some fields
-of the first item of the ``Page`` with its ``total``; for a stream command the
+its JSON form: some fields of the result object; for a list command the list of
+its first item with some fields; for a stream command the
 start of the text, or the `obserwator.output.OutputReport` of a written file.
 Store paths are relative to the root, as in every result (``obserwator._jsonable``).
 `obserwator.commands.command_schema` publishes the examples in ``examples`` of each command.
@@ -45,9 +45,9 @@ _RABA_ITEM = {
 }
 
 
-def _page(item: Mapping[str, object], total: int) -> dict[str, object]:
-    """The excerpt of a list result: its first item and the number of all items."""
-    return {"items": [item], "total": total}
+def _page(item: Mapping[str, object], schema: str) -> list[dict[str, object]]:
+    """The excerpt of a list result: its first item, led by the item's ``schema``."""
+    return [{"schema": schema, **item}]
 
 
 def _plan(item: Mapping[str, object]) -> dict[str, object]:
@@ -87,7 +87,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "first_year": 1951,
                     "provider": "IMGW-PIB",
                 },
-                7,
+                "obserwator-dataset/1",
             ),
         ),
         Example(
@@ -100,7 +100,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "first_year": 1887,
                     "provider": "CHMI",
                 },
-                4,
+                "obserwator-dataset/1",
             ),
         ),
     ),
@@ -116,7 +116,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "period_start": "2021-11-01",
                     "period_end": "2021-11-30",
                 },
-                13,
+                "obserwator-archive-file/1",
             ),
         ),
         Example(
@@ -130,7 +130,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "year": 2024,
                     "station_code": "0-203-1-900001",
                 },
-                1,
+                "obserwator-archive-file/1",
             ),
         ),
     ),
@@ -182,13 +182,14 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "key_prefix": "pl.imgw",
                     "license": {"id": "IMGW-PIB"},
                 },
-                2,
+                "obserwator-provider/1",
             ),
         ),
     ),
     "stations find": (
         Example(
-            "obserwator stations find --kind hydro --query raba", _page(_RABA_ITEM, 3)
+            "obserwator stations find --kind hydro --query raba",
+            _page(_RABA_ITEM, "obserwator-station/1"),
         ),
         Example(
             "obserwator stations find --kind hydro --query spindleruv --provider CHMI",
@@ -200,7 +201,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "river": "Labe",
                     "provider": "CHMI",
                 },
-                1,
+                "obserwator-station/1",
             ),
         ),
     ),
@@ -215,7 +216,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "water_level_cm": 162.0,
                     "water_level_date": "2026-10-25 08:00:00",
                 },
-                1,
+                "obserwator-hydro-current/1",
             ),
         ),
     ),
@@ -229,7 +230,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "air_temp_c": 8.4,
                     "air_temp_date": "2026-10-25 08:00:00",
                 },
-                612,
+                "obserwator-meteo-current/1",
             ),
         ),
     ),
@@ -245,7 +246,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "temperature_c": 8.1,
                     "pressure_hpa": 1016.2,
                 },
-                1,
+                "obserwator-synop/1",
             ),
         ),
     ),
@@ -260,7 +261,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "valid_from": "2026-10-25T10:00:00Z",
                     "valid_to": "2026-10-25T20:00:00Z",
                 },
-                3,
+                "obserwator-warning/1",
             ),
         ),
     ),
@@ -274,7 +275,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "river": "Raba",
                     "water_state": "normal",
                 },
-                286,
+                "obserwator-hydro-state/1",
             ),
         ),
     ),
@@ -287,7 +288,10 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
     "pmaxtp url": (
         Example(
             "obserwator pmaxtp url --latitude 52.23 --longitude 21.01",
-            "https://powietrze.imgw.pl/tpmax-api/point/P/KS/52.2300/21.0100",
+            {
+                "schema": "obserwator-pmaxtp-url/1",
+                "url": "https://powietrze.imgw.pl/tpmax-api/point/P/KS/52.2300/21.0100",
+            },
         ),
     ),
     "pmaxtp check": (
@@ -336,9 +340,10 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
         Example(
             "obserwator store info --root /data/obserwator",
             {
+                "schema": "obserwator-store-info/1",
                 "root": _ROOT,
                 "exists": True,
-                "schema": "obserwator-store/1",
+                "store_schema": "obserwator-store/1",
                 "supported": True,
                 "problems": [],
             },
@@ -353,7 +358,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "version": _DAILY_VERSION,
                     "problem_code": "missing_sidecar",
                 },
-                1,
+                "obserwator-store-entry/1",
             ),
         ),
     ),
@@ -451,7 +456,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "hydro_year": 2024,
                     "measurements": {"H": {"value": 158.0, "flag": "value"}},
                 },
-                31,
+                "obserwator-record/1",
             ),
         ),
     ),
@@ -468,7 +473,7 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
                     "last": "2024-02-29",
                     "gaps": [["2023-12-02", "2023-12-31"]],
                 },
-                3,
+                "obserwator-coverage/1",
             ),
         ),
     ),

@@ -48,7 +48,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType, TracebackType
-from typing import Literal
+from typing import ClassVar, Literal
 
 from obserwator.exceptions import ObserwatorError, ObserwatorValidationError
 from obserwator.messages import message
@@ -124,6 +124,8 @@ class OutputReport:
         The written file as ``files[]``: ``written`` for a new file or
         ``replaced`` for an existing one (with ``force``).
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-output/1"
 
     output: Path
     files: tuple[FileResult, ...]

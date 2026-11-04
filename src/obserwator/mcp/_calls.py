@@ -21,10 +21,11 @@ parameters, POST with a JSON body and always ``?check=true``, in English
 An envelope ``obserwator-result/1`` is ``structuredContent`` and, as compact JSON,
 the only text content (the CLI stdout line without its line end); a stream
 (``store export``, ``series export``, ``commands guide`` without ``output``) is its
-text, at most 256 KiB, with an envelope whose result is ``{format, bytes,
-lines}``. An error is ``isError`` with the ``obserwator-error/1`` document of the
-CLI error line (`obserwator.error_report`) as ``structuredContent`` and as its only
-text content: in English (AGI-9.2), with the tool's command as ``command``,
+text, at most 256 KiB, with an envelope whose result is the ``obserwator-stream/1``
+document ``{schema, format, bytes, lines}``. An error is ``isError`` with the
+``obserwator-error/1`` document of the CLI error line (`obserwator.error_report`)
+as ``structuredContent`` and as its only text content: in English (AGI-9.2),
+with the tool's command as ``command``,
 ``internal_error`` for a program error (its traceback goes to stderr).
 """
 
@@ -56,7 +57,7 @@ from obserwator.exceptions import (
 )
 from obserwator.mcp._tools import CatalogTool
 from obserwator.messages import message
-from obserwator.store.types import CommandResult, Progress
+from obserwator.store.types import CommandResult, Notice, Progress
 
 __all__ = ["STREAM_LIMIT", "Report", "call_tool"]
 
@@ -128,6 +129,18 @@ def _format(tool: CatalogTool, options: Mapping[str, object]) -> object:
     )
 
 
+def _summary(
+    tool: CatalogTool, options: Mapping[str, object], size: int, text: str
+) -> dict[str, object]:
+    """The ``obserwator-stream/1`` document of a stream given as text."""
+    return {
+        "schema": "obserwator-stream/1",
+        "format": _format(tool, options),
+        "bytes": size,
+        "lines": _line_count(text),
+    }
+
+
 def _stream(
     tool: CatalogTool,
     outcome: CommandResult[object],
@@ -147,11 +160,7 @@ def _stream(
             raise _too_large()
         chunks.append(line)
     text = "".join(chunks)
-    summary = {
-        "format": _format(tool, options),
-        "bytes": size,
-        "lines": _line_count(text),
-    }
+    summary = _summary(tool, options, size, text)
     envelope = replace(outcome, result=summary).to_json(root=root)
     return _answer(envelope, text)
 
@@ -483,18 +492,14 @@ async def _route(
     if stopped:
         raise _too_large()
     text = data.decode("utf-8")
-    envelope = {
-        "schema": "obserwator-result/1",
-        "command": tool.command.name,
-        "check": False,
-        "status": headers["x-obserwator-status"],
-        "result": {
-            "format": _format(tool, options),
-            "bytes": len(data),
-            "lines": _line_count(text),
-        },
-        "notices": json.loads(headers["x-obserwator-notices"]),
-    }
+    notices = json.loads(headers["x-obserwator-notices"])
+    envelope = CommandResult(
+        tool.command.name,
+        False,
+        cast(Any, headers["x-obserwator-status"]),  # a status the REST route wrote
+        _summary(tool, options, len(data), text),
+        tuple(Notice(**notice) for notice in notices),
+    ).to_json()
     return _answer(envelope, text)
 
 

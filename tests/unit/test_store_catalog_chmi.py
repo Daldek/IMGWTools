@@ -299,11 +299,11 @@ def test_rejected_points_never_block_a_lower_source_and_reasons_are_kept(store):
         "0-20000-0-99903: the source point chmi_meteo_stations (-21.9405, 64.1311) was rejected — outside_country",
         "0-203-1-900004: the source point chmi_hydro_now (0, 0) was rejected — zero",
     )
-    assert [n.text for n in notices if n.code == "location_rejected"] == list(
+    assert [n.message for n in notices if n.code == "location_rejected"] == list(
         report.problems
     )
     (series_notice,) = [n for n in notices if n.code == "series_station"]
-    assert "0-203-1-900005" in series_notice.text
+    assert "0-203-1-900005" in series_notice.message
 
     zero = build(
         init_store(store.root.parent / "zero"),
@@ -333,8 +333,8 @@ def test_location_conflict_names_stations_whose_valid_points_disagree(store):
     (conflict,) = [n for n in notices if n.code == "location_conflict"]
     assert conflict.level == "info"
     # now and historical meta1 of 900001 differ by 0.002° of latitude (~223 m > 150 m).
-    assert conflict.text.startswith("1 stations with valid source locations ")
-    assert conflict.text.endswith(": 0-203-1-900001")
+    assert conflict.message.startswith("1 stations with valid source locations ")
+    assert conflict.message.endswith(": 0-203-1-900001")
     assert not any("0-203-1-900001" in problem for problem in report.problems)
     assert features(report)["0-203-1-900001"]["properties"]["location_source"] == (
         "chmi_hydro_now"
@@ -397,7 +397,7 @@ def test_new_envelopes_keep_the_catalog_and_only_observe_the_list(store):
     assert len([path for path in slot.iterdir() if path.name != "observations"]) == 1
     (observation,) = (slot / "observations").iterdir()
     (unchanged,) = [n for n in notices if n.code == "content_unchanged"]
-    assert "archive:cz.chmi.hydro_stations:meta1.json" in unchanged.text
+    assert "archive:cz.chmi.hydro_stations:meta1.json" in unchanged.message
     assert not [n for n in notices if n.code == "license_terms"]
 
     with respx.mock(assert_all_called=False) as router:
@@ -472,7 +472,7 @@ def test_sidecar_records_both_sums_of_every_source_and_the_chmi_license(tmp_path
         "CZ",
     )
     assert notices[-1].code == "license_terms"
-    assert notices[-1].text == (
+    assert notices[-1].message == (
         f"{CHMI_ATTRIBUTION}. The CC BY 4.0 licence permits copying, changes and "
         "commercial use provided that the author ČHMÚ is credited, the licence is given "
         "and the changes are marked."
@@ -514,7 +514,7 @@ def test_user_file_locates_chmi_codes_and_skips_codes_of_the_other_provider(
         "available": True,
     }
     assert "Sources in the user file: GPS" in [
-        n.text for n in notices if n.code == "location_source"
+        n.message for n in notices if n.code == "location_source"
     ]
 
 

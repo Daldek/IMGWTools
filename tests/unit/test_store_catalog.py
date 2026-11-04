@@ -211,7 +211,7 @@ def test_changed_station_list_is_archived_before_the_catalog_is_built(store):
         "archives/versions/dane_hydrologiczne/lista_stacji_hydro/2026-10-19_"
     )
     assert any(
-        n.code == "source_unverifiable" and "wykaz_stacji" in n.text for n in notices
+        n.code == "source_unverifiable" and "wykaz_stacji" in n.message for n in notices
     )
 
 
@@ -350,7 +350,7 @@ def test_code_only_in_series_index_is_kept_as_historical_station(
         "river": None,
     }
     assert {key: closed["properties"][key] for key in expected} == expected
-    assert any(n.code == "series_station" and "150000097" in n.text for n in notices)
+    assert any(n.code == "series_station" and "150000097" in n.message for n in notices)
     meta = json.loads(
         report.version.with_name("stations.geojson.meta.json").read_text("utf-8")
     )
@@ -470,7 +470,7 @@ def test_location_precedence_rejections_and_reasons(
         "station_without_location",
         "license_terms",
     } <= codes
-    assert any("GPS" in n.text and n.code == "location_source" for n in notices)
+    assert any("GPS" in n.message and n.code == "location_source" for n in notices)
     sources = json.loads(
         report.version.with_name("stations.geojson.meta.json").read_text("utf-8")
     )["extra"]["catalog"]
@@ -495,7 +495,7 @@ def test_missing_static_file_is_reported_and_recorded(store, isolated_reference_
         expected in problem and "static" in problem for problem in report.problems
     )
     assert any(
-        n.code == "catalog_problem" and "reference_data" in n.text for n in notices
+        n.code == "catalog_problem" and "reference_data" in n.message for n in notices
     )
     sources = json.loads(
         report.version.with_name("stations.geojson.meta.json").read_text("utf-8")

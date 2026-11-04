@@ -184,7 +184,7 @@ def test_station_with_an_unpublished_year_matches_the_spec_example(root):
         "that the author ČHMÚ is credited, the licence is given and the changes are "
         "marked."
     )
-    assert [(notice.code, notice.text) for notice in notices] == [
+    assert [(notice.code, notice.message) for notice in notices] == [
         ("license_terms", f"{CHMI_ATTRIBUTION}. {provider_notice}")
     ]
 
@@ -536,7 +536,7 @@ def test_imgw_series_keep_the_layout_of_3_0_0(root):
         set(entry) == {"name", "file", "sha256", "label"}
         for entry in meta["extra"]["source_files"]
     )
-    assert [notice.text for notice in notices] == [
+    assert [notice.message for notice in notices] == [
         f"{attribution}. For private and research use; other uses require checking "
         "the IMGW-PIB terms, including the exceptions for high-value data."
     ]

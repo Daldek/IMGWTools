@@ -127,7 +127,6 @@ def _help_texts(lang: Lang) -> _HelpTexts:
 _LEVELS = {
     "info": ("cli.level_info", "cyan"),
     "warning": ("cli.level_warning", "yellow"),
-    "error": ("cli.level_error", "red"),
 }
 _ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 # Exceptions of the Click flavour Typer runs on (its vendored copy or the click
@@ -485,7 +484,7 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
     def on_notice(notice: Notice) -> None:
         if notice not in shown:
             shown.add(notice)
-            _print_notice(notice.level, notice.text)
+            _print_notice(notice.level, notice.message)
 
     with _interrupt() as requested:
         try:

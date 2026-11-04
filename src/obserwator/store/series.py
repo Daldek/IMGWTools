@@ -484,7 +484,7 @@ def check_series(
     for problem in problems:
         actions.append(PlanAction("series build", "check_failed", problem))
         if on_notice is not None:
-            on_notice(Notice("error", "archive_failed", problem))
+            on_notice(Notice("warning", "archive_failed", problem))
     if not inputs:
         actions.append(
             PlanAction(
@@ -1027,7 +1027,7 @@ def build_series(
     if problems:
         for problem in problems:
             if on_notice is not None:
-                on_notice(Notice("error", "archive_failed", problem))
+                on_notice(Notice("warning", "archive_failed", problem))
         return _report("failed", sources=sources, problems=problems)
     if not inputs:
         return _report(
@@ -1109,7 +1109,7 @@ def build_series(
             spill.flush()
         except (ObserwatorDataError, ObserwatorValidationError, OSError) as exc:
             if on_notice is not None:
-                on_notice(Notice("error", "archive_failed", reason(exc)))
+                on_notice(Notice("warning", "archive_failed", reason(exc)))
             return _report("failed", sources=sources, problems=[reason(exc)])
         station_periods = {code: _merge_spans(items) for code, items in spans.items()}
 
@@ -1128,7 +1128,7 @@ def build_series(
                     station = spill.station(code)
                 except ObserwatorDataError as exc:
                     if on_notice is not None:
-                        on_notice(Notice("error", "archive_failed", reason(exc)))
+                        on_notice(Notice("warning", "archive_failed", reason(exc)))
                     return _report("failed", sources=sources, problems=[reason(exc)])
                 table = _station_table(pa, station, descriptor)
                 periods = station_periods[code] if per_station else None

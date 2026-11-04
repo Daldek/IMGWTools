@@ -71,7 +71,7 @@ def test_meteo_series_export_has_quality_columns_and_the_chmi_attribution(root):
         "attribution_source",
         "attribution_processed",
     ]
-    assert [(notice.code, notice.text) for notice in notices] == [
+    assert [(notice.code, notice.message) for notice in notices] == [
         ("license_terms", TERMS)
     ]
     by_day = {row[0]: row for row in rows}
@@ -184,7 +184,7 @@ def test_meteo_archive_export_adds_quality_and_source_flag(root):
         *[""] * 12,
     ]
     assert by_day["2023-11-01"][3] == "2024"
-    assert [(notice.code, notice.text) for notice in notices] == [
+    assert [(notice.code, notice.message) for notice in notices] == [
         ("license_terms", TERMS)
     ]
     assert objects[2]["measurements"] == {
@@ -226,6 +226,6 @@ def test_hydro_archive_export_keeps_value_and_flag_only(root):
         for item in objects
         for value in item["measurements"].values()
     )
-    assert [(notice.code, notice.text) for notice in notices] == [
+    assert [(notice.code, notice.message) for notice in notices] == [
         ("license_terms", TERMS)
     ]
