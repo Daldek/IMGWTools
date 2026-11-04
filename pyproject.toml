@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "obserwator"
-version = "3.0.0"
+dynamic = ["version"]
 description = "Download IMGW-PIB (Poland) and ČHMÚ (Czechia) hydrological and meteorological data and PMAXTP precipitation to plain files or a versioned store. Python library, CLI, REST API and MCP server."
 readme = "README.md"
 license = "MIT"
@@ -81,6 +81,9 @@ obserwator = "obserwator.cli.main:app"
 Homepage = "https://github.com/Daldek/Obserwator"
 Repository = "https://github.com/Daldek/Obserwator"
 Issues = "https://github.com/Daldek/Obserwator/issues"
+
+[tool.hatch.version]
+path = "src/obserwator/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/obserwator"]
