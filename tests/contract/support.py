@@ -25,6 +25,7 @@ import httpx
 import respx
 
 from obserwator import archive_files, command_schema, current_version
+from obserwator.commands import _input_schema, _input_schemas, _spec
 from obserwator.datasets import ArchiveFile
 from obserwator.messages import Lang
 from obserwator.testing import fixture_files
@@ -243,7 +244,7 @@ class FakeImgw:
 
 # --------------------------------------------------------------------------
 # JSON Schema Draft 2020-12: the keyword subset used by the §11 contracts and
-# by ``command_schema`` (§13.8: anyOf, oneOf, items, required,
+# by the input schemas of the catalog (§13.8: anyOf, oneOf, items, required,
 # dependentRequired, additionalProperties, minimum/maximum)
 # --------------------------------------------------------------------------
 
@@ -390,6 +391,16 @@ def command_document(
     return cast(dict[str, Any], command_schema(command, lang=lang))
 
 
+def input_schema(command: str, /, *, lang: Lang = "en") -> dict[str, Any]:
+    """The JSON Schema of the options of ``command`` (MCP input schema, REST)."""
+    return cast(dict[str, Any], _input_schema(_spec(command), lang))
+
+
+def input_schemas(*, lang: Lang = "en") -> list[dict[str, Any]]:
+    """`input_schema` of every catalog command, in catalog order."""
+    return cast(list[dict[str, Any]], _input_schemas(lang))
+
+
 def current_path(root: Path, slot: str) -> Path:
     """Main file (or observation file) of the current version of ``slot``."""
     entry = current_version(root, slot=slot)
@@ -423,7 +434,7 @@ def envelope_errors(document: Any) -> list[str]:
         return errors
     if document["check"]:
         return schema_errors(document["result"], "obserwator-plan/1")
-    if command_document(document["command"])["x-obserwator"]["result"] == "list":
+    if input_schema(document["command"])["x-obserwator"]["result"] == "list":
         _check(document["result"], {"$ref": "#/$defs/page"}, schema, "$.result", errors)
     return errors
 
@@ -452,7 +463,7 @@ def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     Every option takes its canonical flag from the catalog schema; a list is
     comma-separated text and a boolean is ``--x`` or ``--no-x``.
     """
-    flags = command_document(command)["x-obserwator"]["cli"]["flags"]
+    flags = input_schema(command)["x-obserwator"]["cli"]["flags"]
     words = command.split()
     for name, value in options.items():
         flag = flags[name][0]
@@ -480,7 +491,7 @@ def rest_request(command: str, options: Mapping[str, object]) -> dict[str, Any]:
     GET options are query parameters (a list repeats its parameter, a boolean
     is ``true``/``false``); POST options form the JSON body.
     """
-    rest = command_document(command)["x-obserwator"]["rest"]
+    rest = input_schema(command)["x-obserwator"]["rest"]
     if rest["method"] == "POST":
         return {"method": "POST", "url": rest["path"], "json": dict(options)}
     params = {name: _query(value) for name, value in options.items()}

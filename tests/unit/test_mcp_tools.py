@@ -1,7 +1,7 @@
 """MCP tool list (spec 2026-10-19 §6.3–§6.4, §9 "Lista narzędzi MCP").
 
 Every server mode is listed through the SDK client in memory (``Client(server)``);
-the expectations come from ``command_schema`` (names, order, options, required
+the expectations come from the input schemas of the catalog (names, order, options, required
 groups, effects, texts), never from a written-down list.
 """
 
@@ -19,7 +19,7 @@ from obserwator.config import Settings, settings
 from obserwator.exceptions import ObserwatorValidationError
 from obserwator.mcp._tools import Mode
 from obserwator.mcp.server import create_server, http_app
-from tests.contract.support import command_document
+from tests.contract.support import input_schemas
 
 STDIO = ("read", "write")
 # Tools are fixed by mode and page maximum: list each server once.
@@ -40,8 +40,7 @@ async def listing(mode: Mode) -> list[dict[str, Any]]:
 
 
 def catalog() -> list[dict[str, Any]]:
-    commands: list[dict[str, Any]] = command_document(lang="en")["commands"]
-    return commands
+    return input_schemas(lang="en")
 
 
 def by_command(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

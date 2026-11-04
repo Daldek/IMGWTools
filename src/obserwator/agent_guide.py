@@ -32,10 +32,10 @@ from typing import Any, Literal, cast, overload
 
 from obserwator._version import __version__
 from obserwator.commands import (
+    _input_schemas,
     command_schema,
     data_commands,
     format_command,
-    list_commands,
     validate_command,
 )
 from obserwator.datasets import datasets, providers
@@ -371,11 +371,11 @@ def _notes(schema: Mapping[str, Any], lang: Lang) -> str:
 
 
 def _commands(
-    document: Mapping[str, Any], summaries: Mapping[str, str], lang: Lang
+    schemas: Iterable[Mapping[str, Any]], summaries: Mapping[str, str], lang: Lang
 ) -> str:
     """Commands by effect of a run (``read``, ``network``, ``add``, ``replace``)."""
     classes: dict[str, list[str]] = {name: [] for name in _EFFECTS}
-    for schema in document["commands"]:
+    for schema in schemas:
         meta = schema["x-obserwator"]
         effect = meta["writes"] if meta["writes"] != "none" else "network"
         if effect == "network" and not meta["network"]:
@@ -394,12 +394,12 @@ def _listed(flags: Iterable[str]) -> str:
     return ", ".join(_code(flag) for flag in sorted(set(flags)))
 
 
-def _flags(document: Mapping[str, Any], lang: Lang) -> str:
+def _flags(schemas: Iterable[Mapping[str, Any]], lang: Lang) -> str:
     """The value syntax of the flags of the catalog and the environment variables."""
     kinds: dict[str, set[str]] = {
         key: set() for key in ("list", "year", "toggle", "switch", "date")
     }
-    for schema in document["commands"]:
+    for schema in schemas:
         for name, flags in schema["x-obserwator"]["cli"]["flags"].items():
             canonical, *others = flags
             prop = schema["properties"][name]
@@ -507,8 +507,11 @@ def _flows(lang: Lang) -> str:
 def _blocks(lang: Lang) -> dict[str, Callable[[], str]]:
     """Generated blocks of the guide in ``lang`` (rendered only when used)."""
     document = command_schema(lang=lang)
-    listed = cast(list[Mapping[str, str]], list_commands(lang=lang)["commands"])
-    summaries = {item["command"]: item["summary"] for item in listed}
+    schemas = _input_schemas(lang)
+    summaries = {
+        entry["name"]: entry["summary"]
+        for entry in cast(list[Mapping[str, str]], document["commands"])
+    }
     return {
         "version": lambda: __version__,
         "summary": lambda: _summary(document, lang),
@@ -517,8 +520,8 @@ def _blocks(lang: Lang) -> dict[str, Callable[[], str]]:
         "statuses": lambda: _statuses(document, lang),
         "errors": lambda: _errors(document),
         "datasets": lambda: _datasets(lang),
-        "commands": lambda: _commands(document, summaries, lang),
-        "flags": lambda: _flags(document, lang),
+        "commands": lambda: _commands(schemas, summaries, lang),
+        "flags": lambda: _flags(schemas, lang),
         "flows": lambda: _flows(lang),
     }
 

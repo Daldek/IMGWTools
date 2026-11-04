@@ -1,4 +1,5 @@
-"""command_schema (spec §13.8): JSON Schema 2020-12 of every command and obserwator-commands/1."""
+"""command_schema (obserwator-commands/1, Nogat commands-1), list_commands and the JSON
+Schema 2020-12 of the options the adapters are built from (spec §13.8)."""
 
 import json
 
@@ -12,6 +13,7 @@ from obserwator.api.main import app as rest_app
 from obserwator.cli.main import app as cli_app
 from obserwator.commands import (
     command_schema,
+    data_commands,
     list_commands,
     run_command,
     validate_command,
@@ -20,7 +22,13 @@ from obserwator.config import settings
 from obserwator.datasets import datasets
 from obserwator.exceptions import ERROR_CODES, ObserwatorValidationError
 from obserwator.store import init_store
-from tests.contract.support import canonical, cli_words, rest_request, violations
+from tests.contract.support import (
+    canonical,
+    cli_words,
+    input_schema,
+    rest_request,
+    violations,
+)
 from tests.unit.test_commands import DAILY, REJECTED, ROOT, SAMPLES, SPEC_COMMANDS
 from tests.unit.test_store_reader import observe, store_archives, with_content
 
@@ -37,16 +45,16 @@ SERIES_KEYS = [
 ]
 
 
-def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes():
+def test_catalog_document_lists_every_command_with_groups_errors_and_exit_codes():
     document = command_schema()
     assert json.loads(json.dumps(document)) == document
     assert (
         document["schema"],
+        document["tool"],
         document["version"],
         document["lang"],
-        document["result_schema"],
-    ) == ("obserwator-commands/1", __version__, "en", "obserwator-result/1")
-    assert [schema["title"] for schema in document["commands"]] == SPEC_COMMANDS
+    ) == ("obserwator-commands/1", "obserwator", __version__, "en")
+    assert [entry["name"] for entry in document["commands"]] == SPEC_COMMANDS
     assert list(document["groups"]) == list(
         dict.fromkeys(name.split()[0] for name in SPEC_COMMANDS)
     )
@@ -65,8 +73,8 @@ def test_catalog_document_lists_every_schema_with_groups_errors_and_exit_codes()
         "failed": 11,
         "cancelled": 130,
     }
-    for schema in document["commands"]:
-        assert command_schema(schema["title"]) == schema
+    for entry in document["commands"]:
+        assert command_schema(entry["name"])["commands"] == [entry]
 
 
 def test_unknown_command_is_a_validation_error_listing_the_commands():
@@ -76,8 +84,8 @@ def test_unknown_command_is_a_validation_error_listing_the_commands():
     assert error.value.details["allowed"] == SPEC_COMMANDS
 
 
-def test_option_types_rules_and_interfaces_map_to_the_schema():
-    find = command_schema("stations find")
+def test_option_types_rules_and_interfaces_map_to_the_input_schema():
+    find = input_schema("stations find")
     assert (find["$schema"], find["type"], find["additionalProperties"]) == (
         DIALECT,
         "object",
@@ -135,7 +143,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
             "local_options": [],
         },
     }
-    check = command_schema("store check")
+    check = input_schema("store check")
     assert check["required"] == ["datasets"]
     assert check["properties"]["datasets"]["items"] == {"enum": SERIES_KEYS}
     assert check["properties"]["years"]["items"] == {
@@ -149,11 +157,11 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "minimum": 1,
         "maximum": 12,
     }
-    sync = command_schema("pmaxtp sync")
+    sync = input_schema("pmaxtp sync")
     assert sync["dependentRequired"] == {"ind_x": ["ind_y"], "ind_y": ["ind_x"]}
     assert sync["properties"]["latitude"]["minimum"] == 49.0
     assert sync["x-obserwator"]["rest"]["method"] == "POST"
-    store_sync = command_schema("store sync")
+    store_sync = input_schema("store sync")
     assert store_sync["oneOf"] == [
         {"required": ["plan"]},
         {"required": ["datasets"]},
@@ -163,35 +171,82 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
         "--series",
         "--no-series",
     ]
-    read = command_schema("series read")
+    read = input_schema("series read")
     assert read["properties"]["start"]["format"] == "date"
     assert read["oneOf"] == [
         {"required": ["version"]},
         {"required": ["dataset", "root"]},
     ]
     assert (
-        command_schema("datasets files")["properties"]["dataset"]["enum"]
-        == ARCHIVE_KEYS
+        input_schema("datasets files")["properties"]["dataset"]["enum"] == ARCHIVE_KEYS
     )
+
+
+def test_a_command_entry_maps_the_declarations_to_commands_1():
+    (entry,) = command_schema("stations find")["commands"]
+    options = {option["name"]: option for option in entry["options"]}
+
+    assert options["source"] == {
+        "name": "source",
+        "type": "string",
+        "required": False,
+        "default": "live",
+        "enum": [
+            {"value": "live", "meaning": "The providers' station lists, read live"},
+            {
+                "value": "store",
+                "meaning": "Station lists and catalogs saved in the store",
+            },
+        ],
+        "description": options["source"]["description"],
+        "flags": ["--source"],
+    }
+    assert options["root"]["path_role"] == "root"
+    assert entry["result"] == {
+        "schema": "obserwator-result/1",
+        "cardinality": "bounded",
+    }
+    assert entry["effects"] == {
+        "read_only": True,
+        "writes": "none",
+        "idempotent": True,
+        "network": True,
+        "destructive": False,
+    }
+    # --check of the command itself plans it; a planner has no twin.
+    assert entry["check"] == "stations find"
+    assert command_schema("pmaxtp check")["commands"][0]["check"] is None
+    assert entry["i18n"]["pl"]["summary"].startswith("Znajdź stacje")
+
+
+def test_the_errors_of_a_command_follow_its_effects():
+    def errors(name):
+        return set(command_schema(name)["commands"][0]["errors"])
+
+    assert errors("datasets list") == {"validation_error", "internal_error"}
+    assert {"source_unavailable", "conflict", "io_error", "forbidden"} <= errors(
+        "store sync"
+    )
+    # An export reads the store and writes a file outside it: no store lock.
+    assert "conflict" not in errors("store export")
+    assert "store_unavailable" not in errors("current hydro")
 
 
 def test_rest_routes_cover_exactly_the_non_local_commands():
     commands = command_schema()["commands"]
-    local = [
-        schema["title"] for schema in commands if schema["x-obserwator"]["rest"] is None
-    ]
+    local = [entry["name"] for entry in commands if entry["rest"] is None]
     assert local == ["datasets download", "store init"]
     posts = [
-        schema["title"]
-        for schema in commands
-        if (schema["x-obserwator"]["rest"] or {}).get("method") == "POST"
+        entry["name"]
+        for entry in commands
+        if (entry["rest"] or {}).get("method") == "POST"
     ]
     assert posts == ["pmaxtp sync", "store sync", "store catalog", "series build"]
 
 
 @pytest.mark.parametrize(("command", "options"), SAMPLES)
 def test_valid_options_pass_both_the_schema_and_validate_command(command, options):
-    schema = command_schema(command)
+    schema = input_schema(command)
     assert violations(options, schema) == []
     normalized = validate_command(command, options=options)
     assert violations(jsonable(normalized), schema) == []
@@ -201,7 +256,7 @@ def test_valid_options_pass_both_the_schema_and_validate_command(command, option
 def test_invalid_options_fail_both_the_schema_and_validate_command(
     command, options, option
 ):
-    assert violations(options, command_schema(command)) != []
+    assert violations(options, input_schema(command)) != []
     with pytest.raises(ObserwatorValidationError) as error:
         validate_command(command, options=options)
     assert error.value.details["option"] == option
@@ -220,7 +275,7 @@ def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
         ),
         ("series read", {"root": ROOT, "dataset": DAILY, "station": "0-20000-0-11406"}),
     ):
-        assert violations(options, command_schema(command)) == []
+        assert violations(options, input_schema(command)) == []
         validate_command(command, options=options)
     # The provider's grammar depends on the dataset: a rule, not the schema pattern.
     mixed = {
@@ -228,7 +283,7 @@ def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
         "dataset": DAILY,
         "stations": ["149190310", "0-203-1-CB900003"],
     }
-    assert violations(mixed, command_schema("series select")) == []
+    assert violations(mixed, input_schema("series select")) == []
     with pytest.raises(ObserwatorValidationError) as error:
         validate_command("series select", options=mixed)
     assert error.value.details["option"] == "stations"
@@ -251,7 +306,7 @@ def test_station_options_take_imgw_and_wigos_codes_live_readings_only_imgw():
         ("current hydro", {"station": "0-203-1-001000"}, "station"),
         ("current meteo", {"station": "0-203-0-11573"}, "station"),
     ):
-        assert violations(options, command_schema(command)) != []
+        assert violations(options, input_schema(command)) != []
         with pytest.raises(ObserwatorValidationError) as error:
             validate_command(command, options=options)
         assert error.value.details["option"] == option
@@ -265,7 +320,7 @@ def test_store_scan_of_observations_answers_alike_in_python_cli_and_rest(
     with_content(written.path)
     observed = observe(written.path)
     options = {"kind": "observation", "limit": 10}
-    assert "observation" in command_schema("store scan")["properties"]["kind"]["enum"]
+    assert "observation" in input_schema("store scan")["properties"]["kind"]["enum"]
     normalized = validate_command("store scan", options={"root": root, **options})
     assert normalized["kind"] == "observation"
 
@@ -303,28 +358,33 @@ def test_command_list_summarizes_every_command_of_the_catalog(lang):
         __version__,
         lang,
     )
-    assert document["groups"] == catalog["groups"]
-    assert [entry["command"] for entry in document["commands"]] == SPEC_COMMANDS
-    for entry, schema in zip(document["commands"], catalog["commands"], strict=True):
-        meta = schema["x-obserwator"]
-        assert entry == {
-            "command": meta["command"],
-            "operation_id": meta["operation_id"],
-            "group": meta["group"],
+    assert document["tool"] == "obserwator"
+    assert document["groups"] == [
+        {"name": name, "summary": summary}
+        for name, summary in catalog["groups"].items()
+    ]
+    assert [row["name"] for row in document["commands"]] == SPEC_COMMANDS
+    results = {"single": "object", "bounded": "list", "unbounded": "stream"}
+    for row, entry in zip(document["commands"], catalog["commands"], strict=True):
+        assert row == {
+            "name": entry["name"],
+            "operation_id": entry["operation_id"],
+            "group": entry["group"],
             "summary": entry["summary"],
-            "writes": meta["writes"],
-            "network": meta["network"],
-            "idempotent": meta["idempotent"],
-            "check": meta["check"],
-            "result": meta["result"],
-            "result_type": meta["result_type"],
+            "read_only": entry["effects"]["read_only"],
+            "check": entry["check"],
+            "writes": entry["effects"]["writes"],
+            "network": entry["effects"]["network"],
+            "idempotent": entry["effects"]["idempotent"],
+            "result": results[entry["result"]["cardinality"]],
+            "result_type": entry["result_type"],
             "rest": None
-            if meta["rest"] is None
-            else {"method": meta["rest"]["method"], "path": meta["rest"]["path"]},
+            if entry["rest"] is None
+            else {"method": entry["rest"]["method"], "path": entry["rest"]["path"]},
         }
         # The summary is the first sentence of the description (DOC-1.7: 100).
-        assert schema["description"].startswith(entry["summary"])
-        assert len(entry["summary"]) <= 100, meta["command"]
+        assert entry["description"].startswith(row["summary"])
+        assert len(row["summary"]) <= 100, row["name"]
 
 
 def test_command_list_stays_within_the_default_page_budget():
@@ -344,20 +404,24 @@ def test_command_list_rejects_a_language_outside_the_catalog():
 
 
 def test_every_path_option_has_a_role_and_the_write_targets_exclude_each_other():
-    commands = {schema["title"]: schema for schema in command_schema()["commands"]}
-    for title, schema in commands.items():
-        for name, option in schema["properties"].items():
-            if option.get("x-obserwator-type") == "path":
-                assert option.get("x-obserwator-path-role") in (
-                    "input",
-                    "output",
-                    "root",
-                ), (
-                    title,
-                    name,
-                )
-    download = commands["datasets download"]
-    assert download["properties"]["output_dir"]["x-obserwator-path-role"] == "output"
-    assert download["properties"]["root"]["x-obserwator-path-role"] == "root"
-    assert download["x-obserwator"]["exclusive"] == [["output_dir", "root"]]
-    assert "exclusive" not in commands["datasets files"]["x-obserwator"]
+    paths = {
+        (spec.name, option.name)
+        for spec in data_commands()
+        for option in spec.options
+        if option.type == "path"
+    }
+    commands = {entry["name"]: entry for entry in command_schema()["commands"]}
+    roles = {
+        (name, option["name"]): option.get("path_role")
+        for name, entry in commands.items()
+        for option in entry["options"]
+        if (name, option["name"]) in paths
+    }
+    assert set(roles.values()) <= {"input", "output", "root"}, roles
+    download = {o["name"]: o for o in commands["datasets download"]["options"]}
+    assert download["output_dir"]["path_role"] == "output"
+    assert download["root"]["path_role"] == "root"
+    assert download["output_dir"]["one_of"] == download["root"]["one_of"]
+    assert "one_of" not in download["dataset"]
+    assert commands["datasets download"]["exclusive"] == [["output_dir", "root"]]
+    assert "exclusive" not in commands["datasets files"]

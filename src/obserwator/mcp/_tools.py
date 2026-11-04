@@ -5,8 +5,8 @@ Every catalog command is one tool (mode ``http``: every command with a REST
 route), in catalog order: the name is ``x-obserwator.operation_id``, the title ``obserwator
 <command>``, the description the English catalog description, followed by the
 rules and, for a writing command, the sentence of the mode (the server speaks
-English only, AGI-9.2). The input schema is the command schema of
-`command_schema` without ``$schema``, ``title``, ``description`` (it is the tool
+English only, AGI-9.2). The input schema is the JSON Schema of the options
+(``obserwator.commands._input_schema``) without ``$schema``, ``title``, ``description`` (it is the tool
 description), ``x-obserwator`` and the ``x-obserwator-*`` keywords, and without the options
 the mode does not offer (``read``: writing options; ``http``: options outside
 REST, the others as the REST route takes them); ``required``,
@@ -31,7 +31,7 @@ from typing import Any, Literal, cast
 import mcp.types as types
 
 from obserwator.agent_guide import _PAGE_SIZE
-from obserwator.commands import command_schema, data_commands
+from obserwator.commands import _input_schemas, data_commands
 from obserwator.config import settings
 from obserwator.store.types import CommandOption, DataCommand
 
@@ -275,9 +275,8 @@ def catalog_tools(*, mode: Mode) -> dict[str, CatalogTool]:
         Tools by name, in catalog order.
     """
     specs = {spec.name: spec for spec in data_commands()}
-    document = command_schema(lang="en")
     tools: dict[str, CatalogTool] = {}
-    for schema in cast(list[dict[str, Any]], document["commands"]):
+    for schema in cast(list[dict[str, Any]], _input_schemas("en")):
         meta = schema["x-obserwator"]
         if mode == "http" and meta["rest"] is None:
             continue

@@ -51,6 +51,7 @@ from tests.contract.support import (
     current_path,
     envelope_errors,
     in_json,
+    input_schemas,
     rest_request,
     schema_errors,
     slots,
@@ -58,11 +59,10 @@ from tests.contract.support import (
     stamps,
 )
 
-CATALOG = command_document()
-EXIT_CODES = CATALOG["exit_codes"]
+EXIT_CODES = command_document()["exit_codes"]
 ROUTES = {
     schema["x-obserwator"]["command"]: schema["x-obserwator"]
-    for schema in CATALOG["commands"]
+    for schema in input_schemas()
     if schema["x-obserwator"]["rest"] is not None
 }
 POST_COMMANDS = [

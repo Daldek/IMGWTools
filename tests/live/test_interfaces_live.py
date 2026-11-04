@@ -25,7 +25,7 @@ the same code, exit code and HTTP status in every interface.
 
 The MCP leg (spec 2026-10-19 §9) starts ``obserwator mcp`` once, as an MCP client
 does, in the working directory of the CLI and calls the tool of every read
-command that asks the live sources (``x-obserwator``: ``writes`` none, ``network``)
+command that asks the live sources (``effects``: ``writes`` none, ``network``)
 with the options of Python, ``root`` included: the structured content must be
 the Python envelope ``to_json(root)`` and the text content its JSON. Run it
 alone with ``-k obserwator_mcp``.
@@ -87,6 +87,7 @@ from tests.contract.support import (
     command_document,
     current_path,
     envelope_errors,
+    input_schemas,
     obserwator_executable,
     rest_request,
     schema_errors,
@@ -101,11 +102,11 @@ CATALOG = command_document()
 EXIT_CODES: dict[str, int] = CATALOG["exit_codes"]
 SPECS: dict[str, dict[str, Any]] = {
     schema["x-obserwator"]["command"]: schema["x-obserwator"]
-    for schema in CATALOG["commands"]
+    for schema in input_schemas()
 }
 ROOTED = {
     schema["x-obserwator"]["command"]
-    for schema in CATALOG["commands"]
+    for schema in input_schemas()
     if "root" in schema["properties"]
 }
 INTERFACES = ("python", "cli", "rest")
@@ -1152,9 +1153,7 @@ def mcp_server(live: Live) -> Iterator[McpServer]:
 
 
 def test_the_live_run_covers_every_catalog_command():
-    assert list(CASES) == [
-        schema["x-obserwator"]["command"] for schema in CATALOG["commands"]
-    ]
+    assert list(CASES) == [entry["name"] for entry in CATALOG["commands"]]
 
 
 @pytest.mark.parametrize("command", list(CASES))

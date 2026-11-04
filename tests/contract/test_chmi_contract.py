@@ -56,7 +56,7 @@ from tests.contract.support import (
     RABA,
     canonical,
     cli_words,
-    command_document,
+    input_schema,
     load,
     rest_request,
     schema_errors,
@@ -1147,7 +1147,7 @@ def mcp_answer(
 
     from obserwator.mcp.server import create_server
 
-    meta = command_document(command)["x-obserwator"]
+    meta = input_schema(command)["x-obserwator"]
     arguments = {
         name: str(value) if isinstance(value, Path) else value
         for name, value in options.items()
@@ -1173,7 +1173,7 @@ def assert_mcp_alike(
     if ROUTES[command]["result"] == "stream" and not python.check:
         # The raw bytes: Click's ``stdout`` turns CRLF into LF.
         data = printed.stdout_bytes.decode("utf-8")
-        default = command_document(command)["properties"]["format"]["default"]
+        default = input_schema(command)["properties"]["format"]["default"]
         assert answered.content[0].text == data
         assert answered.structured_content == {
             "schema": "obserwator-result/1",
@@ -1335,7 +1335,7 @@ REFUSED = [
 def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
     command, options, option, value, cli, rest, server, monkeypatch, pl_cz, chmi
 ):
-    root = pl_cz if "root" in command_document(command)["properties"] else None
+    root = pl_cz if "root" in input_schema(command)["properties"] else None
     monkeypatch.setattr(server, "root", root)
     with pytest.raises(ObserwatorValidationError) as caught:
         run_command(command, options=rooted(options, root))

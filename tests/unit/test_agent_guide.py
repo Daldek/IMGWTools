@@ -24,7 +24,6 @@ from obserwator.cli.main import app as cli_app
 from obserwator.commands import (
     check_command,
     command_schema,
-    list_commands,
     parse_command,
     validate_command,
 )
@@ -35,6 +34,7 @@ from obserwator.exceptions import (
     ObserwatorValidationError,
 )
 from obserwator.messages import Lang, message
+from tests.contract.support import input_schemas
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 GUIDES = {"AGENTS.md": "agents", "llms.txt": "llms"}
@@ -118,7 +118,8 @@ def test_guide_lists_every_command_once_in_the_class_of_its_effect(lang):
             assert found[1] not in placed, found[1]
             placed[found[1]] = heading
 
-    listed = list_commands(lang=lang)["commands"]
+    # The class is the effect of a run; the marks name the writing options.
+    listed = [schema["x-obserwator"] for schema in input_schemas(lang=lang)]
     assert sorted(placed) == sorted(item["command"] for item in listed)
     for item in listed:
         effect = item["writes"] if item["writes"] != "none" else "read"
