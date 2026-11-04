@@ -43,6 +43,7 @@ from tests.contract.support import (
     envelope_errors,
     input_schema,
     mcp_text,
+    schema_errors,
     snapshot,
     stamps,
 )
@@ -304,6 +305,5 @@ def test_every_error_of_the_cli_is_the_same_document_in_mcp(
         document, ensure_ascii=False, separators=(",", ":")
     )
     assert document["title"] == ERROR_CODES[code].title
-    assert canonical(
-        [document["code"], document["detail"], document["details"]]
-    ) == canonical([line["code"], line["detail"], line["details"]])
+    assert schema_errors(document, "obserwator-error/1") == []
+    assert canonical(document) == canonical(line)

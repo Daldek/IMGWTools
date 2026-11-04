@@ -66,7 +66,7 @@ def test_cli_main_server_rejects_non_numeric_port_with_the_json_error_line(
     assert result.stdout == ""
     error = json.loads(result.stderr.splitlines()[-1])
     assert (error["code"], error["details"]["option"]) == ("validation_error", "port")
-    assert error["detail"].startswith("Invalid value of the option --port")
+    assert error["message"].startswith("Invalid value of the option --port")
     assert uvicorn_calls == []
 
 
@@ -81,7 +81,7 @@ def test_cli_main_mcp_without_the_extra_ends_with_missing_dependency(monkeypatch
     assert result.stdout == ""
     error = json.loads(result.stderr.splitlines()[-1])
     assert (error["code"], error["details"]) == ("missing_dependency", {})
-    assert "pip install obserwator[mcp]" in error["detail"]
+    assert "pip install obserwator[mcp]" in error["message"]
 
 
 def test_cli_main_entry_point_runs_command_from_argv(monkeypatch, capsys):

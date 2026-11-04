@@ -1021,10 +1021,10 @@ class Live:
             problems["cli"].append(f"kod wyjścia {printed.returncode}")
         if printed.stdout:
             problems["cli"].append("niepuste stdout przy błędzie")
-        problems["cli"] += schema_errors(line, "cli-error")
+        problems["cli"] += schema_errors(line, "obserwator-error/1")
         if line.get("code") != failure.code:
             problems["cli"].append(f"kod {line.get('code')}")
-        if error is not None and [line.get("detail"), line.get("details")] != [
+        if error is not None and [line.get("message"), line.get("details")] != [
             error.detail,
             _plain(error.details),
         ]:

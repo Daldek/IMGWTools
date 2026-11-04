@@ -11,8 +11,9 @@ of Python and REST. ``--schema`` prints the command schema envelope of
 
 stdout carries one ``obserwator-result/1`` envelope (only the data lines of a stream
 without ``--output``); stderr carries progress, every distinct notice once and,
-on an error, the JSON error line ``{"code", "detail", "details"}`` as its last
-line. Exit codes follow the error registry and the envelope status (spec
+on an error, the ``obserwator-error/1`` document (`obserwator.error_report`: ``schema,
+code, title, message, hint?, details, exit_code, command?``) as compact JSON on its
+last line. Exit codes follow the error registry and the envelope status (spec
 §13.5). The first Ctrl+C requests cancellation, the second aborts at once.
 
 The human-readable output is in the language of ``OBSERWATOR_LANG`` (``Settings.lang``,
@@ -53,6 +54,7 @@ from obserwator.commands import (
     validate_command,
 )
 from obserwator.config import check_config, human_language, settings
+from obserwator.error_report import error_document
 from obserwator.exceptions import (
     ERROR_CODES,
     ErrorCode,
@@ -230,33 +232,40 @@ def _utf8_streams() -> None:
 # --- błędy -----------------------------------------------------------------------------------
 
 
-def _error_line(code: ErrorCode, detail: str, details: Mapping[str, object]) -> int:
-    """Write the JSON error line of spec §13.5 to stderr; return the exit code."""
-    spec = ERROR_CODES[code]
-    if spec.exit_code is None:  # REST-only code (method_not_allowed)
-        spec = ERROR_CODES["internal_error"]
-    document = {
-        "code": spec.code,
-        "detail": localize(detail, "en") or spec.title,
-        "details": dict(details),
-    }
-    typer.echo(_json(document), err=True)
-    return spec.exit_code or 1
+def _error_line(
+    code: ErrorCode,
+    detail: str,
+    details: Mapping[str, object],
+    *,
+    hint: str | None = None,
+    command: str | None = None,
+) -> int:
+    """Write the ``obserwator-error/1`` line to stderr in English; return the exit code."""
+    if ERROR_CODES[code].exit_code is None:  # REST-only code (method_not_allowed)
+        code = "internal_error"
+    report = error_document(code, detail, details, hint=hint, command=command)
+    typer.echo(report.to_json(), err=True)
+    return report.exit_code or 1
 
 
-def _failure(exc: BaseException) -> int:
+def _failure(exc: BaseException, command: str | None = None) -> int:
     """Report an exception as the JSON error line; return the exit code."""
     if isinstance(exc, KeyboardInterrupt):
-        return _error_line("cancelled", message("cli.stopped_at_once"), {})
+        return _error_line(
+            "cancelled", message("cli.stopped_at_once"), {}, command=command
+        )
     if isinstance(exc, ObserwatorError):
-        return _error_line(exc.code, exc.detail, exc.details)
+        return _error_line(
+            exc.code, exc.detail, exc.details, hint=exc.hint, command=command
+        )
     if isinstance(exc, OSError):
-        return _error_line("io_error", *describe_os_error(exc))
+        return _error_line("io_error", *describe_os_error(exc), command=command)
     traceback.print_exception(exc, file=sys.stderr)
     return _error_line(
         "internal_error",
         message("cli.internal_error", kind=type(exc).__name__, error=exc),
         {},
+        command=command,
     )
 
 
@@ -268,17 +277,25 @@ def _usage_failure(exc: Any) -> int:
     """Report a Click syntax error as ``validation_error``; return the exit code."""
     ctx = exc.ctx
     path = "obserwator" if ctx is None else ctx.command_path
+    command = (
+        path.split(" ", 1)[1]
+        if ctx is not None and isinstance(ctx.command, _CatalogCommand)
+        else None
+    )
     details: dict[str, object] = {"click": exc.format_message()}
     detail: Message
+    hint = message("cli.hint_help", path=path)
     if isinstance(exc, _click_errors.NoSuchOption):
         details["option"] = _option_name(exc.option_name)
         if exc.possibilities:
+            similar = ", ".join(sorted(exc.possibilities))
             detail = message(
                 "cli.unknown_option_similar",
                 option=exc.option_name,
                 path=path,
-                similar=", ".join(sorted(exc.possibilities)),
+                similar=similar,
             )
+            hint = message("cli.hint_similar", similar=similar, path=path)
         else:
             detail = message("cli.unknown_option", option=exc.option_name, path=path)
     elif isinstance(exc, _click_errors.BadOptionUsage):
@@ -298,9 +315,7 @@ def _usage_failure(exc: Any) -> int:
         detail = message("cli.unknown_command", path=path, names=", ".join(names))
     else:
         detail = message("cli.invalid_call", path=path)
-    return _error_line(
-        "validation_error", message("cli.usage_help", detail=detail, path=path), details
-    )
+    return _error_line("validation_error", detail, details, hint=hint, command=command)
 
 
 def _language_failure() -> int:
@@ -315,6 +330,7 @@ def _language_failure() -> int:
             allowed=", ".join(LANGS),
         ),
         {"option": _LANG_ENV, "value": value, "allowed": list(LANGS)},
+        hint=message("cli.hint_language", variable=_LANG_ENV, allowed=", ".join(LANGS)),
     )
 
 
@@ -341,8 +357,9 @@ class ObserwatorGroup(TyperGroup):
     ``OBSERWATOR_LANG``, ``details.allowed`` the languages, exit code 2). An unknown
     flag or command, a missing option value or a missing command is the
     ``validation_error`` of spec §13.5: stdout stays empty, the last stderr
-    line is ``{"code", "detail", "details"}`` with an English ``detail`` and the
-    original Click message in ``details.click``, and the exit code is 2. The
+    line is the English ``obserwator-error/1`` document with the original Click
+    message in ``details.click``, a ``hint`` naming ``--help`` (or the similar
+    flag) and the ``command`` when it is a catalog command, and the exit code is 2. The
     help elements of Typer and Click are in the CLI language. stdout and stderr
     are written in UTF-8 whatever the locale (cp1252 and the like on Windows).
     """
@@ -368,9 +385,7 @@ class ObserwatorGroup(TyperGroup):
             try:
                 check_config()
             except ObserwatorError as exc:
-                raise typer.Exit(
-                    _error_line(exc.code, exc.detail, exc.details)
-                ) from None
+                raise typer.Exit(_failure(exc)) from None
         try:
             return super().make_context(info_name, args, parent, **extra)
         except _click_errors.UsageError as exc:
@@ -493,7 +508,7 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
             _silence_stdout()
             return 0
         except (KeyboardInterrupt, Exception) as exc:
-            return _failure(exc)
+            return _failure(exc, command)
     return _EXIT_CODES[outcome.status]
 
 

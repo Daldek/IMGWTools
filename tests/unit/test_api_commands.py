@@ -126,7 +126,7 @@ def problem(response, status, code):
     assert response.status_code == status, response.text
     assert response.headers["content-type"] == "application/problem+json"
     body = response.json()
-    assert set(body) == {
+    assert set(body) - {"hint"} == {
         "type",
         "title",
         "status",
@@ -135,6 +135,7 @@ def problem(response, status, code):
         "code",
         "details",
     }
+    assert body.get("hint", "x")
     assert (body["type"], body["code"], body["status"]) == (
         f"urn:obserwator:error:{code}",
         code,
@@ -374,7 +375,7 @@ def test_api_lang_comes_from_the_query_then_accept_language_then_english(
     assert ("accept-language" in vary) == (query is None)
 
 
-def test_api_problem_title_and_detail_follow_accept_language(client):
+def test_api_problem_title_detail_and_hint_follow_accept_language(client):
     english = {"Accept-Language": "en-US, pl;q=0.5"}
     invalid = client.get(
         "/api/v1/pmaxtp/fetch",
@@ -389,6 +390,11 @@ def test_api_problem_title_and_detail_follow_accept_language(client):
     polish_invalid = client.get(
         "/api/v1/pmaxtp/fetch",
         params={"latitude": "1", "longitude": "21.01"},
+        headers={"Accept-Language": "pl"},
+    )
+    polish_refused = client.get(
+        "/api/v1/commands/schema",
+        params={"lang": "de"},
         headers={"Accept-Language": "pl"},
     )
 
@@ -406,6 +412,9 @@ def test_api_problem_title_and_detail_follow_accept_language(client):
         "value": "de",
         "allowed": ["en", "pl"],
     }
+    assert refused.json()["hint"] == "Use --lang with one of: en, pl"
+    assert polish_refused.json()["hint"] == "Użyj --lang z jedną z wartości: en, pl"
+    assert "hint" not in unknown.json()
     assert unknown.json()["title"] == ERROR_CODES["not_found"].title
     assert polish.json()["title"] == ERROR_CODES["not_found"].title.localized("pl")
     for response, lang in (

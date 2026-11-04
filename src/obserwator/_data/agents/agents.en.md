@@ -18,10 +18,10 @@ Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep
 
 | Interface | Plan | Result | Error |
 |---|---|---|---|
-| Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `details`) |
-| CLI `obserwator` | `--check` | one-line JSON envelope on stdout | last stderr line `{"code", "detail", "details"}`; exit code |
-| REST `/api/v1` | `?check=true` (POST) | 200 + envelope | `application/problem+json` |
-| MCP | `check: true` | `structuredContent` = envelope | `isError: true` + `{"code", "title", "detail", "details"}` |
+| Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `hint`, `details`); `obserwator.error_report.error_report(exc).to_dict()` = the error document |
+| CLI `obserwator` | `--check` | one-line JSON envelope on stdout | last stderr line: error document `obserwator-error/1`; exit code |
+| REST `/api/v1` | `?check=true` (POST) | 200 + envelope | `application/problem+json` (with `hint`) |
+| MCP | `check: true` | `structuredContent` = envelope | `isError: true` + error document `obserwator-error/1` |
 
 One command in every interface: CLI `obserwator <group> <command> --option value` (flag = `--` + the option name with `-` for `_`); Python `run_command("<group> <command>", options={...})`; REST `/api/v1/<group>/<command>` (GET: query parameters, POST: JSON body); MCP tool `obserwator_<group>_<command>`.
 

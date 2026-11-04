@@ -117,6 +117,11 @@ class ObserwatorError(Exception):
     details : Mapping[str, object] or None, optional
         JSON-compatible context (e.g. ``option``, ``value``, ``allowed``);
         stored as an independent deep copy.
+    hint : str or None, optional
+        One line saying how to fix the error, naming the option or command
+        (``hint`` of the error document, AGI-4.3); a catalog message has a
+        Polish variant. ``None`` leaves it to `obserwator.error_report.error_hint`,
+        which derives one from ``code`` and ``details`` when it can.
 
     Attributes
     ----------
@@ -128,6 +133,8 @@ class ObserwatorError(Exception):
         The description, equal to ``str(exc)``.
     details : Mapping[str, object]
         Copy of the given context; empty when none was given.
+    hint : str or None
+        The given hint.
 
     Raises
     ------
@@ -140,6 +147,7 @@ class ObserwatorError(Exception):
     code: ErrorCode
     detail: str
     details: Mapping[str, object]
+    hint: str | None
 
     def __init__(
         self,
@@ -148,6 +156,7 @@ class ObserwatorError(Exception):
         *,
         code: ErrorCode | None = None,
         details: Mapping[str, object] | None = None,
+        hint: str | None = None,
     ) -> None:
         resolved = self.default_code if code is None else code
         if resolved not in ERROR_CODES:
@@ -158,6 +167,7 @@ class ObserwatorError(Exception):
         self.code = resolved
         self.detail = detail
         self.details = copy.deepcopy(dict(details or {}))
+        self.hint = hint
 
     def localized(self, lang: Lang) -> str:
         """
@@ -243,6 +253,8 @@ class ObserwatorStoreDependencyError(ObserwatorStoreError):
         Error code overriding ``missing_dependency``.
     details : Mapping[str, object] or None, optional
         JSON-compatible context.
+    hint : str or None, optional
+        How to fix it; ``None`` lets `obserwator.error_report.error_hint` decide.
     """
 
     default_code: ClassVar[ErrorCode] = "missing_dependency"
@@ -254,8 +266,9 @@ class ObserwatorStoreDependencyError(ObserwatorStoreError):
         *,
         code: ErrorCode | None = None,
         details: Mapping[str, object] | None = None,
+        hint: str | None = None,
     ) -> None:
-        super().__init__(detail, code=code, details=details)
+        super().__init__(detail, code=code, details=details, hint=hint)
 
 
 class ObserwatorCancelledError(ObserwatorError):

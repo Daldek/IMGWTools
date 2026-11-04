@@ -1015,22 +1015,32 @@
             "internal_error"
           ]
         },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        },
         "details": {
           "type": "object"
         }
       },
       "additionalProperties": false
     },
-    "cli-error": {
+    "obserwator-error/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "błąd CLI Obserwatora (ostatnia linia stderr)",
+      "title": "obserwator-error/1 (ostatnia linia stderr CLI, wynik isError MCP)",
       "type": "object",
       "required": [
+        "schema",
         "code",
-        "detail",
-        "details"
+        "title",
+        "message",
+        "details",
+        "exit_code"
       ],
       "properties": {
+        "schema": {
+          "const": "obserwator-error/1"
+        },
         "code": {
           "enum": [
             "validation_error",
@@ -1042,16 +1052,36 @@
             "store_unavailable",
             "io_error",
             "cancelled",
+            "forbidden",
             "unsupported",
+            "method_not_allowed",
             "internal_error"
           ]
         },
-        "detail": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hint": {
           "type": "string",
           "minLength": 1
         },
         "details": {
           "type": "object"
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]* [a-z][a-z0-9-]*$"
         }
       },
       "additionalProperties": false
@@ -1299,13 +1329,17 @@
         "value": 1.0
       }
     },
-    "cli-error": {
+    "obserwator-error/1": {
+      "schema": "obserwator-error/1",
       "code": "validation_error",
-      "detail": "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)",
+      "title": "Invalid input",
+      "message": "Latitude 1.0 is outside Poland (49.0–55.0)",
       "details": {
         "option": "latitude",
         "value": 1.0
-      }
+      },
+      "exit_code": 2,
+      "command": "pmaxtp fetch"
     }
   }
 }

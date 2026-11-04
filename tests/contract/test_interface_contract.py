@@ -668,10 +668,10 @@ def test_every_error_code_is_reported_alike_by_every_interface(
         else:
             assert printed.stdout == ""
             line = json.loads(printed.stderr.splitlines()[-1])
-            assert schema_errors(line, "cli-error") == []
+            assert schema_errors(line, "obserwator-error/1") == []
             assert line["code"] == code
             if isinstance(raised, ObserwatorError):
-                assert canonical([line["detail"], line["details"]]) == canonical(
+                assert canonical([line["message"], line["details"]]) == canonical(
                     [raised.detail, dict(raised.details)]
                 )
 
@@ -770,7 +770,7 @@ def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
         "",
         "io_error",
     )
-    assert canonical([line["detail"], line["details"]]) == canonical(expected)
+    assert canonical([line["message"], line["details"]]) == canonical(expected)
 
     answered = rest.request(**rest_request(command, options), headers=headers)
     body = answered.json()
@@ -880,7 +880,7 @@ def test_obserwator_ends_every_syntax_error_with_a_validation_error_line(args, c
     printed = cli(*args)
 
     line = json.loads(printed.stderr.splitlines()[-1])
-    assert schema_errors(line, "cli-error") == []
+    assert schema_errors(line, "obserwator-error/1") == []
     assert (printed.stdout, line["code"]) == ("", "validation_error")
     assert printed.exit_code == ERROR_CODES["validation_error"].exit_code
 
@@ -902,7 +902,7 @@ def test_program_errors_are_internal_errors_in_obserwator_and_rest(
 
     spec = ERROR_CODES["internal_error"]
     line = json.loads(printed.stderr.splitlines()[-1])
-    assert schema_errors(line, "cli-error") == []
+    assert schema_errors(line, "obserwator-error/1") == []
     assert (printed.exit_code, line["code"]) == (spec.exit_code, "internal_error")
     body = answered.json()
     assert schema_errors(body, "problem+json") == []
