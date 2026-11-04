@@ -78,9 +78,9 @@ full = [
 obserwator = "obserwator.cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/Daldek/IMGWTools"
-Repository = "https://github.com/Daldek/IMGWTools"
-Issues = "https://github.com/Daldek/IMGWTools/issues"
+Homepage = "https://github.com/Daldek/Obserwator"
+Repository = "https://github.com/Daldek/Obserwator"
+Issues = "https://github.com/Daldek/Obserwator/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/obserwator"]

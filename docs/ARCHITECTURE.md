@@ -332,7 +332,7 @@ trigger on `main` and `develop`, so they start working once the branches are ren
 ## 12. File Structure
 
 ```
-IMGWTools/
+Obserwator/
 ├── src/obserwator/
 │   ├── __init__.py       # PUBLIC API entry point (single __all__)
 │   ├── output.py         # Plain output (ADR-007): resolve_target, refuse_directory, plan_plain, refuse, Staging, FileResult, OutputReport

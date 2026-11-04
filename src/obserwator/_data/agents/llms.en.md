@@ -11,11 +11,11 @@
 
 ## Docs
 
-- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/main/AGENTS.md): guide for agents in English (Polish: `obserwator commands guide --lang pl`) — commands, datasets, flags, error codes, flows, what not to do
-- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/main/README.md): installation and examples for Python, CLI, REST, MCP
-- [Architecture](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/ARCHITECTURE.md): modules, store, data flow
-- [Changes](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/CHANGELOG.md): changes and migration from 2.x
+- [AGENTS.md](https://raw.githubusercontent.com/Daldek/Obserwator/main/AGENTS.md): guide for agents in English (Polish: `obserwator commands guide --lang pl`) — commands, datasets, flags, error codes, flows, what not to do
+- [README.md](https://raw.githubusercontent.com/Daldek/Obserwator/main/README.md): installation and examples for Python, CLI, REST, MCP
+- [Architecture](https://raw.githubusercontent.com/Daldek/Obserwator/main/docs/ARCHITECTURE.md): modules, store, data flow
+- [Changes](https://raw.githubusercontent.com/Daldek/Obserwator/main/docs/CHANGELOG.md): changes and migration from 2.x
 
 ## Optional
 
-- [Decision log](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-009
+- [Decision log](https://raw.githubusercontent.com/Daldek/Obserwator/main/docs/DECISIONS.md): ADR-001–ADR-009

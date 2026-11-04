@@ -52,5 +52,5 @@ Please also tick the CLA box in the pull-request template.
 ## Reporting issues
 
 Found a bug or have a feature idea? Please open an issue at
-<https://github.com/Daldek/IMGWTools/issues> with as much detail as you can
+<https://github.com/Daldek/Obserwator/issues> with as much detail as you can
 (steps to reproduce, expected vs. actual behaviour, environment).
