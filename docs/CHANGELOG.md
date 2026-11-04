@@ -89,6 +89,33 @@ Migration:
   download the data again into a new store (`obserwator store sync`, default root
   `<data_dir>/obserwator`).
 
+#### Result, error and catalog documents follow the Nogat standard 1.0 (ADR-010)
+
+The documents of every interface follow the Nogat standard 1.0 (AGI-2.4, AGI-3.2–3.4,
+AGI-4.1–4.4, AGI-5.6, AGI-6.3, AGI-6.5, ERR-3; Nogat plan `2026-11-04-obserwator-agent-contracts`).
+`schemas/nogat/` holds copies of Nogat's `result-1`, `error-1`, `commands-1` and the error
+registry, and contract tests validate the CLI, REST, MCP and Python documents against them.
+
+| Old | New |
+|---|---|
+| the CLI prints the envelope on stdout | `--json` prints exactly the envelope; without it the CLI prints a short summary for a person in the `--lang` language (status, the command, the items or the main fields, the page, the notices); the streams (`store export`, `series export`, `commands guide` without `--output`) give the same bytes in both modes |
+| the envelope `{schema, command, check, status, result, notices}` | adds `tool` (`"obserwator"`) and `version` (`__version__`), and `page` for a list command |
+| a list command returns `{items, total, limit, offset}` as `result` (Python `Page[T]` with `items`, `total`, `limit`, `offset`) | `result` is the list of the page's items and the envelope's `page` is `{total, next_cursor, truncated}` (Python `CommandResult.result` is the tuple of items and `CommandResult.page` a `Page(total, next_cursor, truncated)`) |
+| `offset` (CLI `--offset`, REST and MCP `offset`) | `cursor` (`--cursor`): pass `page.next_cursor` of the previous page; a cursor no page wrote is refused with `validation_error` (`details.option` `"cursor"`) |
+| a result document without an id | every result document has its own `schema` `obserwator-<kind>/1` (`obserwator-dataset/1`, `obserwator-station/1`, `obserwator-record/1`, …; `PMaXTPUrl` is a new type with `obserwator-pmaxtp-url/1`) |
+| a notice `{level, code, text}` with the levels `info`, `warning` and `error` | `{level, code, message}` with the levels `info` and `warning` (a former `error` notice is a `warning`) |
+| the CLI error line and the MCP error `{code, detail, details}` | the document `obserwator-error/1` `{schema, code, title, message, hint?, details, exit_code, command?}` in English; `message` is the former `detail` (the Python attribute `ObserwatorError.detail` keeps its name) and `hint` names the option or command that fixes the input; in human mode one readable line precedes it, and the last line of stderr stays the document |
+| REST problem+json `{type, title, status, detail, code, details}` | adds `hint` |
+| `command_schema` entries are the JSON Schemas of the options (`x-obserwator`) | entries follow Nogat `commands-1` (`name`, `operation_id`, `summary`, `options` with `flags` and `enum` meanings, `effects`, `errors`, `examples`, …); `commands list` stays the summary `obserwator-command-list/1`, as in Kartograf and Hydrolog |
+| `parse_command` and `format_command` know the run flag `--check` | they also know `--json` and `--lang` (`run["json"]`, `run["lang"]`) |
+
+- A script that reads CLI stdout adds `--json`; the error document stays the last line of stderr.
+- Read the list from `result` and the paging from `page`; fetch the next page with
+  `--cursor <page.next_cursor>` while `page.truncated`, instead of computing an `offset`.
+- Read the notice text from `message` and the error text from `message` instead of `detail`.
+- A reader of `command_schema` reads the `commands-1` entries; the JSON Schemas of the options
+  are the MCP tools' `inputSchema` and the request bodies of the OpenAPI document.
+
 #### Python — data functions
 
 | Old | New |
