@@ -7,7 +7,7 @@ Code and module reference moved out of [CLAUDE.md](../CLAUDE.md) (Nogat standard
 ```
 src/obserwator/
 ├── __init__.py           # PUBLIC API - single __all__ (spec §13.12, ČHMÚ spec §9.1, agent_guide)
-├── _version.py           # Version: 3.0.0
+├── _version.py           # Version, single source (`[tool.hatch.version]` in pyproject.toml)
 ├── fetch.py              # PUBLIC: live data (fetch_*), PMAXTP, download_archives, download_*_data
 ├── models.py             # PUBLIC: Data models (PMaXTPData, HydroCurrentData, NormalizedRecord, Measurement, ...)
 ├── stations.py           # PUBLIC: find_stations (live lists of IMGW-PIB and ČHMÚ, or store)

@@ -336,7 +336,7 @@ Obserwator/
 ├── src/obserwator/
 │   ├── __init__.py       # PUBLIC API entry point (single __all__)
 │   ├── output.py         # Plain output (ADR-007): resolve_target, refuse_directory, plan_plain, refuse, Staging, FileResult, OutputReport
-│   ├── _version.py       # Version (3.0.0)
+│   ├── _version.py       # Version, single source (pyproject reads it)
 │   ├── fetch.py          # PUBLIC: fetch_* (live), download_archives, download_* -> DownloadResult
 │   ├── models.py         # PUBLIC: Data models incl. NormalizedRecord, Measurement
 │   ├── stations.py       # PUBLIC: find_stations (IMGW-PIB and ČHMÚ)

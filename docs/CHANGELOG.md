@@ -7,6 +7,11 @@ follow [SemVer](https://semver.org/). Every change of the public API and of the 
 ## [Unreleased]
 
 - Repository URLs point to `github.com/Daldek/Obserwator` (the repository was renamed from IMGWTools).
+- The version has one source, `src/obserwator/_version.py` (`pyproject.toml` reads it through
+  `[tool.hatch.version]`); `develop` carries `3.0.0.dev0` until the release (Nogat REL-1.1).
+- `SECURITY.md`: supported versions, private reporting through GitHub Security Advisories and the
+  scope (REST and MCP servers, store writes, the `--allow-dir` sandbox, API keys); `CONTRIBUTING.md`
+  points to it (Nogat DEV-13.7).
 
 Changes since 2.1.1, to be released as 3.0.0. The tool released as IMGWTools 2.1.1 is called
 Obserwator from this release (ADR-009): the distribution, the import package, the command and
