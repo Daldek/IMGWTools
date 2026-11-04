@@ -19,7 +19,7 @@ import pytest
 pytest.importorskip("mcp")
 
 from obserwator import ERROR_CODES
-from tests.contract.support import command_document, input_schema, rest_request, stamps
+from tests.contract.support import input_schema, rest_request, stamps
 from tests.contract.test_interface_contract import (
     CASES,
     ROUTES,
