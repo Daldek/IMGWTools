@@ -213,7 +213,9 @@ def test_two_obserwator_processes_building_one_series_publish_it_once(
     before = {path.name for path in slot.iterdir()}
 
     def build(_):
-        return run_obserwator("series", "build", "--root", root, "--dataset", PRECIP)
+        return run_obserwator(
+            "series", "build", "--root", root, "--dataset", PRECIP, "--json"
+        )
 
     with ThreadPoolExecutor(2) as pool:
         envelopes = [json.loads(result.stdout) for result in pool.map(build, range(2))]

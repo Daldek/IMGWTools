@@ -19,7 +19,7 @@ parameters, POST with a JSON body and always ``?check=true``, in English
 (``Accept-Language: en``); REST itself refuses server and local options.
 
 An envelope ``obserwator-result/1`` is ``structuredContent`` and, as compact JSON,
-the only text content (the CLI stdout line without its line end); a stream
+the only text content (the CLI ``--json`` stdout line without its line end); a stream
 (``store export``, ``series export``, ``commands guide`` without ``output``) is its
 text, at most 256 KiB, with an envelope whose result is the ``obserwator-stream/1``
 document ``{schema, format, bytes, lines}``. An error is ``isError`` with the

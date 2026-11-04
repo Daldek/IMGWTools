@@ -462,10 +462,11 @@ def in_json(text: str) -> str:
 
 def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     """
-    ``obserwator`` arguments of ``options`` given in their JSON form (spec §13.10).
+    ``obserwator … --json`` arguments of ``options`` given in their JSON form (spec §13.10).
 
     Every option takes its canonical flag from the catalog schema; a list is
-    comma-separated text and a boolean is ``--x`` or ``--no-x``.
+    comma-separated text and a boolean is ``--x`` or ``--no-x``. ``--json``
+    makes stdout the envelope (AGI-3.2).
     """
     flags = input_schema(command)["x-obserwator"]["cli"]["flags"]
     words = command.split()
@@ -477,7 +478,7 @@ def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
             words += [flag, ",".join(str(item) for item in value)]
         else:
             words += [flag, str(value)]
-    return words
+    return [*words, "--json"]
 
 
 def _query(value: object) -> str | list[str]:
