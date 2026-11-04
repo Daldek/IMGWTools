@@ -94,15 +94,15 @@ MESSAGES = {
         "of each), then `obserwator commands schema --command … --json` or `obserwator "
         "<group> <command> --schema --json`; REST `GET /api/v1/commands/list` and "
         "`/schema`; in MCP `obserwator_commands_list` and `obserwator_commands_schema`. "
-        "Options are JSON Schema properties; rules the schema does not express are in "
-        "`x-obserwator.rules`, effects in `x-obserwator.writes`, `x-obserwator.network` and "
-        "`x-obserwator.idempotent`.",
+        "Options are in `options` (`name`, `type`, `required`, `flags`, `enum`); rules "
+        "they do not express are in `rules`, effects in `effects` (`writes`, `network`, "
+        "`idempotent`).",
         "**Poznaj komendy:** `obserwator commands list --json` (spis z opisem jednego "
         "zdania), potem `obserwator commands schema --command … --json` albo `obserwator "
         "<grupa> <komenda> --schema --json`; REST `GET /api/v1/commands/list` i `/schema`; "
-        "w MCP `obserwator_commands_list` i `obserwator_commands_schema`. Opcje to "
-        "właściwości JSON Schema; reguły nieopisane schematem są w `x-obserwator.rules`, "
-        "skutki w `x-obserwator.writes`, `x-obserwator.network` i `x-obserwator.idempotent`.",
+        "w MCP `obserwator_commands_list` i `obserwator_commands_schema`. Opcje są w "
+        "`options` (`name`, `type`, `required`, `flags`, `enum`); reguły, których nie "
+        "wyrażają, są w `rules`, skutki w `effects` (`writes`, `network`, `idempotent`).",
     ),
     "rule_check_first": Text(
         "**Check without writing:** `--check` (CLI), `?check=true` (REST, POST), "
