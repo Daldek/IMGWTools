@@ -52,12 +52,14 @@ API of the public data of IMGW-PIB and ČHMÚ, generated from the Obserwator com
   comes from the `Accept-Language` header: `en` or `pl`, `en` by default).
 * `/mcp` — the MCP server (Streamable HTTP) with the catalog routes as tools, when
   the administrator sets `OBSERWATOR_MCP_ENABLED=true`; writes only as a plan.
-* Answer: the envelope `obserwator-result/1` (`schema`, `command`, `check`, `status`,
-  `result`, `notices`); the status `partial`/`failed` also has code 200, so read
-  the `status` field. `store export` and `series export` return a CSV/JSONL
-  stream with the headers `X-Obserwator-Status` and `X-Obserwator-Notices`.
-* List commands page by `limit` (default and at most `OBSERWATOR_API_MAX_LIMIT`) and
-  `offset`.
+* Answer: the envelope `obserwator-result/1` (`schema`, `tool`, `version`, `command`,
+  `check`, `status`, `result`, `notices`, `page` of a list command); the status
+  `partial`/`failed` also has code 200, so read the `status` field. `store export`
+  and `series export` return a CSV/JSONL stream with the headers
+  `X-Obserwator-Status` and `X-Obserwator-Notices`.
+* List commands return the list of items as `result` and page by `limit` (default
+  and at most `OBSERWATOR_API_MAX_LIMIT`) and `cursor`: pass `page.next_cursor` while
+  `page.truncated` is true.
 * Errors: `application/problem+json` (RFC 9457) with the fields `code` and `details`.
 * The texts of notices and errors follow `Accept-Language` (`en` or `pl`, `en` by
   default); every answer names its language in `Content-Language`.

@@ -25,6 +25,7 @@ import httpx
 import respx
 
 from obserwator import archive_files, command_schema, current_version
+from obserwator.commands import _input_schema, _input_schemas, _spec
 from obserwator.datasets import ArchiveFile
 from obserwator.messages import Lang
 from obserwator.testing import fixture_files
@@ -243,7 +244,7 @@ class FakeImgw:
 
 # --------------------------------------------------------------------------
 # JSON Schema Draft 2020-12: the keyword subset used by the §11 contracts and
-# by ``command_schema`` (§13.8: anyOf, oneOf, items, required,
+# by the input schemas of the catalog (§13.8: anyOf, oneOf, items, required,
 # dependentRequired, additionalProperties, minimum/maximum)
 # --------------------------------------------------------------------------
 
@@ -390,6 +391,16 @@ def command_document(
     return cast(dict[str, Any], command_schema(command, lang=lang))
 
 
+def input_schema(command: str, /, *, lang: Lang = "en") -> dict[str, Any]:
+    """The JSON Schema of the options of ``command`` (MCP input schema, REST)."""
+    return cast(dict[str, Any], _input_schema(_spec(command), lang))
+
+
+def input_schemas(*, lang: Lang = "en") -> list[dict[str, Any]]:
+    """`input_schema` of every catalog command, in catalog order."""
+    return cast(list[dict[str, Any]], _input_schemas(lang))
+
+
 def current_path(root: Path, slot: str) -> Path:
     """Main file (or observation file) of the current version of ``slot``."""
     entry = current_version(root, slot=slot)
@@ -414,8 +425,9 @@ def envelope_errors(document: Any) -> list[str]:
     """
     Violations of the ``obserwator-result/1`` envelope (spec §13.6).
 
-    The result of a list command must be a ``#/$defs/page`` and the result of
-    a check (``check=true``) an ``obserwator-plan/1`` plan.
+    The result of a list command must be a list of documents next to a
+    ``page`` (which no other command has) and the result of a check
+    (``check=true``) an ``obserwator-plan/1`` plan.
     """
     schema = SCHEMAS["schemas"]["obserwator-result/1"]
     errors = violations(document, schema)
@@ -423,8 +435,11 @@ def envelope_errors(document: Any) -> list[str]:
         return errors
     if document["check"]:
         return schema_errors(document["result"], "obserwator-plan/1")
-    if command_document(document["command"])["x-obserwator"]["result"] == "list":
-        _check(document["result"], {"$ref": "#/$defs/page"}, schema, "$.result", errors)
+    listed = input_schema(document["command"])["x-obserwator"]["result"] == "list"
+    if listed and not isinstance(document["result"], list):
+        errors.append("$.result: a list command answers a list")
+    if listed != ("page" in document):
+        errors.append("$.page: exactly the list commands have a page")
     return errors
 
 
@@ -447,12 +462,13 @@ def in_json(text: str) -> str:
 
 def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
     """
-    ``obserwator`` arguments of ``options`` given in their JSON form (spec §13.10).
+    ``obserwator … --json`` arguments of ``options`` given in their JSON form (spec §13.10).
 
     Every option takes its canonical flag from the catalog schema; a list is
-    comma-separated text and a boolean is ``--x`` or ``--no-x``.
+    comma-separated text and a boolean is ``--x`` or ``--no-x``. ``--json``
+    makes stdout the envelope (AGI-3.2).
     """
-    flags = command_document(command)["x-obserwator"]["cli"]["flags"]
+    flags = input_schema(command)["x-obserwator"]["cli"]["flags"]
     words = command.split()
     for name, value in options.items():
         flag = flags[name][0]
@@ -462,7 +478,7 @@ def cli_words(command: str, options: Mapping[str, object]) -> list[str]:
             words += [flag, ",".join(str(item) for item in value)]
         else:
             words += [flag, str(value)]
-    return words
+    return [*words, "--json"]
 
 
 def _query(value: object) -> str | list[str]:
@@ -480,7 +496,7 @@ def rest_request(command: str, options: Mapping[str, object]) -> dict[str, Any]:
     GET options are query parameters (a list repeats its parameter, a boolean
     is ``true``/``false``); POST options form the JSON body.
     """
-    rest = command_document(command)["x-obserwator"]["rest"]
+    rest = input_schema(command)["x-obserwator"]["rest"]
     if rest["method"] == "POST":
         return {"method": "POST", "url": rest["path"], "json": dict(options)}
     params = {name: _query(value) for name, value in options.items()}

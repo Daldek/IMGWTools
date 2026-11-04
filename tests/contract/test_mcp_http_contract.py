@@ -18,7 +18,8 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from tests.contract.support import command_document, rest_request, stamps
+from obserwator import ERROR_CODES, __version__
+from tests.contract.support import input_schema, rest_request, stamps
 from tests.contract.test_interface_contract import (
     CASES,
     ROUTES,
@@ -50,9 +51,19 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
     if media == "application/problem+json":
         body = answered.json()
         assert result.is_error is True
-        assert result.structured_content == {
-            key: body[key] for key in ("code", "title", "detail", "details")
+        expected = {
+            "schema": "obserwator-error/1",
+            "code": body["code"],
+            "title": body["title"],
+            "message": body["detail"],
+            "hint": body.get("hint"),
+            "details": body["details"],
+            "exit_code": ERROR_CODES[body["code"]].exit_code,
+            "command": command,
         }
+        if expected["hint"] is None:
+            del expected["hint"]
+        assert result.structured_content == expected
         return
     assert answered.status_code == 200, answered.text
     assert result.is_error is False, result.content[0].text
@@ -61,14 +72,17 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
         assert result.content[0].text == answered.text
         return
     data = answered.content
-    default = command_document(command)["properties"]["format"]["default"]
+    default = input_schema(command)["properties"]["format"]["default"]
     assert result.content[0].text == data.decode("utf-8")
     assert result.structured_content == {
         "schema": "obserwator-result/1",
+        "tool": "obserwator",
+        "version": __version__,
         "command": command,
         "check": False,
         "status": answered.headers["x-obserwator-status"],
         "result": {
+            "schema": "obserwator-stream/1",
             "format": options.get("format", default),
             "bytes": len(data),
             "lines": data.count(b"\n"),

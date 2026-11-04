@@ -87,11 +87,14 @@ from obserwator.store.types import (
     PathArg,
     PlanAction,
     PMaXTPStoreResult,
+    PMaXTPUrl,
     ProgressHook,
     SeriesReport,
     StorePlan,
     SyncReport,
     Writes,
+    cursor_index,
+    page_cursor,
 )
 from obserwator.urls import build_api_url, build_pmaxtp_url
 
@@ -198,6 +201,8 @@ _MODULES = {
     "list_commands": "obserwator.commands",
     "agent_guide": "obserwator.agent_guide",
 }
+# Function results that are no document get one in the envelope (AGI-4.1).
+_DOCUMENTS: dict[str, Callable[[Any], object]] = {"build_pmaxtp_url": PMaXTPUrl}
 
 
 # --- katalog ---------------------------------------------------------------------------------
@@ -270,7 +275,7 @@ def _command(
         raise ValueError(f"one_of of {name} must be a pair of option groups")
     if store_only:
         rules = (*rules, message("commands.store_only_rule"))
-    listed = (*options, _LIMIT, _OFFSET) if result == "list" else tuple(options)
+    listed = (*options, _LIMIT, _CURSOR) if result == "list" else tuple(options)
     command = DataCommand(
         name,
         description,
@@ -503,9 +508,7 @@ _LANGUAGE = _option(
     default="en",
 )
 _LIMIT = _option("limit", "int", message("commands.limit_help"), minimum=1)
-_OFFSET = _option(
-    "offset", "int", message("commands.offset_help"), minimum=0, default=0
-)
+_CURSOR = _option("cursor", "str", message("commands.cursor_help"))
 _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
 # force replaces the file of output: without output it has nothing to replace.
 _NEEDS_OUTPUT = {"force": ("output",)}
@@ -749,7 +752,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         (_LATITUDE, _LONGITUDE, _METHOD),
         function="build_pmaxtp_url",
         method="GET",
-        result_type="str",
+        result_type="PMaXTPUrl",
     ),
     _command(
         "pmaxtp check",
@@ -1224,13 +1227,18 @@ def _shown(value: object) -> object:
 
 
 def _fail(
-    message: str, *, option: str, value: object = None, **details: object
+    message: str,
+    *,
+    option: str,
+    value: object = None,
+    hint: str | None = None,
+    **details: object,
 ) -> NoReturn:
     payload: dict[str, object] = {"option": option}
     if value is not None:
         payload["value"] = _shown(value)
     payload.update(details)
-    raise ObserwatorValidationError(message, details=payload)
+    raise ObserwatorValidationError(message, details=payload, hint=hint)
 
 
 def _spec(command: object) -> DataCommand:
@@ -1245,6 +1253,7 @@ def _spec(command: object) -> DataCommand:
             option="command",
             value=command,
             allowed=list(_BY_NAME),
+            hint=message("errors.hint_unknown_command"),
         )
     return spec
 
@@ -1379,7 +1388,9 @@ def _choice_text(option: CommandOption, text: str) -> str:
             text = get_dataset(text).key
         except ObserwatorValidationError as exc:
             raise ObserwatorValidationError(
-                exc.detail, details={**exc.details, "option": option.name}
+                exc.detail,
+                details={**exc.details, "option": option.name},
+                hint=exc.hint,
             ) from exc
     elif option.name == "provider":
         # A key prefix (cz.chmi) names its provider, like dataset aliases.
@@ -1664,6 +1675,7 @@ def _validate(command: object, options: object) -> Options:
                 ),
                 option=str(key),
                 allowed=list(known),
+                hint=message("errors.hint_unknown_option", command=spec.name),
             )
     result: Options = {}
     for option in spec.options:
@@ -1671,6 +1683,8 @@ def _validate(command: object, options: object) -> Options:
         normalized = None if value is None else _PARSERS[option.type](option, value)
         if normalized is not None:
             result[option.name] = normalized
+    if "cursor" in result:
+        cursor_index(result["cursor"])  # opaque: only a cursor of a page (AGI-6.5)
     for group in spec.exclusive:
         given = [name for name in group if name in result]
         if len(given) > 1:
@@ -1782,7 +1796,7 @@ def validate_command(
         Catalog command name, e.g. ``"series select"``.
     options : Mapping[str, object]
         Option values keyed by option name (``snake_case``); ``limit`` and
-        ``offset`` are options of list commands.
+        ``cursor`` are options of list commands.
 
     Returns
     -------
@@ -1814,41 +1828,83 @@ def _argument(value: object) -> str:
 
 # The program a command line starts with (``format_command`` writes it).
 _PROGRAM = "obserwator"
-# The flag of a run beside the options: the plan of ``check_command`` (ADR-002 D11).
+# The flags of a run beside the options (ADR-002 D11): ``--check`` plans the call
+# (``check_command``); ``--json`` (the envelope as one JSON line) and ``--lang``
+# (the language of the human rendering, AGI-3.2, AGI-3.4) choose how the CLI
+# prints the result and change nothing of the call.
 _CHECK_FLAG = "--check"
+_JSON_FLAG = "--json"
+_LANG_FLAG = "--lang"
 # Flags that print a description of a command instead of calling it.
 _DESCRIBING_FLAGS = ("--help", "--schema")
 
 
-def _run_check(spec: DataCommand, run: Mapping[str, object] | None) -> bool:
-    """Whether ``run`` asks for ``--check``; any other flag of a run is refused."""
-    given = {} if run is None else run
-    allowed = [] if spec.check is None else ["check"]
-    for name in given:
-        if name != "check":
-            _fail(
-                message("commands.not_a_run_flag", name=name, command=spec.name),
-                option=str(name),
-                allowed=allowed,
-            )
-    value = given.get("check")
+def _has_lang_option(spec: DataCommand) -> bool:
+    """Whether ``--lang`` of ``spec`` is its option (the description commands)."""
+    return any(option.name == "lang" for option in spec.options)
+
+
+def _run_switch(given: Mapping[str, object], name: str) -> bool:
+    """The value of the switch ``name`` of a run: absent, ``False`` or ``True``."""
+    value = given.get(name)
     if value is None or value is False:
         return False
     if value is not True:
         _fail(
-            message(
-                "commands.option_must_boolean_true_false", name="check", value=value
-            ),
-            option="check",
+            message("commands.option_must_boolean_true_false", name=name, value=value),
+            option=name,
             value=value,
         )
-    if spec.check is None:
+    return True
+
+
+def _run_flags(
+    spec: DataCommand, run: Mapping[str, object] | None
+) -> tuple[bool, bool, Lang | None]:
+    """
+    The ``check``, ``json`` and ``lang`` flags of ``run``; any other is refused.
+
+    ``check`` needs a command with a check twin; ``lang`` is a flag of a run
+    only of a command without the option ``lang``.
+    """
+    given = {} if run is None else run
+    allowed = [] if spec.check is None else ["check"]
+    allowed.append("json")
+    if not _has_lang_option(spec):
+        allowed.append("lang")
+    for name in given:
+        if name not in allowed and name != "check":
+            _fail(
+                message(
+                    "commands.not_a_run_flag",
+                    name=name,
+                    command=spec.name,
+                    flags=", ".join(allowed),
+                ),
+                option=str(name),
+                allowed=allowed,
+            )
+    check = _run_switch(given, "check")
+    if check and spec.check is None:
         _fail(
             message("commands.command_has_no_check", command=spec.name),
             option="check",
             allowed=allowed,
         )
-    return True
+    lang = given.get("lang")
+    if lang is not None and lang not in LANGS:
+        _fail(
+            message(
+                "commands.invalid_value_option_allowed",
+                text=lang,
+                name="lang",
+                choices=", ".join(LANGS),
+            ),
+            option="lang",
+            value=lang,
+            allowed=list(LANGS),
+        )
+    return check, _run_switch(given, "json"), lang
 
 
 def format_command(
@@ -1865,10 +1921,10 @@ def format_command(
     keys, sorted years, absolute paths, the default root of a store command
     that names none, ADR-007 D2), each with its canonical ``--kebab-case`` flag
     in catalog order; a ``bool`` option is ``--x`` or ``--no-x`` and is left
-    out at its default. ``run`` adds ``--check`` last. Every word is
-    ``shlex``-quoted, so equal calls give equal text: `parse_command` reads
-    the line back into the same command and run and into options that
-    validate to the same call, whose line is this one again.
+    out at its default. ``run`` adds ``--check``, ``--json`` and ``--lang``
+    last. Every word is ``shlex``-quoted, so equal calls give equal text:
+    `parse_command` reads the line back into the same command and run and
+    into options that validate to the same call, whose line is this one again.
 
     Parameters
     ----------
@@ -1879,7 +1935,10 @@ def format_command(
     run : Mapping[str, object] or None, optional
         The flags of a run beside the options: ``{"check": True}`` writes
         ``--check`` (the plan of `check_command`) for a command that has it
-        (``DataCommand.check``); ``False`` or ``None`` leaves it out.
+        (``DataCommand.check``), ``{"json": True}`` writes ``--json`` (the CLI
+        prints the envelope) and ``{"lang": "pl"}`` writes ``--lang pl`` (the
+        language of the human rendering of the CLI) for a command without the
+        option ``lang``; ``False`` or ``None`` leaves a flag out.
 
     Returns
     -------
@@ -1891,13 +1950,14 @@ def format_command(
     ------
     ObserwatorValidationError
         If the command or its options are invalid (see `validate_command`),
-        or ``run`` names another flag, gives ``check`` a value that is not a
-        boolean or asks for ``--check`` of a command without it
-        (``details.option`` names it).
+        or ``run`` names another flag, gives ``check`` or ``json`` a value
+        that is not a boolean, ``lang`` one that is neither ``pl`` nor ``en``,
+        or asks for ``--check`` of a command without it (``details.option``
+        names it).
     """
     normalized = validate_command(command, options=options)
     spec = _BY_NAME[command]
-    check = _run_check(spec, run)
+    check, as_json, lang = _run_flags(spec, run)
     words = [_PROGRAM, *spec.name.split()]
     for option in spec.options:
         if option.name not in normalized:
@@ -1909,6 +1969,10 @@ def format_command(
             words += [option.flag, _argument(value)]
     if check:
         words.append(_CHECK_FLAG)
+    if as_json:
+        words.append(_JSON_FLAG)
+    if lang is not None:
+        words += [_LANG_FLAG, lang]
     return " ".join(shlex.quote(word) for word in words)
 
 
@@ -1983,8 +2047,9 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
     The first two words name a catalog command (``store sync``); the others
     are the flags ``obserwator`` has for it (spec §13.10, ADR-002 D2 and D11): the
     flag of each option and its short alias (``--root``, ``-r``), ``--no-x``
-    of a ``bool`` option whose default is true and ``--check`` of a command
-    with a check twin. A flag takes its value from the next word or after
+    of a ``bool`` option whose default is true, ``--check`` of a command
+    with a check twin, ``--json`` and ``--lang`` (of a command without the
+    option ``lang``). A flag takes its value from the next word or after
     ``=`` (``--root=/data``; a short alias also joined, ``-r/data``), a list
     option takes one value per occurrence of its flag, a later value of
     another option wins and ``--`` ends the flags. Like the CLI, which
@@ -2003,7 +2068,8 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
     -------
     CommandCall
         The command, its options (the texts as given, ``True`` or ``False``
-        of a switch) and ``run`` (``{"check": True}`` for ``--check``).
+        of a switch) and ``run`` (``{"check": True}`` for ``--check``,
+        ``{"json": True}`` for ``--json``, the text of ``--lang`` as ``lang``).
 
     Raises
     ------
@@ -2024,6 +2090,10 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
         del words[0]
     spec = _line_command(words)
     flags = _line_flags(spec)
+    switches = {_JSON_FLAG: "json"}
+    if spec.check is not None:
+        switches[_CHECK_FLAG] = "check"
+    lang_flag = None if _has_lang_option(spec) else _LANG_FLAG
     name = spec.name
     given: dict[str, object] = {}
     lists: dict[str, list[str]] = {}
@@ -2046,14 +2116,25 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
             )
         if flag in _DESCRIBING_FLAGS:
             _usage(message("commands.line_describes", flag=flag), command=name)
-        if flag == _CHECK_FLAG and spec.check is not None:
+        if flag in switches:
             if joined is not None:
                 _usage(
                     message("commands.line_switch_value", flag=flag, command=name),
-                    option="check",
+                    option=switches[flag],
                     command=name,
                 )
-            run["check"] = True
+            run[switches[flag]] = True
+            continue
+        if flag == lang_flag:
+            if joined is None:
+                if not rest:
+                    _usage(
+                        message("commands.line_needs_value", flag=flag, command=name),
+                        option="lang",
+                        command=name,
+                    )
+                joined = rest.pop(0)
+            run["lang"] = joined
             continue
         entry = flags.get(flag)
         if entry is None:
@@ -2517,9 +2598,10 @@ def _status(result: object) -> Status:
 
 
 def _page(options: Options) -> tuple[int | None, int]:
+    """Page size and index of the first item from ``limit`` and ``cursor``."""
     limit = cast(int | None, options.pop("limit", None))
-    offset = cast(int, options.pop("offset", 0))
-    return limit, offset
+    cursor = cast(str | None, options.pop("cursor", None))
+    return limit, 0 if cursor is None else cursor_index(cursor)
 
 
 def run_command(
@@ -2536,9 +2618,12 @@ def run_command(
 
     Options are validated with `validate_command` and bound to the function
     parameters of the same names; the hooks are passed to functions that
-    accept them. List commands are paged here: ``total`` counts the items
-    returned by the function, ``items`` is the slice
-    ``[offset, offset + limit)`` (to the end without ``limit``). Stream
+    accept them. List commands are paged here: the ``result`` is the tuple of
+    the items ``[start, start + limit)`` returned by the function (to the end
+    without ``limit``), where ``cursor`` names ``start`` (0 without it), and
+    ``page`` gives their ``total``, whether more follow (``truncated``) and
+    the ``next_cursor`` that fetches them. A function result that is no
+    document gets one (``pmaxtp url``: `PMaXTPUrl`). Stream
     commands (``store export``, ``series export``, ``commands guide``
     without ``output``) return the iterator of text lines as ``result``; with
     ``output`` they write the one file and return its `OutputReport`; an
@@ -2564,8 +2649,8 @@ def run_command(
         Envelope with ``check=False``, the status computed from the result
         (``partial``/``failed`` for failed items of a report, ``cancelled``
         for a cancelled report or an `ObserwatorCancelledError` with
-        ``result=None``), the result (a `Page` for list commands) and the
-        distinct notices in order of first occurrence.
+        ``result=None``), the result (the page's items for list commands) and the
+        distinct notices in order of first occurrence; a list command's ``page``.
 
     Raises
     ------
@@ -2576,18 +2661,25 @@ def run_command(
     """
     normalized = validate_command(command, options=options)
     spec = _BY_NAME[command]
-    limit, offset = _page(normalized)
+    limit, start = _page(normalized)
     notices = _Notices(on_notice)
     hooks = {"on_progress": on_progress, "on_notice": notices, "cancel": cancel}
+    page = None
     try:
         result = _call(spec.function, normalized, hooks)
+        if spec.function in _DOCUMENTS:
+            result = _DOCUMENTS[spec.function](result)
         if spec.result == "list":
             items = tuple(result)
-            end = None if limit is None else offset + limit
-            result = Page(items[offset:end], len(items), limit, offset)
+            end = len(items) if limit is None else min(start + limit, len(items))
+            truncated = end < len(items)
+            page = Page(len(items), page_cursor(end) if truncated else None, truncated)
+            result = items[start:end]
     except ObserwatorCancelledError:
         return CommandResult(spec.name, False, "cancelled", None, notices.collected())
-    return CommandResult(spec.name, False, _status(result), result, notices.collected())
+    return CommandResult(
+        spec.name, False, _status(result), result, notices.collected(), page
+    )
 
 
 # --- sprawdzenia bez zapisu ------------------------------------------------------------------
@@ -3076,7 +3168,7 @@ def check_command(
         Catalog command name.
     options : Mapping[str, object]
         Option values, identical to those accepted by `run_command`
-        (``limit`` and ``offset`` are ignored).
+        (``limit`` and ``cursor`` are ignored).
     on_progress : ProgressHook or None, optional
         Progress callback forwarded to the check twin.
     on_notice : NoticeHook or None, optional
@@ -3172,7 +3264,21 @@ def _flags(option: CommandOption) -> list[str]:
     return [option.flag, *option.aliases, *negative]
 
 
-def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
+def _input_schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
+    """
+    JSON Schema 2020-12 of the options of ``spec``, for the adapters.
+
+    The MCP input schemas, the REST parameters and the agent guide are built from
+    it. Option types map as ``str`` → ``string`` (``minLength`` 1), ``int`` →
+    ``integer``, ``float`` → ``number``, ``bool`` → ``boolean``, ``date`` →
+    ``string`` with ``format: date``, ``path`` → ``string`` with
+    ``x-obserwator-type: path``, ``choice`` → ``enum``, ``list`` → ``array`` of
+    items (years: ``anyOf`` a number and the ``a-b`` range pattern); ``requires``
+    → ``dependentRequired``, ``one_of`` → ``oneOf`` of ``required`` groups.
+    ``x-obserwator`` carries the catalog data of the command (operation id,
+    function, check twin, result, effects, CLI flags, REST route, rules,
+    examples, exclusive groups).
+    """
     group, name = spec.name.split(" ", 1)
     schema: dict[str, object] = {
         "$schema": _DIALECT,
@@ -3229,53 +3335,263 @@ def _schema(spec: DataCommand, lang: Lang) -> dict[str, object]:
     return schema
 
 
+def _input_schemas(lang: Lang) -> list[dict[str, object]]:
+    """`_input_schema` of every catalog command, in catalog order."""
+    return [_input_schema(spec, lang) for spec in _COMMANDS]
+
+
+# --- katalog obserwator-commands/1 (Nogat commands-1) -----------------------------------------
+
+_COMMANDS_SCHEMA = f"{_TOOL}-commands/1"
+# Every interface returns the envelope; ``result_type`` names its ``result``.
+_RESULT_SCHEMA = f"{_TOOL}-result/1"
+_CARDINALITY = {"object": "single", "list": "bounded", "stream": "unbounded"}
+_JSON_TYPES = {
+    "str": "string",
+    "int": "integer",
+    "float": "number",
+    "bool": "boolean",
+    "date": "string",
+    "path": "string",
+    "list": "array",
+    "choice": "string",
+}
+_WRITES_ORDER: tuple[Writes, ...] = ("none", "add", "replace")
+# Meanings of the values of the fixed enumerations, by option and value; datasets,
+# providers and commands take theirs from the registries (`_meaning`).
+_MEANINGS = {
+    ("kind", "hydro"): message("commands.meaning_kind_hydro"),
+    ("kind", "meteo"): message("commands.meaning_kind_meteo"),
+    ("kind", "archive"): message("commands.meaning_kind_archive"),
+    ("kind", "series"): message("commands.meaning_kind_series"),
+    ("kind", "catalog"): message("commands.meaning_kind_catalog"),
+    ("kind", "pmaxtp"): message("commands.meaning_kind_pmaxtp"),
+    ("kind", "observation"): message("commands.meaning_kind_observation"),
+    ("kind", "problem"): message("commands.meaning_kind_problem"),
+    ("params", "H"): message("commands.meaning_params_h"),
+    ("params", "Q"): message("commands.meaning_params_q"),
+    ("params", "T"): message("commands.meaning_params_t"),
+    ("source", "live"): message("commands.meaning_source_live"),
+    ("source", "store"): message("commands.meaning_source_store"),
+    ("method", "POT"): message("commands.meaning_method_pot"),
+    ("method", "AMP"): message("commands.meaning_method_amp"),
+    ("format", "csv"): message("commands.meaning_format_csv"),
+    ("format", "jsonl"): message("commands.meaning_format_jsonl"),
+    ("format", "agents"): message("commands.meaning_format_agents"),
+    ("format", "llms"): message("commands.meaning_format_llms"),
+    ("year_type", "hydrological"): message("commands.meaning_year_type_hydrological"),
+    ("year_type", "calendar"): message("commands.meaning_year_type_calendar"),
+    ("lang", "en"): message("commands.meaning_lang_en"),
+    ("lang", "pl"): message("commands.meaning_lang_pl"),
+}
+
+
+def _meaning(option: CommandOption, value: str, lang: Lang) -> str:
+    """One-line meaning of an enumeration value of ``option`` (AGI-2.3)."""
+    if option.name in ("dataset", "datasets"):
+        return localize(get_dataset(value).title, lang)
+    if option.name == "provider":
+        return get_provider(value).name
+    if option.name == "command":
+        return _summary(localize(_BY_NAME[value].description, lang))
+    return localize(_MEANINGS[option.name, value], lang)
+
+
+def _option_entry(
+    option: CommandOption, spec: DataCommand, lang: Lang
+) -> dict[str, object]:
+    """One option of a ``commands-1`` entry (AGI-2.3), with Obserwator's extensions."""
+    entry: dict[str, object] = {
+        "name": option.name,
+        "type": _JSON_TYPES[option.type],
+        "required": option.required,
+    }
+    if option.default is not None:
+        entry["default"] = option.default
+    if option.choices:
+        entry["enum"] = [
+            {"value": value, "meaning": _meaning(option, value, lang)}
+            for value in option.choices
+        ]
+    for key, name in (("min", "minimum"), ("max", "maximum"), ("pattern", "pattern")):
+        if (value := getattr(option, name)) is not None:
+            entry[key] = value
+    entry["description"] = localize(option.help, lang)
+    group = next((names for names in spec.exclusive if option.name in names), None)
+    if group is not None:
+        entry["one_of"] = "_or_".join(group)
+    if option.path_role is not None:
+        entry["path_role"] = option.path_role
+    # Extensions (AGI-4.1): the value form, the effect and the CLI flags.
+    if option.type == "date":
+        entry["format"] = "date"
+    if option.type == "list":
+        entry["items"] = _value_schema(option.items or "str", option, item=True)
+    if option.writes != "none":
+        entry["writes"] = option.writes
+    if option.store_only:
+        entry["store_only"] = True
+    entry["flags"] = _flags(option)
+    return entry
+
+
+def _writes(spec: DataCommand) -> Writes:
+    """The strongest write of a run or of an option of ``spec``."""
+    return max(
+        (spec.writes, *(option.writes for option in spec.options)),
+        key=_WRITES_ORDER.index,
+    )
+
+
+def _errors(spec: DataCommand, writes: Writes) -> list[str]:
+    """
+    Registry codes a run of ``spec`` can raise, in registry order.
+
+    They follow from the declarations: every command can refuse its input or
+    fail internally; a source server can be unavailable or answer malformed
+    data, and a long download can be cancelled; a store can be missing, need
+    the ``store`` extra or lack a version, and a run writing it can find it
+    locked by another writer; a write can fail in the file system; a server
+    refuses a write it does not allow and a path outside its allowed
+    directories.
+    """
+    codes: set[str] = {"validation_error", "internal_error"}
+    names = {option.name for option in spec.options}
+    reads_store = "root" in names or "version" in names or spec.store_only
+    if spec.network:
+        codes |= {"source_unavailable", "data_error", "cancelled"}
+    if reads_store:
+        codes |= {"not_found", "data_error", "store_unavailable", "missing_dependency"}
+        if spec.writes != "none":
+            codes.add("conflict")
+    if writes != "none":
+        codes |= {"io_error", "forbidden", "cancelled"}
+    if any(option.type == "path" for option in spec.options):
+        codes.add("forbidden")
+    return [code for code in ERROR_CODES if code in codes]
+
+
+def _entry(spec: DataCommand, lang: Lang) -> dict[str, object]:
+    """The ``commands-1`` entry of ``spec`` (AGI-2.2) with Obserwator's extensions."""
+    group, name = spec.name.split(" ", 1)
+    description = localize(spec.description, lang)
+    polish = localize(spec.description, "pl")
+    writes = _writes(spec)
+    entry: dict[str, object] = {
+        "name": spec.name,
+        "operation_id": _operation_id(spec.name),
+        "function": spec.function,
+        "summary": _summary(description),
+        "description": description,
+        "options": [_option_entry(option, spec, lang) for option in spec.options],
+        "result": {
+            "schema": _RESULT_SCHEMA,
+            "cardinality": _CARDINALITY[spec.result],
+        },
+        "effects": {
+            "read_only": writes == "none",
+            "writes": writes,
+            "idempotent": spec.idempotent,
+            "network": spec.network,
+            "destructive": writes == "replace",
+        },
+        # ``--check`` of the command itself plans it without effects.
+        "check": None if spec.check is None else spec.name,
+        "rules": [localize(rule, lang) for rule in spec.rules],
+        "examples": [
+            {"call": example.call, "result": copy.deepcopy(example.result)}
+            for example in EXAMPLES[spec.name]
+        ],
+        "errors": _errors(spec, writes),
+        "i18n": {
+            "pl": {
+                "summary": _summary(polish),
+                "description": polish,
+                "rules": [localize(rule, "pl") for rule in spec.rules],
+            }
+        },
+        # Extensions (AGI-4.1): the group, the type of the envelope's result, the
+        # rules among the options and the REST route.
+        "group": group,
+        "result_type": _RESULT_TYPES[spec.name],
+    }
+    if spec.requires:
+        entry["requires"] = {key: list(names) for key, names in spec.requires.items()}
+    if spec.one_of:
+        entry["alternatives"] = [list(names) for names in spec.one_of]
+    if spec.exclusive:
+        entry["exclusive"] = [list(names) for names in spec.exclusive]
+    if spec.store_only:
+        entry["store_only"] = True
+    entry["rest"] = (
+        None
+        if spec.method is None
+        else {
+            "method": spec.method,
+            "path": f"/api/v1/{group}/{name}",
+            "server_options": [o.name for o in spec.options if o.rest == "server"],
+            "local_options": [o.name for o in spec.options if o.rest == "local"],
+        }
+    )
+    return entry
+
+
+def _catalog(lang: Lang, entries: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema": _COMMANDS_SCHEMA,
+        "tool": _TOOL,
+        "version": __version__,
+        "lang": lang,
+        "commands": entries,
+    }
+
+
 def command_schema(
     command: str | None = None, /, *, lang: Lang = "en"
 ) -> dict[str, object]:
     """
-    Describe the options of one command, or the whole catalog, as JSON Schema.
+    Describe one command, or the whole catalog, as ``obserwator-commands/1``.
 
-    Option types map to JSON Schema 2020-12: ``str`` → ``string``
-    (``minLength`` 1), ``int`` → ``integer``, ``float`` → ``number``,
-    ``bool`` → ``boolean``, ``date`` → ``string`` with ``format: date``,
-    ``path`` → ``string`` with ``x-obserwator-type: path``, ``choice`` → ``enum``
-    (dataset enumerations list keys only), ``list`` → ``array`` of items
-    (years: ``anyOf`` a number and the ``a-b`` range pattern),
-    ``object`` → ``object``; ``help`` → ``description``, ``default``,
-    ``minimum``, ``maximum`` and ``pattern`` unchanged, ``requires`` →
-    ``dependentRequired``, ``one_of`` → ``oneOf`` of ``required`` groups and
-    other rules → ``x-obserwator.rules``; an option whose value names a file the
-    command writes has ``x-obserwator-writes`` (``add`` or ``replace``); a path
-    option has ``x-obserwator-path-role`` (``input``, ``output`` or ``root``) and an
-    option valid only with a store ``x-obserwator-store-only``; ``x-obserwator.exclusive``
-    lists the groups of options of which at most one may be given
-    (``output_dir`` and ``root``) and ``x-obserwator.store_only`` marks a command
-    without a plain mode.
-    ``x-obserwator`` also names the ``operation_id`` (``obserwator_<group>_<verb>``: the
-    REST ``operationId`` and the MCP tool name), the group, the function, the
-    check twin, the result shape and type, the effects of a run (``writes``:
-    ``none``, ``add`` or ``replace``; ``network``; ``idempotent``), the CLI
-    flags, the REST route and the ``examples``: each a canonical ``obserwator``
-    line (``call``, as `format_command` writes it) and an excerpt of the
-    ``result`` of its envelope (AGI-2.2).
+    The document follows Nogat's ``commands-1`` (AGI-2.2, AGI-2.4). Each entry
+    has the command ``name``, its ``operation_id`` (``obserwator_<group>_<verb>``:
+    the REST ``operationId`` and the MCP tool name), the ``function``, a
+    ``summary`` (the first sentence of the ``description``), the ``options``,
+    the ``result`` (the ``obserwator-result/1`` envelope and its cardinality:
+    ``single``, ``bounded`` for a paged list, ``unbounded`` for a stream), the
+    ``effects`` (``read_only``, ``writes``: ``none``, ``add`` or ``replace``,
+    ``idempotent``, ``network``, ``destructive``), ``check`` (the command itself
+    when ``--check`` plans it, else null), the ``rules``, the ``examples`` (a
+    canonical ``obserwator`` line, as `format_command` writes it, and an excerpt
+    of the ``result`` of its envelope), the registry ``errors`` it can raise and
+    the Polish texts in ``i18n.pl``. Each option has its ``name``, JSON ``type``,
+    ``required``, ``default``, ``enum`` (each value with its meaning), ``min``,
+    ``max``, ``pattern``, ``description``, ``one_of`` (the group of options of
+    which at most one may be given) and ``path_role`` (``input``, ``output`` or
+    ``root``). Obserwator's extensions: per command ``group``, ``result_type``
+    (the type of the envelope's ``result``), ``requires`` (options required by
+    another option), ``alternatives`` (groups of options of which exactly one is
+    required), ``exclusive``, ``store_only`` (no plain mode) and ``rest`` (the
+    route, or null); per option ``format`` (``date``), ``items`` (the JSON
+    Schema of a list item), ``writes`` (``add`` or ``replace``: giving it writes
+    a file), ``store_only`` (valid only with a store) and ``flags`` (the CLI
+    flags).
 
     Parameters
     ----------
     command : str or None, optional
-        Catalog command name; ``None`` returns the whole catalog.
+        Catalog command name; ``None`` describes every command.
     lang : {"en", "pl"}, optional
-        Language of the texts: command and option descriptions, rules,
-        group descriptions and error titles. Everything else (properties,
-        types, enumerations, bounds, required groups, ``x-obserwator`` fields
-        other than ``rules``) is the same in both languages.
+        Language of the texts: summaries, descriptions, rules, enumeration
+        meanings and group descriptions. ``i18n.pl`` is Polish in both;
+        everything else is the same in both languages.
 
     Returns
     -------
     dict of {str : object}
-        JSON Schema of the command options, or the ``obserwator-commands/1``
-        document with ``version``, ``lang``, ``result_schema``, ``groups``,
-        ``commands`` (38 schemas), ``errors`` (the error code registry) and
-        ``exit_codes`` of the envelope statuses.
+        ``obserwator-commands/1`` document with ``tool``, ``version``, ``lang``
+        and ``commands`` (the one command, or all of them in catalog order);
+        the whole catalog also has ``groups``, ``errors`` (the error code
+        registry) and ``exit_codes`` of the envelope statuses.
 
     Raises
     ------
@@ -3285,14 +3601,10 @@ def command_schema(
     """
     language = cast(Lang, _choice(_LANGUAGE, lang))
     if command is not None:
-        return _schema(_spec(command), language)
+        return _catalog(language, [_entry(_spec(command), language)])
     return {
-        "schema": "obserwator-commands/1",
-        "version": __version__,
-        "lang": language,
-        "result_schema": "obserwator-result/1",
+        **_catalog(language, [_entry(spec, language) for spec in _COMMANDS]),
         "groups": {name: localize(text, language) for name, text in _GROUPS.items()},
-        "commands": [_schema(spec, language) for spec in _COMMANDS],
         "errors": [
             {
                 "code": spec.code,
@@ -3316,26 +3628,30 @@ def _summary(text: str) -> str:
 
 def list_commands(*, lang: Lang = "en") -> dict[str, object]:
     """
-    Summarize the command catalog: one short entry per command.
+    Summarize the command catalog: one short row per command.
 
-    The summary is the first step of discovery: the tool names, what each
-    command does in one sentence, its effects and its REST route. The options
-    of one command come from `command_schema`.
+    The summary is the first step of discovery (AGI-1.5), within the page
+    budget of a result (DOC-1.7): the tool names, what each command does in one
+    sentence, its effects and its REST route. The options of one command come
+    from `command_schema` (``obserwator-commands/1``).
 
     Parameters
     ----------
     lang : {"en", "pl"}, optional
-        Language of the group titles and of the summaries.
+        Language of the group summaries and of the command summaries.
 
     Returns
     -------
     dict of {str : object}
-        ``obserwator-command-list/1`` document with ``version``, ``lang``,
-        ``groups`` and ``commands``: per command in catalog order its
-        ``command``, ``operation_id``, ``group``, ``summary`` (the first
-        sentence of the description, at most 100 characters), ``writes``,
-        ``network``, ``idempotent``, ``check`` (the check twin), ``result``,
-        ``result_type`` and ``rest`` (method and path, or None).
+        ``obserwator-command-list/1`` document with ``tool``, ``version``,
+        ``lang``, ``groups`` (``name`` and ``summary`` of every group) and
+        ``commands``: per command in catalog order its ``name``,
+        ``operation_id``, ``group``, ``summary`` (the first sentence of the
+        description, at most 100 characters), ``read_only``, ``check`` (the
+        command itself when ``--check`` plans it, else null), ``writes``,
+        ``network``, ``idempotent`` (the ``effects`` of `command_schema`),
+        ``result`` (``object``, ``list`` or ``stream``), ``result_type`` and
+        ``rest`` (method and path, or null).
 
     Raises
     ------
@@ -3344,20 +3660,21 @@ def list_commands(*, lang: Lang = "en") -> dict[str, object]:
         lists the values).
     """
     language = cast(Lang, _choice(_LANGUAGE, lang))
-    entries: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
     for spec in _COMMANDS:
         group, name = spec.name.split(" ", 1)
-        text = localize(spec.description, language)
-        entries.append(
+        writes = _writes(spec)
+        rows.append(
             {
-                "command": spec.name,
+                "name": spec.name,
                 "operation_id": _operation_id(spec.name),
                 "group": group,
-                "summary": _summary(text),
-                "writes": spec.writes,
+                "summary": _summary(localize(spec.description, language)),
+                "read_only": writes == "none",
+                "check": None if spec.check is None else spec.name,
+                "writes": writes,
                 "network": spec.network,
                 "idempotent": spec.idempotent,
-                "check": spec.check,
                 "result": spec.result,
                 "result_type": _RESULT_TYPES[spec.name],
                 "rest": None
@@ -3366,9 +3683,13 @@ def list_commands(*, lang: Lang = "en") -> dict[str, object]:
             }
         )
     return {
-        "schema": "obserwator-command-list/1",
+        "schema": f"{_TOOL}-command-list/1",
+        "tool": _TOOL,
         "version": __version__,
         "lang": language,
-        "groups": {name: localize(text, language) for name, text in _GROUPS.items()},
-        "commands": entries,
+        "groups": [
+            {"name": name, "summary": localize(text, language)}
+            for name, text in _GROUPS.items()
+        ],
+        "commands": rows,
     }

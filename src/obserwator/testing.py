@@ -123,7 +123,7 @@ def fixture_files() -> Traversable:
     tests), and ``contract_schemas.json`` (JSON Schemas with examples of the
     store documents ``obserwator-store/1`` ... ``obserwator-pmaxtp/1``, the envelope
     ``obserwator-result/1`` and the error documents ``problem+json`` and
-    ``cli-error``). Data are short synthetic samples with fictional station
+    ``obserwator-error/1``). Data are short synthetic samples with fictional station
     codes, not real yearbooks.
 
     Returns

@@ -873,6 +873,8 @@
       "type": "object",
       "required": [
         "schema",
+        "tool",
+        "version",
         "command",
         "check",
         "status",
@@ -882,6 +884,13 @@
       "properties": {
         "schema": {
           "const": "obserwator-result/1"
+        },
+        "tool": {
+          "const": "obserwator"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
         },
         "command": {
           "type": "string",
@@ -898,36 +907,65 @@
             "cancelled"
           ]
         },
-        "result": true,
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/document"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/document"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "notices": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/notice"
           }
+        },
+        "page": {
+          "$ref": "#/$defs/page"
         }
       },
       "additionalProperties": true,
       "$defs": {
+        "document": {
+          "type": "object",
+          "required": [
+            "schema"
+          ],
+          "properties": {
+            "schema": {
+              "type": "string",
+              "pattern": "^obserwator-[a-z0-9-]+/1$"
+            }
+          }
+        },
         "notice": {
           "type": "object",
           "required": [
             "level",
             "code",
-            "text"
+            "message"
           ],
           "properties": {
             "level": {
               "enum": [
                 "info",
-                "warning",
-                "error"
+                "warning"
               ]
             },
             "code": {
               "type": "string",
               "pattern": "^[a-z_]+$"
             },
-            "text": {
+            "message": {
               "type": "string",
               "minLength": 1
             }
@@ -937,29 +975,24 @@
         "page": {
           "type": "object",
           "required": [
-            "items",
             "total",
-            "limit",
-            "offset"
+            "next_cursor",
+            "truncated"
           ],
           "properties": {
-            "items": {
-              "type": "array"
-            },
             "total": {
               "type": "integer",
               "minimum": 0
             },
-            "limit": {
+            "next_cursor": {
               "type": [
-                "integer",
+                "string",
                 "null"
               ],
-              "minimum": 1
+              "pattern": "^[A-Za-z0-9_-]+$"
             },
-            "offset": {
-              "type": "integer",
-              "minimum": 0
+            "truncated": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -1015,22 +1048,32 @@
             "internal_error"
           ]
         },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        },
         "details": {
           "type": "object"
         }
       },
       "additionalProperties": false
     },
-    "cli-error": {
+    "obserwator-error/1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "błąd CLI Obserwatora (ostatnia linia stderr)",
+      "title": "obserwator-error/1 (ostatnia linia stderr CLI, wynik isError MCP)",
       "type": "object",
       "required": [
+        "schema",
         "code",
-        "detail",
-        "details"
+        "title",
+        "message",
+        "details",
+        "exit_code"
       ],
       "properties": {
+        "schema": {
+          "const": "obserwator-error/1"
+        },
         "code": {
           "enum": [
             "validation_error",
@@ -1042,16 +1085,36 @@
             "store_unavailable",
             "io_error",
             "cancelled",
+            "forbidden",
             "unsupported",
+            "method_not_allowed",
             "internal_error"
           ]
         },
-        "detail": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hint": {
           "type": "string",
           "minLength": 1
         },
         "details": {
           "type": "object"
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]* [a-z][a-z0-9-]*$"
         }
       },
       "additionalProperties": false
@@ -1246,10 +1309,13 @@
     },
     "obserwator-result/1": {
       "schema": "obserwator-result/1",
+      "tool": "obserwator",
+      "version": "3.0.0",
       "command": "store sync",
       "check": false,
       "status": "partial",
       "result": {
+        "schema": "obserwator-sync-report/1",
         "items": [
           {
             "slot": "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
@@ -1283,7 +1349,7 @@
         {
           "level": "info",
           "code": "license_terms",
-          "text": "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy …"
+          "message": "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy …"
         }
       ]
     },
@@ -1299,13 +1365,17 @@
         "value": 1.0
       }
     },
-    "cli-error": {
+    "obserwator-error/1": {
+      "schema": "obserwator-error/1",
       "code": "validation_error",
-      "detail": "Szerokość geograficzna 1.0 poza zakresem Polski (49.0–55.0)",
+      "title": "Invalid input",
+      "message": "Latitude 1.0 is outside Poland (49.0–55.0)",
       "details": {
         "option": "latitude",
         "value": 1.0
-      }
+      },
+      "exit_code": 2,
+      "command": "pmaxtp fetch"
     }
   }
 }

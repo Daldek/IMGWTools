@@ -229,19 +229,19 @@ for feature in read_catalog(root=demo, provider="CHMI"):
 
 ### Command catalog
 
-Every CLI command and REST route can be called from Python with the same options; the result is a `CommandResult` (envelope `obserwator-result/1`), and list commands return a `Page` (`items`, `total`, `limit`, `offset`).
+Every CLI command and REST route can be called from Python with the same options; the result is a `CommandResult` (envelope `obserwator-result/1`), and list commands return the tuple of the page's items as `result` and a `Page` (`total`, `next_cursor`, `truncated`) as `page`; pass `next_cursor` as the `cursor` option for the next page.
 
 ```python
 from obserwator import command_schema, run_command
 
 result = run_command("stations find", options={"kind": "hydro", "query": "wisla", "limit": 5})
-print(result.status, result.result.total, [s.name for s in result.result.items])
-print(result.to_json())  # dict of the JSON envelope, the same as CLI stdout and the REST body
+print(result.status, result.page.total, [s.name for s in result.result])
+print(result.to_json())  # dict of the JSON envelope, the same as CLI stdout with --json and the REST body
 
-schema = command_schema("store sync")  # JSON Schema of the options + x-obserwator (function, CLI, REST, rules)
-print(schema["x-obserwator"]["rest"]["path"])
-print(schema["x-obserwator"]["writes"], schema["x-obserwator"]["network"], schema["x-obserwator"]["operation_id"])  # add True obserwator_store_sync
-print(command_schema("store sync", lang="en")["description"])  # descriptions in English, structure unchanged
+(entry,) = command_schema("store sync")["commands"]  # obserwator-commands/1 (Nogat commands-1)
+print(entry["rest"]["path"], entry["operation_id"])  # /api/v1/store/sync obserwator_store_sync
+print(entry["effects"]["writes"], entry["effects"]["network"], entry["errors"])  # replace True [...]
+print([option["name"] for option in entry["options"]], entry["i18n"]["pl"]["summary"])
 ```
 
 The command that downloads a stored version again is rebuilt from its sidecar by `command_for_version` (offline, no writes; ADR-008). The result has the shape of `parse_command`, so `format_command`, `check_command` and `run_command` accept it; `root` is the absolute store root (default `store_root()`).
@@ -286,7 +286,7 @@ asyncio.run(main())
 
 ### Error handling
 
-Every `ObserwatorError` has a `code` from the closed `ERROR_CODES` registry and `details` (e.g. the name of the invalid option); the same code determines the CLI exit code and the HTTP status.
+Every `ObserwatorError` has a `code` from the closed `ERROR_CODES` registry, `details` (e.g. the name of the invalid option) and, when the raise site knows the fix, a `hint`; the same code determines the CLI exit code and the HTTP status. `obserwator.error_report.error_report(e).to_dict()` is the `obserwator-error/1` document the CLI and MCP print for it.
 
 ```python
 from obserwator import ERROR_CODES, ObserwatorConnectionError, ObserwatorError, ObserwatorValidationError, fetch_pmaxtp
@@ -312,10 +312,10 @@ except ObserwatorError as e:
 | `data_error` | Invalid data | 7 | 500 |
 | `store_unavailable` | Store unavailable | 8 | 503 |
 | `io_error` | File system error | 9 | 500 |
-| `cancelled` | Operation cancelled | 130 | — |
-| `forbidden` | No write permission | 12 | 403 |
+| `cancelled` | Cancelled | 130 | — |
+| `forbidden` | Not allowed | 12 | 403 |
 | `unsupported` | Unsupported (e.g. `command_not_rebuildable` from `command_for_version`) | 15 | 422 |
-| `method_not_allowed` | HTTP method not allowed | — | 405 |
+| `method_not_allowed` | Method not allowed | — | 405 |
 | `internal_error` | Internal error | 1 | 500 |
 
 ---
@@ -337,6 +337,7 @@ obserwator datasets download -d meteo/miesieczne/synop -y 2020-2023 -o dane
 # Stations, current data and PMAXTP
 obserwator stations find -k hydro -q wisla --limit 5
 obserwator current hydro -s 150160180
+obserwator current hydro -s 150160180 --json     # the obserwator-result/1 envelope, one JSON line
 obserwator current warnings -k meteo
 obserwator pmaxtp fetch --lat 52.23 --lon 21.01 --method AMP
 
@@ -366,8 +367,8 @@ obserwator store scan --provider CHMI -k observation
 
 # AI agents: guide and descriptions (English by default), MCP server (obserwator[mcp] extra)
 obserwator commands guide --format llms
-obserwator commands schema --command "store sync"
-obserwator commands schema --command "store sync" --lang pl  # descriptions in Polish
+obserwator commands schema --command "store sync" --json          # obserwator-commands/1, English
+obserwator commands schema --command "store sync" --lang pl  # readable description in Polish
 OBSERWATOR_LANG=en obserwator store sync --help          # CLI help in English
 obserwator mcp                                        # stdio — started by the MCP client
 
@@ -413,9 +414,9 @@ Catalog commands (full list: `obserwator commands list`):
 
 Outside the catalog: `obserwator version`, `obserwator server`, `obserwator mcp` and `obserwator admin keys|create|revoke|delete|stats`.
 
-**Options.** Flag = `--` + option name with `-` instead of `_`; short forms: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` plain-file directory (`--output-dir`), `-r` root, `-f` format; `--lat`/`--lon` are aliases of `--latitude`/`--longitude`. Write target (DEV-19.1): `--output-dir` (`-o`) writes plain files into a directory, `--root` (`-r`) writes to the versioned store (the options are mutually exclusive; with neither of them — the store in the default root), `--output` (no short form) writes one export file, and `--force` replaces existing plain files. Lists: comma-separated values or a repeated flag. List commands have `--limit` and `--offset`. `--provider` (`IMGW-PIB` or `CHMI`) narrows `datasets list`, `stations find` and `store scan` to one provider (omitted = both) and selects the catalog in `store catalog` (default `IMGW-PIB`). `--check` (only in commands with a `--check` column) prints the plan without writing and without downloading data, `--schema` — the description of the command options without running it. Dataset-dependent rules (e.g. `--stations` for `cz.chmi.*`) are in `x-obserwator.rules` of the schema. `OBSERWATOR_LANG=en` switches the CLI help and the default `--lang` to English (a value outside `pl|en` → `validation_error`, code 2).
+**Options.** Flag = `--` + option name with `-` instead of `_`; short forms: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` plain-file directory (`--output-dir`), `-r` root, `-f` format; `--lat`/`--lon` are aliases of `--latitude`/`--longitude`. Write target (DEV-19.1): `--output-dir` (`-o`) writes plain files into a directory, `--root` (`-r`) writes to the versioned store (the options are mutually exclusive; with neither of them — the store in the default root), `--output` (no short form) writes one export file, and `--force` replaces existing plain files. Lists: comma-separated values or a repeated flag. List commands have `--limit` and `--cursor` (the opaque `page.next_cursor` of the previous page; any other text → `validation_error` with `details.option="cursor"`). `--provider` (`IMGW-PIB` or `CHMI`) narrows `datasets list`, `stations find` and `store scan` to one provider (omitted = both) and selects the catalog in `store catalog` (default `IMGW-PIB`). `--check` (only in commands with a `--check` column) prints the plan without writing and without downloading data, `--schema` — the description of the command options without running it, `--json` (every command) — the envelope instead of the summary for a person, `--lang pl|en` (every command) — the language of that summary and of the stderr lines. Dataset-dependent rules (e.g. `--stations` for `cz.chmi.*`) are in `x-obserwator.rules` of the schema. `OBSERWATOR_LANG=en` switches the CLI help and the default `--lang` of the summary to English (a value outside `pl|en` → `validation_error`, code 2).
 
-**Output.** stdout is one JSON line — the `obserwator-result/1` envelope (`schema`, `command`, `check`, `status`, `result`, `notices`); store paths are relative to the root. `store export`, `series export` and `commands guide` without `--output` print a CSV/JSONL/Markdown stream; with `--output` they write one file (an existing one requires `--force`, a file in the store is a `conflict`), and the envelope `result` is `{output, files[]}` (`files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (each distinct one once, e.g. `license_terms`) go to stderr, and an error — as JSON `{"code", "detail", "details"}` on the last stderr line (stdout empty). Exit codes:
+**Output.** Without `--json` stdout carries a short summary for a person in the language of `--lang` (default `OBSERWATOR_LANG`): the status and the command, the items of a list as a table of their key fields with the page line (`Strona: 50 z 154, dalej: --cursor NTA`), the main fields of a document (work items with an error first), then the notices; its layout is not a contract. With `--json` stdout is one JSON line — the `obserwator-result/1` envelope (`schema`, `tool`, `version`, `command`, `check`, `status`, `result`, `notices` `{level, code, message}` and, for a list command, `page` `{total, next_cursor, truncated}`); `result` is a document with its own `schema` (`obserwator-<kind>/1`), the list of a page's items or null; store paths are relative to the root. `store export`, `series export` and `commands guide` without `--output` print a CSV/JSONL/Markdown stream (the same with and without `--json`); with `--output` they write one file (an existing one requires `--force`, a file in the store is a `conflict`), and the envelope `result` is `{schema, output, files[]}` (`obserwator-output/1`; `files[]` = `{path, size_bytes, sha256, status}`). Progress goes to stderr, as do the notices with `--json` (each distinct one once, e.g. `license_terms`; without `--json` they close the summary), and an error — as the JSON document `obserwator-error/1` (`schema`, `code`, `title`, `message`, `hint` when one fits — the option or command that fixes it, `details`, `exit_code`, `command` when known) on the last stderr line (stdout empty; without `--json` one readable line in the language of `--lang` comes before it). Exit codes:
 
 | Code | Meaning |
 |---|---|
@@ -443,7 +444,7 @@ After starting the server (`obserwator server`):
 - `GET /api/v1` — version and list of catalog routes, `GET /health` — server status, `GET /llms.txt` — guide for agents (llms.txt) in the language from `Accept-Language` (English by default)
 - `/mcp` — MCP server (Streamable HTTP) when `OBSERWATOR_MCP_ENABLED=true` (section "AI agents")
 
-Routes are generated from the catalog: `/api/v1/<group>/<command>` (table above; local commands — `datasets download`, `store init` — have no routes). GET takes options in the query (comma-separated lists or a repeated parameter), POST — in a JSON body; `?check=true` on POST returns the plan without writing. The response is the same `obserwator-result/1` envelope as in the CLI; list commands have `limit` (default and maximum `OBSERWATOR_API_MAX_LIMIT`, 1000) and `offset`. Errors: `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`). Language: notices, item and plan texts and the problem+json `title` and `detail` are in English, and in Polish with `Accept-Language: pl` (`q` weights per RFC 9110); commands with a `lang` option (`commands list`, `commands schema`, `commands guide`) take it from the query, and without it from the header. Every command response has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document (`/openapi.json`) is in English.
+Routes are generated from the catalog: `/api/v1/<group>/<command>` (table above; local commands — `datasets download`, `store init` — have no routes). GET takes options in the query (comma-separated lists or a repeated parameter), POST — in a JSON body; `?check=true` on POST returns the plan without writing. The response is the same `obserwator-result/1` envelope as in the CLI; list commands have `limit` (default and maximum `OBSERWATOR_API_MAX_LIMIT`, 1000) and `cursor` (`page.next_cursor` of the previous answer). Errors: `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `hint` when one fits, `details`). Language: notices, item and plan texts and the problem+json `title`, `detail` and `hint` are in English, and in Polish with `Accept-Language: pl` (`q` weights per RFC 9110); commands with a `lang` option (`commands list`, `commands schema`, `commands guide`) take it from the query, and without it from the header. Every command response has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document (`/openapi.json`) is in English.
 
 ```bash
 # Current data and archive URLs
@@ -483,13 +484,13 @@ The Web GUI supports IMGW-PIB datasets only (a form without a station field cann
 
 ## AI agents: language, command effects and the MCP server
 
-**Language.** Machine output is in English (AGI-9.2): the envelope, error `detail`, notices, plan lines, `commands list|schema|guide` descriptions (`command_schema()`, `list_commands()`, `agent_guide()`), `AGENTS.md`, `llms.txt`, the OpenAPI document, REST responses without an `Accept-Language` header and the MCP server. Polish catalog texts (command descriptions, option help, rules, groups, error and dataset titles) are available on explicit request: `lang="pl"`, `--lang pl`, `Accept-Language: pl`. `OBSERWATOR_LANG` (default `pl`) applies only to human-facing CLI text: help, progress lines and notices on stderr; the last error line and the envelope are always in English, and `OBSERWATOR_LANG` is not the default value of `--lang`. An agent decides by `code`, `status` and JSON fields; the language does not change the contract.
+**Language.** Machine output is in English (AGI-9.2): the envelope, the error `message` and `hint`, notices, plan lines, `commands list|schema|guide` descriptions (`command_schema()`, `list_commands()`, `agent_guide()`), `AGENTS.md`, `llms.txt`, the OpenAPI document, REST responses without an `Accept-Language` header and the MCP server. Polish catalog texts (command descriptions, option help, rules, groups, error and dataset titles) are available on explicit request: `lang="pl"`, `--lang pl`, `Accept-Language: pl`. `OBSERWATOR_LANG` (default `pl`) applies only to human-facing CLI text: help, progress lines, the summary printed without `--json` and the readable error line, all of which `--lang` overrides per call; the last error line and the envelope of `--json` are always in English, and with `--json` the `--lang` of `commands list|schema` defaults to English, not to `OBSERWATOR_LANG`. An agent decides by `code`, `status` and JSON fields; the language does not change the contract.
 
-**Command effects.** `x-obserwator.writes` (`none`, `add` — only new files and versions, `replace` — may replace a user file), `x-obserwator.network` and the options' `x-obserwator-writes` (e.g. `output`, `force`, `plan` in `store check`) tell what a command will do before it runs; every writing command has a plan (`--check`, `?check=true`, `check: true`).
+**Command effects.** `effects` of `command_schema` (`read_only`, `writes`: `none`, `add` — only new files and versions, `replace` — may replace a user file; `network`, `idempotent`, `destructive`) and the options' `writes` (e.g. `output`, `force`, `plan` in `store check`) tell what a command will do before it runs; every writing command has a plan (`--check`, `?check=true`, `check: true`), named by `check`.
 
 ### MCP server
 
-`obserwator mcp` (the `obserwator[mcp]` extra: CLI + the official SDK `mcp>=2.3,<3`) is an MCP server on standard input and output. Every catalog command is a tool named `x-obserwator.operation_id` (`obserwator_` + command name: `obserwator_store_sync`, `obserwator_current_hydro_states`, …; also the REST `operationId`) with an input schema from `command_schema` and the annotations `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`; the arguments are the command options, and the only validator is `validate_command`. The `obserwator_commands_list` tool returns the list of commands, `obserwator_commands_schema` — the options of one command. Client configuration (e.g. `mcpServers` in the settings file):
+`obserwator mcp` (the `obserwator[mcp]` extra: CLI + the official SDK `mcp>=2.3,<3`) is an MCP server on standard input and output. Every catalog command is a tool named by its catalog `operation_id` (`obserwator_` + command name: `obserwator_store_sync`, `obserwator_current_hydro_states`, …; also the REST `operationId`) with an input schema generated from the catalog options and the annotations `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`; the arguments are the command options, and the only validator is `validate_command`. The `obserwator_commands_list` tool returns the list of commands, `obserwator_commands_schema` — the description of one command (`obserwator-commands/1`). Client configuration (e.g. `mcpServers` in the settings file):
 
 ```json
 {
@@ -505,10 +506,10 @@ The Web GUI supports IMGW-PIB datasets only (a form without a station field cann
 
 - Without a system-wide installation: `"command": "uvx", "args": ["--from", "obserwator[mcp]", "obserwator", "mcp"]`.
 - Writes: `"args": ["mcp", "--allow-writes", "--allow-dir", "/dane/obserwator"]` (or `OBSERWATOR_MCP_ALLOW_WRITES=true`; `--allow-dir` can be repeated). Without `--allow-writes` the server does not write: writing commands have the `check` argument fixed to `true` and return an `obserwator-plan/1` plan, and writing options (`output_dir`, `output`, `force`, `plan`) are unavailable (an attempt → `forbidden`, `details.reason="writes_disabled"`). With the flag, `check` defaults to `true` and writing requires `check: false` — the user decides about writes in the configuration, not the model. Writing without `--allow-dir` is `forbidden` (`no_allowed_dir`), and a target (`root`, `output_dir`, `output` or the default root) outside these directories is `forbidden` (`outside_allowed_dirs`).
-- Language: the MCP server always speaks English (tool descriptions, instructions, error titles and `detail`; AGI-9.2), regardless of `OBSERWATOR_LANG`. There is no `--lang` option; an agent gets Polish text only on explicit request (the `lang: "pl"` argument of the `obserwator_commands_list`, `obserwator_commands_schema`, `obserwator_commands_guide` tools).
+- Language: the MCP server always speaks English (tool descriptions, instructions, error documents; AGI-9.2), regardless of `OBSERWATOR_LANG`. There is no `--lang` option; an agent gets Polish text only on explicit request (the `lang: "pl"` argument of the `obserwator_commands_list`, `obserwator_commands_schema`, `obserwator_commands_guide` tools).
 - `root` as in the CLI: a tool argument or the server's `OBSERWATOR_ROOT`; without them the default root `<data_dir>/obserwator` (must lie within `--allow-dir`); relative paths are resolved from the server's working directory (given in the server instructions).
 
-Tool result: `structuredContent` = the `obserwator-result/1` envelope (the same bytes as CLI stdout, also as text), `isError=false` also for `partial` and `failed`. Error: `isError=true` and `{"code", "title", "detail", "details"}` (`code`, `detail` and `details` as in the CLI error line, `title` from the registry, all in English). List commands without `limit` return a page of 50 items (at most `OBSERWATOR_API_MAX_LIMIT`); streams (`store export`, `series export`, `commands guide` without `output`) — text up to 256 KiB with the envelope `result={format, bytes, lines}`, larger → `validation_error` (narrow the selection, read page by page with `series read` or write a file with the `output` option; writing requires `--allow-writes` and an `--allow-dir` directory). Progress is sent as `notifications/progress`; cancelling the request stops work between files. The list of 30 tools with descriptions is about 42 KB of schemas (read-only mode).
+Tool result: `structuredContent` = the `obserwator-result/1` envelope (the same bytes as CLI stdout with `--json`, also as text), `isError=false` also for `partial` and `failed`. Error: `isError=true` and the `obserwator-error/1` document of the CLI error line (with the tool's `command`, in English) as `structuredContent` and as text. List commands without `limit` return a page of 50 items (at most `OBSERWATOR_API_MAX_LIMIT`; next pages with `cursor` = `page.next_cursor`); streams (`store export`, `series export`, `commands guide` without `output`) — text up to 256 KiB with the envelope `result={schema: "obserwator-stream/1", format, bytes, lines}`, larger → `validation_error` (narrow the selection, read page by page with `series read` or write a file with the `output` option; writing requires `--allow-writes` and an `--allow-dir` directory). Progress is sent as `notifications/progress`; cancelling the request stops work between files. The list of 30 tools with descriptions is about 42 KB of schemas (read-only mode).
 
 **MCP over HTTP.** `obserwator server` exposes `/mcp` (Streamable HTTP) with `OBSERWATOR_MCP_ENABLED=true`: the tools correspond to the 28 REST routes and are called as REST requests in the same process (with `Accept-Language: en`), so the server rules apply (store from `OBSERWATOR_ROOT`, `version` relative to the store, `OBSERWATOR_API_MAX_LIMIT`, hiding server directories); POST always with `?check=true` — over HTTP only reading and planning. The tools are in English, as in `obserwator mcp`; `OBSERWATOR_LANG` does not affect them. Allowed `Host` headers are listed in `OBSERWATOR_MCP_ALLOWED_HOSTS` (default `127.0.0.1,localhost`); behind `nginx` add the public host name.
 
@@ -582,7 +583,7 @@ api_max_limit = 500
 | `OBSERWATOR_DATA_DIR` (also `NOGAT_DATA_DIR`) | `data_dir` | `nogat` user data directory (`~/.local/share/nogat`) | parent directory of the stores (`<data_dir>/obserwator`) and the server state; **before 3.0.0 `IMGW_DATA_DIR` meant the reference data** (see `OBSERWATOR_REFERENCE_DIR`) |
 | `OBSERWATOR_CACHE_DIR` (also `NOGAT_CACHE_DIR`) | `cache_dir` | `nogat` cache directory (`~/.cache/nogat`) | cache (`<cache_dir>/obserwator`) |
 | `OBSERWATOR_REFERENCE_DIR` | `reference_dir` | `<cache_dir>/obserwator/reference` | IMGW-PIB reference data (`python -m obserwator.reference_data`) |
-| `OBSERWATOR_LANG` (also `NOGAT_LANG`) | `lang` | `pl` | `pl` or `en`: CLI help, progress lines and notices on stderr (the last error line, the envelope and command descriptions are always in English; Polish descriptions via `--lang pl`) |
+| `OBSERWATOR_LANG` (also `NOGAT_LANG`) | `lang` | `pl` | `pl` or `en`: CLI help, progress lines, the summary without `--json` and the default `--lang` (the last error line and the envelope of `--json` are always in English; Polish descriptions in it via `--lang pl`) |
 | `OBSERWATOR_ROOT` | `root` | `<data_dir>/obserwator` | store root for the CLI, the library and `obserwator mcp` without `--root` (also `root` in `[obserwator]` of `nogat.toml`); the only store of the REST server (without it 503, never the default directory) |
 | `OBSERWATOR_STORE_WRITES_ENABLED` | `store_writes_enabled` | `false` | writes over REST (POST without `?check=true`) |
 | `OBSERWATOR_STORE_WRITE_TOKEN` | — (environment only) | none | write token in the `X-API-Key` header |
@@ -665,7 +666,8 @@ Full list with migration tables: [`docs/CHANGELOG.md`](CHANGELOG.md) (also earli
   `IMGWError`; the dataset keys `pl.imgw.*` and the provider IMGW-PIB keep their names.
 - CLI: the `datasets`, `stations`, `current` and `pmaxtp` groups replace `imgw fetch …` and `imgw list …`
   (e.g. `imgw fetch hydro -i dobowe -y 2023` → `obserwator datasets download -d hydro/dobowe -y 2023`);
-  stdout is the `obserwator-result/1` envelope, an error is JSON on stderr, exit codes follow the error registry.
+  stdout is the `obserwator-result/1` envelope with `--json` (a summary for a person without it), an error is
+  JSON on the last stderr line, exit codes follow the error registry.
 - REST: catalog routes `/api/v1/<group>/<command>` replace `/api/v1/hydro|meteo|download|pmaxtp/*`
   and `/map/stations`; errors in `application/problem+json`.
 - Python: `station_id` → `station` (argument) and `station_code` (field); `list_*_stations` →

@@ -132,8 +132,8 @@ plugins = ["pydantic.mypy"]
 exclude = ['^\.claude/']
 
 [[tool.mypy.overrides]]
-# pyarrow ships no type information.
-module = ["pyarrow", "pyarrow.*"]
+# pyarrow and jsonschema (contract tests) ship no type information.
+module = ["pyarrow", "pyarrow.*", "jsonschema", "jsonschema.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -161,6 +161,7 @@ fail_under = 80
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.18",
     "mypy>=1.19",
     "pandas-stubs>=2.0",
     "pytest>=8",

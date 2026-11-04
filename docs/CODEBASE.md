@@ -16,12 +16,13 @@ src/obserwator/
 ├── agent_guide.py        # PUBLIC: agent_guide (AGENTS.md / llms.txt), MCP server instructions
 ├── coverage.py           # PUBLIC: summarize_coverage (per-station periods for ČHMÚ)
 ├── exceptions.py         # PUBLIC: ObserwatorError hierarchy + ERROR_CODES registry (title as a catalog message)
+├── error_report.py       # PUBLIC: obserwator-error/1 document (ErrorReport, error_document, error_report, error_hint)
 ├── messages/             # Message catalog: message(), Message, localize(), one module of Text(en, pl) per area (ADR-006)
 ├── urls.py               # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
 ├── parsers.py            # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
 ├── testing.py            # PUBLIC: build_fixture_store (complete, complete_pl_cz, ...), fixture_files
 ├── _jsonable.py          # Single JSON converter (envelope, relative store paths)
-├── _examples.py          # Example calls of the catalog (x-obserwator.examples): canonical line + result excerpt
+├── _examples.py          # Example calls of the catalog (examples of command_schema): canonical line + result excerpt
 ├── output.py             # Plain output (ADR-007): resolve_target, plan_plain, refuse, Staging, FileResult, OutputReport, STORE_MARKERS
 ├── reference_data.py     # python -m obserwator.reference_data (reference files in OBSERWATOR_REFERENCE_DIR)
 ├── config.py             # Settings (pydantic-settings, OBSERWATOR_*)
@@ -40,12 +41,13 @@ src/obserwator/
 │   └── plain.py          # plain_actions: the obserwator-plan/1 actions of a plain write
 ├── api/                  # FastAPI REST API [optional: obserwator[api]]
 │   ├── main.py           # App entry point (/health, /api/v1, /llms.txt, /mcp, web router, static)
-│   ├── routes/commands.py# Routes generated from command_schema() (x-obserwator.rest), Accept-Language (English by default)
+│   ├── routes/commands.py# Routes generated from the catalog (commands._input_schemas, x-obserwator.rest), Accept-Language (English by default)
 │   ├── errors.py         # application/problem+json handlers, hide_server_paths, accept_language
 │   └── schemas.py        # HealthCheck
 ├── cli/                  # Typer/Click CLI [optional: obserwator[cli]]
 │   ├── main.py           # Entry point (obserwator command): version, server, mcp, admin + catalog groups
 │   ├── _dispatch.py      # ObserwatorGroup + register_catalog: the only CLI adapter of the catalog (OBSERWATOR_LANG)
+│   ├── _render.py        # Summary for a person of the envelope (without --json): one renderer, key-field hints
 │   └── admin.py          # API key management
 ├── mcp/                  # MCP adapter [optional: obserwator[mcp]]; not in obserwator.__all__
 │   ├── _tools.py         # Tools from the catalog (modes read/write/http, schemas, annotations)
@@ -62,7 +64,7 @@ AGENTS.md, llms.txt       # Agent guide — DERIVED files: regenerate with `obse
 ## CLI Examples
 
 ```bash
-# CLI examples (stdout = one-line JSON envelope obserwator-result/1)
+# CLI examples (stdout: a summary for a person; with --json the one-line envelope obserwator-result/1)
 obserwator version                                   # Show version
 obserwator server --host 0.0.0.0 --port 8000         # Run API server
 obserwator datasets list -k hydro                    # Dataset registry
@@ -79,8 +81,8 @@ obserwator datasets providers                        # IMGW-PIB and CHMI
 obserwator stations find -k hydro -q spindleruv --provider CHMI  # ČHMÚ station (WIGOS id)
 obserwator store check --root /dane/obserwator -d cz.chmi.hydro_daily -s 0-203-1-001000 -y 2024-2025  # ČHMÚ listing check
 obserwator store catalog --root /dane/obserwator --provider CHMI # ČHMÚ station catalog
-obserwator commands schema --command "store sync"    # JSON Schema of a command
-obserwator commands schema --command "store sync" --lang pl  # Same, Polish texts
+obserwator commands schema --command "store sync" --json  # obserwator-commands/1 of a command
+obserwator commands schema --command "store sync" --lang pl  # Readable, Polish texts
 obserwator store sync --schema                       # Same, via the command itself
 obserwator commands guide --format agents --output AGENTS.md --force  # Regenerate AGENTS.md (English)
 obserwator mcp [--allow-writes --allow-dir DIR]      # MCP server on stdio, English; writes only inside --allow-dir (obserwator[mcp])
@@ -139,8 +141,8 @@ Every live function has an `*_async` twin with identical arguments.
 **Command Catalog:**
 |Function|Description|
 |---|---|
-|`command_schema(command=None, /, *, lang="en")`|JSON Schema of the catalog or one command (`x-obserwator`: function, CLI, REST, rules, `writes`, `network`, `idempotent`, `operation_id`); `lang="pl"` = Polish texts|
-|`list_commands(*, lang="en")`|Catalog summary `obserwator-command-list/1`: per command the name, `operation_id`, one-sentence summary, effects, check twin, result and REST route (`obserwator commands list`, MCP `obserwator_commands_list`)|
+|`command_schema(command=None, /, *, lang="en")`|`obserwator-commands/1` (Nogat `commands-1`) of one command or the whole catalog: `name`, `operation_id`, `function`, `summary`, `description`, `options` (type, `enum` with meanings, bounds, `path_role`, `flags`), `result`, `effects`, `check`, `rules`, `examples`, `errors`, `i18n.pl`, plus `group`, `result_type`, `rest`; `lang="pl"` = Polish texts|
+|`list_commands(*, lang="en")`|Catalog summary `obserwator-command-list/1` (`tool`, `version`, `groups`, `commands`): per command the `name`, `operation_id`, group, one-sentence summary, `read_only`, `check`, effects, result and REST route (`obserwator commands list`, MCP `obserwator_commands_list`)|
 |`data_commands(*, provider=None)`|Catalog entries (`DataCommand`; `provider` = view of one provider)|
 |`validate_command(command, /, *, options)`|Normalized options or `ObserwatorValidationError` with `details.option`|
 |`format_command(command, /, *, options, run=None)`|Canonical CLI command line of a call; `run={"check": True}` adds `--check`|
@@ -161,7 +163,7 @@ Every live function has an `*_async` twin with identical arguments.
 |`StationListEntry`|Station list row (`kind`, `station_code`, `name`, `provider`, ...)|
 |`NormalizedRecord`, `Measurement`|Normalized archive/series record with value flags (`Measurement.quality`, `source_flag` for ČHMÚ meteo)|
 |`ProviderDescriptor`|Data provider: id, names, country, key prefix, base URL, license, station code pattern, datasets|
-|`CommandResult`, `Page`|Result envelope (`obserwator-result/1`) and list page (`items`, `total`, `limit`, `offset`)|
+|`CommandResult`, `Page`|Result envelope (`obserwator-result/1`: `tool`, `version`, `result` a document or a list of them, `notices` `{level, code, message}`, `page`) and the paging of a list command (`total`, `next_cursor`, `truncated`)|
 |`CommandCall`|A command line read by `parse_command` (or rebuilt by `command_for_version`): `command`, `options`, `run`|
 |`FileResult`, `OutputReport`|One written file `{path, size_bytes, sha256, status}` and the result of an export `{output, files[]}`|
 
@@ -183,9 +185,10 @@ Every live function has an `*_async` twin with identical arguments.
 
 The command catalog is the single source of options, validation, help texts and result types:
 - `_CATALOG` — 30 `DataCommand` entries (spec §13.3 without the `project` group + `datasets providers` + `commands list` + `commands guide`), each calling exactly one public function; every text (`description`, `help`, `rules`, group titles) is an English catalog message of `messages/commands.py` with its Polish variant (`localize(text, "pl")`); the first sentence of a description is the `summary` of `commands list` (at most 100 characters)
-- `command_schema(lang=)` — JSON Schema per command with `x-obserwator` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`), plus `groups`, `errors`, `exit_codes`, `lang`; `operation_id` is `obserwator_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`
-- `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`offset`) for the 12 list commands, notices deduplicated in the envelope
-- CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from `command_schema()`; never add hand-written commands there
+- `command_schema(lang=)` — `obserwator-commands/1` (Nogat `commands-1`, validated against `schemas/nogat/commands-1.schema.json` by `tests/contract/test_commands_catalog.py`): an entry per command, plus `groups`, `errors`, `exit_codes`, `lang` for the whole catalog; `operation_id` is `obserwator_<group>_<verb>` (ECO-018): the MCP tool name and the REST `operationId`; the `errors` of an entry follow from its declared effects (`_errors`)
+- `_input_schemas(lang)` — internal JSON Schema 2020-12 of the options per command with `x-obserwator` (`function`, `check`, `result_type`, `cli.flags`, `rest.method/path/server_options/local_options`, `rules`, `writes`, `network`, `idempotent`, `operation_id`): the source of the CLI, REST, MCP input schemas and the agent guide
+- `run_command`/`check_command` — dispatch by `inspect.signature`, paging (`limit`/`cursor`, opaque URL-safe base64 of the next index) for the 12 list commands, notices deduplicated in the envelope; every result type names its document in `SCHEMA` (`obserwator-<kind>/1`), written first by `_jsonable`
+- CLI (`cli/_dispatch.py`), REST (`api/routes/commands.py`) and MCP tools (`mcp/_tools.py`) are generated from the catalog (`_input_schemas`); never add hand-written commands there
 - Changing catalog texts, the dataset/provider/error registries or the templates in `_data/agents/` requires regenerating `AGENTS.md` and `llms.txt` in the same change (`obserwator commands guide --format agents --output AGENTS.md --force`, `--format llms --output llms.txt --force`); `tests/unit/test_agent_guide.py` compares the bytes
 
 ## External Data Sources
@@ -224,7 +227,7 @@ The command catalog is the single source of options, validation, help texts and 
 
 ## Command Catalog (CLI, REST and MCP)
 
-CLI command = `obserwator <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing); MCP tool = `x-obserwator.operation_id` (`obserwator_` + name with spaces and `-` → `_`, e.g. `obserwator_store_sync`; also the REST `operationId`). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`/`check: true`; `—` = no `--check`; "self" = the command is a check.
+CLI command = `obserwator <group> <name>`; REST route = `/api/v1/<group>/<name>` (GET options in the query, POST options in a JSON body, `?check=true` on POST = plan without writing); MCP tool = the catalog `operation_id` (`obserwator_` + name with spaces and `-` → `_`, e.g. `obserwator_store_sync`; also the REST `operationId`). "Local" commands have no REST route. Check: twin function used by `--check`/`?check=true`/`check: true`; `—` = no `--check`; "self" = the command is a check.
 
 |Command|Function|Check|REST|
 |---|---|---|---|
@@ -261,11 +264,11 @@ CLI command = `obserwator <group> <name>`; REST route = `/api/v1/<group>/<name>`
 
 Outside the catalog: `obserwator version`, `obserwator server` (`--host`, `--port`, `--reload`), `obserwator mcp` (`--allow-writes`, repeatable `--allow-dir`), `obserwator admin keys|create|revoke|delete|stats`, `obserwator config show`, `GET /health`, `GET /api/v1` (name, version, schema route, list of catalog routes), `GET /llms.txt` (agent guide, language from `Accept-Language`), `/mcp` (MCP Streamable HTTP, English, only with `OBSERWATOR_MCP_ENABLED=true`) and the HTML pages.
 
-Effects (`x-obserwator.writes`/`x-obserwator.network`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions, `replace` = may replace or remove user content (no command as a whole; only writing options); writing options (`x-obserwator-writes`): `plan` of `store check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
+Effects (`effects.writes`/`effects.network` of `command_schema`, ADR-004 D2): `none` = no file changes, `add` = only new files/versions, `replace` = may replace or remove user content (no command as a whole; only writing options); writing options (`writes` of an option): `plan` of `store check` (`replace`), `output_dir` of `datasets download`/`store sync`/`pmaxtp sync` and `output` of `store export`/`series export`/`commands guide` (`add`: new files), and `force` of the same commands (`replace`: an existing file). Every writing command has a check twin.
 
 ### Options
 
-Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets: see "Data output" below. Lists: comma-separated or repeated flag/parameter. `--root` reads `OBSERWATOR_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--offset`. `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-obserwator.rules`). `--lang pl|en` in `commands list`/`commands schema`/`commands guide` (default `en`); `OBSERWATOR_LANG=pl|en` sets only the CLI help language (incl. Typer/Click elements; invalid value → `validation_error`, exit 2).
+Option name = function parameter = JSON field; CLI flag = `--` + name with `_` → `-`. Short aliases: `-d` dataset(s), `-y` years, `-m` months, `-s` station(s), `-k` kind, `-q` query, `-o` output-dir, `-r` root, `-f` format; `--lat`/`--lon` alias `--latitude`/`--longitude`. Write targets: see "Data output" below. Lists: comma-separated or repeated flag/parameter. `--root` reads `OBSERWATOR_ROOT` (for `stations find` only with `--source store`; rule `DataCommand.env_root_when`, shared with MCP stdio). List commands accept `--limit`/`--cursor` (`page.next_cursor`; a malformed cursor → `validation_error`, `details.option="cursor"`). `--check` exists only on commands with a check twin; `--schema` prints the command's schema without running it. `--provider` (`IMGW-PIB`|`CHMI`) in `datasets list`, `stations find`, `store scan` (absent = all) and `store catalog` (default `IMGW-PIB`); `--stations`/`-s` in `datasets files|download`, `store check|sync` (required for `cz.chmi.*`, forbidden for `pl.imgw.*`; `years` dataset-dependent — see `x-obserwator.rules`). `--lang pl|en` in `commands list`/`commands schema`/`commands guide` (default `en`); `OBSERWATOR_LANG=pl|en` sets only the CLI help language (incl. Typer/Click elements; invalid value → `validation_error`, exit 2).
 
 ### Data output
 
@@ -285,10 +288,11 @@ Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-00
 
 ### Output, errors and exit codes
 
-- CLI stdout: compact one-line JSON envelope `obserwator-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{output, files[]}` (`OutputReport`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
-- CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
-- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `OBSERWATOR_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
-- MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
+- CLI stdout with `--json`: compact one-line JSON envelope `obserwator-result/1` (`schema`, `tool`, `version`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`, `page` of a list command); `result` is a document with its own `schema` `obserwator-<kind>/1`, a list of them or null; store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{schema, output, files[]}` (`OutputReport`, `obserwator-output/1`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
+- CLI stdout without `--json`: a short summary for a person in the language of `--lang` (`cli/_render.py`; status, the items of a list as a table of key fields and the page, the main fields of a document, the notices); not a contract.
+- CLI error: stdout empty, last stderr line the `obserwator-error/1` document (`schema`, `code`, `title`, `message`, `hint`?, `details`, `exit_code`, `command`?; `error_report.py`); without `--json` one readable line in the language of `--lang` comes before it.
+- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `hint`?, `details`); list `limit` default/maximum `OBSERWATOR_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title`, `detail` and `hint` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
+- MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with the CLI's `obserwator-error/1` document; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
 
 |Code|Title (`title` / `title.localized("pl")`)|CLI exit|HTTP|
 |---|---|---|---|
@@ -300,10 +304,10 @@ Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-00
 |`data_error`|Invalid data / Niepoprawne dane|7|500|
 |`store_unavailable`|Store unavailable / Magazyn niedostępny|8|503|
 |`io_error`|File system error / Błąd systemu plików|9|500|
-|`cancelled`|Operation cancelled / Operację anulowano|130|—|
-|`forbidden`|Write not permitted / Brak uprawnień do zapisu|12|403|
+|`cancelled`|Cancelled / Anulowano|130|—|
+|`forbidden`|Not allowed / Operacja niedozwolona|12|403|
 |`unsupported`|Not supported / Nieobsługiwane|15|422|
-|`method_not_allowed`|HTTP method not allowed / Niedozwolona metoda HTTP|—|405|
+|`method_not_allowed`|Method not allowed / Niedozwolona metoda|—|405|
 |`internal_error`|Internal error / Błąd wewnętrzny|1|500|
 
 Envelope status exit codes: `ok` 0, `partial` 10, `failed` 11, `cancelled` 130.

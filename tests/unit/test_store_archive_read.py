@@ -127,5 +127,5 @@ def test_store_export_cli_rejects_a_station_list_version_with_guidance(root):
     assert result.stdout == ""
     error = json.loads(result.stderr.splitlines()[-1])
     assert error["code"] == "validation_error"
-    assert "read_station_list(root, kind='hydro')" in error["detail"]
+    assert "read_station_list(root, kind='hydro')" in error["message"]
     assert result.exit_code == ERROR_CODES["validation_error"].exit_code

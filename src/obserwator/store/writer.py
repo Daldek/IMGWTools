@@ -679,6 +679,9 @@ def open_store(root: PathArg, /) -> StoreHandle:
         raise ObserwatorStoreError(
             message("writer.no_marker_unsupported_obserwator_store", path=path),
             details={"reason": "unsupported"},
+            hint=None
+            if path.exists()
+            else message("errors.hint_missing_store", path=path),
         )
     return StoreHandle(path, "obserwator-store/1")
 

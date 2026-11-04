@@ -798,6 +798,12 @@ def read_pmaxtp(
                     cell_y=cell[1],
                 ),
                 code="not_found",
+                hint=message(
+                    "errors.hint_pmaxtp_sync",
+                    method=method,
+                    cell_x=cell[0],
+                    cell_y=cell[1],
+                ),
             )
         path = current[0]
     else:

@@ -226,8 +226,13 @@ def store_info(root: PathArg, /) -> StoreInfo:
 def _open(root: RootArg) -> Path:
     info = _inspect(_safe_root(root.root if isinstance(root, StoreHandle) else root))
     if not info.supported:
+        missing = info.problem_codes == ("missing_store",)
         raise ObserwatorStoreError(
-            "; ".join(info.problems), details={"reason": "unsupported"}
+            "; ".join(info.problems),
+            details={"reason": "unsupported"},
+            hint=message("errors.hint_missing_store", path=info.root)
+            if missing
+            else None,
         )
     return info.root
 
@@ -1827,6 +1832,7 @@ def read_catalog(
                         id=owner.id,
                     ),
                     code="not_found",
+                    hint=message("errors.hint_store_catalog", provider=owner.id),
                 )
             continue
         stations = _catalog_features(entry.version)
@@ -2246,6 +2252,7 @@ def _series_path(
         raise ObserwatorStoreError(
             message("reader.store_has_no_series_run", key=descriptor.key),
             code="not_found",
+            hint=message("errors.hint_series_build", dataset=descriptor.key),
         )
     return entry.version
 

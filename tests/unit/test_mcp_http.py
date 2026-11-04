@@ -51,9 +51,9 @@ INITIALIZE = {
 }
 # Tools with a REST route, in catalog order (spec §6.3, mode http).
 ROUTES = [
-    schema["x-obserwator"]["operation_id"]
-    for schema in command_document(lang="en")["commands"]
-    if schema["x-obserwator"]["rest"] is not None
+    entry["operation_id"]
+    for entry in command_document(lang="en")["commands"]
+    if entry["rest"] is not None
 ]
 
 
@@ -154,8 +154,8 @@ async def test_mcp_serves_the_rest_routes_as_english_tools_whatever_obserwator_l
     assert [tool.name for tool in tools] == ROUTES
     assert dumped(tools) == dumped(expected)
     english = {
-        schema["x-obserwator"]["operation_id"]: schema["description"]
-        for schema in command_document(lang="en")["commands"]
+        entry["operation_id"]: entry["description"]
+        for entry in command_document(lang="en")["commands"]
     }
     assert all(tool.description.startswith(english[tool.name]) for tool in tools)
     rest = TestClient(app).get(
@@ -179,7 +179,13 @@ async def test_a_problem_of_rest_is_the_english_error_result(monkeypatch):
     assert problem.status_code == 400
     body = problem.json()
     assert error_of(result) == {
-        key: body[key] for key in ("code", "title", "detail", "details")
+        "schema": "obserwator-error/1",
+        "code": body["code"],
+        "title": body["title"],
+        "message": body["detail"],
+        "details": body["details"],
+        "exit_code": ERROR_CODES["validation_error"].exit_code,
+        "command": "pmaxtp fetch",
     }
     assert body["title"] == ERROR_CODES["validation_error"].title
 

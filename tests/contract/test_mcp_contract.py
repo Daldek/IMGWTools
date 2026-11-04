@@ -4,8 +4,9 @@ Every contract case of ``test_interface_contract.CASES`` (the commands with a RE
 route) runs through the tool of a stdio server in the SDK's in-memory client: the
 structured content is the Python envelope ``to_json(root)``, the text content the
 line the CLI prints, a stream the text Python yields with an envelope of
-``{format, bytes, lines}``. Writes run on a server with writes and ``check: false``
-and leave the tree the CLI leaves; a server without writes answers the plan of
+``{schema: obserwator-stream/1, format, bytes, lines}``. Writes run on a server
+with writes and ``check: false`` and leave the tree the CLI leaves; a server
+without writes answers the plan of
 ``--check`` and leaves the store as it was. The local commands without a REST
 route follow the same rule, and every error the CLI reports is the CLI error line
 with the registry title.
@@ -40,9 +41,10 @@ from tests.contract.support import (
     FakeImgw,
     canonical,
     cli_words,
-    command_document,
     envelope_errors,
+    input_schema,
     mcp_text,
+    schema_errors,
     snapshot,
     stamps,
 )
@@ -74,7 +76,7 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
 
 def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
-    name = command_document(command)["x-obserwator"]["operation_id"]
+    name = input_schema(command)["x-obserwator"]["operation_id"]
 
     async def answer() -> CallToolResult:
         async with Client(create_server(mode=mode, allow_dirs=ANYWHERE)) as client:
@@ -84,7 +86,7 @@ def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolRes
 
 
 def writing(command: str) -> bool:
-    return bool(command_document(command)["x-obserwator"]["writes"] != "none")
+    return bool(input_schema(command)["x-obserwator"]["writes"] != "none")
 
 
 def run(command: str, options: dict[str, object]) -> CallToolResult:
@@ -108,20 +110,17 @@ def assert_stream(
 ) -> None:
     """MCP text = the lines Python yields; the envelope sums them up."""
     data = "".join(python.result)
-    default = command_document(command)["properties"]["format"]["default"]
+    default = input_schema(command)["properties"]["format"]["default"]
     assert answered.is_error is False, mcp_text(answered)
     assert mcp_text(answered) == data
     assert answered.structured_content == {
-        "schema": "obserwator-result/1",
-        "command": command,
-        "check": False,
-        "status": python.status,
+        **replace(python, result=None).to_json(root=root),
         "result": {
+            "schema": "obserwator-stream/1",
             "format": options.get("format", default),
             "bytes": len(data.encode("utf-8")),
             "lines": data.count("\n"),
         },
-        "notices": replace(python, result=None).to_json(root=root)["notices"],
     }
 
 
@@ -304,6 +303,5 @@ def test_every_error_of_the_cli_is_the_same_document_in_mcp(
         document, ensure_ascii=False, separators=(",", ":")
     )
     assert document["title"] == ERROR_CODES[code].title
-    assert canonical(
-        [document["code"], document["detail"], document["details"]]
-    ) == canonical([line["code"], line["detail"], line["details"]])
+    assert schema_errors(document, "obserwator-error/1") == []
+    assert canonical(document) == canonical(line)

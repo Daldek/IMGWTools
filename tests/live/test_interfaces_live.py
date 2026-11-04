@@ -25,7 +25,7 @@ the same code, exit code and HTTP status in every interface.
 
 The MCP leg (spec 2026-10-19 §9) starts ``obserwator mcp`` once, as an MCP client
 does, in the working directory of the CLI and calls the tool of every read
-command that asks the live sources (``x-obserwator``: ``writes`` none, ``network``)
+command that asks the live sources (``effects``: ``writes`` none, ``network``)
 with the options of Python, ``root`` included: the structured content must be
 the Python envelope ``to_json(root)`` and the text content its JSON. Run it
 alone with ``-k obserwator_mcp``.
@@ -33,9 +33,9 @@ alone with ``-k obserwator_mcp``.
 Tolerated differences, because live sources change between the calls:
 
 - ``checked_at`` of plans: the moment of the check;
-- current data (``current *``) are compared by structure: status, keys, page
-  ``limit`` and ``offset`` and the keys of every item must agree, while the
-  measured values, ``total`` and the number of items on the page may change.
+- current data (``current *``) are compared by structure: status, keys and the
+  keys of every item must agree, while the measured values, the number of items
+  on the page and its ``page`` (``total``, ``next_cursor``, ``truncated``) may change.
 
 Version labels of the station catalog and of PMAXTP cells are the dates of
 their creation (UTC): a run across midnight UTC reports them as differences
@@ -81,12 +81,14 @@ from obserwator import (
     sync_store,
 )
 from obserwator.config import settings
+from obserwator.store.types import page_cursor
 from tests.contract.support import (
     canonical,
     cli_words,
     command_document,
     current_path,
     envelope_errors,
+    input_schemas,
     obserwator_executable,
     rest_request,
     schema_errors,
@@ -101,16 +103,16 @@ CATALOG = command_document()
 EXIT_CODES: dict[str, int] = CATALOG["exit_codes"]
 SPECS: dict[str, dict[str, Any]] = {
     schema["x-obserwator"]["command"]: schema["x-obserwator"]
-    for schema in CATALOG["commands"]
+    for schema in input_schemas()
 }
 ROOTED = {
     schema["x-obserwator"]["command"]
-    for schema in CATALOG["commands"]
+    for schema in input_schemas()
     if "root" in schema["properties"]
 }
 INTERFACES = ("python", "cli", "rest")
 # Notice labels of the CLI stderr (spec §13.10).
-LABELS = {"info": "Informacja", "warning": "Ostrzeżenie", "error": "Błąd"}
+LABELS = {"info": "Informacja", "warning": "Ostrzeżenie"}
 TOKEN = "token-regresji-na-zywo"
 # Relative reference-data directory (missing): texts name it alike everywhere.
 DATA_DIR = "dane-referencyjne"
@@ -229,7 +231,7 @@ class Round:
 
 
 CASES: dict[str, list[Case]] = {
-    "datasets list": [Case({"kind": "hydro", "limit": 2, "offset": 1})],
+    "datasets list": [Case({"kind": "hydro", "limit": 2, "cursor": page_cursor(1)})],
     "datasets files": [
         Case(
             {
@@ -237,7 +239,7 @@ CASES: dict[str, list[Case]] = {
                 "years": f"{YEAR - 1}-{YEAR}",
                 "months": [MONTH],
                 "limit": 1,
-                "offset": 1,
+                "cursor": page_cursor(1),
             }
         )
     ],
@@ -247,13 +249,13 @@ CASES: dict[str, list[Case]] = {
             clean=("pobrane",),
         )
     ],
-    "datasets providers": [Case({"limit": 1, "offset": 1})],
+    "datasets providers": [Case({"limit": 1, "cursor": page_cursor(1)})],
     "stations find": [
         Case({"kind": "hydro", "query": "kłodzko", "limit": 3}),
         Case({"source": "store", "query": "kłodzko", "limit": 3}, "full"),
     ],
     "current hydro": [Case({"station": STATION, "limit": 1}, live=True)],
-    "current meteo": [Case({"limit": 3, "offset": 1}, live=True)],
+    "current meteo": [Case({"limit": 3, "cursor": page_cursor(1)}, live=True)],
     "current synop": [Case({"station": SYNOP, "limit": 1}, live=True)],
     "current warnings": [Case({"kind": "meteo", "limit": 2}, live=True)],
     "current hydro-states": [Case({"main_only": True, "limit": 3}, live=True)],
@@ -268,7 +270,9 @@ CASES: dict[str, list[Case]] = {
     "pmaxtp read": [Case({"ind_x": CELL_X, "ind_y": CELL_Y}, "full")],
     "store init": [Case({}, "absent")],
     "store info": [Case({}, "full")],
-    "store scan": [Case({"kind": "archive", "limit": 3, "offset": 1}, "full")],
+    "store scan": [
+        Case({"kind": "archive", "limit": 3, "cursor": page_cursor(1)}, "full")
+    ],
     "store check": [
         Case({"datasets": [DAILY], "years": str(YEAR), "months": [MONTH]}, "full")
     ],
@@ -294,7 +298,7 @@ CASES: dict[str, list[Case]] = {
                 "variables": ["H", "Q"],
                 "start": f"{YEAR - 1}-11-10",
                 "limit": 5,
-                "offset": 1,
+                "cursor": page_cursor(1),
             },
             "full",
         )
@@ -388,7 +392,9 @@ def tolerance(case: Case, path: str, left: object, right: object) -> str | None:
         return None  # keys always agree
     if path.endswith(f".{_MOMENT}"):
         return "chwila sprawdzenia"
-    if case.live and (path.startswith("$.result.items") or path == "$.result.total"):
+    if case.live and (
+        path.startswith(("$.result[", "$.page.")) or path == "$.result.length"
+    ):
         return "dane bieżące"
     return None
 
@@ -941,7 +947,7 @@ class Live:
         problems: dict[str, list[str]],
     ) -> None:
         notices = [
-            {"level": notice.level, "code": notice.code, "text": notice.text}
+            {"level": notice.level, "code": notice.code, "message": notice.message}
             for notice in envelope.notices
         ]
         printed: subprocess.CompletedProcess[bytes] = answers["cli"]
@@ -953,7 +959,7 @@ class Live:
                 f"strumień {len(printed.stdout)} B zamiast {len(data)} B Pythona"
             )
         for notice in notices:
-            line = f"{LABELS[notice['level']]}: {notice['text']}"
+            line = f"{LABELS[notice['level']]}: {notice['message']}"
             if stderr.count(line) != 1:
                 problems["cli"].append(f"komunikat {notice['code']} nie raz na stderr")
         answered: httpx.Response = answers["rest"]
@@ -1020,10 +1026,10 @@ class Live:
             problems["cli"].append(f"kod wyjścia {printed.returncode}")
         if printed.stdout:
             problems["cli"].append("niepuste stdout przy błędzie")
-        problems["cli"] += schema_errors(line, "cli-error")
+        problems["cli"] += schema_errors(line, "obserwator-error/1")
         if line.get("code") != failure.code:
             problems["cli"].append(f"kod {line.get('code')}")
-        if error is not None and [line.get("detail"), line.get("details")] != [
+        if error is not None and [line.get("message"), line.get("details")] != [
             error.detail,
             _plain(error.details),
         ]:
@@ -1152,9 +1158,7 @@ def mcp_server(live: Live) -> Iterator[McpServer]:
 
 
 def test_the_live_run_covers_every_catalog_command():
-    assert list(CASES) == [
-        schema["x-obserwator"]["command"] for schema in CATALOG["commands"]
-    ]
+    assert list(CASES) == [entry["name"] for entry in CATALOG["commands"]]
 
 
 @pytest.mark.parametrize("command", list(CASES))

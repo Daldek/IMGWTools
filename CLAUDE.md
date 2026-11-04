@@ -9,7 +9,7 @@ Obserwator (`obserwator` on PyPI, v3.0.0, profiles `tool` and `app`) is a Python
 ## 2. Critical rules
 
 - Write only where the user says: `--output-dir` (plain files), `--root`, `OBSERWATOR_ROOT` or the default store `<data_dir>/obserwator` (DEV-19.2, ADR-007); a server writes only to its configured `OBSERWATOR_ROOT`, never to the default. No database.
-- Never add hand-written commands to the CLI, REST or MCP adapters: they are generated from `command_schema()` (`cli/_dispatch.py`, `api/routes/commands.py`, `mcp/_tools.py`). A command goes into `_CATALOG` in `commands.py`, calls exactly one public function and takes its texts (`help`, `description`, `rules`) from `obserwator.messages.commands`.
+- Never add hand-written commands to the CLI, REST or MCP adapters: they are generated from the catalog (`cli/_dispatch.py`, `api/routes/commands.py`, `mcp/_tools.py`). A command goes into `_CATALOG` in `commands.py`, calls exactly one public function and takes its texts (`help`, `description`, `rules`) from `obserwator.messages.commands`.
 - Never edit `AGENTS.md` and `llms.txt` by hand: they are derived from the catalog. A change of catalog texts, of the dataset/provider/error registries or of the templates in `src/obserwator/_data/agents/` regenerates both in the same change (commands in section 3); `tests/unit/test_agent_guide.py` compares the bytes.
 - Keep the contract Python = CLI = REST = MCP (`tests/contract/`); one option name per parameter, one envelope `obserwator-result/1`, one error registry `ERROR_CODES`.
 - Never run tests with the global Python (a non-editable `obserwator` there shadows `src/`): use `uv run`.

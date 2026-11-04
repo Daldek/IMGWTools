@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import json
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from obserwator._jsonable import jsonable
+from obserwator._version import __version__
 from obserwator.exceptions import ObserwatorDataError, ObserwatorValidationError
 from obserwator.messages import DEFAULT_LANG, Lang, message, reason
 from obserwator.output import FileResult
@@ -60,19 +64,19 @@ class Notice:
 
     Attributes
     ----------
-    level : {"info", "warning", "error"}
-        Severity of the notice.
+    level : {"info", "warning"}
+        Severity of the notice (AGI-4.2).
     code : str
         Stable machine-readable identifier, e.g. ``"license_terms"`` or
         ``"source_unverifiable"``.
-    text : str
+    message : str
         Human-readable message: a catalog `Message` (English; render it in
         another language with ``Message.localized``).
     """
 
-    level: Literal["info", "warning", "error"]
+    level: Literal["info", "warning"]
     code: str
-    text: str
+    message: str
 
 
 ProgressHook = Callable[[Progress], None]
@@ -108,7 +112,7 @@ class StoreInfo:
         Absolute path of the inspected root directory.
     exists : bool
         Whether the root directory exists.
-    schema : str or None
+    store_schema : str or None
         Schema read from the ``obserwator-store.json`` marker, or None when the
         marker is missing or unreadable.
     supported : bool
@@ -129,14 +133,16 @@ class StoreInfo:
         root is no store, or holds the layout of one and ``obserwator store init``
         writes the marker), ``"invalid_marker"`` (the marker is not JSON or has
         no ``schema`` text) and ``"unsupported_store"`` (the marker names
-        another store schema: see ``schema``). A consumer decides by the code
+        another store schema: see ``store_schema``). A consumer decides by the code
         and shows the text; `iter_store` gives the entry of the same problem
         the same code in ``StoreEntry.problem_code``.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-store-info/1"
+
     root: Path
     exists: bool
-    schema: str | None
+    store_schema: str | None
     supported: bool
     contracts: Mapping[str, str]
     problems: tuple[str, ...]
@@ -627,6 +633,8 @@ class SeriesReport:
         nothing was built.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-series-report/1"
+
     status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
     stations: int
@@ -654,6 +662,8 @@ class SyncReport:
         their status (``new``, ``unchanged``, ``relabeled``); in plain mode the
         files written (``written``, ``replaced``).
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-sync-report/1"
 
     items: tuple[OperationResult, ...]
     series: tuple[SeriesReport, ...]
@@ -716,6 +726,8 @@ class DownloadReport:
         Whether the download was cancelled.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-download-report/1"
+
     mode: Literal["plain", "store"]
     output_dir: Path | None
     root: Path | None
@@ -750,6 +762,8 @@ class CatalogReport:
         The catalog version as ``files[]`` (DEV-19.19), empty when nothing was
         built.
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-catalog-report/1"
 
     status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
@@ -913,6 +927,8 @@ class StoreEntry:
         nothing was checked about it. False for every other entry.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-store-entry/1"
+
     kind: Literal["archive", "series", "catalog", "pmaxtp", "observation", "problem"]
     slot: str | None
     version: Path | None
@@ -980,6 +996,8 @@ class StationCoverage:
         Maximal closed ranges of units without a value between ``first``
         and ``last``.
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-coverage/1"
 
     station_code: str
     variable: str
@@ -1068,6 +1086,8 @@ class PMaXTPStoreResult:
         ``cell.json`` as ``files[]`` (DEV-19.19) and, in plain mode, the raw
         ``response.json`` too; empty when nothing was written or found.
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-pmaxtp-report/1"
 
     status: Literal["new", "unchanged", "cancelled", "failed"]
     version: Path | None
@@ -1228,7 +1248,9 @@ class CommandCall:
         that.
     run : dict of str to object
         The flags of a run beside the options: ``{"check": True}`` for
-        ``--check`` (the call is a ``check_command``), otherwise empty.
+        ``--check`` (the call is a ``check_command``), ``{"json": True}`` for
+        ``--json`` and the text of ``--lang`` as ``lang`` (how the CLI prints
+        the result, not part of the call); empty without them.
     """
 
     command: str
@@ -1237,26 +1259,74 @@ class CommandCall:
 
 
 @dataclass(frozen=True)
-class Page[T]:
+class Page:
     """
-    One page of a list command result.
+    Paging of a list command result: the envelope's ``page`` (AGI-4.2, AGI-5.6).
 
     Attributes
     ----------
-    items : tuple
-        Items of the slice ``[offset, offset + limit)`` in function order.
     total : int
         Number of items after the function's filters, before paging.
-    limit : int or None
-        Maximum page size, or None for all items from ``offset``.
-    offset : int
-        Index of the first returned item.
+    next_cursor : str or None
+        Opaque ``cursor`` of the next page, or None on the last page.
+    truncated : bool
+        Whether more items follow this page (``next_cursor`` fetches them).
     """
 
-    items: tuple[T, ...]
     total: int
-    limit: int | None
-    offset: int
+    next_cursor: str | None
+    truncated: bool
+
+
+_CURSOR = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def page_cursor(index: int) -> str:
+    """
+    Opaque cursor of the page starting at item ``index`` (AGI-6.5).
+
+    Parameters
+    ----------
+    index : int
+        Index (from 0) of the first item of the page.
+
+    Returns
+    -------
+    str
+        URL-safe base64 of the index, without padding.
+    """
+    return base64.urlsafe_b64encode(str(index).encode("ascii")).rstrip(b"=").decode()
+
+
+def cursor_index(cursor: str) -> int:
+    """
+    Index of the first item of the page a cursor of `page_cursor` names.
+
+    Parameters
+    ----------
+    cursor : str
+        Cursor from ``page.next_cursor`` of an earlier page.
+
+    Returns
+    -------
+    int
+        Index (from 0) of the first item of the page.
+
+    Raises
+    ------
+    ObserwatorValidationError
+        If the text is no cursor `page_cursor` writes (``details`` ``option``
+        ``"cursor"`` and ``value``).
+    """
+    if _CURSOR.fullmatch(cursor):
+        with contextlib.suppress(ValueError):
+            text = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+            if text.isdigit() and page_cursor(int(text)) == cursor:
+                return int(text)
+    raise ObserwatorValidationError(
+        message("types.malformed_cursor", cursor=cursor),
+        details={"option": "cursor", "value": cursor},
+    )
 
 
 @dataclass(frozen=True)
@@ -1273,9 +1343,12 @@ class CommandResult[T]:
     status : {"ok", "partial", "failed", "cancelled"}
         Overall status computed from the result.
     result : object or None
-        Function result, or None for a cancellation without a report.
+        Function result (the tuple of the page's items for a list command),
+        or None for a cancellation without a report.
     notices : tuple of Notice
         Distinct notices in order of first occurrence.
+    page : Page or None, optional
+        Paging of a list command result, None for other commands.
     """
 
     command: str
@@ -1283,6 +1356,7 @@ class CommandResult[T]:
     status: Literal["ok", "partial", "failed", "cancelled"]
     result: T | None
     notices: tuple[Notice, ...]
+    page: Page | None = None
 
     def to_json(
         self,
@@ -1292,7 +1366,7 @@ class CommandResult[T]:
         lang: Lang = DEFAULT_LANG,
     ) -> dict[str, object]:
         """
-        Convert the envelope to an ``obserwator-result/1`` document.
+        Convert the envelope to an ``obserwator-result/1`` document (AGI-4.2).
 
         Parameters
         ----------
@@ -1311,17 +1385,23 @@ class CommandResult[T]:
         Returns
         -------
         dict of str to object
-            JSON-compatible document with ``schema``, ``command``, ``check``,
-            ``status``, ``result`` and ``notices``.
+            JSON-compatible document with ``schema``, ``tool``, ``version``,
+            ``command``, ``check``, ``status``, ``result`` (a document with its
+            own ``schema``, a list of them or null), ``notices`` and, for a
+            list command, ``page``.
         """
-        document = {
+        document: dict[str, object] = {
             "schema": "obserwator-result/1",
+            "tool": "obserwator",
+            "version": __version__,
             "command": self.command,
             "check": self.check,
             "status": self.status,
             "result": self.result,
             "notices": self.notices,
         }
+        if self.page is not None:
+            document["page"] = self.page
         return cast(
             dict[str, object], jsonable(document, root=root, server=server, lang=lang)
         )
@@ -1348,9 +1428,27 @@ class SeriesSelection:
         Numbering of ``years``.
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-selection/1"
+
     dataset: str
     version: Path
     stations: tuple[str, ...]
     variables: tuple[str, ...]
     years: tuple[int, ...]
     year_type: Literal["hydrological", "calendar"]
+
+
+@dataclass(frozen=True)
+class PMaXTPUrl:
+    """
+    Result of ``pmaxtp url``: the URL of the IMGW-PIB PMAXTP API of a point.
+
+    Attributes
+    ----------
+    url : str
+        URL `obserwator.urls.build_pmaxtp_url` builds.
+    """
+
+    SCHEMA: ClassVar[str] = "obserwator-pmaxtp-url/1"
+
+    url: str

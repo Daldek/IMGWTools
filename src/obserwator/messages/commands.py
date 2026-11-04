@@ -378,16 +378,18 @@ MESSAGES = {
         "Plik planu obserwator-plan/1 do zapisania poza magazynem",
     ),
     "language_help": Text(
-        "Language of the descriptions: en (default) or pl (REST: by Accept-Language)",
-        "Język opisów: en (domyślnie) albo pl (REST: według Accept-Language)",
+        "Language of the descriptions: en (default) or pl (REST: by Accept-Language; "
+        "CLI without --json: OBSERWATOR_LANG)",
+        "Język opisów: en (domyślnie) albo pl (REST: według Accept-Language; CLI bez "
+        "--json: OBSERWATOR_LANG)",
     ),
     "limit_help": Text(
         "Page size",
         "Rozmiar strony",
     ),
-    "offset_help": Text(
-        "Start of the page",
-        "Początek strony",
+    "cursor_help": Text(
+        "Page to read: page.next_cursor of the previous page (opaque)",
+        "Strona do odczytu: page.next_cursor poprzedniej strony (nieprzezroczysty)",
     ),
     "commands_guide_description": Text(
         "Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or "
@@ -565,9 +567,10 @@ MESSAGES = {
         "opcje jednej komendy pobierz przez commands schema.",
     ),
     "commands_schema_description": Text(
-        "Show the JSON Schema of the options of a command or the whole "
-        "obserwator-commands/1 command catalog.",
-        "Pokaż schemat JSON opcji komendy albo cały katalog komend obserwator-commands/1.",
+        "Describe a command or the whole catalog as obserwator-commands/1. Each "
+        "command has its options, effects, rules, examples and errors.",
+        "Opisz komendę albo cały katalog jako obserwator-commands/1. Każda komenda "
+        "ma opcje, skutki, reguły, przykłady i błędy.",
     ),
     "commands_guide_format_help": Text(
         "Guide format: agents (AGENTS.md) or llms (llms.txt)",
@@ -851,9 +854,9 @@ MESSAGES = {
     ),
     "not_a_run_flag": Text(
         "{name!r} is no flag of a run of the command {command}: options go into "
-        "options, and check is the only flag of a run",
+        "options, and the flags of a run are {flags}",
         "{name!r} nie jest flagą uruchomienia komendy {command}: opcje podaje się w "
-        "options, a jedyną flagą uruchomienia jest check",
+        "options, a flagi uruchomienia to {flags}",
     ),
     "command_has_no_check": Text(
         "The command {command} has no --check: it is a check itself or only reads",
@@ -910,4 +913,76 @@ MESSAGES = {
         "{dataset} nie wybiera pliku {server_path} (nazwy, której to wydanie nie "
         "pobiera). Przypnij ją jako dane lokalne",
     ),
+    # Meanings of the enumeration values of the catalog (``enum`` of an option).
+    "meaning_kind_hydro": Text(
+        "Hydrological data: water levels, flows, water temperatures",
+        "Dane hydrologiczne: stany, przepływy, temperatury wody",
+    ),
+    "meaning_kind_meteo": Text(
+        "Meteorological data: climate, precipitation, synoptic",
+        "Dane meteorologiczne: klimatyczne, opadowe, synoptyczne",
+    ),
+    "meaning_kind_archive": Text(
+        "Stored version of a source archive", "Zapisana wersja archiwum źródłowego"
+    ),
+    "meaning_kind_series": Text(
+        "Stored version of a normalized series",
+        "Zapisana wersja znormalizowanej serii",
+    ),
+    "meaning_kind_catalog": Text(
+        "Stored version of a station catalog", "Zapisana wersja katalogu stacji"
+    ),
+    "meaning_kind_pmaxtp": Text(
+        "Stored version of a PMAXTP grid cell", "Zapisana wersja komórki siatki PMAXTP"
+    ),
+    "meaning_kind_observation": Text(
+        "Source signal recorded without a new version (same content)",
+        "Sygnał źródła zapisany bez nowej wersji (ta sama treść)",
+    ),
+    "meaning_kind_problem": Text(
+        "Problem found in the store, e.g. a missing sidecar",
+        "Problem wykryty w magazynie, np. brak sidecara",
+    ),
+    "meaning_params_h": Text("Water level [cm]", "Stan wody [cm]"),
+    "meaning_params_q": Text("Flow [m3/s]", "Przepływ [m3/s]"),
+    "meaning_params_t": Text("Water temperature [°C]", "Temperatura wody [°C]"),
+    "meaning_source_live": Text(
+        "The providers' station lists, read live",
+        "Listy stacji dostawców, czytane na bieżąco",
+    ),
+    "meaning_source_store": Text(
+        "Station lists and catalogs saved in the store",
+        "Listy stacji i katalogi zapisane w magazynie",
+    ),
+    "meaning_method_pot": Text(
+        "Peaks over threshold", "Metoda przewyższeń progu (POT)"
+    ),
+    "meaning_method_amp": Text(
+        "Annual maximum precipitation", "Metoda maksimów rocznych (AMP)"
+    ),
+    "meaning_format_csv": Text(
+        "Comma-separated values with a header row",
+        "Wartości rozdzielone przecinkami, z wierszem nagłówka",
+    ),
+    "meaning_format_jsonl": Text(
+        "One JSON object per line", "Jeden obiekt JSON w każdym wierszu"
+    ),
+    "meaning_format_agents": Text(
+        "AGENTS.md: the guide for coding agents",
+        "AGENTS.md: przewodnik dla agentów programistycznych",
+    ),
+    "meaning_format_llms": Text(
+        "llms.txt: the index for language models",
+        "llms.txt: indeks dla modeli językowych",
+    ),
+    "meaning_year_type_hydrological": Text(
+        "Hydrological year: November to October",
+        "Rok hydrologiczny: od listopada do października",
+    ),
+    "meaning_year_type_calendar": Text(
+        "Calendar year: January to December",
+        "Rok kalendarzowy: od stycznia do grudnia",
+    ),
+    "meaning_lang_en": Text("English", "angielski"),
+    "meaning_lang_pl": Text("Polish", "polski"),
 }

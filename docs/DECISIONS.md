@@ -15,6 +15,7 @@ Each entry keeps the state of the decision as of the day it was accepted; later 
 | [ADR-007](#adr-007-data-output-plain-mode-the-store-and-the-default-root) | Data output: plain mode, the store and the default root | 2026-10-24 | Accepted |
 | [ADR-008](#adr-008-projects-move-to-archiwista) | Projects move to Archiwista | 2026-10-31 | Accepted |
 | [ADR-009](#adr-009-the-tool-is-called-obserwator) | The tool is called Obserwator | 2026-11-03 | Accepted |
+| [ADR-010](#adr-010-result-error-and-catalog-documents-follow-the-nogat-standard-10) | Result, error and catalog documents follow the Nogat standard 1.0 | 2026-11-04 | Accepted |
 
 ---
 
@@ -516,3 +517,32 @@ The tool was named after IMGW-PIB, the institute whose public data it reads; sin
 ### Consequences
 
 **Breaking** for every caller and reader of an old name (`docs/CHANGELOG.md`, `[Unreleased]`, with the migration lines); no released interface breaks, because 2.1.1 has none of the ids and 3.0.0 is untagged. `AGENTS.md` and `llms.txt` are regenerated with the new names. The consumers follow in the order of the Nogat plan (HUB-5.2): Archiwista, Retman, Hydraulik and Hydrolog pin the commit of this change and rename their imports, commands, variables and ids; the frozen Kartograf names `obserwator-store.json` in its `STORE_MARKERS`; Hydrograf keeps its pin and imports of `imgwtools` until after its v0.5.0. The author renames the GitHub repository later; the URLs follow then.
+
+---
+
+## ADR-010: Result, error and catalog documents follow the Nogat standard 1.0
+
+**Date:** 2026-11-04  
+**Status:** Accepted (the author started the plan on 2026-11-04; release 3.0.0 blocker B6)  
+**Plan:** Nogat [`docs/plans/2026-11-04-obserwator-agent-contracts.md`](https://github.com/Daldek/Nogat/blob/main/docs/plans/2026-11-04-obserwator-agent-contracts.md), decisions D1–D7  
+**Standard:** Nogat AGI-2.4, AGI-3.2, AGI-3.3, AGI-3.4, AGI-4.1–4.4, AGI-5.6, AGI-6.3, AGI-6.5, ERR-3  
+
+### Context and options
+
+ADR-002 gave the CLI, REST, MCP and Python one catalog and one envelope, but in shapes of their own: the envelope had no `tool` or `version`; a list command returned `{items, total, limit, offset}` and paged by `offset`; notices carried `text` and a level `error`; the CLI and MCP error was `{code, detail, details}`; `command_schema` gave the JSON Schemas of the options; and the CLI always printed JSON. The Nogat standard 1.0 fixes the result (`result-1`), error (`error-1`) and catalog (`commands-1`) documents and a `--json` flag for every tool, and Kartograf and Hydrolog already follow it. Options: (a) translate at the consumers (every consumer keeps a mapping, and agents reading the guide meet another shape than in the other tools); (b) adopt the standard documents before the first release from `develop`, when no released interface breaks (chosen).
+
+### Decisions D1–D7
+
+| ID | Decision | Rejected |
+|---|---|---|
+| D1 | **Envelope.** `obserwator-result/1` gains `tool` (`"obserwator"`) and `version` (`__version__`); `items` stays absent until a batch command reports units. | A version only in the catalog. |
+| D2 | **Paging.** A list command returns the page's items as `result` and the envelope's `page` `{total, next_cursor, truncated}`; `offset` becomes `cursor` in the CLI, REST and MCP: an opaque URL-safe base64 of the next index, a malformed one refused with `validation_error`. Every result document has its own `schema` `obserwator-<kind>/1`; notices are `{level, code, message}` with the levels `info` and `warning`. | Keeping `offset` beside `cursor`. |
+| D3 | **Error document.** `obserwator-error/1` `{schema, code, title, message, hint?, details, exit_code, command?}` in English is the last stderr line of the CLI and the MCP error; `title` comes from the registry, `hint` from the message catalogue or the raise site (`ObserwatorError.hint`); REST keeps problem+json and adds `hint`. `message` is the former `detail`; the Python attribute keeps the name `detail`. | Renaming the attribute (every `except` block of the consumers changes for no reader's gain). |
+| D4 | **Output for a person.** `--json` prints exactly the envelope; without it the CLI prints one generic summary (`cli/_render.py`) in the `--lang` language; the streams are unchanged. `--json` and `--lang` are run flags of `parse_command` and `format_command`, not catalog options, as in Kartograf. | A renderer per command; JSON by default. |
+| D5 | **Catalog.** `command_schema` follows `commands-1`; the JSON Schemas of the options become internal (`_input_schemas`) and feed the MCP `inputSchema` and the OpenAPI bodies. `commands list` stays the summary `obserwator-command-list/1`: the full catalog in `commands-1` exceeds the 50 kB document limit, as in Kartograf and Hydrolog; the deviation from the wording of AGI-2.4 is raised in Nogat. | `commands list` as the full `commands-1` document. |
+| D6 | **Copies of the standard.** `schemas/nogat/` holds Nogat's `result-1`, `error-1`, `commands-1` and the error registry (its README records the commit; refreshed from `std-1.0` at the tag); contract tests validate every document of the four interfaces against them. | Fetching the schemas from Nogat in the tests (network in the gate). |
+| D7 | **Records.** This ADR and a Breaking entry with migration lines in `docs/CHANGELOG.md`. | — |
+
+### Consequences
+
+**Breaking** for every reader of the envelope, the error, the catalog and the CLI stdout (`docs/CHANGELOG.md`, `[Unreleased]`, with the migration lines); no released interface breaks, because 2.1.1 has none of them and 3.0.0 is untagged. `AGENTS.md` and `llms.txt` are regenerated and every call that reads output uses `--json`. The consumers follow in the order of the Nogat plan (HUB-5.2) through the pin set `candidate-1`: Retman and Archiwista read `page`, `cursor`, the notice and error `message` and call the CLI with `--json`; Hydraulik and Hydrograf use only `fetch_pmaxtp`.

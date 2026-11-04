@@ -193,7 +193,7 @@ def test_a_file_that_is_not_utf_8_is_reported_like_any_unusable_file(
     error = json.loads(version.stderr.splitlines()[-1])
     assert error["code"] == "validation_error"
     assert error["details"]["reason"] == "invalid_config"
-    assert cause in error["detail"]
+    assert cause in error["message"]
     assert shown.exit_code == 0, shown.output
     assert json.loads(shown.stdout)["config_file"]["error"] == cause
 

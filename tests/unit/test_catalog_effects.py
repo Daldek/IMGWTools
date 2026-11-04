@@ -5,7 +5,8 @@ runs through ``run_command``: a command declaring ``network=False`` sends no
 request, a command declaring ``writes="none"`` leaves the store and the working
 directory as they were, a command declaring ``writes="add"`` keeps every
 existing file, and every option declaring a write creates (or replaces) its
-file. The declarations are the §3.2 table, published in ``x-obserwator``.
+file. The declarations are the §3.2 table, published in the catalog
+(``effects`` and the ``writes`` of an option).
 """
 
 import re
@@ -153,28 +154,31 @@ def writing_cases() -> list[tuple[str, Case, str]]:
 
 def test_catalog_declares_the_effects_of_spec_section_3_2():
     commands = command_schema()["commands"]
+    assert {spec.name: spec.writes for spec in data_commands()} == {
+        name: writes for name, (writes, _, _) in EFFECTS.items()
+    }
     assert {
-        schema["title"]: (
-            schema["x-obserwator"]["writes"],
-            schema["x-obserwator"]["network"],
-            {
-                name: prop["x-obserwator-writes"]
-                for name, prop in schema["properties"].items()
-                if "x-obserwator-writes" in prop
-            },
+        entry["name"]: (
+            entry["effects"]["network"],
+            {o["name"]: o["writes"] for o in entry["options"] if "writes" in o},
         )
-        for schema in commands
-    } == EFFECTS
-    names = [schema["x-obserwator"]["operation_id"] for schema in commands]
+        for entry in commands
+    } == {name: (network, options) for name, (_, network, options) in EFFECTS.items()}
+    for entry in commands:
+        # The effects of the command: the strongest write of a run or an option.
+        run, _, options = EFFECTS[entry["name"]]
+        writes = max((run, *options.values()), key=("none", "add", "replace").index)
+        assert entry["effects"]["writes"] == writes, entry["name"]
+        assert entry["effects"]["read_only"] == (writes == "none")
+        assert entry["effects"]["destructive"] == (writes == "replace")
+        assert isinstance(entry["effects"]["idempotent"], bool)
+    names = [entry["operation_id"] for entry in commands]
     assert names == [
-        "obserwator_" + schema["title"].replace(" ", "_").replace("-", "_")
-        for schema in commands
+        "obserwator_" + entry["name"].replace(" ", "_").replace("-", "_")
+        for entry in commands
     ]
     assert len(set(names)) == len(names)
     assert all(TOOL_NAME.fullmatch(name) for name in names)
-    assert all(
-        isinstance(schema["x-obserwator"]["idempotent"], bool) for schema in commands
-    )
 
 
 def test_every_write_can_be_planned_by_a_check_twin():

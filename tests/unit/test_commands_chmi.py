@@ -29,7 +29,13 @@ from obserwator.api.main import app as rest_app
 from obserwator.cli.main import app as cli_app
 from obserwator.config import settings
 from obserwator.store import init_store
-from tests.contract.support import canonical, cli_words, rest_request, violations
+from tests.contract.support import (
+    canonical,
+    cli_words,
+    input_schema,
+    rest_request,
+    violations,
+)
 from tests.unit.test_store_catalog_chmi import SOURCES, build
 from tests.unit.test_store_catalog_chmi import serve as serve_catalog
 from tests.unit.test_store_sync_chmi import BASE, FIRST
@@ -102,49 +108,62 @@ def test_catalog_has_30_commands_and_datasets_providers_lists_both_providers():
     planned = check_command("datasets providers", options={})
 
     assert listed.status == "ok"
-    assert [provider.id for provider in listed.result.items] == ["IMGW-PIB", "CHMI"]
-    assert (listed.result.items, listed.result.total) == (providers(), 2)
+    assert [provider.id for provider in listed.result] == ["IMGW-PIB", "CHMI"]
+    assert (listed.result, listed.page.total) == (providers(), 2)
     assert [action.status for action in planned.result.actions] == ["current"]
     chmi = run_command("datasets list", options={"provider": "CHMI"}).result
-    assert [descriptor.key for descriptor in chmi.items] == [
+    assert [descriptor.key for descriptor in chmi] == [
         HYDRO,
         METEO,
         "cz.chmi.hydro_stations",
         "cz.chmi.meteo_stations",
     ]
-    assert run_command("datasets list", options={}).result.total == 17
+    assert run_command("datasets list", options={}).page.total == 17
+
+
+def _entry(name):
+    (entry,) = command_schema(name)["commands"]
+    return entry
+
+
+def _options(name):
+    return {option["name"]: option for option in _entry(name)["options"]}
+
+
+def _values(option):
+    return [value["value"] for value in option["enum"]]
 
 
 def test_command_schema_publishes_provider_stations_and_their_rules():
     for name in ("datasets list", "stations find", "store scan"):
-        provider = command_schema(name)["properties"]["provider"]
-        assert provider["enum"] == ["IMGW-PIB", "CHMI"]
+        provider = _options(name)["provider"]
+        assert _values(provider) == ["IMGW-PIB", "CHMI"]
         assert "default" not in provider
-    catalog = command_schema("store catalog")["properties"]["provider"]
-    assert (catalog["enum"], catalog["default"]) == (["IMGW-PIB", "CHMI"], "IMGW-PIB")
+    catalog = _options("store catalog")["provider"]
+    assert (_values(catalog), catalog["default"]) == (["IMGW-PIB", "CHMI"], "IMGW-PIB")
     for name in ("datasets files", "datasets download", "store check", "store sync"):
-        schema = command_schema(name)
-        assert schema["properties"]["stations"]["items"]["pattern"] == (
-            STATION_CODE_PATTERN
-        )
-        assert schema["x-obserwator"]["cli"]["flags"]["stations"] == [
-            "--stations",
-            "-s",
-        ]
+        entry = _entry(name)
+        stations = _options(name)["stations"]
+        assert stations["items"]["pattern"] == STATION_CODE_PATTERN
+        assert stations["flags"] == ["--stations", "-s"]
         # Years depend on the dataset, so the schema leaves them to the rules.
-        assert "years" not in schema.get("required", [])
-        rules = schema["x-obserwator"]["rules"]
+        assert _options(name)["years"]["required"] is False
+        rules = entry["rules"]
         assert any("stations" in rule and "cz.chmi" in rule for rule in rules)
         assert any("years" in rule and METEO in rule for rule in rules)
-    archive = command_schema("datasets files")["properties"]["dataset"]["enum"]
+    archive = _values(_options("datasets files")["dataset"])
     assert len(archive) == 12 and {HYDRO, METEO} <= set(archive)
-    meta = command_schema("datasets providers")["x-obserwator"]
-    assert (meta["function"], meta["result"], meta["result_type"]) == (
+    entry = _entry("datasets providers")
+    assert (
+        entry["function"],
+        entry["result"]["cardinality"],
+        entry["result_type"],
+    ) == (
         "providers",
-        "list",
+        "bounded",
         "ProviderDescriptor",
     )
-    assert meta["rest"]["path"] == "/api/v1/datasets/providers"
+    assert entry["rest"]["path"] == "/api/v1/datasets/providers"
 
 
 def test_chmi_view_of_the_catalog_drops_imgw_only_commands_and_narrows_choices():
@@ -316,7 +335,7 @@ VALID = [
 def test_chmi_examples_normalize_to_options_of_the_command_schema(command, options):
     normalized = validate_command(command, options=options)
 
-    assert violations(jsonable(normalized), command_schema(command)) == []
+    assert violations(jsonable(normalized), input_schema(command)) == []
 
 
 def test_validate_command_normalizes_chmi_selectors():

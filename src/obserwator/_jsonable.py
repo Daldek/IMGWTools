@@ -3,10 +3,12 @@ Single JSON conversion of public results for the CLI, REST and ``CommandResult``
 
 Rules (spec §13.1 p. 4): dates as ``YYYY-MM-DD``, instants as ISO 8601 UTC with
 ``Z``, tuples, lists and sets as arrays, dataclasses and pydantic models as
-objects of their fields (a ``StorePlan`` as its ``obserwator-plan/1`` document, spec
-§11.5 and §13.6), absolute paths inside the store as POSIX paths relative to the
-root, other absolute paths as they are, relative paths (relative to a base the
-result names, e.g. a Parquet file to its series version) as POSIX text. The root
+objects of their fields, led by ``schema`` when the type names its document in a
+``SCHEMA`` class attribute (``obserwator-<kind>/1``, AGI-4.1; a ``StorePlan`` as its
+``obserwator-plan/1`` document, spec §11.5 and §13.6), absolute paths inside the
+store as POSIX paths relative to the root, other absolute paths as they are,
+relative paths (relative to a base the result names, e.g. a Parquet file to its
+series version) as POSIX text. The root
 itself is absolute, or ``"."`` in server mode, where the root prefix is also
 removed from free text. A catalog message (`obserwator.messages.Message`) is
 written as a plain string in the language of the caller, English by default
@@ -128,14 +130,12 @@ def _convert(value: object, ctx: _Context) -> object:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, BaseModel):
-        return _convert(dict(value), ctx)
+        return _document(value, dict(value), ctx)
     if isinstance(value, _plan_type()):
         return _convert(value._document(), ctx)
     if is_dataclass(value) and not isinstance(value, type):
-        return {
-            item.name: _convert(getattr(value, item.name), ctx)
-            for item in fields(value)
-        }
+        names = (item.name for item in fields(value))
+        return _document(value, {name: getattr(value, name) for name in names}, ctx)
     if isinstance(value, Mapping):
         return {_key(key, ctx): _convert(item, ctx) for key, item in value.items()}
     if isinstance(value, tuple | list):
@@ -144,6 +144,15 @@ def _convert(value: object, ctx: _Context) -> object:
         items = [_convert(item, ctx) for item in value]
         return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
     raise TypeError(f"Cannot write a value of type {type(value).__name__} as JSON")
+
+
+def _document(
+    value: object, values: Mapping[str, object], ctx: _Context
+) -> dict[str, object]:
+    """Object of the fields of ``value``, led by the ``schema`` of its type, if any."""
+    schema = getattr(type(value), "SCHEMA", None)
+    head = {} if schema is None or "schema" in values else {"schema": schema}
+    return head | {name: _convert(item, ctx) for name, item in values.items()}
 
 
 def _key(key: object, ctx: _Context) -> str:

@@ -2,11 +2,11 @@
     <header>
         <h3>
             {% if kind == 'hydro' %}Stacje hydrologiczne{% elif kind == 'meteo' %}Stacje meteorologiczne{% else %}Stacje hydrologiczne i meteorologiczne{% endif %}
-            <small>({% if page.items %}{{ first }}–{{ last }} z {{ page.total }}{% else %}0 z {{ page.total }}{% endif %})</small>
+            <small>({% if stations %}{{ first }}–{{ last }} z {{ total }}{% else %}0 z {{ total }}{% endif %})</small>
         </h3>
     </header>
 
-    {% if page.items %}
+    {% if stations %}
     <figure>
         <table role="grid">
             <thead>
@@ -24,7 +24,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for station in page.items %}
+                {% for station in stations %}
                 <tr>
                     <td><code>{{ station.station_code }}</code></td>
                     <td>{{ station.name }}</td>

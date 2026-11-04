@@ -28,6 +28,7 @@ from obserwator.commands import (
     command_schema,
     data_commands,
     format_command,
+    list_commands,
     parse_command,
     run_command,
     validate_command,
@@ -42,6 +43,7 @@ from obserwator.store.types import (
     Progress,
     SeriesReport,
     SyncReport,
+    page_cursor,
 )
 from obserwator.testing import build_fixture_store
 from obserwator.urls import IMGW_API_URL
@@ -75,11 +77,12 @@ O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
 INSTALLED = Path(sys.executable).with_name(
     "obserwator.exe" if sys.platform == "win32" else "obserwator"
 )
-# Last stderr line of a failed command (spec §13.5).
+# Last stderr line of a failed command: the obserwator-error/1 document (AGI-4.3).
 CLI_ERROR = {
     "type": "object",
-    "required": ["code", "detail", "details"],
+    "required": ["schema", "code", "title", "message", "details", "exit_code"],
     "properties": {
+        "schema": {"const": "obserwator-error/1"},
         "code": {
             "enum": [
                 "validation_error",
@@ -96,8 +99,12 @@ CLI_ERROR = {
                 "internal_error",
             ]
         },
-        "detail": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "hint": {"type": "string", "minLength": 1},
         "details": {"type": "object"},
+        "exit_code": {"type": "integer"},
+        "command": {"type": "string", "pattern": "^[a-z][a-z0-9-]* [a-z][a-z0-9-]*$"},
     },
     "additionalProperties": False,
 }
@@ -165,7 +172,7 @@ def error_line(result, code):
     document = json.loads(result.stderr.splitlines()[-1])
     assert violations(document, CLI_ERROR) == []
     assert document["code"] == code, document
-    assert result.exit_code == ERROR_CODES[code].exit_code
+    assert result.exit_code == document["exit_code"] == ERROR_CODES[code].exit_code
     return document
 
 
@@ -268,7 +275,7 @@ def test_cli_catalog_command_help_and_flags_are_the_catalog(spec):
     command = click_command(spec.name)
     assert command.help == localize(spec.description, "pl")
     params = {param.name: param for param in command.params}
-    reserved = {"schema"} | ({"check"} if spec.check is not None else set())
+    reserved = {"schema", "json", "lang"} | ({"check"} if spec.check else set())
     assert set(params) == {option.name for option in spec.options} | reserved
     for option in spec.options:
         param = params[option.name]
@@ -301,8 +308,8 @@ def dispatched(monkeypatch):
 
 
 def dispatched_call(dispatched, args):
-    """The call the CLI dispatches for ``args``, as a ``CommandCall``."""
-    result = invoke(*args)
+    """The call the CLI dispatches for ``args`` with ``--json``, as a ``CommandCall``."""
+    result = invoke(*args[:2], "--json", *args[2:])
     assert result.exit_code == 0, (args, result.output)
     name, check, options = dispatched.pop()
     return CommandCall(name, options, {"check": True} if check else {})
@@ -356,8 +363,8 @@ def test_parse_command_reads_joined_values_and_repeated_flags_as_the_cli(
 @pytest.mark.parametrize("spec", data_commands(), ids=lambda spec: spec.name)
 def test_cli_catalog_schema_flag_prints_the_commands_schema_envelope(spec):
     # Without the required options: a run would fail validation instead of printing.
-    printed = invoke(*spec.name.split(), "--schema")
-    expected = invoke("commands", "schema", "--command", spec.name)
+    printed = invoke(*spec.name.split(), "--schema", "--json")
+    expected = invoke("commands", "schema", "--command", spec.name, "--json")
     assert printed.stdout == expected.stdout
     assert envelope(printed)["result"] == json.loads(
         json.dumps(command_schema(spec.name))
@@ -438,13 +445,21 @@ def test_cli_commands_schema_is_english_and_polish_only_on_request():
     english = json.loads(json.dumps(command_schema()))
     polish = json.loads(json.dumps(command_schema(lang="pl")))
 
-    assert envelope(invoke("commands", "schema"))["result"] == english
-    assert envelope(invoke("commands", "schema", "--lang", "en"))["result"] == english
-    assert envelope(invoke("commands", "schema", "--lang", "pl"))["result"] == polish
+    assert envelope(invoke("commands", "schema", "--json"))["result"] == english
+    assert (
+        envelope(invoke("commands", "schema", "--lang", "en", "--json"))["result"]
+        == english
+    )
+    assert (
+        envelope(invoke("commands", "schema", "--lang", "pl", "--json"))["result"]
+        == polish
+    )
     # OBSERWATOR_LANG is the language of the human lines, not of the machine output.
-    by_variable = invoke("commands", "schema", env={"OBSERWATOR_LANG": "pl"})
+    by_variable = invoke("commands", "schema", "--json", env={"OBSERWATOR_LANG": "pl"})
     assert envelope(by_variable)["result"] == english
-    flag = run_installed("store", "sync", "--schema", lang="pl", capture_output=True)
+    flag = run_installed(
+        "store", "sync", "--schema", "--json", lang="pl", capture_output=True
+    )
     assert flag.returncode == 0, flag.stderr
     assert json.loads(flag.stdout)["result"] == json.loads(
         json.dumps(command_schema("store sync"))
@@ -461,9 +476,12 @@ def test_cli_catalog_object_and_list_commands_print_the_run_command_envelope(
     cases = [
         (("store", "info", "--root", root), "store info", {"root": root}),
         (
-            ("store", "scan", "-r", root, "-k", "archive", "--limit", 2, "--offset", 1),
+            (
+                *("store", "scan", "-r", root, "-k", "archive"),
+                *("--limit", 2, "--cursor", page_cursor(1)),
+            ),
             "store scan",
-            {"root": root, "kind": "archive", "limit": 2, "offset": 1},
+            {"root": root, "kind": "archive", "limit": 2, "cursor": page_cursor(1)},
         ),
         (
             (
@@ -498,7 +516,7 @@ def test_cli_catalog_object_and_list_commands_print_the_run_command_envelope(
         expected = run_command(command, options=options).to_json(
             root=options.get("root")
         )
-        assert envelope(invoke(*args)) == expected
+        assert envelope(invoke(*args, "--json")) == expected
 
 
 def test_cli_catalog_series_build_prints_the_envelope_of_the_same_run(
@@ -507,7 +525,9 @@ def test_cli_catalog_series_build_prints_the_envelope_of_the_same_run(
     cli_root, api_root = tmp_path / "cli", tmp_path / "api"
     shutil.copytree(fixture_root, cli_root)
     shutil.copytree(fixture_root, api_root)
-    printed = envelope(invoke("series", "build", "-r", cli_root, "-d", PRECIP))
+    printed = envelope(
+        invoke("series", "build", "-r", cli_root, "-d", PRECIP, "--json")
+    )
     expected = run_command(
         "series build", options={"root": api_root, "dataset": PRECIP}
     ).to_json(root=api_root)
@@ -522,7 +542,9 @@ def test_cli_catalog_check_flag_prints_the_plan_without_writing(
     root = tmp_path / "store"
     shutil.copytree(fixture_root, root)
     before = stamps(root)
-    printed = envelope(invoke("series", "build", "-r", root, "-d", PRECIP, "--check"))
+    printed = envelope(
+        invoke("series", "build", "-r", root, "-d", PRECIP, "--check", "--json")
+    )
     assert stamps(root) == before
     expected = check_command("series build", options={"root": root, "dataset": PRECIP})
     assert printed == expected.to_json(root=root)
@@ -546,18 +568,21 @@ def test_cli_catalog_streams_print_only_the_data_lines(tmp_path, fixture_root, o
         ),
     ]
     for args, lines in cases:
-        result = invoke(*args)
-        assert result.exit_code == 0, result.output
-        # stdout_bytes: Result.stdout folds the CSV CRLF row ends to LF.
-        assert result.stdout_bytes == "".join(lines).encode("utf-8")
-        assert b"obserwator-result/1" not in result.stdout_bytes
-        assert "Informacja: Źródłem pochodzenia danych jest" in result.stderr
+        wanted = "".join(lines).encode("utf-8")
+        for mode in ((), ("--json",)):  # the same data lines in both modes
+            result = invoke(*args, *mode)
+            assert result.exit_code == 0, result.output
+            # stdout_bytes: Result.stdout folds the CSV CRLF row ends to LF.
+            assert result.stdout_bytes == wanted
+            assert b"obserwator-result/1" not in result.stdout_bytes
+            assert "Informacja: Źródłem pochodzenia danych jest" in result.stderr
     target = tmp_path / "opad.csv"
     printed = envelope(
-        invoke("store", "export", "--version", version, "--output", target)
+        invoke("store", "export", "--version", version, "--output", target, "--json")
     )
     wanted = "".join(store.export_archive(version)).encode()
     assert printed["result"] == {
+        "schema": "obserwator-output/1",
         "output": str(target),
         "files": [
             {
@@ -588,7 +613,7 @@ def test_cli_catalog_prints_each_distinct_notice_once(monkeypatch, tmp_path):
         return SyncReport((), (), cancelled=False)
 
     monkeypatch.setattr(store, "sync_store", sync_store)
-    result = invoke("store", "sync", "-r", tmp_path, "-d", DAILY, "-y", 2024)
+    result = invoke("store", "sync", "-r", tmp_path, "-d", DAILY, "-y", 2024, "--json")
     assert len(received) == 4
     assert len(envelope(result)["notices"]) == 3
     assert result.stderr.count("Informacja: Licencja IMGW-PIB") == 1
@@ -613,11 +638,148 @@ def test_cli_catalog_stderr_lines_follow_obserwator_lang_while_the_envelope_is_e
 
     monkeypatch.setattr(store, "sync_store", sync_store)
 
-    result = invoke("store", "sync", "-r", tmp_path, "-d", DAILY, "-y", 2024)
+    result = invoke("store", "sync", "-r", tmp_path, "-d", DAILY, "-y", 2024, "--json")
 
     assert f"[1/1] {text}" in result.stderr
     assert f"{label}: {text}" in result.stderr
-    assert [notice["text"] for notice in envelope(result)["notices"]] == ["no version"]
+    assert [notice["message"] for notice in envelope(result)["notices"]] == [
+        "no version"
+    ]
+
+
+# --- wyjście dla człowieka (bez --json) ------------------------------------------------------
+
+# The language of a call: OBSERWATOR_LANG (unset: Polish) or --lang.
+POLISH, ENGLISH = (), ("--lang", "en")
+
+
+@pytest.mark.parametrize(
+    ("lang", "status", "page"),
+    [
+        (POLISH, "Gotowe", "Strona: 2 z {total}, dalej: --cursor {cursor}"),
+        (ENGLISH, "Done", "Page: 2 of {total}, more: --cursor {cursor}"),
+    ],
+)
+def test_cli_without_json_prints_a_list_as_a_table_of_key_fields_and_the_page(
+    lang, status, page
+):
+    expected = run_command("datasets list", options={"kind": "meteo", "limit": 2})
+    paged = expected.to_json()["page"]
+
+    result = invoke("datasets", "list", "-k", "meteo", "--limit", 2, *lang)
+
+    assert (result.exit_code, result.stderr) == (0, "")
+    lines = result.stdout.splitlines()
+    assert lines[0] == f"{status}: obserwator datasets list"
+    assert lines[1].split() == ["key", "kind", "provider", "first_year", "title"]
+    assert [line.split()[:4] for line in lines[2:4]] == [
+        [item.key, item.kind, item.provider, str(item.first_year)]
+        for item in expected.result
+    ]
+    assert lines[4:] == [page.format(total=paged["total"], cursor=paged["next_cursor"])]
+
+
+@pytest.mark.parametrize(
+    ("lang", "status", "yes"), [(POLISH, "Gotowe", "tak"), (ENGLISH, "Done", "yes")]
+)
+def test_cli_without_json_prints_the_main_fields_of_a_document(
+    fixture_root, offline, lang, status, yes
+):
+    result = invoke("store", "info", "-r", fixture_root, *lang)
+
+    assert (result.exit_code, result.stderr) == (0, "")
+    lines = result.stdout.splitlines()
+    assert lines[0] == f"{status}: obserwator store info"
+    fields = dict(line.split(": ", 1) for line in lines[1:6])
+    assert {name: value.strip() for name, value in fields.items()} == {
+        "root": str(fixture_root),
+        "exists": yes,
+        "supported": yes,
+        "store_schema": "obserwator-store/1",
+        "problems": "—",
+    }
+    assert lines[6:8] == ["providers: 2", "  id        country  name"]
+    assert [line.split()[:2] for line in lines[8:]] == [
+        ["IMGW-PIB", "PL"],
+        ["CHMI", "CZ"],
+    ]
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_cli_without_json_lists_the_commands_in_the_language_of_the_call(lang):
+    listed = list_commands(lang=lang)
+
+    result = invoke("commands", "list", "--lang", lang)
+
+    rows = [line.split() for line in result.stdout.splitlines()]
+    for entry in [*listed["groups"], *listed["commands"]]:
+        assert [*entry["name"].split(), *entry["summary"].split()] in rows, entry
+    assert "obserwator-command-list/1" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("lang", "status", "warning"),
+    [
+        (POLISH, "Częściowo, część pozycji nieudana", "Ostrzeżenie"),
+        (ENGLISH, "Partly done, some items failed", "Warning"),
+    ],
+)
+def test_cli_without_json_prints_a_partial_outcome_failed_items_first_and_exits_10(
+    tmp_path, imgw, lang, status, warning
+):
+    root = tmp_path / "store"
+    store.init_store(root)
+    imgw.publish(H2023, V1, archive_bytes(H2023))
+    imgw.publish(H2024, V3, NEW)
+    imgw.router.get(H2024.url).mock(return_value=httpx.Response(500))
+
+    result = invoke(
+        *("store", "sync", "-r", root, "-d", DAILY, "-y", "2023-2024", "--no-series"),
+        *lang,
+    )
+
+    assert result.exit_code == EXIT_CODES["partial"] == 10
+    lines = result.stdout.splitlines()
+    assert lines[:2] == [
+        f"{status}: obserwator store sync",
+        "items: 2 (new 1, failed 1)",
+    ]
+    assert lines[2].split() == ["slot", "status", "error_code", "error"]
+    assert lines[3].split()[:3] == [
+        f"archive:{DAILY}:2024/codz_2024.zip",
+        "failed",
+        "source_unavailable",
+    ]
+    assert lines[4].split() == [f"archive:{DAILY}:2023/codz_2023.zip", "new", "—", "—"]
+    # The notices close the summary instead of reaching stderr.
+    assert lines[-1].startswith(
+        f"{warning}: dane_hydrologiczne/dobowe/2024/codz_2024.zip"
+    )
+    assert all(line.startswith("[") for line in result.stderr.splitlines())
+
+
+@pytest.mark.parametrize(
+    ("lang", "readable"),
+    [
+        (
+            POLISH,
+            "Błąd: Nieprawidłowe dane wejściowe: Szerokość geograficzna 1.0 poza "
+            "zakresem Polski (49.0–55.0)",
+        ),
+        (ENGLISH, "Error: Invalid input: Latitude 1.0 is outside Poland (49.0–55.0)"),
+    ],
+)
+def test_cli_error_without_json_puts_one_readable_line_before_the_error_document(
+    lang, readable
+):
+    args = ("pmaxtp", "fetch", "--latitude", 1, "--longitude", 1)
+
+    person = invoke(*args, *lang)
+    machine = invoke(*args, *lang, "--json")
+
+    document = error_line(person, "validation_error")
+    assert person.stderr.splitlines() == [readable, machine.stderr.strip()]
+    assert error_line(machine, "validation_error") == document
 
 
 # --- --root z OBSERWATOR_ROOT ----------------------------------------------------------
@@ -628,15 +790,19 @@ def test_cli_catalog_root_falls_back_to_obserwator_root(
 ):
     env = {"OBSERWATOR_ROOT": str(fixture_root)}
     info = run_command("store info", options={"root": fixture_root})
-    assert envelope(invoke("store", "info", env=env)) == info.to_json(root=fixture_root)
+    assert envelope(invoke("store", "info", "--json", env=env)) == info.to_json(
+        root=fixture_root
+    )
     other = tmp_path / "inny"
-    flagged = envelope(invoke("store", "info", "-r", other, env=env))
+    flagged = envelope(invoke("store", "info", "-r", other, "--json", env=env))
     assert flagged["result"]["root"] == str(other)
     found = run_command(
         "stations find",
         options={"source": "store", "root": fixture_root, "query": "raba"},
     )
-    printed = invoke("stations", "find", "--source", "store", "-q", "raba", env=env)
+    printed = invoke(
+        "stations", "find", "--source", "store", "-q", "raba", "--json", env=env
+    )
     assert envelope(printed) == found.to_json(root=fixture_root)
     calls = []
 
@@ -780,6 +946,9 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     document = error_line(invoke(*args), "validation_error")
     assert document["details"].get("option") == option
     assert document["details"]["click"]
+    words = [str(arg) for arg in args]
+    assert document.get("command") == (" ".join(words[:2]) if len(words) > 1 else None)
+    assert "--help" in document["hint"]
     # parse_command refuses the same words as a mistake of the line.
     with pytest.raises(ObserwatorError) as error:
         parse_command([str(arg) for arg in args])
@@ -791,17 +960,25 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
 
 
 def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_obserwator_lang():
-    detail = "Unknown option --colour of the command obserwator datasets list"
+    detail = "Unknown option --bogus of the command obserwator datasets list"
+    hint = "obserwator datasets list --help lists the options and commands"
     document = error_line(
-        invoke("datasets", "list", "--colour", "red"), "validation_error"
+        invoke("datasets", "list", "--bogus", "red"), "validation_error"
     )
-    assert document["detail"].startswith(detail)
+    assert (document["message"], document["hint"]) == (detail, hint)
     polish = run_installed(
-        "datasets", "list", "--colour", "red", lang="pl", capture_output=True
+        "datasets", "list", "--bogus", "red", lang="pl", capture_output=True
     )
     line = json.loads(polish.stderr.decode("utf-8").splitlines()[-1])
-    assert (polish.returncode, line["detail"].startswith(detail)) == (2, True)
-    assert document["details"]["click"] == "No such option: --colour"
+    assert (polish.returncode, line["message"], line["hint"]) == (2, detail, hint)
+    assert document["details"]["click"] == "No such option: --bogus"
+
+
+def test_cli_catalog_unknown_flag_close_to_a_known_one_hints_at_it():
+    document = error_line(invoke("store", "info", "--rot", "/r"), "validation_error")
+    assert document["hint"] == (
+        "Did you mean --root? obserwator store info --help lists the options"
+    )
 
 
 @pytest.mark.parametrize(
@@ -817,7 +994,8 @@ def test_cli_catalog_sync_with_failed_items_prints_the_envelope_and_exits_10_or_
     for archive in failing:
         imgw.router.get(archive.url).mock(return_value=httpx.Response(500))
     result = invoke(
-        "store", "sync", "-r", root, "-d", DAILY, "-y", "2023-2024", "--no-series"
+        *("store", "sync", "-r", root, "-d", DAILY, "-y", "2023-2024", "--no-series"),
+        "--json",
     )
     assert (
         result.exit_code == EXIT_CODES[status] == {"partial": 10, "failed": 11}[status]
@@ -845,7 +1023,7 @@ def test_cli_catalog_first_ctrl_c_prints_the_partial_report_and_exits_130(
 
     monkeypatch.setattr(store, "build_series", build_series)
     handler = signal.getsignal(signal.SIGINT)
-    result = invoke("series", "build", "-r", tmp_path, "-d", DAILY)
+    result = invoke("series", "build", "-r", tmp_path, "-d", DAILY, "--json")
     assert seen == [(False, True)]
     assert result.exit_code == EXIT_CODES["cancelled"] == 130
     printed = json.loads(result.stdout)
@@ -882,8 +1060,10 @@ def test_cli_catalog_installed_obserwator_reports_the_error_line_of_the_spec():
     )
     assert (result.returncode, result.stdout) == (2, b"")
     assert result.stderr.decode("utf-8").splitlines()[-1] == (
-        '{"code":"validation_error","detail":"Latitude 1.0 is outside Poland '
-        '(49.0–55.0)","details":{"option":"latitude","value":1.0}}'
+        '{"schema":"obserwator-error/1","code":"validation_error",'
+        '"title":"Invalid input","message":"Latitude 1.0 is outside Poland '
+        '(49.0–55.0)","details":{"option":"latitude","value":1.0},"exit_code":2,'
+        '"command":"pmaxtp fetch"}'
     )
     unknown = run_installed("store", "info", "--colour", "red", capture_output=True)
     assert unknown.returncode == 2
@@ -892,7 +1072,7 @@ def test_cli_catalog_installed_obserwator_reports_the_error_line_of_the_spec():
 
 def test_cli_catalog_installed_obserwator_prints_the_envelope_of_run_command():
     result = run_installed(
-        "datasets", "list", "-k", "meteo", "--limit", 2, capture_output=True
+        "datasets", "list", "-k", "meteo", "--limit", 2, "--json", capture_output=True
     )
     assert result.returncode == 0, result.stderr
     expected = run_command("datasets list", options={"kind": "meteo", "limit": 2})
@@ -903,7 +1083,9 @@ def test_cli_catalog_installed_obserwator_writes_utf8_whatever_the_locale(monkey
     # cp1252 is the encoding of a pipe on Windows; it has no "ł", and its "–"
     # is another byte than in UTF-8.
     monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
-    schema = run_installed("commands", "schema", "--lang", "pl", capture_output=True)
+    schema = run_installed(
+        "commands", "schema", "--lang", "pl", "--json", capture_output=True
+    )
     assert schema.returncode == 0, schema.stderr
     assert json.loads(schema.stdout.decode("utf-8"))["result"] == json.loads(
         json.dumps(command_schema(lang="pl"))

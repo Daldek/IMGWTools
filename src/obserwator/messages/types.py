@@ -27,4 +27,8 @@ MESSAGES = {
         "Cannot read the Obserwator plan: {exc}",
         "Nie można odczytać planu Obserwatora: {exc}",
     ),
+    "malformed_cursor": Text(
+        "Invalid cursor {cursor!r}: pass page.next_cursor of the previous page",
+        "Nieprawidłowy kursor {cursor!r}: podaj page.next_cursor poprzedniej strony",
+    ),
 }

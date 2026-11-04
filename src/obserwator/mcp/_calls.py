@@ -19,13 +19,14 @@ parameters, POST with a JSON body and always ``?check=true``, in English
 (``Accept-Language: en``); REST itself refuses server and local options.
 
 An envelope ``obserwator-result/1`` is ``structuredContent`` and, as compact JSON,
-the only text content (the CLI stdout line without its line end); a stream
+the only text content (the CLI ``--json`` stdout line without its line end); a stream
 (``store export``, ``series export``, ``commands guide`` without ``output``) is its
-text, at most 256 KiB, with an envelope whose result is ``{format, bytes,
-lines}``. An error is ``isError`` with ``{code, title, detail, details}``:
-``code``, ``detail`` and ``details`` as in the CLI error line, ``title`` from the
-registry, all in English (AGI-9.2), ``internal_error`` for a program error (its
-traceback goes to stderr).
+text, at most 256 KiB, with an envelope whose result is the ``obserwator-stream/1``
+document ``{schema, format, bytes, lines}``. An error is ``isError`` with the
+``obserwator-error/1`` document of the CLI error line (`obserwator.error_report`)
+as ``structuredContent`` and as its only text content: in English (AGI-9.2),
+with the tool's command as ``command``,
+``internal_error`` for a program error (its traceback goes to stderr).
 """
 
 from __future__ import annotations
@@ -48,16 +49,15 @@ import anyio.to_thread
 import mcp.types as types
 
 from obserwator.commands import check_command, run_command, validate_command
+from obserwator.error_report import ErrorReport, error_document, error_report
 from obserwator.exceptions import (
-    ERROR_CODES,
-    ErrorCode,
     ObserwatorError,
     ObserwatorValidationError,
     describe_os_error,
 )
 from obserwator.mcp._tools import CatalogTool
-from obserwator.messages import localize, message
-from obserwator.store.types import CommandResult, Progress
+from obserwator.messages import message
+from obserwator.store.types import CommandResult, Notice, Progress
 
 __all__ = ["STREAM_LIMIT", "Report", "call_tool"]
 
@@ -88,17 +88,9 @@ def _answer(document: dict[str, Any], text: str | None = None) -> types.CallTool
     )
 
 
-def _error(code: ErrorCode, detail: str, details: object) -> types.CallToolResult:
-    """Error document of spec §6.7, in English like the CLI error line."""
-    spec = ERROR_CODES[code]
-    text = _json(
-        {
-            "code": code,
-            "title": localize(spec.title, "en"),
-            "detail": localize(detail, "en") or localize(spec.title, "en"),
-            "details": details,
-        }
-    )
+def _error(report: ErrorReport) -> types.CallToolResult:
+    """Error result: the ``obserwator-error/1`` document of the CLI error line."""
+    text = report.to_json()
     return types.CallToolResult(
         content=[types.TextContent(text=text)],
         structured_content=json.loads(text),
@@ -106,15 +98,15 @@ def _error(code: ErrorCode, detail: str, details: object) -> types.CallToolResul
     )
 
 
-def _failure(exc: Exception) -> types.CallToolResult:
-    """Error result of an exception (the CLI error line with a title)."""
+def _failure(exc: Exception, command: str) -> types.CallToolResult:
+    """Error result of an exception (the CLI error line)."""
     if isinstance(exc, ObserwatorError):
-        return _error(exc.code, exc.detail, dict(exc.details))
+        return _error(error_report(exc, command=command))
     if isinstance(exc, OSError):
         detail, details = describe_os_error(exc)
-        return _error("io_error", detail, details)
+        return _error(error_document("io_error", detail, details, command=command))
     traceback.print_exception(exc, file=sys.stderr)
-    return _error("internal_error", _INTERNAL, {})
+    return _error(error_document("internal_error", _INTERNAL, command=command))
 
 
 def _line_count(text: str) -> int:
@@ -137,6 +129,18 @@ def _format(tool: CatalogTool, options: Mapping[str, object]) -> object:
     )
 
 
+def _summary(
+    tool: CatalogTool, options: Mapping[str, object], size: int, text: str
+) -> dict[str, object]:
+    """The ``obserwator-stream/1`` document of a stream given as text."""
+    return {
+        "schema": "obserwator-stream/1",
+        "format": _format(tool, options),
+        "bytes": size,
+        "lines": _line_count(text),
+    }
+
+
 def _stream(
     tool: CatalogTool,
     outcome: CommandResult[object],
@@ -156,11 +160,7 @@ def _stream(
             raise _too_large()
         chunks.append(line)
     text = "".join(chunks)
-    summary = {
-        "format": _format(tool, options),
-        "bytes": size,
-        "lines": _line_count(text),
-    }
+    summary = _summary(tool, options, size, text)
     envelope = replace(outcome, result=summary).to_json(root=root)
     return _answer(envelope, text)
 
@@ -333,7 +333,7 @@ def _run(
             return _stream(tool, outcome, normalized, base)
         return _answer(outcome.to_json(root=base))
     except Exception as exc:
-        return _failure(exc)
+        return _failure(exc, name)
 
 
 async def _watch(cancelled: threading.Event) -> None:
@@ -475,7 +475,15 @@ async def _route(
     media = headers.get("content-type", "")
     if media.startswith("application/problem+json"):
         problem = json.loads(data)
-        return _error(problem["code"], problem["detail"], problem["details"])
+        return _error(
+            error_document(
+                problem["code"],
+                problem["detail"],
+                problem["details"],
+                hint=problem.get("hint"),
+                command=tool.command.name,
+            )
+        )
     if status != 200:
         raise RuntimeError(f"The REST route {method} {path} answered {status} {media}")
     if media.startswith("application/json"):
@@ -484,18 +492,14 @@ async def _route(
     if stopped:
         raise _too_large()
     text = data.decode("utf-8")
-    envelope = {
-        "schema": "obserwator-result/1",
-        "command": tool.command.name,
-        "check": False,
-        "status": headers["x-obserwator-status"],
-        "result": {
-            "format": _format(tool, options),
-            "bytes": len(data),
-            "lines": _line_count(text),
-        },
-        "notices": json.loads(headers["x-obserwator-notices"]),
-    }
+    notices = json.loads(headers["x-obserwator-notices"])
+    envelope = CommandResult(
+        tool.command.name,
+        False,
+        cast(Any, headers["x-obserwator-status"]),  # a status the REST route wrote
+        _summary(tool, options, len(data), text),
+        tuple(Notice(**notice) for notice in notices),
+    ).to_json()
     return _answer(envelope, text)
 
 
@@ -534,7 +538,7 @@ async def call_tool(
             return await _route(tool, arguments)
         options, check = _options(tool, arguments)
     except Exception as exc:
-        return _failure(exc)
+        return _failure(exc, tool.command.name)
 
     def work(cancelled: threading.Event) -> types.CallToolResult:
         return _run(tool, options, check, report, cancelled, allow_dirs)

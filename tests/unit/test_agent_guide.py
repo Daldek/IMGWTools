@@ -24,7 +24,6 @@ from obserwator.cli.main import app as cli_app
 from obserwator.commands import (
     check_command,
     command_schema,
-    list_commands,
     parse_command,
     validate_command,
 )
@@ -35,6 +34,7 @@ from obserwator.exceptions import (
     ObserwatorValidationError,
 )
 from obserwator.messages import Lang, message
+from tests.contract.support import input_schemas
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 GUIDES = {"AGENTS.md": "agents", "llms.txt": "llms"}
@@ -118,7 +118,8 @@ def test_guide_lists_every_command_once_in_the_class_of_its_effect(lang):
             assert found[1] not in placed, found[1]
             placed[found[1]] = heading
 
-    listed = list_commands(lang=lang)["commands"]
+    # The class is the effect of a run; the marks name the writing options.
+    listed = [schema["x-obserwator"] for schema in input_schemas(lang=lang)]
     assert sorted(placed) == sorted(item["command"] for item in listed)
     for item in listed:
         effect = item["writes"] if item["writes"] != "none" else "read"
@@ -295,7 +296,7 @@ def test_output_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
     target = tmp_path / "AGENTS.md"
     if existing:
         target.write_bytes("stara treść\n".encode())
-    args = ["commands", "guide", "--lang", "en", "--output", str(target)]
+    args = ["commands", "guide", "--lang", "en", "--output", str(target), "--json"]
     if existing:
         args.append("--force")
 
@@ -321,6 +322,7 @@ def test_output_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
     assert (envelope["status"], envelope["result"]) == (
         "ok",
         {
+            "schema": "obserwator-output/1",
             "output": str(target),
             "files": [
                 {
@@ -341,7 +343,7 @@ def test_an_existing_guide_file_is_a_conflict_the_plan_reports_and_the_run_refus
 ):
     target = tmp_path / "AGENTS.md"
     target.write_text("stara treść\n", encoding="utf-8")
-    args = ["commands", "guide", "--lang", "en", "--output", str(target)]
+    args = ["commands", "guide", "--lang", "en", "--output", str(target), "--json"]
 
     planned = RUNNER.invoke(cli_app, [*args, "--check"])
     refused = RUNNER.invoke(cli_app, args)

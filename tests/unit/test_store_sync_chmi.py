@@ -249,7 +249,7 @@ def test_check_reads_one_listing_and_compares_it_with_the_store(root, server):
             f"station {NO_FILES}: no files of the dataset {HYDRO} at the source",
         ),
     )
-    assert [(notice.code, notice.text) for notice in notices] == [
+    assert [(notice.code, notice.message) for notice in notices] == [
         ("source_unverifiable", action.detail) for action in plan.actions
     ]
     assert [(event.current, event.total, event.status) for event in progress] == [
@@ -647,7 +647,7 @@ def test_other_content_under_the_same_canonical_form_is_one_observation(root, se
         "same_content_as": current.parent.name,
     }
     (unchanged,) = [notice for notice in notices if notice.code == "content_unchanged"]
-    assert unchanged.level == "info" and sha(reserialized) in unchanged.text
+    assert unchanged.level == "info" and sha(reserialized) in unchanged.message
 
     start = len(server.calls)
     again = check_store(root, datasets=[HYDRO], stations=[S1], years=[2023])

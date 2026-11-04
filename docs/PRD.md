@@ -79,7 +79,7 @@ Analytical and statistical parts (hydrological calculations, probabilistic model
 | OpenAPI/Swagger documentation | Implemented |
 | API versioning (`/api/v1/`) | Implemented |
 | Catalog routes `/api/v1/<group>/<command>` (datasets, stations, current, pmaxtp, store, series, commands) | Implemented — 28 routes generated from `command_schema()` |
-| Paging of list commands (`limit`/`offset`, maximum `OBSERWATOR_API_MAX_LIMIT`) | Implemented |
+| Paging of list commands (`limit`/`cursor`, maximum `OBSERWATOR_API_MAX_LIMIT`) | Implemented |
 | Errors as `application/problem+json` with registry codes | Implemented |
 | Health check | Implemented |
 | Language negotiation (`Accept-Language`, `Content-Language`) | Implemented |
@@ -145,7 +145,7 @@ obserwator version
 obserwator server [--host] [--port] [--reload]
 obserwator mcp [--allow-writes]
 
-# Datasets, stations, live data (lists accept --limit/--offset)
+# Datasets, stations, live data (lists accept --limit/--cursor)
 obserwator datasets list [-k hydro|meteo] [--provider IMGW-PIB|CHMI]
 obserwator datasets providers
 obserwator datasets files -d <dataset> [-y <years>] [-m <months>] [--params H,Q,T] [-s <stations>]

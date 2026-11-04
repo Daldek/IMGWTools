@@ -7,7 +7,7 @@ answers ``to_json(root, server=True)`` (the root as ``"."``), so the three docum
 are equal after a canonical JSON dump; writes leave identical trees after identical
 requests. Every registered error code is reported with the code, exit code and HTTP
 status of §13.5; every envelope and error document satisfies the §13.5–§13.6
-schemas of ``contract_schemas.json``; the same ``limit``/``offset`` gives the same
+schemas of ``contract_schemas.json``; the same ``limit``/``cursor`` gives the same
 page everywhere; slots and versions taken from answers work in ``current_version``
 and as ``obserwator --version`` with ``--root``. No request leaves the recordings.
 """
@@ -37,6 +37,7 @@ from obserwator import (
 )
 from obserwator.exceptions import describe_os_error
 from obserwator.messages import localize
+from obserwator.store.types import page_cursor
 from tests.contract.support import (
     DAILY,
     H2024,
@@ -51,6 +52,7 @@ from tests.contract.support import (
     current_path,
     envelope_errors,
     in_json,
+    input_schemas,
     rest_request,
     schema_errors,
     slots,
@@ -58,11 +60,10 @@ from tests.contract.support import (
     stamps,
 )
 
-CATALOG = command_document()
-EXIT_CODES = CATALOG["exit_codes"]
+EXIT_CODES = command_document()["exit_codes"]
 ROUTES = {
     schema["x-obserwator"]["command"]: schema["x-obserwator"]
-    for schema in CATALOG["commands"]
+    for schema in input_schemas()
     if schema["x-obserwator"]["rest"] is not None
 }
 POST_COMMANDS = [
@@ -71,12 +72,12 @@ POST_COMMANDS = [
 INTERFACES = ("python", "cli", "rest")
 # Notice labels of the CLI stderr (spec §13.10); its lines are for a person, so they
 # are in the language of OBSERWATOR_LANG, Polish by default.
-LABELS = {"info": "Informacja", "warning": "Ostrzeżenie", "error": "Błąd"}
+LABELS = {"info": "Informacja", "warning": "Ostrzeżenie"}
 
 
 def line_of(notice):
     """The stderr line the CLI prints for a notice."""
-    return f"{LABELS[notice.level]}: {localize(notice.text, 'pl')}"
+    return f"{LABELS[notice.level]}: {localize(notice.message, 'pl')}"
 
 
 # Placeholders of versions relative to the root, resolved in the served store.
@@ -101,7 +102,7 @@ class Case:
 
 
 CASES: dict[str, list[Case]] = {
-    "datasets list": [Case({"kind": "hydro", "limit": 2, "offset": 1})],
+    "datasets list": [Case({"kind": "hydro", "limit": 2, "cursor": page_cursor(1)})],
     "datasets files": [
         Case(
             {
@@ -109,20 +110,23 @@ CASES: dict[str, list[Case]] = {
                 "years": "2021-2023",
                 "months": [1, 2],
                 "limit": 3,
-                "offset": 1,
+                "cursor": page_cursor(1),
             }
         )
     ],
-    "datasets providers": [Case({"limit": 1, "offset": 1})],
+    "datasets providers": [Case({"limit": 1, "cursor": page_cursor(1)})],
     "stations find": [
         Case({"kind": "hydro", "query": "raba", "provider": "IMGW-PIB", "limit": 2}),
-        Case({"source": "store", "query": "1491", "offset": 1}, "served"),
+        Case({"source": "store", "query": "1491", "cursor": page_cursor(1)}, "served"),
     ],
     "current hydro": [Case({"station": RABA})],
-    "current meteo": [Case({"limit": 1, "offset": 1})],
+    "current meteo": [Case({"limit": 1, "cursor": page_cursor(1)})],
     "current synop": [Case({"station_name": "raba"})],
     "current warnings": [Case({"limit": 5})],
-    "current hydro-states": [Case({"main_only": True}), Case({"offset": 1})],
+    "current hydro-states": [
+        Case({"main_only": True}),
+        Case({"cursor": page_cursor(1)}),
+    ],
     "pmaxtp fetch": [Case({"latitude": "52.23", "longitude": 21.01})],
     "pmaxtp url": [Case({"latitude": 52.23, "longitude": 21.01, "method": "AMP"})],
     "pmaxtp check": [Case({"latitude": 52.23, "longitude": 21.01}, "served")],
@@ -131,7 +135,9 @@ CASES: dict[str, list[Case]] = {
     ],
     "pmaxtp read": [Case({"ind_x": 751, "ind_y": 317}, "served")],
     "store info": [Case({}, "served")],
-    "store scan": [Case({"kind": "archive", "limit": 4, "offset": 2}, "served")],
+    "store scan": [
+        Case({"kind": "archive", "limit": 4, "cursor": page_cursor(2)}, "served")
+    ],
     "store check": [Case({"datasets": [DAILY], "years": "2024"}, "served")],
     "store sync": [Case({"datasets": ["hydro/dobowe"], "years": [2024]}, "empty")],
     "store catalog": [Case({}, "empty")],
@@ -151,7 +157,7 @@ CASES: dict[str, list[Case]] = {
                 "variables": ["H", "Q"],
                 "start": "2024-01-01",
                 "limit": 5,
-                "offset": 1,
+                "cursor": page_cursor(1),
             },
             "served",
         )
@@ -259,7 +265,8 @@ def assert_alike(command, python, printed, answered, root):
         assert answered.content == data
         assert answered.headers["x-obserwator-status"] == python.status == "ok"
         notices = [
-            {"level": n.level, "code": n.code, "text": n.text} for n in python.notices
+            {"level": n.level, "code": n.code, "message": n.message}
+            for n in python.notices
         ]
         assert json.loads(answered.headers["x-obserwator-notices"]) == notices
         # Data exports name the license of their provider; the guide is no data.
@@ -379,28 +386,33 @@ def test_every_write_is_planned_alike_by_check_in_python_cli_and_rest(
 
 
 # --------------------------------------------------------------------------
-# Paging: the same limit and offset give the same page (spec §13.6)
+# Paging: the same limit and cursor give the same page (spec §13.6)
 # --------------------------------------------------------------------------
 
 
+PAGED = [
+    ("datasets list", {}, False),
+    ("current hydro", {}, False),
+    ("store scan", {}, True),
+    ("series summary", {"dataset": DAILY}, True),
+]
+
+
+def window(limit: int, start: int) -> dict[str, object]:
+    """Paging options of the page at item index ``start`` (no cursor for the first)."""
+    return {"limit": limit, **({"cursor": page_cursor(start)} if start else {})}
+
+
+@pytest.mark.parametrize(("command", "options", "stored"), PAGED)
 @pytest.mark.parametrize(
-    ("command", "options", "stored"),
-    [
-        ("datasets list", {}, False),
-        ("current hydro", {}, False),
-        ("store scan", {}, True),
-        ("series summary", {"dataset": DAILY}, True),
-    ],
+    ("limit", "start"), [(4, 0), (4, 4), (3, 9), (1, 3), (5, 20)], ids=str
 )
-@pytest.mark.parametrize(
-    ("limit", "offset"), [(4, 0), (4, 4), (3, 9), (1, 3), (5, 20)], ids=str
-)
-def test_same_limit_and_offset_give_the_same_page_in_every_interface(
+def test_same_limit_and_cursor_give_the_same_page_in_every_interface(
     command,
     options,
     stored,
     limit,
-    offset,
+    start,
     cli,
     rest,
     server,
@@ -410,26 +422,54 @@ def test_same_limit_and_offset_give_the_same_page_in_every_interface(
 ):
     root = served_root if stored else None
     monkeypatch.setattr(server, "root", root)
-    window = {**options, "limit": limit, "offset": offset}
+    paged = {**options, **window(limit, start)}
     whole = run_command(command, options=rooted(options, root))
 
     python, printed, answered = (
-        answer(i, command, window, root, cli=cli, rest=rest) for i in INTERFACES
+        answer(i, command, paged, root, cli=cli, rest=rest) for i in INTERFACES
     )
 
     documents = [python.to_json(root=root), json.loads(printed.stdout), answered.json()]
     assert [envelope_errors(document) for document in documents] == [[], [], []]
-    pages = [document["result"] for document in documents]
-    assert len({canonical(page) for page in pages}) == 1
-    (page, *_) = pages
-    assert (page["total"], page["limit"], page["offset"]) == (
-        whole.result.total,
-        limit,
-        offset,
-    )
-    everything = whole.to_json(root=root)["result"]["items"]
-    assert page["items"] == everything[offset : offset + limit]
-    assert len(everything) == whole.result.total > 3
+    assert len({canonical(d["result"]) for d in documents}) == 1
+    assert len({canonical(d["page"]) for d in documents}) == 1
+    (document, *_) = documents
+    everything = whole.to_json(root=root)["result"]
+    assert len(everything) > 3
+    assert document["result"] == everything[start : start + limit]
+    more = start + limit < len(everything)
+    assert document["page"] == {
+        "total": len(everything),
+        "next_cursor": page_cursor(start + limit) if more else None,
+        "truncated": more,
+    }
+
+
+@pytest.mark.parametrize(("command", "options", "stored"), PAGED)
+def test_following_next_cursor_gives_every_item_once_in_order(
+    command, options, stored, rest, server, monkeypatch, served_root, recorded
+):
+    root = served_root if stored else None
+    monkeypatch.setattr(server, "root", root)
+    everything = run_command(command, options=rooted(options, root)).to_json(
+        root=root, server=True
+    )["result"]
+
+    collected, paged = [], {**options, "limit": 3}
+    while True:
+        document = answer("rest", command, paged, root, cli=None, rest=rest).json()
+        collected += document["result"]
+        if document["page"]["next_cursor"] is None:
+            break
+        paged = {**options, "limit": 3, "cursor": document["page"]["next_cursor"]}
+
+    assert len(everything) > 3
+    assert collected == everything
+    assert document["page"] == {
+        "total": len(everything),
+        "next_cursor": None,
+        "truncated": False,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -453,7 +493,7 @@ def test_versions_answered_by_rest_work_as_obserwator_version_with_root(
     read = []
     for kind, (command, extra) in READERS.items():
         scanned = rest.get("/api/v1/store/scan", params={"kind": kind}).json()
-        for entry in scanned["result"]["items"]:
+        for entry in scanned["result"]:
             if entry["slot"].split(":")[1] in STATION_LISTS:
                 continue
             options = {"version": entry["version"], **extra}
@@ -668,10 +708,10 @@ def test_every_error_code_is_reported_alike_by_every_interface(
         else:
             assert printed.stdout == ""
             line = json.loads(printed.stderr.splitlines()[-1])
-            assert schema_errors(line, "cli-error") == []
+            assert schema_errors(line, "obserwator-error/1") == []
             assert line["code"] == code
             if isinstance(raised, ObserwatorError):
-                assert canonical([line["detail"], line["details"]]) == canonical(
+                assert canonical([line["message"], line["details"]]) == canonical(
                     [raised.detail, dict(raised.details)]
                 )
 
@@ -770,7 +810,7 @@ def assert_io_error_alike(command, options, root, *, cli, rest, headers=None):
         "",
         "io_error",
     )
-    assert canonical([line["detail"], line["details"]]) == canonical(expected)
+    assert canonical([line["message"], line["details"]]) == canonical(expected)
 
     answered = rest.request(**rest_request(command, options), headers=headers)
     body = answered.json()
@@ -880,7 +920,7 @@ def test_obserwator_ends_every_syntax_error_with_a_validation_error_line(args, c
     printed = cli(*args)
 
     line = json.loads(printed.stderr.splitlines()[-1])
-    assert schema_errors(line, "cli-error") == []
+    assert schema_errors(line, "obserwator-error/1") == []
     assert (printed.stdout, line["code"]) == ("", "validation_error")
     assert printed.exit_code == ERROR_CODES["validation_error"].exit_code
 
@@ -902,7 +942,7 @@ def test_program_errors_are_internal_errors_in_obserwator_and_rest(
 
     spec = ERROR_CODES["internal_error"]
     line = json.loads(printed.stderr.splitlines()[-1])
-    assert schema_errors(line, "cli-error") == []
+    assert schema_errors(line, "obserwator-error/1") == []
     assert (printed.exit_code, line["code"]) == (spec.exit_code, "internal_error")
     body = answered.json()
     assert schema_errors(body, "problem+json") == []

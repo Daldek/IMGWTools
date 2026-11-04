@@ -211,4 +211,4 @@ def test_obserwator_mcp_has_no_language_option():
     assert result.stdout == ""
     error = json.loads(result.stderr.splitlines()[-1])
     assert error["code"] == "validation_error"
-    assert "--lang" in error["detail"]
+    assert "--lang" in error["message"]

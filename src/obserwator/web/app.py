@@ -35,10 +35,10 @@ from obserwator import (
 from obserwator._version import __version__
 from obserwator.api.errors import hide_server_paths
 from obserwator.messages import Lang, localize, message
+from obserwator.store.types import Page, cursor_index, page_cursor
 
 if TYPE_CHECKING:
     from obserwator import StationListEntry
-    from obserwator.store.types import Page
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -266,7 +266,7 @@ def find_stations_partial(
     kind: str = "",
     query: str = "",
     limit: str = _STATION_PAGE_SIZE,
-    offset: str = "0",
+    cursor: str = "",
 ) -> HTMLResponse:
     """
     Search IMGW-PIB station lists with ``stations find`` (HTMX partial).
@@ -285,8 +285,8 @@ def find_stations_partial(
         Station name, river or code prefix; empty lists every station.
     limit : str
         Page size as text.
-    offset : str
-        Index of the first station as text.
+    cursor : str
+        ``page.next_cursor`` of the page to show; empty for the first page.
 
     Returns
     -------
@@ -299,7 +299,7 @@ def find_stations_partial(
         "query": query,
         "provider": _PROVIDER,
         "limit": limit,
-        "offset": offset,
+        "cursor": cursor,
     }
     try:
         outcome = run_command(
@@ -308,28 +308,35 @@ def find_stations_partial(
         )
     except ObserwatorError as error:
         return _error(request, error)
-    page = cast("Page[StationListEntry]", outcome.result)
-    size = page.limit or len(page.items)
+    stations = cast("tuple[StationListEntry, ...]", outcome.result)
+    page = cast(Page, outcome.page)
+    # run_command accepted limit and cursor, so both read back.
+    start = cursor_index(cursor.strip()) if cursor.strip() else 0
+    size = int(limit) if limit.strip() else len(stations)
 
-    def _page_url(start: int) -> str:
-        values = {"kind": kind, "query": query, "limit": size, "offset": start}
+    def _page_url(first: int) -> str:
+        values = {
+            "kind": kind,
+            "query": query,
+            "limit": size,
+            "cursor": page_cursor(first) if first else "",
+        }
         return "/stations/find?" + urlencode(
             {key: value for key, value in values.items() if value != ""}
         )
 
-    end = page.offset + len(page.items)
+    end = start + len(stations)
     return templates.TemplateResponse(
         request,
         "partials/station_table.html",
         {
-            "page": page,
+            "stations": stations,
+            "total": page.total,
             "kind": kind,
-            "first": page.offset + 1 if page.items else 0,
+            "first": start + 1 if stations else 0,
             "last": end,
-            "previous_url": _page_url(max(page.offset - size, 0))
-            if page.offset > 0
-            else None,
-            "next_url": _page_url(end) if end < page.total else None,
+            "previous_url": _page_url(max(start - size, 0)) if start > 0 else None,
+            "next_url": _page_url(end) if page.truncated else None,
         },
     )
 

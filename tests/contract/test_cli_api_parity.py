@@ -138,6 +138,7 @@ def test_obserwator_scenario_prints_the_envelopes_of_run_command_and_writes_alik
     assert newer["result"]["series"] == []
     assert [returned[i]["result"]["status"] for i in (6, 7, 9)] == ["new"] * 3
     assert returned[8]["result"] == {
+        "schema": "obserwator-output/1",
         "output": str(work / "raba.csv"),
         "files": [
             {
@@ -199,7 +200,7 @@ def test_installed_obserwator_prints_the_envelopes_of_run_command_offline(
         ERROR_CODES["validation_error"].exit_code,
         "",
     )
-    assert schema_errors(line, "cli-error") == []
+    assert schema_errors(line, "obserwator-error/1") == []
     assert (line["code"], line["details"]["option"]) == ("validation_error", "years")
 
 
@@ -212,7 +213,9 @@ def test_two_obserwator_processes_building_one_series_publish_it_once(
     before = {path.name for path in slot.iterdir()}
 
     def build(_):
-        return run_obserwator("series", "build", "--root", root, "--dataset", PRECIP)
+        return run_obserwator(
+            "series", "build", "--root", root, "--dataset", PRECIP, "--json"
+        )
 
     with ThreadPoolExecutor(2) as pool:
         envelopes = [json.loads(result.stdout) for result in pool.map(build, range(2))]
