@@ -108,6 +108,7 @@ registry, and contract tests validate the CLI, REST, MCP and Python documents ag
 | REST problem+json `{type, title, status, detail, code, details}` | adds `hint` |
 | `command_schema` entries are the JSON Schemas of the options (`x-obserwator`) | entries follow Nogat `commands-1` (`name`, `operation_id`, `summary`, `options` with `flags` and `enum` meanings, `effects`, `errors`, `examples`, …); `commands list` stays the summary `obserwator-command-list/1`, as in Kartograf and Hydrolog |
 | `parse_command` and `format_command` know the run flag `--check` | they also know `--json` and `--lang` (`run["json"]`, `run["lang"]`) |
+| `StoreInfo.schema` (the schema of the marker) | `StoreInfo.store_schema`; the document's own `schema` is its id `obserwator-store-info/1` |
 
 - A script that reads CLI stdout adds `--json`; the error document stays the last line of stderr.
 - Read the list from `result` and the paging from `page`; fetch the next page with
@@ -185,8 +186,8 @@ Existing `.db` files are neither deleted nor migrated: download the data again i
 | `imgw list stations -t hydro -s Warsz -l 50` | `obserwator stations find -k hydro -q Warsz --limit 50` |
 | `imgw list datasets [-t hydro]` | `obserwator datasets list [-k hydro]` |
 | `imgw list intervals` | `obserwator datasets list` (the field `legacy_alias`) |
-| stdout: the raw result, absolute paths | the envelope `obserwator-result/1` on one line, paths in the store relative to the root |
-| an error: `Błąd: …` on stderr (legacy commands: stdout), exit code 1 | JSON `{"code", "detail", "details"}` on the last line of stderr, the exit code from the error registry; a `partial`/`failed` result → 10/11, cancellation 130 |
+| stdout: the raw result, absolute paths | a short summary for a person; `--json` prints the envelope `obserwator-result/1` on one line; paths in the store relative to the root |
+| an error: `Błąd: …` on stderr (legacy commands: stdout), exit code 1 | the document `obserwator-error/1` on the last line of stderr, the exit code from the error registry; a `partial`/`failed` result → 10/11, cancellation 130 |
 
 #### REST
 
@@ -203,7 +204,7 @@ Existing `.db` files are neither deleted nor migrated: download the data again i
 | `POST /api/v1/pmaxtp/url` | `GET /api/v1/pmaxtp/url` |
 | `POST /api/v1/pmaxtp/data` (the raw IMGW answer) | `GET /api/v1/pmaxtp/fetch` (`PMaXTPResult`) |
 | `GET /map/stations` (web) | `GET /api/v1/current/hydro-states` |
-| errors `{"detail": …}`, 422 with a pydantic list | `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); validation always 400 |
+| errors `{"detail": …}`, 422 with a pydantic list | `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`, `hint`); validation always 400 |
 
 Web: the routes `/download/archives` + `POST /download/files`, `/stations/find` and the catalog
 route `GET /api/v1/current/hydro-states` replace `/download/hydro|meteo[/generate]`,
@@ -256,15 +257,17 @@ route `GET /api/v1/current/hydro-states` replace `/download/hydro|meteo[/generat
 - **`parse_command(line)` and `format_command(..., run=)` (AGI-2.1, request of Archiwista):**
   `parse_command` reads an `obserwator` command line, a text or its words with or without the leading
   `obserwator`, into `CommandCall(command, options, run)`, so a pasted line becomes a call. The flags are
-  those the CLI has for the catalog command (`x-obserwator.cli.flags`, and `--check` of a command with a
-  check twin), read as the CLI reads them: `--root=/data`, `-r/data`, a list flag repeated, the
-  last value of another flag, `--` at the end. The options are the texts the CLI passes to
-  `run_command`, nothing validated (`validate_command` does that), and `run` is `{"check": True}`
-  for `--check`. A mistake of the line (no command or one outside the catalog, `--help` or
+  those the CLI has for the catalog command (the `flags` of its `commands-1` options, and
+  `--check` of a command with a check twin), read as the CLI reads them: `--root=/data`,
+  `-r/data`, a list flag repeated, the last value of another flag, `--` at the end. The options
+  are the texts the CLI passes to `run_command`, nothing validated (`validate_command` does
+  that), and `run` holds the run flags `--check`, `--json` and `--lang` (`{"check": True}` for
+  `--check`). A mistake of the line (no command or one outside the catalog, `--help` or
   `--schema`, an unknown flag, a flag without its value, a switch with one, a word that is no flag)
   is `validation_error` with `details.reason` `usage`, `details.option` for a wrong flag and
   `details.command` once the line named a command. `format_command(command, /, *, options,
-  run=None)` writes `--check` last for `run={"check": True}`; another flag of a run, a value that
+  run=None)` writes the run flags last (`--check` for `run={"check": True}`, `--json`,
+  `--lang`); another flag of a run, a value that
   is not a boolean or `--check` of a command without it is `validation_error` naming it. The agent
   guide writes its planned steps with it (the guides do not change). The names, shapes and errors
   are Kartograf's (`parse_command`, `format_command(..., run=)`, `CommandCall`); Obserwator keeps its
@@ -273,7 +276,8 @@ route `GET /api/v1/current/hydro-states` replace `/download/hydro|meteo[/generat
   (each catalog command, the ČHMÚ calls, with `--check` where a command has it), reads it back and
   writes the same line again, so a tool that exchanges `obserwator` lines compares them as text.
 - **Example calls in the catalog (AGI-2.2):** every command of `command_schema` has
-  `x-obserwator.examples`, at least one `{call, result}`: a complete `obserwator` line and an excerpt of the
+  `examples` (Nogat `commands-1`), at least one `{call, result}`: a complete `obserwator` line
+  with `--json` and an excerpt of the
   `result` of its envelope (41 examples for the 30 commands, with `--check`, the ČHMÚ datasets
   and plain `--output-dir` among them). Each call is the canonical line of `format_command`
   (AGI-2.1): `format_command` writes the call that `parse_command` reads from it as the same line,
@@ -391,14 +395,17 @@ route `GET /api/v1/current/hydro-states` replace `/download/hydro|meteo[/generat
 - **Command catalog** `obserwator.commands`: 30 commands in the groups `datasets`, `stations`,
   `current`, `pmaxtp`, `store`, `series` and `commands` (27 of ADR-002, `datasets providers` of
   ADR-003, `commands guide` of ADR-004 and `commands list` of AGI-5.9);
-  `command_schema(command=None)` (the JSON Schema of the options + `x-obserwator`: function, check twin,
-  result type, CLI flags, REST route, rules; the document `obserwator-commands/1` with the error and exit
-  codes), `data_commands`, `validate_command`, `format_command`, `check_command`, `run_command` →
+  `command_schema(command=None)` (the document `obserwator-commands/1`: per command a Nogat
+  `commands-1` entry with the function, check twin, result type, options with CLI flags, REST
+  route, rules, effects, errors and exit codes), `data_commands`, `validate_command`,
+  `format_command`, `check_command`, `run_command` →
   `CommandResult` (the envelope `obserwator-result/1`: `status` `ok|partial|failed|cancelled`, `result`,
-  `notices` without repetitions). **Pagination**: 12 list commands return `Page` (`items`,
-  `total`, `limit`, `offset`) with the options `limit`/`offset`.
-- **CLI** generated from the catalog (`cli/_dispatch.py`): the JSON envelope on stdout, the
-  streams of `store export`/`series export`, an error as JSON on stderr, exit codes from the
+  `notices` without repetitions). **Pagination**: 12 list commands return the list of the page's
+  items as `result` and `page` (`total`, `next_cursor`, `truncated`), with the options
+  `limit`/`cursor`.
+- **CLI** generated from the catalog (`cli/_dispatch.py`): a short summary for a person on stdout
+  and with `--json` the envelope, the streams of `store export`/`series export`, an error as the
+  document `obserwator-error/1` on stderr, exit codes from the
   registry, `--check` on the commands with a twin, `--schema` on every command, an optional
   `--root` (the default root, see Changed), lists comma-separated or as a repeated flag; Ctrl+C
   cancels between files (130).
@@ -569,7 +576,7 @@ route `GET /api/v1/current/hydro-states` replace `/download/hydro|meteo[/generat
   `readOnlyHint`, `destructiveHint`, `openWorldHint`); by default it only reads and plans: the
   writing commands have `check` fixed to `true`, and a write needs `--allow-writes` and
   `check: false` (otherwise `forbidden`, `details.reason="writes_disabled"`). `structuredContent`
-  = the envelope `obserwator-result/1`, an error = `{code, title, detail, details}` with `isError`,
+  = the envelope `obserwator-result/1`, an error = the document `obserwator-error/1` with `isError`,
   lists of 50 by default, streams up to 256 KiB, progress and cancellation; `root` as in the CLI
   (the default root; `--allow-dir` bounds the paths, see Changed). The endpoint `/mcp` (Streamable
   HTTP) in `obserwator server` with `OBSERWATOR_MCP_ENABLED=true` (`OBSERWATOR_MCP_ALLOWED_HOSTS`): the tools of the
@@ -927,7 +934,8 @@ release have the same bytes as without the ČHMÚ provider.
 - The text of a cancelled plan item and of a cancelled version write is English (`cancelled`, "The
   write of the archive was cancelled"); the plan item error `anulowano` became `cancelled`.
 - **Breaking — notices, progress lines and plan lines are English (AGI-9.2, ADR-006):** the
-  `text` of every `Notice`, the `message` of every `Progress`, the `detail` of every `PlanAction`,
+  `text` (now `message`) of every `Notice`, the `message` of every `Progress`, the `detail` of
+  every `PlanAction`,
   the `error` of a plan item or a result item and the problems of a catalog or series report are
   catalog messages (more entries in `obserwator.messages.<area>`), English by default;
   `Message.localized("pl")` gives the Polish
@@ -940,10 +948,11 @@ release have the same bytes as without the ČHMÚ provider.
   `HTTP error`, `Connection error to`; `check_failed` items of a saved plan are classified by
   that English text. Migration: match `not published` and the English texts, or the language-free
   `Message.key` of an item that has one.
-- **Breaking — the `detail` of the CLI error line is English (AGI-9.2, ADR-006):** the last line of
+- **Breaking — the `detail` (now `message`) of the CLI error line is English (AGI-9.2,
+  ADR-006):** the last line of
   stderr was Polish for a syntax error (unknown option or command, a missing option or value), an
   interrupt, a program error and `OBSERWATOR_LANG` outside `pl` and `en`; it is English whatever
-  `OBSERWATOR_LANG` says, like the envelope on stdout. The human-readable output follows `OBSERWATOR_LANG`
+  `OBSERWATOR_LANG` says, like the envelope of `--json`. The human-readable output follows `OBSERWATOR_LANG`
   (`pl` by default): the help, the progress lines, the notice lines and their labels (`Informacja`
   or `Info`), `obserwator admin`, `obserwator config show` and `python -m obserwator.reference_data`; their texts
   are catalog messages (`obserwator.messages.cli`, `obserwator.messages.reference`), and
@@ -953,7 +962,7 @@ release have the same bytes as without the ČHMÚ provider.
   `lang` argument of `create_server`, `run_stdio` and `http_app` are removed, and `OBSERWATOR_LANG` no
   longer reaches the server or `/mcp` (the REST server stopped refusing an `OBSERWATOR_LANG` outside
   `pl` and `en` for `/mcp`; the CLI still refuses it). The tool descriptions and rules, the
-  instructions and the error documents (`title`, `detail`) are English; `/mcp` asks its REST route
+  instructions and the error documents (`title`, `message`) are English; `/mcp` asks its REST route
   for `Accept-Language: en`; the `lang` argument of the three description tools defaults to `en`
   (an explicit `lang: "pl"` still gives Polish texts). `docker-compose.yml` no longer passes
   `OBSERWATOR_LANG` to the server. Migration: drop `--lang` and `OBSERWATOR_LANG` from MCP client
