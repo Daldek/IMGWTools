@@ -108,7 +108,7 @@ Data is written only after explicit configuration: an absolute `OBSERWATOR_ROOT`
 ## 4. REST API
 
 ### Implemented Features
-- Routes generated from `command_schema()` (`x-obserwator.rest`) by `api/routes/commands.py`: `GET` for reads (options in the query; lists comma-separated or repeated), `POST` for `store sync`, `store catalog`, `series build`, `pmaxtp sync` (options in a JSON body; `?check=true` returns the plan without writing)
+- Routes generated from the catalog (`x-obserwator.rest` of the internal input schemas) by `api/routes/commands.py`: `GET` for reads (options in the query; lists comma-separated or repeated), `POST` for `store sync`, `store catalog`, `series build`, `pmaxtp sync` (options in a JSON body; `?check=true` returns the plan without writing)
 - Response body = `CommandResult.to_json(root, server=True, lang=)`, identical to the CLI envelope except hidden server paths and the language of the texts; list commands page with `limit` (default/maximum `OBSERWATOR_API_MAX_LIMIT`) and `offset`; `store export`/`series export` stream CSV/JSONL with `X-Obserwator-Notices`/`X-Obserwator-Status` headers
 - Errors: `api/errors.py` turns every `ObserwatorError`, request validation error, HTTP error, `OSError` and unexpected exception into `application/problem+json` with `code`, `details` and the status of `ERROR_CODES` (validation always 400)
 - `GET /api/v1` (name, version, schema route, catalog routes), `GET /health`, `GET /llms.txt` (agent guide in the language of `Accept-Language`, English by default), OpenAPI/Swagger documentation (`/docs`, English; HTML pages are not part of it)
@@ -173,7 +173,7 @@ The CLI uses the library directly and downloads data straight from IMGW-PIB and 
 
 ### Architecture
 `src/obserwator/mcp/` is the fourth adapter of the command catalog (ADR-004 D6–D9), outside `obserwator.__all__`:
-- `_tools.py` — one tool per catalog command: name `x-obserwator.operation_id` (`obserwator_<group>_<verb>`, ECO-018), title `obserwator <command>`, description with rules, input schema from `command_schema(name, lang=)` (without `$schema`, `title`, `x-obserwator`), annotations `title`, `readOnlyHint`, `destructiveHint` (`replace`; false when read-only), `idempotentHint` (`idempotent`), `openWorldHint` (`network`); list commands get `limit` default 50.
+- `_tools.py` — one tool per catalog command: name = the catalog `operation_id` (`obserwator_<group>_<verb>`, ECO-018), title `obserwator <command>`, description with rules, input schema = the internal JSON Schema of the options (`commands._input_schema`, without `$schema`, `title`, `x-obserwator`), annotations `title`, `readOnlyHint`, `destructiveHint` (`replace`; false when read-only), `idempotentHint` (`idempotent`), `openWorldHint` (`network`); list commands get `limit` default 50.
 - `_calls.py` — stdio: `check_command`/`run_command` in a worker thread with `on_progress` → `notifications/progress`, `on_notice` → envelope and `cancel` ← request cancellation; http: the same request a REST client would send, dispatched in process to `obserwator.api.main:app` (POST always with `?check=true`, `Accept-Language` = server language).
 - `server.py` — `create_server(*, mode, allow_dirs)`, `run_stdio(*, allow_writes, allow_dirs)` (used by `obserwator mcp`), `http_app()` (route `/mcp` added to the REST app when `OBSERWATOR_MCP_ENABLED=true`; hosts from `OBSERWATOR_MCP_ALLOWED_HOSTS`). `allow_dirs` = the repeatable `--allow-dir`: every path option and the default root must lie inside one, and a writing command without any gets only a plan.
 
@@ -253,7 +253,8 @@ Contracts with their own `/N` counters, independent of the package version:
 | `obserwator-pmaxtp/1` | `cell.json` PMAXTP cell (Obserwator extension) |
 | `obserwator-observation/1` | `observations/<YYYY-MM-DD>_<sha8>.json` signal register in an archive slot (ADR-003 D18) |
 | `obserwator-result/1` | result envelope of `run_command`/`check_command`, CLI stdout and REST body |
-| `obserwator-commands/1` | `command_schema()` document |
+| `obserwator-commands/1` | `command_schema()` document (Nogat `commands-1`) |
+| `obserwator-command-list/1` | `list_commands()` summary |
 
 Within `/1` only optional fields are added; readers tolerate extra fields in store files. A breaking change requires `/2` with a transition period reading both. Unknown versions are reported (`store_info(...).supported is False`, scan problems) and never parsed or written by old code. Before the 3.0.0 tag the `/1` value domains were opened for further providers (ADR-003 D2, task C01): dataset key `^[a-z]{2}\.[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`, `country` `^[A-Z]{2}$`, `provider`/`license.id` any non-empty text, station codes 9-digit IMGW or WIGOS (`STATION_CODE_PATTERN`), ČHMÚ `location_source` values; a sidecar of a known dataset must still match the registry's country and provider. The ČHMÚ provider (same release) only adds optional fields: sidecar `request.station_code`/`param`, `extra.period.station_code`, `license.terms_url`; series `stations[<code>].periods`, Parquet `<V>_quality`/`<V>_source_flag`; catalog `thresholds`; plan items `station_code`/`signal`/`remote_listed_at`/`local_observation` and plan `requests`. ADR-004 adds `lang`, `x-obserwator.writes`/`network`/`operation_id` and `x-obserwator-writes` to `obserwator-commands/1`. IMGW files keep identical bytes.
 
@@ -350,7 +351,7 @@ Obserwator/
 │   ├── agent_guide.py    # PUBLIC: agent_guide (AGENTS.md, llms.txt), MCP instructions
 │   ├── testing.py        # PUBLIC: build_fixture_store, fixture_files
 │   ├── _jsonable.py      # Single JSON converter (envelope, relative paths)
-│   ├── _examples.py      # Example calls of the catalog (x-obserwator.examples)
+│   ├── _examples.py      # Example calls of the catalog (examples of command_schema)
 │   ├── reference_data.py # Fetch IMGW-PIB reference data into reference_dir (OBSERWATOR_REFERENCE_DIR)
 │   ├── config.py         # Settings
 │   ├── _data/            # Poland and Czechia borders (Natural Earth), agents/ templates, packaged fixtures, recordings, contract schemas

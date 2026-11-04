@@ -11,13 +11,15 @@ from obserwator.exceptions import ObserwatorValidationError
 from obserwator.messages import Message, localize
 
 
-def without_texts(schema: dict[str, Any]) -> dict[str, Any]:
-    """A command schema without the texts of its language."""
-    copy: dict[str, Any] = json.loads(json.dumps(schema))
-    del copy["description"]
-    for prop in copy["properties"].values():
-        del prop["description"]
-    del copy["x-obserwator"]["rules"]
+def without_texts(entry: dict[str, Any]) -> dict[str, Any]:
+    """A command entry without the texts of its language (``i18n.pl`` stays)."""
+    copy: dict[str, Any] = json.loads(json.dumps(entry))
+    for key in ("summary", "description", "rules"):
+        del copy[key]
+    for option in copy["options"]:
+        del option["description"]
+        for value in option.get("enum", []):
+            del value["meaning"]
     return copy
 
 
@@ -26,7 +28,7 @@ def structure(document: dict[str, Any]) -> dict[str, Any]:
     copy: dict[str, Any] = json.loads(json.dumps(document))
     del copy["lang"]
     copy["groups"] = list(copy["groups"])
-    copy["commands"] = [without_texts(schema) for schema in copy["commands"]]
+    copy["commands"] = [without_texts(entry) for entry in copy["commands"]]
     for error in copy["errors"]:
         del error["title"]
     return copy
@@ -35,10 +37,10 @@ def structure(document: dict[str, Any]) -> dict[str, Any]:
 def texts(document: dict[str, Any]) -> list[str]:
     """Every text of the catalog document in its language."""
     found = list(document["groups"].values())
-    for schema in document["commands"]:
-        found.append(schema["description"])
-        found += [prop["description"] for prop in schema["properties"].values()]
-        found += schema["x-obserwator"]["rules"]
+    for entry in document["commands"]:
+        found.append(entry["description"])
+        found += [option["description"] for option in entry["options"]]
+        found += entry["rules"]
     return found + [error["title"] for error in document["errors"]]
 
 
@@ -87,12 +89,12 @@ def test_english_catalog_differs_from_the_polish_one_only_in_texts():
     assert (polish["lang"], english["lang"]) == ("pl", "en")
     assert structure(english) == structure(polish)
     assert set(texts(english)).isdisjoint(texts(polish))
-    for schema in polish["commands"]:
-        single = command_schema(schema["title"], lang="en")
-        assert without_texts(single) == without_texts(schema)
-        assert single == next(
-            other for other in english["commands"] if other["title"] == schema["title"]
-        )
+    for entry, other in zip(polish["commands"], english["commands"], strict=True):
+        (single,) = command_schema(entry["name"], lang="en")["commands"]
+        assert without_texts(single) == without_texts(entry)
+        assert single == other
+        assert entry["i18n"] == other["i18n"]
+        assert entry["description"] == other["i18n"]["pl"]["description"]
 
 
 @pytest.mark.parametrize("lang", ["de", "EN", ""])

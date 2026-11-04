@@ -1,6 +1,6 @@
 """Contract: command lines read back into their calls (AGI-2.1, AGI-2.2).
 
-An example call of the catalog (``x-obserwator.examples`` of `command_schema`) is a
+An example call of the catalog (``examples`` of `command_schema`) is a
 canonical line: ``parse_command`` reads it into a call of its command whose options
 pass ``validate_command``, ``format_command`` writes that call as the same line in
 every environment (its POSIX paths absolute there, on Windows with the drive of the
@@ -19,14 +19,12 @@ import dataclasses
 import re
 import shlex
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel
 
 import obserwator
 from obserwator import (
-    command_schema,
     data_commands,
     format_command,
     parse_command,
@@ -34,6 +32,7 @@ from obserwator import (
 )
 from obserwator.output import OutputReport
 from obserwator.store.types import Page, StorePlan
+from tests.contract.support import input_schemas
 from tests.unit.test_commands import SAMPLES
 from tests.unit.test_commands_chmi import VALID as CHMI_SAMPLES
 
@@ -45,10 +44,7 @@ EXAMPLES = [
     for index, (command, options) in enumerate([*SAMPLES, *CHMI_SAMPLES])
     for run in (({}, {"check": True}) if command in CHECKED else ({},))
 ]
-CATALOG = [
-    schema["x-obserwator"]
-    for schema in cast(list[dict[str, Any]], command_schema()["commands"])
-]
+CATALOG = [schema["x-obserwator"] for schema in input_schemas()]
 CATALOG_EXAMPLES = [
     pytest.param(meta, example, id=f"{meta['command']}#{index}")
     for meta in CATALOG

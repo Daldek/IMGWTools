@@ -238,10 +238,10 @@ result = run_command("stations find", options={"kind": "hydro", "query": "wisla"
 print(result.status, result.result.total, [s.name for s in result.result.items])
 print(result.to_json())  # dict of the JSON envelope, the same as CLI stdout and the REST body
 
-schema = command_schema("store sync")  # JSON Schema of the options + x-obserwator (function, CLI, REST, rules)
-print(schema["x-obserwator"]["rest"]["path"])
-print(schema["x-obserwator"]["writes"], schema["x-obserwator"]["network"], schema["x-obserwator"]["operation_id"])  # add True obserwator_store_sync
-print(command_schema("store sync", lang="en")["description"])  # descriptions in English, structure unchanged
+(entry,) = command_schema("store sync")["commands"]  # obserwator-commands/1 (Nogat commands-1)
+print(entry["rest"]["path"], entry["operation_id"])  # /api/v1/store/sync obserwator_store_sync
+print(entry["effects"]["writes"], entry["effects"]["network"], entry["errors"])  # replace True [...]
+print([option["name"] for option in entry["options"]], entry["i18n"]["pl"]["summary"])
 ```
 
 The command that downloads a stored version again is rebuilt from its sidecar by `command_for_version` (offline, no writes; ADR-008). The result has the shape of `parse_command`, so `format_command`, `check_command` and `run_command` accept it; `root` is the absolute store root (default `store_root()`).
@@ -312,10 +312,10 @@ except ObserwatorError as e:
 | `data_error` | Invalid data | 7 | 500 |
 | `store_unavailable` | Store unavailable | 8 | 503 |
 | `io_error` | File system error | 9 | 500 |
-| `cancelled` | Operation cancelled | 130 | — |
-| `forbidden` | No write permission | 12 | 403 |
+| `cancelled` | Cancelled | 130 | — |
+| `forbidden` | Not allowed | 12 | 403 |
 | `unsupported` | Unsupported (e.g. `command_not_rebuildable` from `command_for_version`) | 15 | 422 |
-| `method_not_allowed` | HTTP method not allowed | — | 405 |
+| `method_not_allowed` | Method not allowed | — | 405 |
 | `internal_error` | Internal error | 1 | 500 |
 
 ---
@@ -485,11 +485,11 @@ The Web GUI supports IMGW-PIB datasets only (a form without a station field cann
 
 **Language.** Machine output is in English (AGI-9.2): the envelope, error `detail`, notices, plan lines, `commands list|schema|guide` descriptions (`command_schema()`, `list_commands()`, `agent_guide()`), `AGENTS.md`, `llms.txt`, the OpenAPI document, REST responses without an `Accept-Language` header and the MCP server. Polish catalog texts (command descriptions, option help, rules, groups, error and dataset titles) are available on explicit request: `lang="pl"`, `--lang pl`, `Accept-Language: pl`. `OBSERWATOR_LANG` (default `pl`) applies only to human-facing CLI text: help, progress lines and notices on stderr; the last error line and the envelope are always in English, and `OBSERWATOR_LANG` is not the default value of `--lang`. An agent decides by `code`, `status` and JSON fields; the language does not change the contract.
 
-**Command effects.** `x-obserwator.writes` (`none`, `add` — only new files and versions, `replace` — may replace a user file), `x-obserwator.network` and the options' `x-obserwator-writes` (e.g. `output`, `force`, `plan` in `store check`) tell what a command will do before it runs; every writing command has a plan (`--check`, `?check=true`, `check: true`).
+**Command effects.** `effects` of `command_schema` (`read_only`, `writes`: `none`, `add` — only new files and versions, `replace` — may replace a user file; `network`, `idempotent`, `destructive`) and the options' `writes` (e.g. `output`, `force`, `plan` in `store check`) tell what a command will do before it runs; every writing command has a plan (`--check`, `?check=true`, `check: true`), named by `check`.
 
 ### MCP server
 
-`obserwator mcp` (the `obserwator[mcp]` extra: CLI + the official SDK `mcp>=2.3,<3`) is an MCP server on standard input and output. Every catalog command is a tool named `x-obserwator.operation_id` (`obserwator_` + command name: `obserwator_store_sync`, `obserwator_current_hydro_states`, …; also the REST `operationId`) with an input schema from `command_schema` and the annotations `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`; the arguments are the command options, and the only validator is `validate_command`. The `obserwator_commands_list` tool returns the list of commands, `obserwator_commands_schema` — the options of one command. Client configuration (e.g. `mcpServers` in the settings file):
+`obserwator mcp` (the `obserwator[mcp]` extra: CLI + the official SDK `mcp>=2.3,<3`) is an MCP server on standard input and output. Every catalog command is a tool named by its catalog `operation_id` (`obserwator_` + command name: `obserwator_store_sync`, `obserwator_current_hydro_states`, …; also the REST `operationId`) with an input schema generated from the catalog options and the annotations `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`; the arguments are the command options, and the only validator is `validate_command`. The `obserwator_commands_list` tool returns the list of commands, `obserwator_commands_schema` — the description of one command (`obserwator-commands/1`). Client configuration (e.g. `mcpServers` in the settings file):
 
 ```json
 {

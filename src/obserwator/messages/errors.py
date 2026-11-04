@@ -16,12 +16,10 @@ MESSAGES = {
     "title_data_error": Text("Invalid data", "Niepoprawne dane"),
     "title_store_unavailable": Text("Store unavailable", "Magazyn niedostępny"),
     "title_io_error": Text("File system error", "Błąd systemu plików"),
-    "title_cancelled": Text("Operation cancelled", "Operację anulowano"),
-    "title_forbidden": Text("Write not permitted", "Brak uprawnień do zapisu"),
+    "title_cancelled": Text("Cancelled", "Anulowano"),
+    "title_forbidden": Text("Not allowed", "Operacja niedozwolona"),
     "title_unsupported": Text("Not supported", "Nieobsługiwane"),
-    "title_method_not_allowed": Text(
-        "HTTP method not allowed", "Niedozwolona metoda HTTP"
-    ),
+    "title_method_not_allowed": Text("Method not allowed", "Niedozwolona metoda"),
     "title_internal_error": Text("Internal error", "Błąd wewnętrzny"),
     # File-system errors (``describe_os_error``).
     "file_system": Text("File system error: {reason}", "Błąd systemu plików: {reason}"),

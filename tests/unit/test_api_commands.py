@@ -41,6 +41,8 @@ from tests.contract.support import (
     V3,
     FakeImgw,
     archive_bytes,
+    input_schema,
+    input_schemas,
     schema_errors,
     stamps,
 )
@@ -258,7 +260,7 @@ def relative(entry, root):
 
 def test_api_routes_and_openapi_are_generated_from_the_catalog(client):
     expected = {}
-    for schema in command_schema()["commands"]:
+    for schema in input_schemas():
         rest = schema["x-obserwator"]["rest"]
         if rest is not None:
             expected[(rest["method"], rest["path"])] = schema
@@ -431,7 +433,7 @@ def test_api_get_route_answers_the_run_command_envelope(
     options = dict(query)
     if rooted:
         options["root"] = served
-    if command_schema(command)["x-obserwator"]["result"] == "list":
+    if input_schema(command)["x-obserwator"]["result"] == "list":
         options.setdefault("limit", 1000)
 
     response = client.get(path_of(command), params=query)

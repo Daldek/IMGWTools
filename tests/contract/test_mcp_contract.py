@@ -40,8 +40,8 @@ from tests.contract.support import (
     FakeImgw,
     canonical,
     cli_words,
-    command_document,
     envelope_errors,
+    input_schema,
     mcp_text,
     snapshot,
     stamps,
@@ -74,7 +74,7 @@ def arguments(options: dict[str, object]) -> dict[str, object]:
 
 def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolResult:
     """The tool of ``command`` on a fresh stdio server in mode ``mode``."""
-    name = command_document(command)["x-obserwator"]["operation_id"]
+    name = input_schema(command)["x-obserwator"]["operation_id"]
 
     async def answer() -> CallToolResult:
         async with Client(create_server(mode=mode, allow_dirs=ANYWHERE)) as client:
@@ -84,7 +84,7 @@ def call(command: str, options: dict[str, object], *, mode: Mode) -> CallToolRes
 
 
 def writing(command: str) -> bool:
-    return bool(command_document(command)["x-obserwator"]["writes"] != "none")
+    return bool(input_schema(command)["x-obserwator"]["writes"] != "none")
 
 
 def run(command: str, options: dict[str, object]) -> CallToolResult:
@@ -108,7 +108,7 @@ def assert_stream(
 ) -> None:
     """MCP text = the lines Python yields; the envelope sums them up."""
     data = "".join(python.result)
-    default = command_document(command)["properties"]["format"]["default"]
+    default = input_schema(command)["properties"]["format"]["default"]
     assert answered.is_error is False, mcp_text(answered)
     assert mcp_text(answered) == data
     assert answered.structured_content == {

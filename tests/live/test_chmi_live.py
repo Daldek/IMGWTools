@@ -606,7 +606,7 @@ def chmi_mcp(chmi: ChmiLive) -> Iterator[CountedMcp]:
 
 
 def test_the_chmi_run_takes_only_catalog_commands():
-    names = [schema["x-obserwator"]["command"] for schema in COMMANDS["commands"]]
+    names = [entry["name"] for entry in COMMANDS["commands"]]
     assert set(CASES) <= set(names)
     indices = {
         (name, index) for name, cases in CASES.items() for index in range(len(cases))

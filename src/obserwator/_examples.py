@@ -12,7 +12,7 @@ its JSON form: some fields of the result object; for a list command some fields
 of the first item of the ``Page`` with its ``total``; for a stream command the
 start of the text, or the `obserwator.output.OutputReport` of a written file.
 Store paths are relative to the root, as in every result (``obserwator._jsonable``).
-`obserwator.commands.command_schema` publishes the examples in ``x-obserwator.examples``.
+`obserwator.commands.command_schema` publishes the examples in ``examples`` of each command.
 """
 
 from collections.abc import Mapping
@@ -487,12 +487,14 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
             "obserwator commands list",
             {
                 "schema": "obserwator-command-list/1",
+                "tool": "obserwator",
                 "lang": "en",
                 "commands": [
                     {
-                        "command": "datasets list",
+                        "name": "datasets list",
                         "operation_id": "obserwator_datasets_list",
                         "group": "datasets",
+                        "read_only": True,
                     }
                 ],
             },
@@ -502,8 +504,15 @@ EXAMPLES: Mapping[str, tuple[Example, ...]] = {
         Example(
             "obserwator commands schema --command 'store sync'",
             {
-                "title": "store sync",
-                "x-obserwator": {"operation_id": "obserwator_store_sync"},
+                "schema": "obserwator-commands/1",
+                "tool": "obserwator",
+                "commands": [
+                    {
+                        "name": "store sync",
+                        "operation_id": "obserwator_store_sync",
+                        "check": "store sync",
+                    }
+                ],
             },
         ),
     ),

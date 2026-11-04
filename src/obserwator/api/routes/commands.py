@@ -2,7 +2,7 @@
 REST routes generated from the command catalog (spec §13.10, ADR-002 D10).
 
 Every catalog command with a REST method gets one route
-``/api/v1/<group>/<name>`` (method and path from `command_schema`). GET reads
+``/api/v1/<group>/<name>`` (method and path from the catalog). GET reads
 the options from the query string (a list option as repeated parameters or
 comma-separated text), POST from a JSON body checked by a model built with
 `pydantic.create_model` (``extra="forbid"``, loose JSON kinds: text, number,
@@ -61,8 +61,8 @@ import obserwator
 from obserwator._jsonable import jsonable
 from obserwator.api.errors import PROBLEM_RESPONSES, accept_language, hide_server_paths
 from obserwator.commands import (
+    _input_schemas,
     check_command,
-    command_schema,
     data_commands,
     run_command,
     validate_command,
@@ -214,7 +214,7 @@ def _routes() -> tuple[_Route, ...]:
     specs = {spec.name: spec for spec in data_commands()}
     routes = []
     # The OpenAPI document is machine output: English (AGI-9.2).
-    for schema in cast(list[dict[str, Any]], command_schema(lang="en")["commands"]):
+    for schema in cast(list[dict[str, Any]], _input_schemas("en")):
         meta = schema["x-obserwator"]
         if meta["rest"] is not None:
             routes.append(

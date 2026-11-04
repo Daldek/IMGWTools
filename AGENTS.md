@@ -91,7 +91,7 @@ One line per command, by effect; options, rules and per-option effects: `obserwa
 - `series summary` — Show the coverage of stations and variables of a series from series.json (without pyarrow).
 - `series export` — Export the series of one station as CSV with the attribution of the data provider. [`output`: write; `force`: overwrite]
 - `commands list` — List the catalog commands: tool names, effects and routes.
-- `commands schema` — Show the JSON Schema of the options of a command or the whole obserwator-commands/1 command catalog.
+- `commands schema` — Describe a command or the whole catalog as obserwator-commands/1.
 - `commands guide` — Generate the guide for AI agents: AGENTS.md or llms.txt, in Polish or English. [`output`: write; `force`: overwrite]
 
 **Network — connects to a source, writes nothing**
