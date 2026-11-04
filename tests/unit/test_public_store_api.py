@@ -122,6 +122,7 @@ SPEC_TYPES = (
     "StationSeriesIndex",
     "SeriesIndex",
     "PMaXTPStoreResult",
+    "PMaXTPUrl",
     "CommandOption",
     "DataCommand",
     "CommandResult",

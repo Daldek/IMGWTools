@@ -31,7 +31,7 @@ Ta sama komenda w każdym interfejsie: CLI `obserwator <grupa> <komenda> --opcja
 
 ## Koperta, statusy i błędy
 
-Komenda zwraca kopertę `obserwator-result/1` `{"schema", "command", "check", "status", "result", "notices"}`; `notices` to lista `{"level", "code", "text"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają stronę `{"items", "total", "limit", "offset"}`, sprawdzenie — plan `obserwator-plan/1`. Komendy strumieniowe bez `output` dają same linie danych: CLI pisze je na stdout, REST odpowiada załącznikiem (status i komunikaty w `X-Obserwator-Status`, `X-Obserwator-Notices`). REST: 200 także dla `partial` i `failed` — decyduje `status`.
+Komenda zwraca kopertę `obserwator-result/1` `{"schema", "tool", "version", "command", "check", "status", "result", "notices"}`; `result` to dokument z własnym `schema` (`obserwator-<rodzaj>/1`), lista takich dokumentów albo null; `notices` to lista `{"level", "code", "message"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają listę elementów jako `result` i w kopercie `page` `{"total", "next_cursor", "truncated"}`: dopóki `truncated` jest prawdą, podaj `next_cursor` jako `cursor` kolejnej strony. Sprawdzenie zwraca plan `obserwator-plan/1`. Komendy strumieniowe bez `output` dają same linie danych: CLI pisze je na stdout, REST odpowiada załącznikiem (status i komunikaty w `X-Obserwator-Status`, `X-Obserwator-Notices`). REST: 200 także dla `partial` i `failed` — decyduje `status`.
 
 <!-- obserwator:statuses -->
 
@@ -70,7 +70,7 @@ Symbole pisane wielkimi literami (`KOD_STACJI`, `KOD_WIGOS`) zastąp wartościam
 4. Nie zgaduj stacji ani zbioru: przy kilku trafieniach `stations find` zapytaj; obecność stacji w zbiorze sprawdź `series summary`.
 5. Nie edytuj, nie przenoś i nie usuwaj plików magazynu (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — magazyn jest tylko przyrostowy.
 6. Nie pobieraj „na zapas”: zawężaj `years`, `months` i `stations`; nie mieszaj dostawców w jednym wywołaniu ze `stations`.
-7. Długie listy czytaj stronami (`limit`, `offset`); używaj `series read` albo `series export --output`, nie CSV w kontekście.
+7. Długie listy czytaj stronami (`limit`, `cursor` = `page.next_cursor`); używaj `series read` albo `series export --output`, nie CSV w kontekście.
 8. Nie odpytuj `current …` w pętli — to API na żywo; zachowaj wynik.
 9. Przekaż użytkownikowi komunikat `license_terms` i atrybucję (IMGW-PIB: warunki celu użycia; ČHMÚ: CC BY 4.0).
 10. `version` wskazuj wyłącznie pod `*/versions/` magazynu, bez `..`; w REST i MCP przez HTTP — względnie do magazynu serwera.

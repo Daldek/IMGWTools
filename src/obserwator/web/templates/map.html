@@ -217,19 +217,19 @@
     // Every page of the catalog command `current hydro-states`
     async function fetchHydroStates() {
         const states = [];
-        let offset = 0;
+        let cursor = null;
         for (;;) {
-            const response = await fetch(`${STATES_URL}?offset=${offset}`);
+            const query = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`;
+            const response = await fetch(`${STATES_URL}${query}`);
             const body = await response.json();
             if (!response.ok) {
                 throw body;  // application/problem+json
             }
-            const page = body.result;
-            states.push(...page.items);
-            offset = page.offset + page.items.length;
-            if (page.items.length === 0 || offset >= page.total) {
+            states.push(...body.result);
+            if (!body.page.truncated) {
                 return states;
             }
+            cursor = body.page.next_cursor;
         }
     }
 

@@ -16,7 +16,7 @@ Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep
 1. **Learn the commands:** `obserwator commands list` (a one-sentence summary of each), then `obserwator commands schema --command …` or `obserwator <group> <command> --schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `obserwator_commands_list` and `obserwator_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-obserwator.rules`, effects in `x-obserwator.writes`, `x-obserwator.network` and `x-obserwator.idempotent`.
 2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `obserwator-plan/1` plan without writing and without downloading content. `store check` is a check itself. Ask the user about a large plan.
 3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
-4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — without downloading again.
+4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`cursor`), `pmaxtp read` — without downloading again.
 5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `detail` text is for humans.
 
 ## Interfaces
@@ -36,7 +36,7 @@ One command in every interface: CLI `obserwator <group> <command> --option value
 
 ## Envelope, statuses and errors
 
-A command returns the `obserwator-result/1` envelope `{"schema", "command", "check", "status", "result", "notices"}`; `notices` is a list of `{"level", "code", "text"}` (each once, e.g. `license_terms`). List commands return a page `{"items", "total", "limit", "offset"}`, a check an `obserwator-plan/1` plan. Stream commands without `output` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-Obserwator-Status`, `X-Obserwator-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
+A command returns the `obserwator-result/1` envelope `{"schema", "tool", "version", "command", "check", "status", "result", "notices"}`; `result` is a document with its own `schema` (`obserwator-<kind>/1`), a list of them or null; `notices` is a list of `{"level", "code", "message"}` (each once, e.g. `license_terms`). List commands return the list of items as `result` and the envelope's `page` `{"total", "next_cursor", "truncated"}`: while `truncated` is true, pass `next_cursor` as `cursor` for the next page. A check returns an `obserwator-plan/1` plan. Stream commands without `output` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-Obserwator-Status`, `X-Obserwator-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
 
 | Status | CLI exit code | Meaning |
 |---|---|---|
@@ -135,14 +135,14 @@ Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`) with the values of e
 3. `obserwator store check --root /data/obserwator --datasets pl.imgw.meteo_precip_daily --years 2010-2020` — plan: the number of files and bytes; the archives cover the whole country, so tell the user the size.
 4. `obserwator store sync --root /data/obserwator --datasets pl.imgw.meteo_precip_daily --years 2010-2020` — after the user agrees; the station series are built as well.
 5. `obserwator series summary --root /data/obserwator --dataset pl.imgw.meteo_precip_daily --stations STATION_CODE` — the station is missing → repeat steps 3–5 with `pl.imgw.meteo_climate_daily`; missing from both → tell the user, do not substitute another station.
-6. `obserwator series read --root /data/obserwator --dataset pl.imgw.meteo_precip_daily --station STATION_CODE --variables P --start 2010-01-01 --end 2020-12-31 --limit 500` — next pages: `--offset`.
+6. `obserwator series read --root /data/obserwator --dataset pl.imgw.meteo_precip_daily --station STATION_CODE --variables P --start 2010-01-01 --end 2020-12-31 --limit 500` — next pages: `--cursor` = `page.next_cursor`.
 
 ### 2. Daily discharge of a Czech station (ČHMÚ)
 
 1. `obserwator stations find --kind hydro --query spindleruv --provider CHMI` — the WIGOS identifier of the chosen station is `WIGOS_ID`.
 2. `obserwator store check --root /data/obserwator --datasets cz.chmi.hydro_daily --years 2020-2025 --stations WIGOS_ID` — plan: the station files by year.
 3. `obserwator store sync --root /data/obserwator --datasets cz.chmi.hydro_daily --years 2020-2025 --stations WIGOS_ID` — after the user agrees.
-4. `obserwator series read --root /data/obserwator --dataset cz.chmi.hydro_daily --station WIGOS_ID --variables Q --limit 500` — next pages: `--offset`.
+4. `obserwator series read --root /data/obserwator --dataset cz.chmi.hydro_daily --station WIGOS_ID --variables Q --limit 500` — next pages: `--cursor` = `page.next_cursor`.
 
 ## What not to do
 
@@ -152,7 +152,7 @@ Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`) with the values of e
 4. Do not guess a station or a dataset: with several `stations find` hits, ask; check with `series summary` that a dataset has the station.
 5. Do not edit, move or delete store files (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — the store only grows.
 6. Do not download "just in case": narrow `years`, `months` and `stations`; do not mix providers in one call with `stations`.
-7. Read long lists in pages (`limit`, `offset`); use `series read` or `series export --output`, not CSV in the context.
+7. Read long lists in pages (`limit`, `cursor` = `page.next_cursor`); use `series read` or `series export --output`, not CSV in the context.
 8. Do not poll `current …` in a loop — it is a live API; keep the result.
 9. Pass the `license_terms` notice and the attribution on to the user (IMGW-PIB: terms of the purpose of use; ČHMÚ: CC BY 4.0).
 10. Point `version` only below `*/versions/` of the store, without `..`; over REST and MCP over HTTP — relative to the server's store.

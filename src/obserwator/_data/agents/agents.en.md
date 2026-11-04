@@ -31,7 +31,7 @@ One command in every interface: CLI `obserwator <group> <command> --option value
 
 ## Envelope, statuses and errors
 
-A command returns the `obserwator-result/1` envelope `{"schema", "command", "check", "status", "result", "notices"}`; `notices` is a list of `{"level", "code", "text"}` (each once, e.g. `license_terms`). List commands return a page `{"items", "total", "limit", "offset"}`, a check an `obserwator-plan/1` plan. Stream commands without `output` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-Obserwator-Status`, `X-Obserwator-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
+A command returns the `obserwator-result/1` envelope `{"schema", "tool", "version", "command", "check", "status", "result", "notices"}`; `result` is a document with its own `schema` (`obserwator-<kind>/1`), a list of them or null; `notices` is a list of `{"level", "code", "message"}` (each once, e.g. `license_terms`). List commands return the list of items as `result` and the envelope's `page` `{"total", "next_cursor", "truncated"}`: while `truncated` is true, pass `next_cursor` as `cursor` for the next page. A check returns an `obserwator-plan/1` plan. Stream commands without `output` give only data lines: the CLI writes them to stdout, REST answers with an attachment (status and notices in `X-Obserwator-Status`, `X-Obserwator-Notices`). REST answers 200 for `partial` and `failed` too — the `status` in the body decides.
 
 <!-- obserwator:statuses -->
 
@@ -70,7 +70,7 @@ Replace the upper-case symbols (`STATION_CODE`, `WIGOS_ID`) with the values of e
 4. Do not guess a station or a dataset: with several `stations find` hits, ask; check with `series summary` that a dataset has the station.
 5. Do not edit, move or delete store files (`archives/`, `series/`, `stations/`, `pmaxtp/`, `observations/`, `.incoming/`) — the store only grows.
 6. Do not download "just in case": narrow `years`, `months` and `stations`; do not mix providers in one call with `stations`.
-7. Read long lists in pages (`limit`, `offset`); use `series read` or `series export --output`, not CSV in the context.
+7. Read long lists in pages (`limit`, `cursor` = `page.next_cursor`); use `series read` or `series export --output`, not CSV in the context.
 8. Do not poll `current …` in a loop — it is a live API; keep the result.
 9. Pass the `license_terms` notice and the attribution on to the user (IMGW-PIB: terms of the purpose of use; ČHMÚ: CC BY 4.0).
 10. Point `version` only below `*/versions/` of the store, without `..`; over REST and MCP over HTTP — relative to the server's store.

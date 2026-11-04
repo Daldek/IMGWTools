@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from numbers import Real
-from typing import Any, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -83,6 +83,8 @@ class NormalizedRecord:
         Number of IMGW rows (occurrences of the extremum) merged into the
         value of a semi-annual column, keyed like ``extrema_dates``.
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-record/1"
 
     station_code: str
     dataset: str
@@ -336,6 +338,8 @@ class PMaXTPData(BaseModel):
 class PMaXTPResult(BaseModel):
     """Complete PMAXTP result with metadata."""
 
+    SCHEMA: ClassVar[str] = "obserwator-pmaxtp-result/1"
+
     method: str = Field(description="Calculation method: POT or AMP")
     latitude: float = Field(description="Latitude of the point (WGS84)")
     longitude: float = Field(description="Longitude of the point (WGS84)")
@@ -348,6 +352,8 @@ class HydroCurrentData(BaseModel):
 
     Data comes from: https://danepubliczne.imgw.pl/api/data/hydro
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-hydro-current/1"
 
     station_code: str = Field(description="Station code")
     station_name: str = Field(description="Station name")
@@ -413,6 +419,8 @@ class MeteoCurrentData(BaseModel):
     Data comes from: https://danepubliczne.imgw.pl/api/data/meteo
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-meteo-current/1"
+
     station_code: str = Field(description="Station code")
     station_name: str = Field(description="Station name")
     latitude: float | None = Field(default=None, description="Latitude (WGS84)")
@@ -466,6 +474,8 @@ class SynopData(BaseModel):
 
     Data comes from: https://danepubliczne.imgw.pl/api/data/synop
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-synop/1"
 
     station_code: str = Field(description="Station code")
     station_name: str = Field(description="Station name")
@@ -532,6 +542,8 @@ class WarningData(BaseModel):
     and https://danepubliczne.imgw.pl/api/data/warningsmeteo
     """
 
+    SCHEMA: ClassVar[str] = "obserwator-warning/1"
+
     id: str = Field(
         description="Warning identifier (the id of a meteo warning, "
         "the number of a hydro warning)"
@@ -592,6 +604,8 @@ class HydroState(BaseModel):
     Data comes from the map API of https://hydro.imgw.pl
     (``hydro-back.imgw.pl/map/stations/hydrologic``).
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-hydro-state/1"
 
     station_code: str = Field(description="Station code")
     name: str = Field(description="Station name")
@@ -679,6 +693,8 @@ class StationListEntry:
         Provider identifier of the list: ``"IMGW-PIB"`` (default) or
         ``"CHMI"``.
     """
+
+    SCHEMA: ClassVar[str] = "obserwator-station/1"
 
     kind: Literal["hydro", "meteo"]
     station_code: str

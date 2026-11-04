@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from obserwator import archive_files, run_command, station_source_files
 from obserwator.api.main import app
-from obserwator.store.types import Page
+from obserwator.store.types import page_cursor
 from obserwator.web.app import router as web_router
 
 HYDRO_BASE = (
@@ -59,11 +59,11 @@ def _station_codes(html: str) -> list[str]:
 
 def _stations_find(**options: object) -> list[str]:
     """Station codes of the ``stations find`` page for the same options."""
-    page = run_command(
+    stations = run_command(
         "stations find", options={"provider": "IMGW-PIB", **options}
     ).result
-    assert isinstance(page, Page)
-    return [entry.station_code for entry in page.items]
+    assert isinstance(stations, tuple)
+    return [entry.station_code for entry in stations]
 
 
 def _assert_error_partial(response, status: int, code: str, *texts: str) -> None:
@@ -403,13 +403,17 @@ def test_web_app_station_search_pages_like_stations_find(client, station_lists):
     assert next_url is not None
     second = client.get(next_url.group(1).replace("&amp;", "&"))
 
-    for offset, response in enumerate((first, second)):
-        expected = _stations_find(query="lodz", limit=1, offset=offset)
+    for index, response in enumerate((first, second)):
+        cursor = {"cursor": page_cursor(index)} if index else {}
+        expected = _stations_find(query="lodz", limit=1, **cursor)
         assert _station_codes(response.text) == expected
-        assert f"({offset + 1}–{offset + 1} z 2)" in response.text
+        assert f"({index + 1}–{index + 1} z 2)" in response.text
+    assert next_url.group(1) == (
+        f"/stations/find?query=lodz&amp;limit=1&amp;cursor={page_cursor(1)}"
+    )
     assert "Poprzednie" not in first.text
     assert "Następne" not in second.text
-    assert 'hx-get="/stations/find?query=lodz&amp;limit=1&amp;offset=0"' in second.text
+    assert 'hx-get="/stations/find?query=lodz&amp;limit=1"' in second.text
 
 
 def test_web_app_station_search_kind_limits_to_one_list(client, respx_mock):
@@ -437,7 +441,7 @@ def test_web_app_station_search_without_match_shows_empty_message(
     [
         ({"limit": "dużo"}, "limit"),
         ({"kind": "opad"}, "kind"),
-        ({"offset": "-1"}, "offset"),
+        ({"cursor": "-1"}, "cursor"),
     ],
 )
 def test_web_app_station_search_invalid_option_renders_validation_error(
@@ -478,13 +482,21 @@ def test_web_app_map_source_route_serves_marker_fields_with_paging(client):
     }
     with respx.mock(assert_all_called=True) as mock:
         mock.get(MAP_URL).respond(json=upstream)
-        response = client.get("/api/v1/current/hydro-states", params={"offset": 1})
+        first = client.get("/api/v1/current/hydro-states", params={"limit": 1})
+        cursor = first.json()["page"]["next_cursor"]
+        second = client.get("/api/v1/current/hydro-states", params={"cursor": cursor})
 
-    assert response.status_code == 200
-    page = response.json()["result"]
-    assert (page["total"], page["offset"]) == (2, 1)
-    assert page["items"] == [
+    assert first.status_code == second.status_code == 200
+    assert first.json()["page"]["truncated"] is True
+    assert second.json()["page"] == {
+        "total": 2,
+        "next_cursor": None,
+        "truncated": False,
+    }
+    assert [item["station_code"] for item in first.json()["result"]] == ["149190310"]
+    assert second.json()["result"] == [
         {
+            "schema": "obserwator-hydro-state/1",
             "station_code": "149190320",
             "name": "Raba Górna",
             "river": None,

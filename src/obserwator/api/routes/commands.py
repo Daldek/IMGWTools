@@ -21,7 +21,8 @@ object. Server and local options in a request are refused. Writes (POST
 without ``?check=true``) need ``OBSERWATOR_STORE_WRITES_ENABLED``, a configured
 ``OBSERWATOR_STORE_WRITE_TOKEN`` and a matching ``X-API-Key`` (constant-time
 comparison) and are checked before the root; list commands page by ``limit``
-(default and maximum ``OBSERWATOR_API_MAX_LIMIT``) and ``offset``. The catalog
+(default and maximum ``OBSERWATOR_API_MAX_LIMIT``) and ``cursor`` (``page.next_cursor``
+of the previous answer). The catalog
 messages of an answer (notices, texts of failed items) and the texts of a command
 with a ``lang`` option are in the language of ``?lang=``, else of
 ``Accept-Language`` (English by default, AGI-6.4); every answer names it in
@@ -175,9 +176,11 @@ class PlanDocument(TypedDict):
 
 
 class _Envelope(BaseModel):
-    """Envelope ``obserwator-result/1`` of a catalog command (spec §13.6)."""
+    """Envelope ``obserwator-result/1`` of a catalog command (spec §13.6, AGI-4.2)."""
 
     schema_: Literal["obserwator-result/1"] = Field(alias="schema")
+    tool: Literal["obserwator"] = Field(description="Name of the tool")
+    version: str = Field(description="Version of the obserwator package")
     command: str = Field(description="Name of the catalog command")
     check: bool = Field(
         description="Whether the result is an obserwator-plan/1 plan (?check=true)"
@@ -746,21 +749,29 @@ def _result_type(route: _Route) -> Any:
     else:
         result = getattr(obserwator, name)
     if route.spec.result == "list":
-        result = cast(Any, Page)[result]
+        result = list[result]
     if route.method == "POST":
         result = result | PlanDocument
     return result | None
 
 
 def _response_model(route: _Route) -> type[BaseModel]:
+    fields: dict[str, Any] = {
+        "result": (
+            _result_type(route),
+            Field(description=f"Result of the function {route.spec.function}"),
+        )
+    }
+    if route.spec.result == "list":
+        fields["page"] = (
+            Page | None,
+            Field(None, description="Paging: total, next_cursor, truncated"),
+        )
     model = create_model(
         f"{_pascal(route)}Result",
         __base__=_Envelope,
         __doc__=f"Envelope obserwator-result/1 of the command {route.spec.name}",
-        result=(
-            _result_type(route),
-            Field(description=f"Result of the function {route.spec.function}"),
-        ),
+        **fields,
     )
     model.model_rebuild(_types_namespace=_ANNOTATIONS)
     return model

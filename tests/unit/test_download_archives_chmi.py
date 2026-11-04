@@ -87,7 +87,7 @@ def test_unpublished_year_is_a_successful_not_published_item(respx_mock, tmp_pat
     ] == ["downloaded", "license_terms", "not_published", "downloaded"]
     provider = get_provider("CHMI")
     (notice,) = [event for event in events if isinstance(event, Notice)]
-    assert notice.text == f"{provider.license.attribution}. {provider.notice}"
+    assert notice.message == f"{provider.license.attribution}. {provider.notice}"
     assert {call.request.headers["User-Agent"] for call in respx_mock.calls} == {
         f"obserwator/{__version__}"
     }

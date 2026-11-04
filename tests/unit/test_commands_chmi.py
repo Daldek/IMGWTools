@@ -102,17 +102,17 @@ def test_catalog_has_30_commands_and_datasets_providers_lists_both_providers():
     planned = check_command("datasets providers", options={})
 
     assert listed.status == "ok"
-    assert [provider.id for provider in listed.result.items] == ["IMGW-PIB", "CHMI"]
-    assert (listed.result.items, listed.result.total) == (providers(), 2)
+    assert [provider.id for provider in listed.result] == ["IMGW-PIB", "CHMI"]
+    assert (listed.result, listed.page.total) == (providers(), 2)
     assert [action.status for action in planned.result.actions] == ["current"]
     chmi = run_command("datasets list", options={"provider": "CHMI"}).result
-    assert [descriptor.key for descriptor in chmi.items] == [
+    assert [descriptor.key for descriptor in chmi] == [
         HYDRO,
         METEO,
         "cz.chmi.hydro_stations",
         "cz.chmi.meteo_stations",
     ]
-    assert run_command("datasets list", options={}).result.total == 17
+    assert run_command("datasets list", options={}).page.total == 17
 
 
 def test_command_schema_publishes_provider_stations_and_their_rules():

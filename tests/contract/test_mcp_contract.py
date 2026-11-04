@@ -4,8 +4,9 @@ Every contract case of ``test_interface_contract.CASES`` (the commands with a RE
 route) runs through the tool of a stdio server in the SDK's in-memory client: the
 structured content is the Python envelope ``to_json(root)``, the text content the
 line the CLI prints, a stream the text Python yields with an envelope of
-``{format, bytes, lines}``. Writes run on a server with writes and ``check: false``
-and leave the tree the CLI leaves; a server without writes answers the plan of
+``{schema: obserwator-stream/1, format, bytes, lines}``. Writes run on a server
+with writes and ``check: false`` and leave the tree the CLI leaves; a server
+without writes answers the plan of
 ``--check`` and leaves the store as it was. The local commands without a REST
 route follow the same rule, and every error the CLI reports is the CLI error line
 with the registry title.
@@ -112,16 +113,13 @@ def assert_stream(
     assert answered.is_error is False, mcp_text(answered)
     assert mcp_text(answered) == data
     assert answered.structured_content == {
-        "schema": "obserwator-result/1",
-        "command": command,
-        "check": False,
-        "status": python.status,
+        **replace(python, result=None).to_json(root=root),
         "result": {
+            "schema": "obserwator-stream/1",
             "format": options.get("format", default),
             "bytes": len(data.encode("utf-8")),
             "lines": data.count("\n"),
         },
-        "notices": replace(python, result=None).to_json(root=root)["notices"],
     }
 
 

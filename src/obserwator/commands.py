@@ -87,11 +87,14 @@ from obserwator.store.types import (
     PathArg,
     PlanAction,
     PMaXTPStoreResult,
+    PMaXTPUrl,
     ProgressHook,
     SeriesReport,
     StorePlan,
     SyncReport,
     Writes,
+    cursor_index,
+    page_cursor,
 )
 from obserwator.urls import build_api_url, build_pmaxtp_url
 
@@ -198,6 +201,8 @@ _MODULES = {
     "list_commands": "obserwator.commands",
     "agent_guide": "obserwator.agent_guide",
 }
+# Function results that are no document get one in the envelope (AGI-4.1).
+_DOCUMENTS: dict[str, Callable[[Any], object]] = {"build_pmaxtp_url": PMaXTPUrl}
 
 
 # --- katalog ---------------------------------------------------------------------------------
@@ -270,7 +275,7 @@ def _command(
         raise ValueError(f"one_of of {name} must be a pair of option groups")
     if store_only:
         rules = (*rules, message("commands.store_only_rule"))
-    listed = (*options, _LIMIT, _OFFSET) if result == "list" else tuple(options)
+    listed = (*options, _LIMIT, _CURSOR) if result == "list" else tuple(options)
     command = DataCommand(
         name,
         description,
@@ -503,9 +508,7 @@ _LANGUAGE = _option(
     default="en",
 )
 _LIMIT = _option("limit", "int", message("commands.limit_help"), minimum=1)
-_OFFSET = _option(
-    "offset", "int", message("commands.offset_help"), minimum=0, default=0
-)
+_CURSOR = _option("cursor", "str", message("commands.cursor_help"))
 _CELL_PAIR = {"ind_x": ("ind_y",), "ind_y": ("ind_x",)}
 # force replaces the file of output: without output it has nothing to replace.
 _NEEDS_OUTPUT = {"force": ("output",)}
@@ -749,7 +752,7 @@ _CATALOG: tuple[tuple[DataCommand, str], ...] = (
         (_LATITUDE, _LONGITUDE, _METHOD),
         function="build_pmaxtp_url",
         method="GET",
-        result_type="str",
+        result_type="PMaXTPUrl",
     ),
     _command(
         "pmaxtp check",
@@ -1671,6 +1674,8 @@ def _validate(command: object, options: object) -> Options:
         normalized = None if value is None else _PARSERS[option.type](option, value)
         if normalized is not None:
             result[option.name] = normalized
+    if "cursor" in result:
+        cursor_index(result["cursor"])  # opaque: only a cursor of a page (AGI-6.5)
     for group in spec.exclusive:
         given = [name for name in group if name in result]
         if len(given) > 1:
@@ -1782,7 +1787,7 @@ def validate_command(
         Catalog command name, e.g. ``"series select"``.
     options : Mapping[str, object]
         Option values keyed by option name (``snake_case``); ``limit`` and
-        ``offset`` are options of list commands.
+        ``cursor`` are options of list commands.
 
     Returns
     -------
@@ -2517,9 +2522,10 @@ def _status(result: object) -> Status:
 
 
 def _page(options: Options) -> tuple[int | None, int]:
+    """Page size and index of the first item from ``limit`` and ``cursor``."""
     limit = cast(int | None, options.pop("limit", None))
-    offset = cast(int, options.pop("offset", 0))
-    return limit, offset
+    cursor = cast(str | None, options.pop("cursor", None))
+    return limit, 0 if cursor is None else cursor_index(cursor)
 
 
 def run_command(
@@ -2536,9 +2542,12 @@ def run_command(
 
     Options are validated with `validate_command` and bound to the function
     parameters of the same names; the hooks are passed to functions that
-    accept them. List commands are paged here: ``total`` counts the items
-    returned by the function, ``items`` is the slice
-    ``[offset, offset + limit)`` (to the end without ``limit``). Stream
+    accept them. List commands are paged here: the ``result`` is the tuple of
+    the items ``[start, start + limit)`` returned by the function (to the end
+    without ``limit``), where ``cursor`` names ``start`` (0 without it), and
+    ``page`` gives their ``total``, whether more follow (``truncated``) and
+    the ``next_cursor`` that fetches them. A function result that is no
+    document gets one (``pmaxtp url``: `PMaXTPUrl`). Stream
     commands (``store export``, ``series export``, ``commands guide``
     without ``output``) return the iterator of text lines as ``result``; with
     ``output`` they write the one file and return its `OutputReport`; an
@@ -2564,8 +2573,8 @@ def run_command(
         Envelope with ``check=False``, the status computed from the result
         (``partial``/``failed`` for failed items of a report, ``cancelled``
         for a cancelled report or an `ObserwatorCancelledError` with
-        ``result=None``), the result (a `Page` for list commands) and the
-        distinct notices in order of first occurrence.
+        ``result=None``), the result (the page's items for list commands) and the
+        distinct notices in order of first occurrence; a list command's ``page``.
 
     Raises
     ------
@@ -2576,18 +2585,25 @@ def run_command(
     """
     normalized = validate_command(command, options=options)
     spec = _BY_NAME[command]
-    limit, offset = _page(normalized)
+    limit, start = _page(normalized)
     notices = _Notices(on_notice)
     hooks = {"on_progress": on_progress, "on_notice": notices, "cancel": cancel}
+    page = None
     try:
         result = _call(spec.function, normalized, hooks)
+        if spec.function in _DOCUMENTS:
+            result = _DOCUMENTS[spec.function](result)
         if spec.result == "list":
             items = tuple(result)
-            end = None if limit is None else offset + limit
-            result = Page(items[offset:end], len(items), limit, offset)
+            end = len(items) if limit is None else min(start + limit, len(items))
+            truncated = end < len(items)
+            page = Page(len(items), page_cursor(end) if truncated else None, truncated)
+            result = items[start:end]
     except ObserwatorCancelledError:
         return CommandResult(spec.name, False, "cancelled", None, notices.collected())
-    return CommandResult(spec.name, False, _status(result), result, notices.collected())
+    return CommandResult(
+        spec.name, False, _status(result), result, notices.collected(), page
+    )
 
 
 # --- sprawdzenia bez zapisu ------------------------------------------------------------------
@@ -3076,7 +3092,7 @@ def check_command(
         Catalog command name.
     options : Mapping[str, object]
         Option values, identical to those accepted by `run_command`
-        (``limit`` and ``offset`` are ignored).
+        (``limit`` and ``cursor`` are ignored).
     on_progress : ProgressHook or None, optional
         Progress callback forwarded to the check twin.
     on_notice : NoticeHook or None, optional

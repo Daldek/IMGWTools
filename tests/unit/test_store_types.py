@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+import obserwator
 from obserwator.datasets import archive_files
 from obserwator.exceptions import (
     ObserwatorDataError,
@@ -18,6 +19,7 @@ from obserwator.exceptions import (
     ObserwatorStoreDependencyError,
     ObserwatorStoreError,
 )
+from obserwator.models import HydroState, StationListEntry
 from obserwator.output import FileResult
 from obserwator.store.types import (
     CatalogReport,
@@ -40,6 +42,7 @@ from obserwator.store.types import (
     StorePlan,
     SyncReport,
     VersionResult,
+    page_cursor,
 )
 
 
@@ -69,7 +72,7 @@ def test_frozen_contracts():
         SeriesReport("unchanged", None, 0, (), ()),
         SyncReport((), (), False),
         CatalogReport("unchanged", None, 0, 0, 0, ()),
-        Page((1, 2), 2, None, 0),
+        Page(2, None, False),
         DownloadItem(
             "archive:pl.imgw.hydro_daily:2023/codz_2023.zip",
             "https://example.invalid/codz_2023.zip",
@@ -195,9 +198,19 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
 
     local = envelope.to_json(root=root)
 
-    assert list(local) == ["schema", "command", "check", "status", "result", "notices"]
+    assert list(local) == [
+        "schema",
+        "tool",
+        "version",
+        "command",
+        "check",
+        "status",
+        "result",
+        "notices",
+    ]
     assert local["schema"] == "obserwator-result/1"
     assert local["result"] == {
+        "schema": "obserwator-download-report/1",
         "mode": "store",
         "output_dir": None,
         "root": str(root),
@@ -236,7 +249,7 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
         "cancelled": False,
     }
     assert local["notices"] == [
-        {"level": "info", "code": "license_terms", "text": f"Magazyn {root}"}
+        {"level": "info", "code": "license_terms", "message": f"Magazyn {root}"}
     ]
 
     served = envelope.to_json(root=root, server=True)
@@ -247,7 +260,7 @@ def test_to_json_relativizes_paths_below_root_only(tmp_path):
     assert served["result"]["items"][1]["error"] == (
         f"Nie można zapisać archives/x.zip ani {root}2/y"
     )
-    assert served["notices"][0]["text"] == "Magazyn ."
+    assert served["notices"][0]["message"] == "Magazyn ."
     json.dumps(served)
 
 
@@ -299,33 +312,65 @@ def test_to_json_server_mode_keeps_the_root_inside_urls_and_other_paths():
 
 def test_to_json_converts_dates_tuples_dataclasses_and_models(tmp_path):
     warsaw = timezone(timedelta(hours=2))
-    result = Page(
-        (
-            _Station(
-                station_code="150000001",
-                measured_at=datetime(2026, 10, 17, 14, 30, tzinfo=warsaw),
-            ),
-            {"day": date(2026, 1, 5), "naive": datetime(2026, 1, 5, 6, 0)},
-            ("a", ("b", 1)),
+    items = (
+        _Station(
+            station_code="150000001",
+            measured_at=datetime(2026, 10, 17, 14, 30, tzinfo=warsaw),
         ),
-        total=7,
-        limit=3,
-        offset=0,
+        {"day": date(2026, 1, 5), "naive": datetime(2026, 1, 5, 6, 0)},
+        ("a", ("b", 1)),
     )
-    document = CommandResult("stations find", False, "ok", result, ()).to_json(
+    page = Page(total=7, next_cursor=page_cursor(3), truncated=True)
+    document = CommandResult("stations find", False, "ok", items, (), page).to_json(
         root=tmp_path
     )
 
-    assert document["result"] == {
-        "items": [
-            {"station_code": "150000001", "measured_at": "2026-10-17T12:30:00Z"},
-            {"day": "2026-01-05", "naive": "2026-01-05T06:00:00Z"},
-            ["a", ["b", 1]],
-        ],
-        "total": 7,
-        "limit": 3,
-        "offset": 0,
-    }
+    assert document["result"] == [
+        {"station_code": "150000001", "measured_at": "2026-10-17T12:30:00Z"},
+        {"day": "2026-01-05", "naive": "2026-01-05T06:00:00Z"},
+        ["a", ["b", 1]],
+    ]
+    assert document["page"] == {"total": 7, "next_cursor": "Mw", "truncated": True}
+
+
+def test_envelope_names_the_tool_and_version_and_pages_only_a_list(tmp_path):
+    single = CommandResult("store info", False, "ok", None, ()).to_json()
+    listed = CommandResult(
+        "store scan", False, "ok", (), (), Page(0, None, False)
+    ).to_json(root=tmp_path)
+
+    for document in (single, listed):
+        assert (document["tool"], document["version"]) == (
+            "obserwator",
+            obserwator.__version__,
+        )
+    assert "page" not in single
+    assert listed["page"] == {"total": 0, "next_cursor": None, "truncated": False}
+
+
+def test_result_documents_lead_with_their_schema_also_when_nested(tmp_path):
+    station = StationListEntry("meteo", "123750000", "Warszawa", short_code="375")
+    state = HydroState(station_code="150160180", name="Kraków")
+    series = SeriesReport("unchanged", None, 0, (), ())
+    report = SyncReport((), (series,), False)
+    plan = _plan(tmp_path)
+
+    def document(result):
+        envelope = CommandResult("x", False, "ok", result, ())
+        return envelope.to_json(root=tmp_path)["result"]
+
+    stations = document((station, state))
+    assert [list(item)[0] for item in stations] == ["schema", "schema"]
+    assert [item["schema"] for item in stations] == [
+        "obserwator-station/1",
+        "obserwator-hydro-state/1",
+    ]
+    synced = document(report)
+    assert list(synced)[0] == "schema"
+    assert synced["schema"] == "obserwator-sync-report/1"
+    assert list(synced["series"][0])[0] == "schema"
+    assert synced["series"][0]["schema"] == "obserwator-series-report/1"
+    assert document(plan)["schema"] == "obserwator-plan/1"
 
 
 def test_to_json_rejects_values_without_json_form():

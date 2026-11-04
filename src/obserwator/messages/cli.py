@@ -42,7 +42,6 @@ MESSAGES = {
     # Labels of the notices printed to stderr.
     "level_info": Text("Info", "Informacja"),
     "level_warning": Text("Warning", "Ostrzeżenie"),
-    "level_error": Text("Error", "Błąd"),
     # Errors of the command line.
     "unknown_option": Text(
         "Unknown option {option} of the command {path}",

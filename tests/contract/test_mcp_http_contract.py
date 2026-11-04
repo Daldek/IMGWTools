@@ -18,6 +18,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
+from obserwator import __version__
 from tests.contract.support import command_document, rest_request, stamps
 from tests.contract.test_interface_contract import (
     CASES,
@@ -65,10 +66,13 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
     assert result.content[0].text == data.decode("utf-8")
     assert result.structured_content == {
         "schema": "obserwator-result/1",
+        "tool": "obserwator",
+        "version": __version__,
         "command": command,
         "check": False,
         "status": answered.headers["x-obserwator-status"],
         "result": {
+            "schema": "obserwator-stream/1",
             "format": options.get("format", default),
             "bytes": len(data),
             "lines": data.count(b"\n"),

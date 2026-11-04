@@ -169,7 +169,7 @@ def test_chmi_sidecar_takes_country_provider_and_license_from_the_registry(root)
             },
         },
     }
-    assert [(n.level, n.code, n.text) for n in notices] == [
+    assert [(n.level, n.code, n.message) for n in notices] == [
         ("info", "license_terms", f"{chmi.license.attribution}. {chmi.notice}")
     ]
     read = read_meta(written.path)
@@ -247,7 +247,7 @@ def test_same_canonical_content_records_one_observation_per_signal(root, frozen)
         "same_content_as": first.path.parent.name,
     }
     assert versions(root) == [first.path.parent.name]
-    ((level, code, text),) = [(n.level, n.code, n.text) for n in notices]
+    ((level, code, text),) = [(n.level, n.code, n.message) for n in notices]
     assert (level, code) == ("info", "content_unchanged")
     for part in (
         SLOT,

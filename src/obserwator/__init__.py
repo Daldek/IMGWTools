@@ -220,6 +220,7 @@ from obserwator.store.types import (
     DownloadItem,
     DownloadReport,
     Page,
+    PMaXTPUrl,
     SeriesSelection,
 )
 
@@ -383,6 +384,7 @@ __all__ = [
     "CommandResult",
     "CommandCall",
     "Page",
+    "PMaXTPUrl",
     "SeriesSelection",
     "data_commands",
     "command_schema",

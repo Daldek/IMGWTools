@@ -27,6 +27,7 @@ from mcp.types import INVALID_PARAMS, jsonrpc_message_adapter
 
 from obserwator import (
     ERROR_CODES,
+    __version__,
     agent_guide,
     check_command,
     command_schema,
@@ -41,6 +42,7 @@ from obserwator.exceptions import ObserwatorValidationError
 from obserwator.mcp._calls import STREAM_LIMIT
 from obserwator.mcp._tools import Mode
 from obserwator.mcp.server import create_server
+from obserwator.store.types import page_cursor
 from obserwator.testing import build_fixture_store
 from tests.contract.support import (
     ANYWHERE,
@@ -109,6 +111,8 @@ def error_of(result) -> dict[str, Any]:
 
 
 SYNC = {"datasets": [DAILY], "years": "2023-2024"}
+# Archive files of 35 years: more items than the default MCP page of 50.
+FILES = {"dataset": DAILY, "years": "1990-2024"}
 
 
 # --------------------------------------------------------------------------
@@ -198,10 +202,10 @@ async def test_null_arguments_are_absent(root, imgw):
     planned = await call(
         "obserwator_store_check", {"root": str(root), **SYNC, "plan": None}
     )
-    paged = await call("obserwator_datasets_list", {"limit": None})
+    paged = await call("obserwator_datasets_files", {**FILES, "limit": None})
 
     assert planned.is_error is False
-    assert paged.structured_content["result"]["limit"] == 50
+    assert len(paged.structured_content["result"]) == 50
 
 
 # --------------------------------------------------------------------------
@@ -212,20 +216,43 @@ async def test_null_arguments_are_absent(root, imgw):
 async def test_list_commands_page_by_50_and_at_most_obserwator_api_max_limit(
     monkeypatch,
 ):
-    whole = (await call("obserwator_datasets_list", {})).structured_content["result"]
+    whole = (await call("obserwator_datasets_files", FILES)).structured_content
     monkeypatch.setattr(settings, "api_max_limit", 5)
-    small = (await call("obserwator_datasets_list", {})).structured_content["result"]
-    above = await call("obserwator_datasets_list", {"limit": 6})
+    small = (await call("obserwator_datasets_files", FILES)).structured_content
+    above = await call("obserwator_datasets_files", {**FILES, "limit": 6})
 
-    assert (whole["limit"], len(whole["items"])) == (50, whole["total"])
-    assert (small["limit"], len(small["items"]), small["total"]) == (
-        5,
-        5,
-        whole["total"],
-    )
+    assert len(whole["result"]) == 50
+    assert whole["page"]["truncated"] is True
+    assert len(small["result"]) == 5
+    assert small["page"]["total"] == whole["page"]["total"]
     document = error_of(above)
     assert document["code"] == "validation_error"
     assert document["details"] == {"option": "limit", "value": 6, "maximum": 5}
+
+
+async def test_a_list_tool_follows_next_cursor_to_the_next_page():
+    first = (await call("obserwator_datasets_list", {"limit": 10})).structured_content
+    second = (
+        await call(
+            "obserwator_datasets_list",
+            {"limit": 10, "cursor": first["page"]["next_cursor"]},
+        )
+    ).structured_content
+    whole = (await call("obserwator_datasets_list", {})).structured_content
+
+    assert first["page"]["truncated"] is True
+    assert second["page"]["next_cursor"] is None
+    assert second["page"]["truncated"] is False
+    assert first["result"] + second["result"] == whole["result"]
+
+
+@pytest.mark.parametrize("cursor", ["!!", "eA", page_cursor(3) + "="])
+async def test_a_malformed_cursor_is_a_validation_error(cursor):
+    result = await call("obserwator_datasets_list", {"cursor": cursor})
+
+    document = error_of(result)
+    assert document["code"] == "validation_error"
+    assert document["details"]["option"] == "cursor"
 
 
 async def test_obserwator_root_fills_an_absent_root(root, monkeypatch):
@@ -236,7 +263,7 @@ async def test_obserwator_root_fills_an_absent_root(root, monkeypatch):
     live = await call("obserwator_stations_find", {"query": "raba", "check": True})
 
     assert info.structured_content["result"]["root"] == str(root)
-    assert found.is_error is False and found.structured_content["result"]["total"] > 0
+    assert found.is_error is False and found.structured_content["page"]["total"] > 0
     # A live search takes no root (env_root_when): its plan names the live list.
     assert live.is_error is False
     assert live.structured_content["result"]["actions"][0]["status"] == "unverifiable"
@@ -262,10 +289,13 @@ async def test_commands_guide_stream_is_the_english_agent_guide_text():
     assert result.content[0].text == text
     assert result.structured_content == {
         "schema": "obserwator-result/1",
+        "tool": "obserwator",
+        "version": __version__,
         "command": "commands guide",
         "check": False,
         "status": "ok",
         "result": {
+            "schema": "obserwator-stream/1",
             "format": "agents",
             "bytes": len(text.encode("utf-8")),
             "lines": text.count("\n"),

@@ -42,6 +42,7 @@ from obserwator.store.types import (
     Progress,
     SeriesReport,
     SyncReport,
+    page_cursor,
 )
 from obserwator.testing import build_fixture_store
 from obserwator.urls import IMGW_API_URL
@@ -461,9 +462,12 @@ def test_cli_catalog_object_and_list_commands_print_the_run_command_envelope(
     cases = [
         (("store", "info", "--root", root), "store info", {"root": root}),
         (
-            ("store", "scan", "-r", root, "-k", "archive", "--limit", 2, "--offset", 1),
+            (
+                *("store", "scan", "-r", root, "-k", "archive"),
+                *("--limit", 2, "--cursor", page_cursor(1)),
+            ),
             "store scan",
-            {"root": root, "kind": "archive", "limit": 2, "offset": 1},
+            {"root": root, "kind": "archive", "limit": 2, "cursor": page_cursor(1)},
         ),
         (
             (
@@ -558,6 +562,7 @@ def test_cli_catalog_streams_print_only_the_data_lines(tmp_path, fixture_root, o
     )
     wanted = "".join(store.export_archive(version)).encode()
     assert printed["result"] == {
+        "schema": "obserwator-output/1",
         "output": str(target),
         "files": [
             {
@@ -617,7 +622,9 @@ def test_cli_catalog_stderr_lines_follow_obserwator_lang_while_the_envelope_is_e
 
     assert f"[1/1] {text}" in result.stderr
     assert f"{label}: {text}" in result.stderr
-    assert [notice["text"] for notice in envelope(result)["notices"]] == ["no version"]
+    assert [notice["message"] for notice in envelope(result)["notices"]] == [
+        "no version"
+    ]
 
 
 # --- --root z OBSERWATOR_ROOT ----------------------------------------------------------
@@ -791,17 +798,17 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
 
 
 def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_obserwator_lang():
-    detail = "Unknown option --colour of the command obserwator datasets list"
+    detail = "Unknown option --bogus of the command obserwator datasets list"
     document = error_line(
-        invoke("datasets", "list", "--colour", "red"), "validation_error"
+        invoke("datasets", "list", "--bogus", "red"), "validation_error"
     )
     assert document["detail"].startswith(detail)
     polish = run_installed(
-        "datasets", "list", "--colour", "red", lang="pl", capture_output=True
+        "datasets", "list", "--bogus", "red", lang="pl", capture_output=True
     )
     line = json.loads(polish.stderr.decode("utf-8").splitlines()[-1])
     assert (polish.returncode, line["detail"].startswith(detail)) == (2, True)
-    assert document["details"]["click"] == "No such option: --colour"
+    assert document["details"]["click"] == "No such option: --bogus"
 
 
 @pytest.mark.parametrize(

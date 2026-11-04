@@ -414,8 +414,9 @@ def envelope_errors(document: Any) -> list[str]:
     """
     Violations of the ``obserwator-result/1`` envelope (spec §13.6).
 
-    The result of a list command must be a ``#/$defs/page`` and the result of
-    a check (``check=true``) an ``obserwator-plan/1`` plan.
+    The result of a list command must be a list of documents next to a
+    ``page`` (which no other command has) and the result of a check
+    (``check=true``) an ``obserwator-plan/1`` plan.
     """
     schema = SCHEMAS["schemas"]["obserwator-result/1"]
     errors = violations(document, schema)
@@ -423,8 +424,11 @@ def envelope_errors(document: Any) -> list[str]:
         return errors
     if document["check"]:
         return schema_errors(document["result"], "obserwator-plan/1")
-    if command_document(document["command"])["x-obserwator"]["result"] == "list":
-        _check(document["result"], {"$ref": "#/$defs/page"}, schema, "$.result", errors)
+    listed = command_document(document["command"])["x-obserwator"]["result"] == "list"
+    if listed and not isinstance(document["result"], list):
+        errors.append("$.result: a list command answers a list")
+    if listed != ("page" in document):
+        errors.append("$.page: exactly the list commands have a page")
     return errors
 
 

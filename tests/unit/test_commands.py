@@ -38,6 +38,7 @@ from obserwator.store.types import (
     PMaXTPStoreResult,
     SeriesReport,
     StorePlan,
+    page_cursor,
 )
 from obserwator.testing import build_fixture_store
 from tests.contract.support import (
@@ -99,7 +100,7 @@ PUBLIC_MODULES = (
 )
 # Valid options of every command in their JSON form (keys, numbers, arrays).
 VALID: dict[str, list[dict[str, object]]] = {
-    "datasets list": [{}, {"kind": "hydro", "limit": 5, "offset": 1}],
+    "datasets list": [{}, {"kind": "hydro", "limit": 5, "cursor": "MQ"}],
     "datasets files": [
         {"dataset": DAILY, "years": [2020, "2022-2023"], "months": [1, 2]},
         {"dataset": SEMIANNUAL, "years": [2024], "params": ["H", "Q"]},
@@ -143,7 +144,7 @@ VALID: dict[str, list[dict[str, object]]] = {
     ],
     "store init": [{"root": "/data/obserwator store"}],
     "store info": [{"root": ROOT}],
-    "store scan": [{"root": ROOT, "kind": "problem", "offset": 0}],
+    "store scan": [{"root": ROOT, "kind": "problem", "cursor": "MA"}],
     "store check": [
         {
             "root": ROOT,
@@ -226,7 +227,7 @@ INVALID: dict[str, list[tuple[dict[str, object], str]]] = {
         ({"dataset": DAILY, "years": [2024], "colour": "red"}, "colour")
     ],
     "stations find": [
-        ({"query": "raba", "offset": -1}, "offset"),
+        ({"query": "raba", "cursor": 3}, "cursor"),
         ({"source": "archive"}, "source"),
     ],
     "current hydro": [({"station": "12345"}, "station")],
@@ -339,9 +340,9 @@ def test_every_command_calls_a_public_function_named_by_its_options():
         assert found and not command.function.startswith("_"), command.name
         parameters = inspect.signature(getattr(found[0], command.function)).parameters
         names = [option.name for option in command.options]
-        paged = {"limit", "offset"} <= set(names)
+        paged = {"limit", "cursor"} <= set(names)
         assert paged == (command.result == "list"), command.name
-        assert set(names) - {"limit", "offset"} <= set(parameters), command.name
+        assert set(names) - {"limit", "cursor"} <= set(parameters), command.name
         if command.check not in (None, "check_command"):
             assert any(callable(getattr(m, command.check, None)) for m in modules)
 
@@ -636,17 +637,46 @@ def test_list_commands_page_after_counting_the_function_items(fixture_root):
     def scan(**paging):
         return run_command("store scan", options={"root": fixture_root, **paging})
 
-    assert scan(limit=2, offset=1).result == Page(every[1:3], len(every), 2, 1)
-    assert scan(offset=1).result == Page(every[1:], len(every), None, 1)
-    assert scan(offset=len(every) + 5).result == Page(
-        (), len(every), None, len(every) + 5
-    )
+    first = scan(limit=2, cursor=page_cursor(1))
+    assert first.result == every[1:3]
+    assert first.page == Page(len(every), page_cursor(3), True)
+    rest = scan(cursor=page_cursor(1))
+    assert (rest.result, rest.page) == (every[1:], Page(len(every), None, False))
+    past = scan(cursor=page_cursor(len(every) + 5))
+    assert (past.result, past.page) == ((), Page(len(every), None, False))
     meteo = datasets(kind="meteo")
-    page = run_command("datasets list", options={"kind": "meteo", "limit": 2}).result
-    assert page == Page(meteo[:2], len(meteo), 2, 0)
+    page = run_command("datasets list", options={"kind": "meteo", "limit": 2})
+    assert page.result == meteo[:2]
+    assert page.page == Page(len(meteo), page_cursor(2), len(meteo) > 2)
     with pytest.raises(ObserwatorValidationError) as error:
         scan(limit=0)
     assert error.value.details["option"] == "limit"
+
+
+def test_following_next_cursor_walks_every_item_once(fixture_root):
+    every = tuple(store.iter_store(fixture_root))
+    assert len(every) > 4
+    options = {"root": fixture_root, "limit": 2}
+    walked, pages = [], []
+    while True:
+        result = run_command("store scan", options=options)
+        assert result.page is not None and result.page.total == len(every)
+        walked.extend(result.result)
+        pages.append(result.page)
+        if result.page.next_cursor is None:
+            break
+        assert result.page.truncated
+        options = {**options, "cursor": result.page.next_cursor}
+    assert tuple(walked) == every
+    assert len(pages) == -(-len(every) // 2)
+    assert (pages[-1].truncated, pages[-1].next_cursor) == (False, None)
+
+
+@pytest.mark.parametrize("cursor", ["!!", "MDM", " ", "YQ"])
+def test_a_cursor_no_page_gave_is_refused(cursor):
+    with pytest.raises(ObserwatorValidationError) as error:
+        validate_command("store scan", options={"root": ROOT, "cursor": cursor})
+    assert error.value.details["option"] == "cursor"
 
 
 def test_store_sync_envelope_keeps_distinct_notices_while_hooks_get_all(tmp_path, imgw):

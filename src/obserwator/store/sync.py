@@ -488,7 +488,7 @@ def _announce(
     elif item.status == "check_failed" and on_notice is not None:
         on_notice(
             Notice(
-                "error",
+                "warning",
                 "archive_failed",
                 f"{item.archive.server_path}: {item.error}",
             )
@@ -590,7 +590,7 @@ def _check_listed(
             on_notice(
                 Notice("warning", "source_unverifiable", action.detail)
                 if action.status == "unverifiable"
-                else Notice("error", "archive_failed", action.detail)
+                else Notice("warning", "archive_failed", action.detail)
             )
     items: list[PlanItem] = []
     cancelled = False
@@ -1545,7 +1545,9 @@ def _sync_one(
             return _result(item, "cancelled", error=CANCELLED)
         if on_notice is not None:
             on_notice(
-                Notice("error", "archive_failed", f"{item.archive.server_path}: {exc}")
+                Notice(
+                    "warning", "archive_failed", f"{item.archive.server_path}: {exc}"
+                )
             )
         return _result(
             item,

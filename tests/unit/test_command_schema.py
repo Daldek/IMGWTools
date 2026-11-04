@@ -97,7 +97,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
             "x-obserwator-path-role": "root",
         },
         "limit": {"type": "integer", "minimum": 1},
-        "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "cursor": {"type": "string", "minLength": 1},
         "provider": {"enum": ["IMGW-PIB", "CHMI"]},
     }
     meta = {
@@ -125,7 +125,7 @@ def test_option_types_rules_and_interfaces_map_to_the_schema():
                 "root": ["--root", "-r"],
                 "provider": ["--provider"],
                 "limit": ["--limit"],
-                "offset": ["--offset"],
+                "cursor": ["--cursor"],
             },
         },
         "rest": {
@@ -271,7 +271,7 @@ def test_store_scan_of_observations_answers_alike_in_python_cli_and_rest(
 
     python = run_command("store scan", options={"root": root, **options})
     local = python.to_json(root=root)
-    (item,) = local["result"]["items"]
+    (item,) = local["result"]
     assert (item["kind"], item["slot"], item["meta"]) == (
         "observation",
         "archive:pl.imgw.hydro_daily:2024/codz_2024.zip",
