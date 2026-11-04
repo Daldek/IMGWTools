@@ -699,10 +699,7 @@ def _instructions(
                 f"Working directory (base of relative paths): `{os.fspath(workdir)}`."
             )
         if root is not None:
-            lines.append(
-                "Default store (`OBSERWATOR_ROOT`, `[obserwator] root` or `<data_dir>/obserwator`): "
-                f"`{os.fspath(root)}`."
-            )
+            lines.append(f"Default store (`OBSERWATOR_ROOT`): `{os.fspath(root)}`.")
         else:
             lines.append("No default store: give `root`.")
     lines += [
