@@ -391,6 +391,22 @@ def test_parse_command_takes_a_text_or_its_words_with_or_without_obserwator():
     assert parse_command(shlex.split(line)) == call
 
 
+def test_parse_command_reads_json_and_lang_as_flags_of_a_run_unless_lang_is_an_option():
+    assert parse_command("obserwator store info --root /s --json --lang=en") == (
+        CommandCall("store info", {"root": "/s"}, {"json": True, "lang": "en"})
+    )
+    assert parse_command("obserwator commands list --lang pl --json") == (
+        CommandCall("commands list", {"lang": "pl"}, {"json": True})
+    )
+    for line, option in (
+        ("obserwator store info --json=yes", "json"),
+        ("obserwator store info --lang", "lang"),
+    ):
+        with pytest.raises(ObserwatorValidationError) as error:
+            parse_command(line)
+        assert error.value.details["option"] == option
+
+
 @pytest.mark.parametrize(
     ("line", "details"),
     [
@@ -416,12 +432,16 @@ def quoted(path):
     return shlex.quote(str(Path(path).absolute()))
 
 
-def test_format_command_writes_check_last_and_refuses_another_flag_of_a_run():
+def test_format_command_writes_the_run_flags_last_and_refuses_another_flag_of_a_run():
     plan = {"root": "/s", "plan": "/p.json"}
     words = f"--root {quoted('/s')} --plan {quoted('/p.json')}"
 
     assert format_command("store sync", options=plan, run={"check": True}) == (
         f"obserwator store sync {words} --check"
+    )
+    run = {"lang": "pl", "json": True, "check": True}
+    assert format_command("store sync", options=plan, run=run) == (
+        f"obserwator store sync {words} --check --json --lang pl"
     )
     assert format_command("store sync", options=plan, run={"check": False}) == (
         f"obserwator store sync {words}"
@@ -430,6 +450,10 @@ def test_format_command_writes_check_last_and_refuses_another_flag_of_a_run():
         ("store sync", plan, {"force": True}, "force"),
         ("store sync", plan, {"check": "yes"}, "check"),
         ("store info", {"root": "/s"}, {"check": True}, "check"),
+        ("store sync", plan, {"json": "yes"}, "json"),
+        ("store sync", plan, {"lang": "de"}, "lang"),
+        # The language of the description commands is their option, not a run flag.
+        ("commands list", {}, {"lang": "pl"}, "lang"),
     ):
         with pytest.raises(ObserwatorValidationError) as error:
             format_command(command, options=options, run=run)

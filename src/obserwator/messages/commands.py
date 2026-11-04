@@ -378,8 +378,10 @@ MESSAGES = {
         "Plik planu obserwator-plan/1 do zapisania poza magazynem",
     ),
     "language_help": Text(
-        "Language of the descriptions: en (default) or pl (REST: by Accept-Language)",
-        "Język opisów: en (domyślnie) albo pl (REST: według Accept-Language)",
+        "Language of the descriptions: en (default) or pl (REST: by Accept-Language; "
+        "CLI without --json: OBSERWATOR_LANG)",
+        "Język opisów: en (domyślnie) albo pl (REST: według Accept-Language; CLI bez "
+        "--json: OBSERWATOR_LANG)",
     ),
     "limit_help": Text(
         "Page size",
@@ -852,9 +854,9 @@ MESSAGES = {
     ),
     "not_a_run_flag": Text(
         "{name!r} is no flag of a run of the command {command}: options go into "
-        "options, and check is the only flag of a run",
+        "options, and the flags of a run are {flags}",
         "{name!r} nie jest flagą uruchomienia komendy {command}: opcje podaje się w "
-        "options, a jedyną flagą uruchomienia jest check",
+        "options, a flagi uruchomienia to {flags}",
     ),
     "command_has_no_check": Text(
         "The command {command} has no --check: it is a check itself or only reads",

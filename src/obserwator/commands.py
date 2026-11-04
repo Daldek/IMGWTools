@@ -1828,41 +1828,83 @@ def _argument(value: object) -> str:
 
 # The program a command line starts with (``format_command`` writes it).
 _PROGRAM = "obserwator"
-# The flag of a run beside the options: the plan of ``check_command`` (ADR-002 D11).
+# The flags of a run beside the options (ADR-002 D11): ``--check`` plans the call
+# (``check_command``); ``--json`` (the envelope as one JSON line) and ``--lang``
+# (the language of the human rendering, AGI-3.2, AGI-3.4) choose how the CLI
+# prints the result and change nothing of the call.
 _CHECK_FLAG = "--check"
+_JSON_FLAG = "--json"
+_LANG_FLAG = "--lang"
 # Flags that print a description of a command instead of calling it.
 _DESCRIBING_FLAGS = ("--help", "--schema")
 
 
-def _run_check(spec: DataCommand, run: Mapping[str, object] | None) -> bool:
-    """Whether ``run`` asks for ``--check``; any other flag of a run is refused."""
-    given = {} if run is None else run
-    allowed = [] if spec.check is None else ["check"]
-    for name in given:
-        if name != "check":
-            _fail(
-                message("commands.not_a_run_flag", name=name, command=spec.name),
-                option=str(name),
-                allowed=allowed,
-            )
-    value = given.get("check")
+def _has_lang_option(spec: DataCommand) -> bool:
+    """Whether ``--lang`` of ``spec`` is its option (the description commands)."""
+    return any(option.name == "lang" for option in spec.options)
+
+
+def _run_switch(given: Mapping[str, object], name: str) -> bool:
+    """The value of the switch ``name`` of a run: absent, ``False`` or ``True``."""
+    value = given.get(name)
     if value is None or value is False:
         return False
     if value is not True:
         _fail(
-            message(
-                "commands.option_must_boolean_true_false", name="check", value=value
-            ),
-            option="check",
+            message("commands.option_must_boolean_true_false", name=name, value=value),
+            option=name,
             value=value,
         )
-    if spec.check is None:
+    return True
+
+
+def _run_flags(
+    spec: DataCommand, run: Mapping[str, object] | None
+) -> tuple[bool, bool, Lang | None]:
+    """
+    The ``check``, ``json`` and ``lang`` flags of ``run``; any other is refused.
+
+    ``check`` needs a command with a check twin; ``lang`` is a flag of a run
+    only of a command without the option ``lang``.
+    """
+    given = {} if run is None else run
+    allowed = [] if spec.check is None else ["check"]
+    allowed.append("json")
+    if not _has_lang_option(spec):
+        allowed.append("lang")
+    for name in given:
+        if name not in allowed and name != "check":
+            _fail(
+                message(
+                    "commands.not_a_run_flag",
+                    name=name,
+                    command=spec.name,
+                    flags=", ".join(allowed),
+                ),
+                option=str(name),
+                allowed=allowed,
+            )
+    check = _run_switch(given, "check")
+    if check and spec.check is None:
         _fail(
             message("commands.command_has_no_check", command=spec.name),
             option="check",
             allowed=allowed,
         )
-    return True
+    lang = given.get("lang")
+    if lang is not None and lang not in LANGS:
+        _fail(
+            message(
+                "commands.invalid_value_option_allowed",
+                text=lang,
+                name="lang",
+                choices=", ".join(LANGS),
+            ),
+            option="lang",
+            value=lang,
+            allowed=list(LANGS),
+        )
+    return check, _run_switch(given, "json"), lang
 
 
 def format_command(
@@ -1879,10 +1921,10 @@ def format_command(
     keys, sorted years, absolute paths, the default root of a store command
     that names none, ADR-007 D2), each with its canonical ``--kebab-case`` flag
     in catalog order; a ``bool`` option is ``--x`` or ``--no-x`` and is left
-    out at its default. ``run`` adds ``--check`` last. Every word is
-    ``shlex``-quoted, so equal calls give equal text: `parse_command` reads
-    the line back into the same command and run and into options that
-    validate to the same call, whose line is this one again.
+    out at its default. ``run`` adds ``--check``, ``--json`` and ``--lang``
+    last. Every word is ``shlex``-quoted, so equal calls give equal text:
+    `parse_command` reads the line back into the same command and run and
+    into options that validate to the same call, whose line is this one again.
 
     Parameters
     ----------
@@ -1893,7 +1935,10 @@ def format_command(
     run : Mapping[str, object] or None, optional
         The flags of a run beside the options: ``{"check": True}`` writes
         ``--check`` (the plan of `check_command`) for a command that has it
-        (``DataCommand.check``); ``False`` or ``None`` leaves it out.
+        (``DataCommand.check``), ``{"json": True}`` writes ``--json`` (the CLI
+        prints the envelope) and ``{"lang": "pl"}`` writes ``--lang pl`` (the
+        language of the human rendering of the CLI) for a command without the
+        option ``lang``; ``False`` or ``None`` leaves a flag out.
 
     Returns
     -------
@@ -1905,13 +1950,14 @@ def format_command(
     ------
     ObserwatorValidationError
         If the command or its options are invalid (see `validate_command`),
-        or ``run`` names another flag, gives ``check`` a value that is not a
-        boolean or asks for ``--check`` of a command without it
-        (``details.option`` names it).
+        or ``run`` names another flag, gives ``check`` or ``json`` a value
+        that is not a boolean, ``lang`` one that is neither ``pl`` nor ``en``,
+        or asks for ``--check`` of a command without it (``details.option``
+        names it).
     """
     normalized = validate_command(command, options=options)
     spec = _BY_NAME[command]
-    check = _run_check(spec, run)
+    check, as_json, lang = _run_flags(spec, run)
     words = [_PROGRAM, *spec.name.split()]
     for option in spec.options:
         if option.name not in normalized:
@@ -1923,6 +1969,10 @@ def format_command(
             words += [option.flag, _argument(value)]
     if check:
         words.append(_CHECK_FLAG)
+    if as_json:
+        words.append(_JSON_FLAG)
+    if lang is not None:
+        words += [_LANG_FLAG, lang]
     return " ".join(shlex.quote(word) for word in words)
 
 
@@ -1997,8 +2047,9 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
     The first two words name a catalog command (``store sync``); the others
     are the flags ``obserwator`` has for it (spec §13.10, ADR-002 D2 and D11): the
     flag of each option and its short alias (``--root``, ``-r``), ``--no-x``
-    of a ``bool`` option whose default is true and ``--check`` of a command
-    with a check twin. A flag takes its value from the next word or after
+    of a ``bool`` option whose default is true, ``--check`` of a command
+    with a check twin, ``--json`` and ``--lang`` (of a command without the
+    option ``lang``). A flag takes its value from the next word or after
     ``=`` (``--root=/data``; a short alias also joined, ``-r/data``), a list
     option takes one value per occurrence of its flag, a later value of
     another option wins and ``--`` ends the flags. Like the CLI, which
@@ -2017,7 +2068,8 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
     -------
     CommandCall
         The command, its options (the texts as given, ``True`` or ``False``
-        of a switch) and ``run`` (``{"check": True}`` for ``--check``).
+        of a switch) and ``run`` (``{"check": True}`` for ``--check``,
+        ``{"json": True}`` for ``--json``, the text of ``--lang`` as ``lang``).
 
     Raises
     ------
@@ -2038,6 +2090,10 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
         del words[0]
     spec = _line_command(words)
     flags = _line_flags(spec)
+    switches = {_JSON_FLAG: "json"}
+    if spec.check is not None:
+        switches[_CHECK_FLAG] = "check"
+    lang_flag = None if _has_lang_option(spec) else _LANG_FLAG
     name = spec.name
     given: dict[str, object] = {}
     lists: dict[str, list[str]] = {}
@@ -2060,14 +2116,25 @@ def parse_command(line: str | Sequence[str], /) -> CommandCall:
             )
         if flag in _DESCRIBING_FLAGS:
             _usage(message("commands.line_describes", flag=flag), command=name)
-        if flag == _CHECK_FLAG and spec.check is not None:
+        if flag in switches:
             if joined is not None:
                 _usage(
                     message("commands.line_switch_value", flag=flag, command=name),
-                    option="check",
+                    option=switches[flag],
                     command=name,
                 )
-            run["check"] = True
+            run[switches[flag]] = True
+            continue
+        if flag == lang_flag:
+            if joined is None:
+                if not rest:
+                    _usage(
+                        message("commands.line_needs_value", flag=flag, command=name),
+                        option="lang",
+                        command=name,
+                    )
+                joined = rest.pop(0)
+            run["lang"] = joined
             continue
         entry = flags.get(flag)
         if entry is None:
