@@ -26,37 +26,6 @@ from obserwator.exceptions import (
 )
 from obserwator.messages import LANGS, message
 
-# code -> (exit code, HTTP status, English title), verbatim from the §13.5 table.
-SPEC_TABLE = {
-    "validation_error": (2, 400, "Invalid input"),
-    "not_found": (3, 404, "Not found"),
-    "conflict": (4, 409, "State conflict"),
-    "source_unavailable": (5, 502, "Data source unavailable"),
-    "missing_dependency": (6, 503, "Missing optional dependency"),
-    "data_error": (7, 500, "Invalid data"),
-    "store_unavailable": (8, 503, "Store unavailable"),
-    "io_error": (9, 500, "File system error"),
-    "cancelled": (130, None, "Operation cancelled"),
-    "forbidden": (12, 403, "Write not permitted"),
-    "unsupported": (15, 422, "Not supported"),
-    "method_not_allowed": (None, 405, "HTTP method not allowed"),
-    "internal_error": (1, 500, "Internal error"),
-}
-TITLES_PL = {
-    "validation_error": "Nieprawidłowe dane wejściowe",
-    "not_found": "Nie znaleziono",
-    "conflict": "Konflikt stanu",
-    "source_unavailable": "Źródło danych niedostępne",
-    "missing_dependency": "Brak opcjonalnej zależności",
-    "data_error": "Niepoprawne dane",
-    "store_unavailable": "Magazyn niedostępny",
-    "io_error": "Błąd systemu plików",
-    "cancelled": "Operację anulowano",
-    "forbidden": "Brak uprawnień do zapisu",
-    "unsupported": "Nieobsługiwane",
-    "method_not_allowed": "Niedozwolona metoda HTTP",
-    "internal_error": "Błąd wewnętrzny",
-}
 ENVELOPE_EXIT_CODES = {"ok": 0, "partial": 10, "failed": 11, "cancelled": 130}
 DEFAULT_CODES = [
     (ObserwatorError, "internal_error"),
@@ -150,20 +119,20 @@ def test_error_crosses_a_process_boundary():
     assert caught.value.details == {"station_code": "999999999"}
 
 
-def test_registry_matches_the_spec_table():
-    assert set(ERROR_CODES) == set(SPEC_TABLE) == set(get_args(ErrorCode))
-    assert len(ERROR_CODES) == 13
+def test_registry_keys_are_the_error_code_literal():
+    # Codes, exit codes, HTTP statuses and titles agree with the Nogat registry
+    # (tests/contract/test_nogat_registry.py).
+    assert list(ERROR_CODES) == list(get_args(ErrorCode))
     for code, spec in ERROR_CODES.items():
         assert spec.code == code
-        assert (spec.exit_code, spec.http_status, spec.title) == SPEC_TABLE[code]
 
 
 def test_registry_has_the_polish_variant_and_a_distinct_title_in_every_language():
     for lang in LANGS:
         titles = [spec.title.localized(lang) for spec in ERROR_CODES.values()]
         assert len(set(titles)) == len(titles)
-    for code, spec in ERROR_CODES.items():
-        assert spec.title.localized("pl") == TITLES_PL[code]
+    for spec in ERROR_CODES.values():
+        assert spec.title.localized("pl") != spec.title.localized("en")
 
 
 def test_error_exit_codes_are_distinct_and_apart_from_envelope_codes():
