@@ -1353,12 +1353,12 @@ def test_imgw_19_k1_a_refused_chmi_selection_is_one_validation_error_everywhere(
         "",
         "validation_error",
     )
-    assert canonical([line["detail"], line["details"]]) == expected
+    assert canonical([line["message"], line["details"]]) == expected
     assert (answered.status_code, body["code"]) == (400, "validation_error")
     assert canonical([body["detail"], body["details"]]) == expected
     if MCP:
         document = mcp_answer(command, rooted(options, root)).structured_content
-        assert canonical([document["detail"], document["details"]]) == expected
+        assert canonical([document["message"], document["details"]]) == expected
     assert chmi.traffic() == []
 
 

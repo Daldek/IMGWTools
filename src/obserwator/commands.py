@@ -1224,13 +1224,18 @@ def _shown(value: object) -> object:
 
 
 def _fail(
-    message: str, *, option: str, value: object = None, **details: object
+    message: str,
+    *,
+    option: str,
+    value: object = None,
+    hint: str | None = None,
+    **details: object,
 ) -> NoReturn:
     payload: dict[str, object] = {"option": option}
     if value is not None:
         payload["value"] = _shown(value)
     payload.update(details)
-    raise ObserwatorValidationError(message, details=payload)
+    raise ObserwatorValidationError(message, details=payload, hint=hint)
 
 
 def _spec(command: object) -> DataCommand:
@@ -1245,6 +1250,7 @@ def _spec(command: object) -> DataCommand:
             option="command",
             value=command,
             allowed=list(_BY_NAME),
+            hint=message("errors.hint_unknown_command"),
         )
     return spec
 
@@ -1379,7 +1385,9 @@ def _choice_text(option: CommandOption, text: str) -> str:
             text = get_dataset(text).key
         except ObserwatorValidationError as exc:
             raise ObserwatorValidationError(
-                exc.detail, details={**exc.details, "option": option.name}
+                exc.detail,
+                details={**exc.details, "option": option.name},
+                hint=exc.hint,
             ) from exc
     elif option.name == "provider":
         # A key prefix (cz.chmi) names its provider, like dataset aliases.
@@ -1664,6 +1672,7 @@ def _validate(command: object, options: object) -> Options:
                 ),
                 option=str(key),
                 allowed=list(known),
+                hint=message("errors.hint_unknown_option", command=spec.name),
             )
     result: Options = {}
     for option in spec.options:

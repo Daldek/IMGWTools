@@ -447,10 +447,13 @@ async def test_an_error_is_the_english_cli_document():
 
     spec = ERROR_CODES["validation_error"]
     assert error_of(result) == {
+        "schema": "obserwator-error/1",
         "code": "validation_error",
         "title": spec.title,
-        "detail": raised.value.detail,
+        "message": raised.value.detail,
         "details": dict(raised.value.details),
+        "exit_code": spec.exit_code,
+        "command": "pmaxtp fetch",
     }
 
 
@@ -470,5 +473,5 @@ async def test_a_program_error_is_an_internal_error_with_its_trace_on_stderr(
 
     document = error_of(result)
     assert (document["code"], document["details"]) == ("internal_error", {})
-    assert "błąd programu" not in document["detail"]
+    assert "błąd programu" not in document["message"]
     assert "RuntimeError: błąd programu w rejestrze" in capsys.readouterr().err

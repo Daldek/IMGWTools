@@ -3,12 +3,13 @@ RFC 9457 problem documents of the REST API (spec §13.5, ADR-002 D7).
 
 Every error answer of the application is an ``application/problem+json``
 document with ``type``, ``title``, ``status``, ``detail``, ``instance``,
-``code`` and ``details``: library errors by their ``code``, pydantic request
+``code``, ``details`` and, when one fits, ``hint`` (AGI-6.3): library errors by
+their ``code`` with the hint of `obserwator.error_report.error_hint`, pydantic request
 validation (400 ``validation_error``), unknown routes (404 ``not_found``),
 wrong methods (405 ``method_not_allowed``), file-system errors (``io_error``)
 and program errors (``internal_error``). Code, title and HTTP status come from
 the error registry `ERROR_CODES`, so REST reports an error exactly as the CLI
-and the web GUI do. The title and the detail of a catalog message are in the
+and the web GUI do. The title, the detail and the hint of a catalog message are in the
 language of ``Accept-Language`` (`accept_language`, English by default, AGI-6.4);
 any other detail stays as the raiser wrote it. Texts and details never contain absolute
 server paths (rule T21): `hide_server_paths` writes them relative to the server
@@ -28,6 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from obserwator._jsonable import jsonable
 from obserwator.config import settings
+from obserwator.error_report import error_hint
 from obserwator.exceptions import (
     ERROR_CODES,
     ErrorCode,
@@ -62,6 +64,7 @@ PROBLEM_SCHEMA: dict[str, object] = {
         "code": {
             "enum": [code for code, spec in ERROR_CODES.items() if spec.http_status]
         },
+        "hint": {"type": "string", "minLength": 1},
         "details": {"type": "object"},
     },
     "additionalProperties": False,
@@ -201,6 +204,7 @@ def problem_response(
     detail: str,
     details: Mapping[str, object] | None = None,
     *,
+    hint: str | None = None,
     headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     """
@@ -218,6 +222,9 @@ def problem_response(
         language of the request); the registry title when empty.
     details : Mapping[str, object] or None, optional
         JSON-compatible context (``option``, ``reason``, ``errors``, ...).
+    hint : str or None, optional
+        One line saying how to fix the error (a catalog message is rendered in
+        the language of the request); left out when ``None``.
     headers : Mapping[str, str] or None, optional
         Extra response headers, e.g. ``Allow`` of a 405 answer.
 
@@ -245,6 +252,8 @@ def problem_response(
         "code": spec.code,
         "details": hide_server_paths(dict(details or {})),
     }
+    if hint:
+        body["hint"] = cast(str, hide_server_paths(localize(hint, language)))
     response = JSONResponse(
         body,
         status_code=status,
@@ -264,7 +273,8 @@ def _option(location: tuple[int | str, ...]) -> str:
 
 
 async def _obserwator_error(request: Request, exc: ObserwatorError) -> Response:
-    return problem_response(request, exc.code, exc.detail, exc.details)
+    hint = error_hint(exc.code, exc.details, exc.hint)
+    return problem_response(request, exc.code, exc.detail, exc.details, hint=hint)
 
 
 async def _validation_error(request: Request, exc: RequestValidationError) -> Response:

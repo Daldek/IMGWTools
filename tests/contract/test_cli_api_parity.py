@@ -199,7 +199,7 @@ def test_installed_obserwator_prints_the_envelopes_of_run_command_offline(
         ERROR_CODES["validation_error"].exit_code,
         "",
     )
-    assert schema_errors(line, "cli-error") == []
+    assert schema_errors(line, "obserwator-error/1") == []
     assert (line["code"], line["details"]["option"]) == ("validation_error", "years")
 
 

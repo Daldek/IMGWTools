@@ -75,11 +75,12 @@ O2001 = f"archive:{PRECIP}:2001/2001_01_o.zip"
 INSTALLED = Path(sys.executable).with_name(
     "obserwator.exe" if sys.platform == "win32" else "obserwator"
 )
-# Last stderr line of a failed command (spec §13.5).
+# Last stderr line of a failed command: the obserwator-error/1 document (AGI-4.3).
 CLI_ERROR = {
     "type": "object",
-    "required": ["code", "detail", "details"],
+    "required": ["schema", "code", "title", "message", "details", "exit_code"],
     "properties": {
+        "schema": {"const": "obserwator-error/1"},
         "code": {
             "enum": [
                 "validation_error",
@@ -96,8 +97,12 @@ CLI_ERROR = {
                 "internal_error",
             ]
         },
-        "detail": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "hint": {"type": "string", "minLength": 1},
         "details": {"type": "object"},
+        "exit_code": {"type": "integer"},
+        "command": {"type": "string", "pattern": "^[a-z][a-z0-9-]* [a-z][a-z0-9-]*$"},
     },
     "additionalProperties": False,
 }
@@ -165,7 +170,7 @@ def error_line(result, code):
     document = json.loads(result.stderr.splitlines()[-1])
     assert violations(document, CLI_ERROR) == []
     assert document["code"] == code, document
-    assert result.exit_code == ERROR_CODES[code].exit_code
+    assert result.exit_code == document["exit_code"] == ERROR_CODES[code].exit_code
     return document
 
 
@@ -780,6 +785,9 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
     document = error_line(invoke(*args), "validation_error")
     assert document["details"].get("option") == option
     assert document["details"]["click"]
+    words = [str(arg) for arg in args]
+    assert document.get("command") == (" ".join(words[:2]) if len(words) > 1 else None)
+    assert "--help" in document["hint"]
     # parse_command refuses the same words as a mistake of the line.
     with pytest.raises(ObserwatorError) as error:
         parse_command([str(arg) for arg in args])
@@ -792,16 +800,24 @@ def test_cli_catalog_click_syntax_error_is_a_validation_error_line(args, option)
 
 def test_cli_catalog_unknown_flag_is_reported_in_english_whatever_obserwator_lang():
     detail = "Unknown option --colour of the command obserwator datasets list"
+    hint = "obserwator datasets list --help lists the options and commands"
     document = error_line(
         invoke("datasets", "list", "--colour", "red"), "validation_error"
     )
-    assert document["detail"].startswith(detail)
+    assert (document["message"], document["hint"]) == (detail, hint)
     polish = run_installed(
         "datasets", "list", "--colour", "red", lang="pl", capture_output=True
     )
     line = json.loads(polish.stderr.decode("utf-8").splitlines()[-1])
-    assert (polish.returncode, line["detail"].startswith(detail)) == (2, True)
+    assert (polish.returncode, line["message"], line["hint"]) == (2, detail, hint)
     assert document["details"]["click"] == "No such option: --colour"
+
+
+def test_cli_catalog_unknown_flag_close_to_a_known_one_hints_at_it():
+    document = error_line(invoke("store", "info", "--rot", "/r"), "validation_error")
+    assert document["hint"] == (
+        "Did you mean --root? obserwator store info --help lists the options"
+    )
 
 
 @pytest.mark.parametrize(
@@ -882,8 +898,10 @@ def test_cli_catalog_installed_obserwator_reports_the_error_line_of_the_spec():
     )
     assert (result.returncode, result.stdout) == (2, b"")
     assert result.stderr.decode("utf-8").splitlines()[-1] == (
-        '{"code":"validation_error","detail":"Latitude 1.0 is outside Poland '
-        '(49.0–55.0)","details":{"option":"latitude","value":1.0}}'
+        '{"schema":"obserwator-error/1","code":"validation_error",'
+        '"title":"Invalid input","message":"Latitude 1.0 is outside Poland '
+        '(49.0–55.0)","details":{"option":"latitude","value":1.0},"exit_code":2,'
+        '"command":"pmaxtp fetch"}'
     )
     unknown = run_installed("store", "info", "--colour", "red", capture_output=True)
     assert unknown.returncode == 2

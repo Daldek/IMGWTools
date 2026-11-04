@@ -18,6 +18,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
+from obserwator import ERROR_CODES
 from tests.contract.support import command_document, rest_request, stamps
 from tests.contract.test_interface_contract import (
     CASES,
@@ -50,9 +51,19 @@ def assert_same(answered, result, command: str, options: dict[str, object]) -> N
     if media == "application/problem+json":
         body = answered.json()
         assert result.is_error is True
-        assert result.structured_content == {
-            key: body[key] for key in ("code", "title", "detail", "details")
+        expected = {
+            "schema": "obserwator-error/1",
+            "code": body["code"],
+            "title": body["title"],
+            "message": body["detail"],
+            "hint": body.get("hint"),
+            "details": body["details"],
+            "exit_code": ERROR_CODES[body["code"]].exit_code,
+            "command": command,
         }
+        if expected["hint"] is None:
+            del expected["hint"]
+        assert result.structured_content == expected
         return
     assert answered.status_code == 200, answered.text
     assert result.is_error is False, result.content[0].text

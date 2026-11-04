@@ -76,9 +76,17 @@ MESSAGES = {
         "Nieprawidłowe wywołanie {path}: komenda przyjmuje wyłącznie opcje "
         "--nazwa wartość",
     ),
-    "usage_help": Text(
-        "{detail} (help: {path} --help)",
-        "{detail} (pomoc: {path} --help)",
+    "hint_help": Text(
+        "{path} --help lists the options and commands",
+        "Opcje i komendy wypisuje {path} --help",
+    ),
+    "hint_similar": Text(
+        "Did you mean {similar}? {path} --help lists the options",
+        "Czy chodziło o {similar}? Opcje wypisuje {path} --help",
+    ),
+    "hint_language": Text(
+        "Set {variable} to one of: {allowed}",
+        "Ustaw {variable} na jedną z wartości: {allowed}",
     ),
     "invalid_language_variable": Text(
         "Invalid value {value!r} of the environment variable {variable}; allowed: "
