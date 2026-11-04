@@ -17,16 +17,16 @@ Use it to read archive and current data of IMGW-PIB and ČHMÚ stations, to keep
 2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `obserwator-plan/1` plan without writing and without downloading content. `store check` is a check itself. Ask the user about a large plan.
 3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
 4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`offset`), `pmaxtp read` — without downloading again.
-5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `detail` text is for humans.
+5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `message` text is for humans, the `hint` names the option or command that fixes the error.
 
 ## Interfaces
 
 | Interface | Plan | Result | Error |
 |---|---|---|---|
-| Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `details`) |
-| CLI `obserwator` | `--check` | one-line JSON envelope on stdout | last stderr line `{"code", "detail", "details"}`; exit code |
-| REST `/api/v1` | `?check=true` (POST) | 200 + envelope | `application/problem+json` |
-| MCP | `check: true` | `structuredContent` = envelope | `isError: true` + `{"code", "title", "detail", "details"}` |
+| Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `hint`, `details`); `obserwator.error_report.error_report(exc).to_dict()` = the error document |
+| CLI `obserwator` | `--check` | one-line JSON envelope on stdout | last stderr line: error document `obserwator-error/1`; exit code |
+| REST `/api/v1` | `?check=true` (POST) | 200 + envelope | `application/problem+json` (with `hint`) |
+| MCP | `check: true` | `structuredContent` = envelope | `isError: true` + error document `obserwator-error/1` |
 
 One command in every interface: CLI `obserwator <group> <command> --option value` (flag = `--` + the option name with `-` for `_`); Python `run_command("<group> <command>", options={...})`; REST `/api/v1/<group>/<command>` (GET: query parameters, POST: JSON body); MCP tool `obserwator_<group>_<command>`.
 

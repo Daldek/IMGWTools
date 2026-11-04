@@ -126,9 +126,11 @@ MESSAGES = {
     ),
     "rule_decide_by_codes": Text(
         "**Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the "
-        "`detail` text is for humans.",
+        "`message` text is for humans, the `hint` names the option or command that "
+        "fixes the error.",
         "**Decyduj po kodach:** `code`, `status`, `items[].status`, `error_code`; "
-        "tekst `detail` jest dla człowieka.",
+        "tekst `message` jest dla człowieka, `hint` wskazuje opcję albo komendę, "
+        "która naprawia błąd.",
     ),
     "symbol_station_code": Text(
         "STATION_CODE",

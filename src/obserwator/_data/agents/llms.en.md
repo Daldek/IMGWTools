@@ -5,7 +5,7 @@
 <!-- obserwator:rules -->
 
 - Result: the JSON envelope `obserwator-result/1` with the `status` field (`ok`, `partial`, `failed`, `cancelled`; CLI exit codes 0, 10, 11, 130).
-- Error: `{"code", "detail", "details"}` in the last stderr line of the CLI or `application/problem+json` in REST; codes from a closed registry, e.g. `validation_error` = 2 / 400.
+- Error: `obserwator-error/1` `{schema, code, title, message, hint?, details, exit_code, command?}` in the last stderr line of the CLI and in MCP `isError` or `application/problem+json` in REST; codes from a closed registry, e.g. `validation_error` = 2 / 400.
 - Datasets: full keys `<country>.<provider>.<dataset>`, e.g. `pl.imgw.hydro_daily`, `cz.chmi.hydro_daily`; station codes: IMGW-PIB 9 digits, ČHMÚ WIGOS identifier.
 - Commands: `obserwator commands list` (summary) and `obserwator commands schema` (options), or `GET /api/v1/commands/list` and `/schema`; MCP tools `obserwator_commands_list` and `obserwator_commands_schema`; the full guide: `obserwator commands guide` or `GET /api/v1/commands/guide` (Polish: `--lang pl`, `?lang=pl`).
 

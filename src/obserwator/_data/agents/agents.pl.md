@@ -18,10 +18,10 @@ Służy do odczytu archiwalnych i bieżących danych stacji IMGW-PIB i ČHMÚ, l
 
 | Interfejs | Plan | Wynik | Błąd |
 |---|---|---|---|
-| Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `details`) |
-| CLI `obserwator` | `--check` | koperta JSON w jednej linii stdout | ostatnia linia stderr `{"code", "detail", "details"}`; kod wyjścia |
-| REST `/api/v1` | `?check=true` (POST) | 200 + koperta | `application/problem+json` |
-| MCP | `check: true` | `structuredContent` = koperta | `isError: true` + `{"code", "title", "detail", "details"}` |
+| Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `hint`, `details`); `obserwator.error_report.error_report(exc).to_dict()` = dokument błędu |
+| CLI `obserwator` | `--check` | koperta JSON w jednej linii stdout | ostatnia linia stderr: dokument błędu `obserwator-error/1`; kod wyjścia |
+| REST `/api/v1` | `?check=true` (POST) | 200 + koperta | `application/problem+json` (z `hint`) |
+| MCP | `check: true` | `structuredContent` = koperta | `isError: true` + dokument błędu `obserwator-error/1` |
 
 Ta sama komenda w każdym interfejsie: CLI `obserwator <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={...})`; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, POST: ciało JSON); narzędzie MCP `obserwator_<grupa>_<komenda>`.
 

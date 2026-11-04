@@ -16,6 +16,7 @@ src/obserwator/
 ├── agent_guide.py        # PUBLIC: agent_guide (AGENTS.md / llms.txt), MCP server instructions
 ├── coverage.py           # PUBLIC: summarize_coverage (per-station periods for ČHMÚ)
 ├── exceptions.py         # PUBLIC: ObserwatorError hierarchy + ERROR_CODES registry (title as a catalog message)
+├── error_report.py       # PUBLIC: obserwator-error/1 document (ErrorReport, error_document, error_report, error_hint)
 ├── messages/             # Message catalog: message(), Message, localize(), one module of Text(en, pl) per area (ADR-006)
 ├── urls.py               # PUBLIC: IMGW URL constants, build_pmaxtp_url, build_api_url
 ├── parsers.py            # PUBLIC: Parser re-exports (IMGW-PIB hydro/meteo, ČHMÚ, station lists)
@@ -286,9 +287,9 @@ Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-00
 ### Output, errors and exit codes
 
 - CLI stdout: compact one-line JSON envelope `obserwator-result/1` (`schema`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`); store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{output, files[]}` (`OutputReport`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
-- CLI error: stdout empty, last stderr line `{"code", "detail", "details"}`.
-- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `details`); list `limit` default/maximum `OBSERWATOR_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title` and `detail` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
-- MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with `{code, title, detail, details}`; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
+- CLI error: stdout empty, last stderr line the `obserwator-error/1` document (`schema`, `code`, `title`, `message`, `hint`?, `details`, `exit_code`, `command`?; `error_report.py`).
+- REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `hint`?, `details`); list `limit` default/maximum `OBSERWATOR_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title`, `detail` and `hint` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
+- MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with the CLI's `obserwator-error/1` document; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
 
 |Code|Title (`title` / `title.localized("pl")`)|CLI exit|HTTP|
 |---|---|---|---|
