@@ -2,16 +2,16 @@
 
 > Python library, CLI, REST API and MCP server for public hydrological and meteorological data: a versioned store of archives and station series, current data and PMAXTP. Version 3.0.0.dev0. Providers: IMGW-PIB — Poland, ČHMÚ — Czechia. Datasets in the registry: 17. Commands of the catalog shared by every interface: 30 (groups: 7).
 
-1. **Learn the commands:** `obserwator commands list` (a one-sentence summary of each), then `obserwator commands schema --command …` or `obserwator <group> <command> --schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `obserwator_commands_list` and `obserwator_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-obserwator.rules`, effects in `x-obserwator.writes`, `x-obserwator.network` and `x-obserwator.idempotent`.
+1. **Learn the commands:** `obserwator commands list --json` (a one-sentence summary of each), then `obserwator commands schema --command … --json` or `obserwator <group> <command> --schema --json`; REST `GET /api/v1/commands/list` and `/schema`; in MCP `obserwator_commands_list` and `obserwator_commands_schema`. Options are JSON Schema properties; rules the schema does not express are in `x-obserwator.rules`, effects in `x-obserwator.writes`, `x-obserwator.network` and `x-obserwator.idempotent`.
 2. **Check without writing:** `--check` (CLI), `?check=true` (REST, POST), `check: true` (MCP; the default of writing commands), `check_command()` (Python) → an `obserwator-plan/1` plan without writing and without downloading content. `store check` is a check itself. Ask the user about a large plan.
 3. **Run:** without `check`; read the `status` of the envelope, not only the exit code.
 4. **Read offline:** `store info`, `store scan`, `series summary`, `series read` (`limit`/`cursor`), `pmaxtp read` — without downloading again.
 5. **Decide by codes:** `code`, `status`, `items[].status`, `error_code`; the `message` text is for humans, the `hint` names the option or command that fixes the error.
 
-- Result: the JSON envelope `obserwator-result/1` with the `status` field (`ok`, `partial`, `failed`, `cancelled`; CLI exit codes 0, 10, 11, 130).
+- Result: the JSON envelope `obserwator-result/1` (CLI: `--json`; without it a summary for a person) with the `status` field (`ok`, `partial`, `failed`, `cancelled`; CLI exit codes 0, 10, 11, 130).
 - Error: `obserwator-error/1` `{schema, code, title, message, hint?, details, exit_code, command?}` in the last stderr line of the CLI and in MCP `isError` or `application/problem+json` in REST; codes from a closed registry, e.g. `validation_error` = 2 / 400.
 - Datasets: full keys `<country>.<provider>.<dataset>`, e.g. `pl.imgw.hydro_daily`, `cz.chmi.hydro_daily`; station codes: IMGW-PIB 9 digits, ČHMÚ WIGOS identifier.
-- Commands: `obserwator commands list` (summary) and `obserwator commands schema` (options), or `GET /api/v1/commands/list` and `/schema`; MCP tools `obserwator_commands_list` and `obserwator_commands_schema`; the full guide: `obserwator commands guide` or `GET /api/v1/commands/guide` (Polish: `--lang pl`, `?lang=pl`).
+- Commands: `obserwator commands list --json` (summary) and `obserwator commands schema --json` (options), or `GET /api/v1/commands/list` and `/schema`; MCP tools `obserwator_commands_list` and `obserwator_commands_schema`; the full guide: `obserwator commands guide` or `GET /api/v1/commands/guide` (Polish: `--lang pl`, `?lang=pl`).
 
 ## Docs
 

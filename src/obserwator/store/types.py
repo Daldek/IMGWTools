@@ -1248,7 +1248,9 @@ class CommandCall:
         that.
     run : dict of str to object
         The flags of a run beside the options: ``{"check": True}`` for
-        ``--check`` (the call is a ``check_command``), otherwise empty.
+        ``--check`` (the call is a ``check_command``), ``{"json": True}`` for
+        ``--json`` and the text of ``--lang`` as ``lang`` (how the CLI prints
+        the result, not part of the call); empty without them.
     """
 
     command: str

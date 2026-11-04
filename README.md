@@ -95,9 +95,10 @@ obserwator current hydro -s 150160180
 obserwator pmaxtp fetch --lat 52.23 --lon 21.01 --method AMP
 obserwator datasets download -d hydro/miesieczne -y 2023 -o dane    # plain files in the dane/ directory
 obserwator store sync -d pl.imgw.hydro_monthly -y 2023              # versioned store in <data_dir>/obserwator
+obserwator stations find -k hydro -q wisla --limit 5 --json        # one JSON line for scripts and agents
 ```
 
-stdout is one JSON line — the `obserwator-result/1` envelope; `obserwator commands list` prints all commands of the catalog.
+Without `--json` stdout is a short summary in the language of `--lang` (`OBSERWATOR_LANG`, `pl` by default); `--json` prints one JSON line — the `obserwator-result/1` envelope — and is what scripts and agents parse. `obserwator commands list` prints all commands of the catalog.
 
 ### REST API
 

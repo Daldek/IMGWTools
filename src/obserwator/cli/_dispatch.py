@@ -6,24 +6,30 @@ Every command of `obserwator.commands.data_commands` becomes ``obserwator <group
 catalog flags with their short aliases, and Click validates nothing, so the raw
 text of the given options reaches `run_command` (`check_command` with
 ``--check``) and validation, defaults and the called public function are those
-of Python and REST. ``--schema`` prints the command schema envelope of
-``obserwator commands schema --command …`` instead of running the command.
+of Python and REST. ``--schema`` describes the command as ``obserwator commands
+schema --command …`` does instead of running it.
 
-stdout carries one ``obserwator-result/1`` envelope (only the data lines of a stream
-without ``--output``); stderr carries progress, every distinct notice once and,
-on an error, the ``obserwator-error/1`` document (`obserwator.error_report`: ``schema,
-code, title, message, hint?, details, exit_code, command?``) as compact JSON on its
-last line. Exit codes follow the error registry and the envelope status (spec
-§13.5). The first Ctrl+C requests cancellation, the second aborts at once.
+``--json`` puts one ``obserwator-result/1`` envelope on stdout; without it stdout
+carries a short rendering of the result for a person (`obserwator.cli._render`) in
+the language of ``--lang`` (``OBSERWATOR_LANG`` by default), ending with the
+notices. The data lines of a stream without ``--output`` are the same in both
+modes. stderr carries progress, in ``--json`` mode every distinct notice once
+and, on an error, the ``obserwator-error/1`` document (`obserwator.error_report`:
+``schema, code, title, message, hint?, details, exit_code, command?``) as
+compact JSON on its last line, in the human mode after one readable line. Exit
+codes follow the error registry and the envelope status (spec §13.5). The first
+Ctrl+C requests cancellation, the second aborts at once.
 
-The human-readable output is in the language of ``OBSERWATOR_LANG`` (``Settings.lang``,
-``pl`` by default, chosen at import): the help (catalog texts and the help
-elements of Typer and Click: panels, ``--help``, the usage line with its
-``[OPTIONS]`` and ``COMMAND [ARGS]...`` placeholders, the environment and
-default markers, the abort message) and the progress and notice lines of stderr;
-another value ends every call with ``validation_error`` (spec 2026-10-19
-§4.2–§4.3). The JSON error line is English whatever the setting (AGI-9.2), as is
-the envelope of stdout; ``--lang`` of the description commands defaults to English.
+The help is in the language of ``OBSERWATOR_LANG`` (``Settings.lang``, ``pl`` by
+default, chosen at import): catalog texts and the help elements of Typer and
+Click (panels, ``--help``, the usage line with its ``[OPTIONS]`` and ``COMMAND
+[ARGS]...`` placeholders, the environment and default markers, the abort
+message); the progress and notice lines, the human rendering and the readable
+error line follow ``--lang`` too. Another value of ``OBSERWATOR_LANG`` ends every
+call with ``validation_error`` (spec 2026-10-19 §4.2–§4.3). The JSON error line
+is English whatever the setting (AGI-9.2), as is the envelope of ``--json``;
+``--lang`` of the description commands defaults to English with ``--json`` and
+to the language of the call without it.
 """
 
 import errno
@@ -34,8 +40,9 @@ import signal
 import sys
 import threading
 import traceback
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
@@ -46,6 +53,7 @@ from rich.console import Console
 from typer import rich_utils
 from typer.core import TyperCommand, TyperGroup
 
+from obserwator.cli._render import render
 from obserwator.commands import (
     check_command,
     command_schema,
@@ -92,6 +100,8 @@ class _HelpTexts:
     aborted: str
     check: str
     schema: str
+    json: str
+    lang: str
     metavars: Mapping[str, str]
 
 
@@ -112,6 +122,8 @@ def _help_texts(lang: Lang) -> _HelpTexts:
         aborted=message("cli.help_aborted", lang=lang),
         check=message("cli.help_check", lang=lang),
         schema=message("cli.help_schema", lang=lang),
+        json=message("cli.help_json", lang=lang),
+        lang=message("cli.help_lang", lang=lang),
         metavars={
             "str": message("cli.metavar_text", lang=lang),
             "int": message("cli.metavar_number", lang=lang),
@@ -163,6 +175,43 @@ def _catalog_tables() -> tuple[dict[str, str], dict[str, int]]:
 
 
 _GROUPS, _EXIT_CODES = _catalog_tables()
+_JSON_FLAG = "--json"
+_LANG_FLAG = "--lang"
+
+
+@dataclass(frozen=True)
+class _Output:
+    """How the current call prints: ``--json`` (machine) or for a person in ``lang``."""
+
+    json: bool
+    lang: Lang
+
+
+# Set per call: from the words of the line before parsing (an error of the line
+# itself), then from the parsed flags of a catalog command. A call outside the
+# root group (a test of one command) prints for a person in the CLI language.
+_OUTPUT: ContextVar[_Output] = ContextVar("obserwator_output")
+_FOR_PERSON = _Output(json=False, lang=_LANG)
+
+
+def _output() -> _Output:
+    """The output of the current call."""
+    return _OUTPUT.get(_FOR_PERSON)
+
+
+def _output_of(words: Sequence[str]) -> _Output:
+    """The output a command line asks for, read from its words (before ``--``)."""
+    words = list(words[: words.index("--")] if "--" in words else words)
+    lang = _LANG
+    for index, word in enumerate(words):
+        value = (
+            words[index + 1] if word == _LANG_FLAG and index + 1 < len(words) else None
+        )
+        if word.startswith(f"{_LANG_FLAG}="):
+            value = word.partition("=")[2]
+        if value in LANGS:
+            lang = value
+    return _Output(_JSON_FLAG in words, lang)
 
 
 # --- wyjście ---------------------------------------------------------------------------------
@@ -173,17 +222,19 @@ def _json(document: object) -> str:
 
 
 def _print_progress(progress: Progress) -> None:
-    text = localize(progress.message, _LANG) or f"{progress.unit}: {progress.status}"
+    lang = _output().lang
+    text = localize(progress.message, lang) or f"{progress.unit}: {progress.status}"
     _ERR.print(
         f"[{progress.current}/{progress.total}] {text}", markup=False, emoji=False
     )
 
 
 def _print_notice(level: str, text: str) -> None:
+    lang = _output().lang
     key, style = _LEVELS.get(level, ("", "white"))
-    label = message(key, lang=_LANG) if key else level
+    label = message(key, lang=lang) if key else level
     _ERR.print(
-        f"{label}: {localize(text, _LANG)}", style=style, markup=False, emoji=False
+        f"{label}: {localize(text, lang)}", style=style, markup=False, emoji=False
     )
 
 
@@ -239,9 +290,35 @@ def _error_line(
     hint: str | None = None,
     command: str | None = None,
 ) -> int:
-    """Write the ``obserwator-error/1`` line to stderr in English; return the exit code."""
+    """
+    Write the ``obserwator-error/1`` line to stderr in English; return the exit code.
+
+    Without ``--json`` one readable line in the language of the call comes first.
+    """
     if ERROR_CODES[code].exit_code is None:  # REST-only code (method_not_allowed)
         code = "internal_error"
+    output = _output()
+    if not output.json:
+        shown = error_document(
+            code, detail, details, hint=hint, command=command, lang=output.lang
+        )
+        line = (
+            message(
+                "cli.human_error_hint",
+                lang=output.lang,
+                title=shown.title,
+                message=shown.message,
+                hint=shown.hint,
+            )
+            if shown.hint
+            else message(
+                "cli.human_error",
+                lang=output.lang,
+                title=shown.title,
+                message=shown.message,
+            )
+        )
+        _ERR.print(line, style="red", markup=False, emoji=False)
     report = error_document(code, detail, details, hint=hint, command=command)
     typer.echo(report.to_json(), err=True)
     return report.exit_code or 1
@@ -376,6 +453,7 @@ class ObserwatorGroup(TyperGroup):
         **extra: Any,
     ) -> Any:
         """Parse the root arguments; a syntax error ends with the JSON error line."""
+        _OUTPUT.set(_output_of(args))
         if human_language() is None:
             raise typer.Exit(_language_failure())
         if args[:1] != [
@@ -478,13 +556,29 @@ def _interrupt() -> Iterator[threading.Event]:
 
 
 def _run(command: str, options: dict[str, object], *, check: bool) -> int:
-    """Run (``check``: plan) one catalog command and print it; return the exit code."""
-    shown: set[Notice] = set()
+    """
+    Run (``check``: plan) one catalog command and print it; return the exit code.
+
+    With ``--json`` the envelope goes to stdout and every distinct notice to
+    stderr at once; without it the rendering for a person ends with the
+    notices, which reach stderr only before the lines of a stream or an error.
+    """
+    output = _output()
+    shown: dict[Notice, None] = {}  # distinct notices in order of first occurrence
+    live = output.json
 
     def on_notice(notice: Notice) -> None:
         if notice not in shown:
-            shown.add(notice)
-            _print_notice(notice.level, notice.message)
+            shown[notice] = None
+            if live:
+                _print_notice(notice.level, notice.message)
+
+    def flush_notices() -> None:
+        nonlocal live
+        if not live:
+            live = True
+            for notice in shown:
+                _print_notice(notice.level, notice.message)
 
     with _interrupt() as requested:
         try:
@@ -499,14 +593,22 @@ def _run(command: str, options: dict[str, object], *, check: bool) -> int:
                 cancel=requested.is_set,
             )
             if isinstance(outcome.result, Iterator):
+                flush_notices()
                 _write_lines(outcome.result)
             else:
                 base = root if isinstance(root, Path) else None
-                _to_stdout(typer.echo, _json(outcome.to_json(root=base)))
+                envelope = outcome.to_json(root=base)
+                text = (
+                    _json(envelope)
+                    if output.json
+                    else render(envelope, outcome.notices, output.lang)
+                )
+                _to_stdout(typer.echo, text)
         except BrokenPipeError:
             _silence_stdout()
             return 0
         except (KeyboardInterrupt, Exception) as exc:
+            flush_notices()
             return _failure(exc, command)
     return _EXIT_CODES[outcome.status]
 
@@ -566,6 +668,26 @@ def _flag(name: str, help_: str) -> inspect.Parameter:
     )
 
 
+def _lang_option() -> inspect.Parameter:
+    """``--lang`` of a command without the catalog option ``lang`` (AGI-3.4)."""
+    return inspect.Parameter(
+        "lang",
+        inspect.Parameter.KEYWORD_ONLY,
+        default=typer.Option(
+            None,
+            _LANG_FLAG,
+            help=_HELP.lang,
+            metavar="|".join(LANGS),
+            rich_help_panel=_HELP.optional_panel,
+        ),
+        annotation=str | None,
+    )
+
+
+def _has_lang_option(spec: DataCommand) -> bool:
+    return any(option.name == "lang" for option in spec.options)
+
+
 def _parameters(spec: DataCommand) -> list[inspect.Parameter]:
     parameters = [
         inspect.Parameter(
@@ -575,6 +697,9 @@ def _parameters(spec: DataCommand) -> list[inspect.Parameter]:
     ]
     if spec.check is not None:
         parameters.append(_flag("check", _HELP.check))
+    parameters.append(_flag("json", _HELP.json))
+    if not _has_lang_option(spec):
+        parameters.append(_lang_option())
     parameters.append(_flag("schema", _HELP.schema))
     return parameters
 
@@ -594,15 +719,54 @@ def _given(spec: DataCommand, values: Mapping[str, Any]) -> dict[str, object]:
     return options
 
 
+def _set_output(spec: DataCommand, values: dict[str, Any]) -> int:
+    """
+    Take ``--json`` and ``--lang`` of a parsed call as its output; return 0.
+
+    ``--lang`` of a command without the catalog option ``lang`` leaves
+    ``values``; when it is no language the call ends with ``validation_error``
+    (its exit code is returned). A catalog ``lang`` that is no language is
+    left to the validation of the call.
+    """
+    own = _has_lang_option(spec)
+    given = values.get("lang") if own else values.pop("lang")
+    valid = given is None or given in LANGS
+    lang = cast(Lang, given) if given and valid else _LANG
+    _OUTPUT.set(_Output(bool(values.pop("json")), lang))
+    if valid or own:
+        return 0
+    return _error_line(
+        "validation_error",
+        message(
+            "commands.invalid_value_option_allowed",
+            text=given,
+            name="lang",
+            choices=", ".join(LANGS),
+        ),
+        {"option": "lang", "value": given, "allowed": list(LANGS)},
+        command=spec.name,
+    )
+
+
+def _call(spec: DataCommand, values: dict[str, Any]) -> int:
+    """Run the parsed call (``--schema``: describe the command); return the exit code."""
+    output = _output()
+    check = bool(values.pop("check", False))
+    # For a person the description commands describe in the language of the call.
+    if values.pop("schema"):
+        options: dict[str, object] = {"command": spec.name}
+        if not output.json:
+            options["lang"] = output.lang
+        return _run("commands schema", options, check=False)
+    options = _given(spec, values)
+    if not output.json and _has_lang_option(spec) and spec.result != "stream":
+        options.setdefault("lang", output.lang)
+    return _run(spec.name, options, check=check)
+
+
 def _register(group: typer.Typer, spec: DataCommand) -> None:
     def callback(ctx: typer.Context, **values: Any) -> None:
-        check = bool(values.pop("check", False))
-        if values.pop("schema"):
-            options: dict[str, object] = {"command": spec.name}
-            code = _run("commands schema", options, check=False)
-        else:
-            options = _given(spec, values)
-            code = _run(spec.name, options, check=check)
+        code = _set_output(spec, values) or _call(spec, values)
         if code:
             raise typer.Exit(code)
 
@@ -627,8 +791,10 @@ def register_catalog(app: typer.Typer, /) -> None:
     English "Required options"), ``--root`` defaults to the store root of
     ``OBSERWATOR_ROOT``, ``[obserwator] root`` or ``<data_dir>/obserwator`` (only under ``env_root_when`` of the command),
     list options take comma-separated values or
-    a repeated flag, ``--check`` exists only for commands with a check twin
-    and ``--schema`` for every command.
+    a repeated flag, ``--check`` exists only for commands with a check twin,
+    ``--json`` and ``--schema`` for every command and ``--lang`` (the
+    language of the human rendering) for every command, as the catalog option
+    of the description commands.
 
     Parameters
     ----------

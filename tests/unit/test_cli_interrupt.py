@@ -162,7 +162,7 @@ def test_an_interrupted_plain_download_leaves_no_staging_and_no_partial_target(
     command = start(
         "download",
         *("datasets", "download", "--dataset", DATASET, "--years", 2024),
-        *("--output-dir", tmp_path / "out", "--force"),
+        *("--output-dir", tmp_path / "out", "--force", "--json"),
     )
 
     status = command.interrupted(how)
@@ -203,6 +203,7 @@ def test_an_interrupted_export_leaves_no_staging_and_the_old_file(
     command = start(
         "export",
         *("store", "export", "--version", version, "--output", target, "--force"),
+        "--json",
     )
 
     status = command.interrupted(how)

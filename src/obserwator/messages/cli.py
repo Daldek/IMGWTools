@@ -1,9 +1,10 @@
 """
-Messages of ``cli/_dispatch.py``, ``cli/admin.py``, ``cli/config_cmd.py`` and ``cli/main.py``.
+Messages of the CLI: ``cli/_dispatch.py``, ``_render.py``, ``admin.py``, ``config_cmd.py``, ``main.py``.
 
-The help, the progress and notice lines, the tables and the prompts of the CLI follow
-``OBSERWATOR_LANG`` (``pl`` by default); the JSON error line on the last line of stderr is
-always English (AGI-9.2).
+The help, the human rendering of a result, the progress and notice lines, the tables and
+the prompts of the CLI follow ``--lang`` or ``OBSERWATOR_LANG`` (``pl`` by default); the
+envelope of ``--json`` and the JSON error line on the last line of stderr are always
+English (AGI-9.2).
 """
 
 from obserwator.messages import Text
@@ -23,14 +24,26 @@ MESSAGES = {
     "help_commands_metavar": Text("COMMAND [ARGS]...", "KOMENDA [ARGUMENTY]..."),
     "help_aborted": Text("Aborted.", "Przerwano."),
     "help_check": Text(
-        "Check only: print the obserwator-plan/1 plan without writing or downloading data",
-        "Tylko sprawdź: wypisz plan obserwator-plan/1 bez zapisu i bez pobierania danych",
+        "Check only: the obserwator-plan/1 plan without writing or downloading data",
+        "Tylko sprawdź: plan obserwator-plan/1 bez zapisu i bez pobierania danych",
     ),
     "help_schema": Text(
-        "Print the JSON Schema of the options of this command (like obserwator commands "
-        "schema --command) without running it",
-        "Wypisz schemat JSON opcji tej komendy (jak obserwator commands schema --command) "
-        "bez jej wykonania",
+        "Describe the options of this command (like obserwator commands schema --command) "
+        "without running it",
+        "Opisz opcje tej komendy (jak obserwator commands schema --command) bez jej "
+        "wykonania",
+    ),
+    "help_json": Text(
+        "Machine output: print the obserwator-result/1 envelope as one JSON line instead "
+        "of the summary for a person",
+        "Wyjście maszynowe: wypisz kopertę obserwator-result/1 jako jedną linię JSON "
+        "zamiast podsumowania dla człowieka",
+    ),
+    "help_lang": Text(
+        "Language of the summary for a person and of the stderr lines: pl or en "
+        "(default: OBSERWATOR_LANG)",
+        "Język podsumowania dla człowieka i linii stderr: pl albo en (domyślnie: "
+        "OBSERWATOR_LANG)",
     ),
     "metavar_text": Text("TEXT", "TEKST"),
     "metavar_number": Text("NUMBER", "LICZBA"),
@@ -42,6 +55,29 @@ MESSAGES = {
     # Labels of the notices printed to stderr.
     "level_info": Text("Info", "Informacja"),
     "level_warning": Text("Warning", "Ostrzeżenie"),
+    # The human rendering of a result (without --json).
+    "human_status_ok": Text("Done", "Gotowe"),
+    "human_status_partial": Text(
+        "Partly done, some items failed", "Częściowo, część pozycji nieudana"
+    ),
+    "human_status_failed": Text(
+        "Failed, no item succeeded", "Nieudane, żadna pozycja się nie udała"
+    ),
+    "human_status_cancelled": Text("Cancelled", "Przerwano"),
+    "human_page": Text("Page: {shown} of {total}", "Strona: {shown} z {total}"),
+    "human_page_more": Text(
+        "Page: {shown} of {total}, more: --cursor {cursor}",
+        "Strona: {shown} z {total}, dalej: --cursor {cursor}",
+    ),
+    "human_no_items": Text("No items", "Brak pozycji"),
+    "human_more_rows": Text("… {count} more", "… jeszcze {count}"),
+    "human_yes": Text("yes", "tak"),
+    "human_no": Text("no", "nie"),
+    "human_error": Text("Error: {title}: {message}", "Błąd: {title}: {message}"),
+    "human_error_hint": Text(
+        "Error: {title}: {message} Hint: {hint}",
+        "Błąd: {title}: {message} Wskazówka: {hint}",
+    ),
     # Errors of the command line.
     "unknown_option": Text(
         "Unknown option {option} of the command {path}",

@@ -296,7 +296,7 @@ def test_output_writes_the_guide_and_check_only_plans_it(existing, tmp_path):
     target = tmp_path / "AGENTS.md"
     if existing:
         target.write_bytes("stara treść\n".encode())
-    args = ["commands", "guide", "--lang", "en", "--output", str(target)]
+    args = ["commands", "guide", "--lang", "en", "--output", str(target), "--json"]
     if existing:
         args.append("--force")
 
@@ -343,7 +343,7 @@ def test_an_existing_guide_file_is_a_conflict_the_plan_reports_and_the_run_refus
 ):
     target = tmp_path / "AGENTS.md"
     target.write_text("stara treść\n", encoding="utf-8")
-    args = ["commands", "guide", "--lang", "en", "--output", str(target)]
+    args = ["commands", "guide", "--lang", "en", "--output", str(target), "--json"]
 
     planned = RUNNER.invoke(cli_app, [*args, "--check"])
     refused = RUNNER.invoke(cli_app, args)

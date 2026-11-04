@@ -47,6 +47,7 @@ src/obserwator/
 ├── cli/                  # Typer/Click CLI [optional: obserwator[cli]]
 │   ├── main.py           # Entry point (obserwator command): version, server, mcp, admin + catalog groups
 │   ├── _dispatch.py      # ObserwatorGroup + register_catalog: the only CLI adapter of the catalog (OBSERWATOR_LANG)
+│   ├── _render.py        # Summary for a person of the envelope (without --json): one renderer, key-field hints
 │   └── admin.py          # API key management
 ├── mcp/                  # MCP adapter [optional: obserwator[mcp]]; not in obserwator.__all__
 │   ├── _tools.py         # Tools from the catalog (modes read/write/http, schemas, annotations)
@@ -63,7 +64,7 @@ AGENTS.md, llms.txt       # Agent guide — DERIVED files: regenerate with `obse
 ## CLI Examples
 
 ```bash
-# CLI examples (stdout = one-line JSON envelope obserwator-result/1)
+# CLI examples (stdout: a summary for a person; with --json the one-line envelope obserwator-result/1)
 obserwator version                                   # Show version
 obserwator server --host 0.0.0.0 --port 8000         # Run API server
 obserwator datasets list -k hydro                    # Dataset registry
@@ -80,8 +81,8 @@ obserwator datasets providers                        # IMGW-PIB and CHMI
 obserwator stations find -k hydro -q spindleruv --provider CHMI  # ČHMÚ station (WIGOS id)
 obserwator store check --root /dane/obserwator -d cz.chmi.hydro_daily -s 0-203-1-001000 -y 2024-2025  # ČHMÚ listing check
 obserwator store catalog --root /dane/obserwator --provider CHMI # ČHMÚ station catalog
-obserwator commands schema --command "store sync"    # obserwator-commands/1 of a command
-obserwator commands schema --command "store sync" --lang pl  # Same, Polish texts
+obserwator commands schema --command "store sync" --json  # obserwator-commands/1 of a command
+obserwator commands schema --command "store sync" --lang pl  # Readable, Polish texts
 obserwator store sync --schema                       # Same, via the command itself
 obserwator commands guide --format agents --output AGENTS.md --force  # Regenerate AGENTS.md (English)
 obserwator mcp [--allow-writes --allow-dir DIR]      # MCP server on stdio, English; writes only inside --allow-dir (obserwator[mcp])
@@ -287,8 +288,9 @@ Python, CLI, REST and MCP share the names of the write targets (DEV-19.1, ADR-00
 
 ### Output, errors and exit codes
 
-- CLI stdout: compact one-line JSON envelope `obserwator-result/1` (`schema`, `tool`, `version`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`, `page` of a list command); `result` is a document with its own `schema` `obserwator-<kind>/1`, a list of them or null; store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{schema, output, files[]}` (`OutputReport`, `obserwator-output/1`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
-- CLI error: stdout empty, last stderr line the `obserwator-error/1` document (`schema`, `code`, `title`, `message`, `hint`?, `details`, `exit_code`, `command`?; `error_report.py`).
+- CLI stdout with `--json`: compact one-line JSON envelope `obserwator-result/1` (`schema`, `tool`, `version`, `command`, `check`, `status` ok|partial|failed|cancelled, `result`, `notices`, `page` of a list command); `result` is a document with its own `schema` `obserwator-<kind>/1`, a list of them or null; store paths relative to the root. `store export`/`series export`/`commands guide` without `--output` stream CSV/JSONL/Markdown bytes; with it the `result` is `{schema, output, files[]}` (`OutputReport`, `obserwator-output/1`; `files[]` = `{path, size_bytes, sha256, status}`). Progress and notices (once per distinct notice) go to stderr.
+- CLI stdout without `--json`: a short summary for a person in the language of `--lang` (`cli/_render.py`; status, the items of a list as a table of key fields and the page, the main fields of a document, the notices); not a contract.
+- CLI error: stdout empty, last stderr line the `obserwator-error/1` document (`schema`, `code`, `title`, `message`, `hint`?, `details`, `exit_code`, `command`?; `error_report.py`); without `--json` one readable line in the language of `--lang` comes before it.
 - REST: same envelope as the body; errors as `application/problem+json` (`type`, `title`, `status`, `detail`, `instance`, `code`, `hint`?, `details`); list `limit` default/maximum `OBSERWATOR_API_MAX_LIMIT` (1000). The texts of an answer (notices, item and plan texts, `title`, `detail` and `hint` of problem+json) are in the language of `?lang=` (commands with a `lang` option), else `Accept-Language`, else English; every command answer has `Content-Language`, and `Vary: Accept-Language` when the header decided. The OpenAPI document is English.
 - MCP: `structuredContent` = envelope (`isError=false` also for `partial`/`failed`); errors `isError=true` with the CLI's `obserwator-error/1` document; lists default to 50 items; streams up to 256 KiB; without `--allow-writes` writing commands return the plan (`check` fixed `true`), refused writes → `forbidden` (`details.reason="writes_disabled"`); with it a write needs `--allow-dir` and a target inside it (`no_allowed_dir`, `outside_allowed_dirs`).
 
