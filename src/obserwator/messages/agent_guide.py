@@ -90,18 +90,19 @@ MESSAGES = {
         "przerwano (Ctrl+C, anulowanie żądania); `result` częściowy albo `null`",
     ),
     "rule_learn_commands": Text(
-        "**Learn the commands:** `obserwator commands list` (a one-sentence summary of "
-        "each), then `obserwator commands schema --command …` or `obserwator <group> <command> "
-        "--schema`; REST `GET /api/v1/commands/list` and `/schema`; in MCP "
-        "`obserwator_commands_list` and `obserwator_commands_schema`. Options are JSON Schema "
-        "properties; rules the schema does not express are in `x-obserwator.rules`, "
-        "effects in `x-obserwator.writes`, `x-obserwator.network` and `x-obserwator.idempotent`.",
-        "**Poznaj komendy:** `obserwator commands list` (spis z opisem jednego zdania), "
-        "potem `obserwator commands schema --command …` albo `obserwator <grupa> <komenda> "
-        "--schema`; REST `GET /api/v1/commands/list` i `/schema`; w MCP "
-        "`obserwator_commands_list` i `obserwator_commands_schema`. Opcje to właściwości JSON "
-        "Schema; reguły nieopisane schematem są w `x-obserwator.rules`, skutki w "
-        "`x-obserwator.writes`, `x-obserwator.network` i `x-obserwator.idempotent`.",
+        "**Learn the commands:** `obserwator commands list --json` (a one-sentence summary "
+        "of each), then `obserwator commands schema --command … --json` or `obserwator "
+        "<group> <command> --schema --json`; REST `GET /api/v1/commands/list` and "
+        "`/schema`; in MCP `obserwator_commands_list` and `obserwator_commands_schema`. "
+        "Options are JSON Schema properties; rules the schema does not express are in "
+        "`x-obserwator.rules`, effects in `x-obserwator.writes`, `x-obserwator.network` and "
+        "`x-obserwator.idempotent`.",
+        "**Poznaj komendy:** `obserwator commands list --json` (spis z opisem jednego "
+        "zdania), potem `obserwator commands schema --command … --json` albo `obserwator "
+        "<grupa> <komenda> --schema --json`; REST `GET /api/v1/commands/list` i `/schema`; "
+        "w MCP `obserwator_commands_list` i `obserwator_commands_schema`. Opcje to "
+        "właściwości JSON Schema; reguły nieopisane schematem są w `x-obserwator.rules`, "
+        "skutki w `x-obserwator.writes`, `x-obserwator.network` i `x-obserwator.idempotent`.",
     ),
     "rule_check_first": Text(
         "**Check without writing:** `--check` (CLI), `?check=true` (REST, POST), "
@@ -221,13 +222,24 @@ MESSAGES = {
         "- Przełączniki domyślnie włączone: {toggles} (`--no-…` wyłącza); pozostałe "
         "flagi logiczne ({switches}) nie mają wartości i włączają swoją opcję.",
     ),
+    "flags_output": Text(
+        "- Output of the CLI: `--json` (every command) prints the envelope as one JSON "
+        "line on stdout — parse only that; without it stdout carries a short summary for "
+        "a person in the language of `--lang` (`pl`, `en`). The data lines of `store "
+        "export`, `series export` and `commands guide` without `--output` are the same "
+        "in both modes.",
+        "- Wyjście CLI: `--json` (każda komenda) wypisuje kopertę jako jedną linię JSON "
+        "na stdout — parsuj tylko je; bez niego stdout niesie krótkie podsumowanie dla "
+        "człowieka w języku `--lang` (`pl`, `en`). Linie danych `store export`, `series "
+        "export` i `commands guide` bez `--output` są takie same w obu trybach.",
+    ),
     "flags_environment": Text(
         "- Environment: `OBSERWATOR_ROOT` — the default `--root`, else `<data_dir>/obserwator` "
-        "(CLI, MCP stdio; {roots}); `OBSERWATOR_LANG` — the language of the CLI help and of the progress "
-        "lines (`pl`, `en`).",
+        "(CLI, MCP stdio; {roots}); `OBSERWATOR_LANG` — the language of the CLI help, of "
+        "the progress lines and the default `--lang` (`pl`, `en`).",
         "- Zmienne środowiskowe: `OBSERWATOR_ROOT` — domyślne `--root`, inaczej "
-        "`<data_dir>/obserwator` (CLI, MCP stdio; {roots}); `OBSERWATOR_LANG` — język pomocy CLI i linii postępu (`pl`, "
-        "`en`).",
+        "`<data_dir>/obserwator` (CLI, MCP stdio; {roots}); `OBSERWATOR_LANG` — język pomocy "
+        "CLI, linii postępu i domyślny `--lang` (`pl`, `en`).",
     ),
     "flags_root_when": Text(
         "{command} — only with {conditions}",

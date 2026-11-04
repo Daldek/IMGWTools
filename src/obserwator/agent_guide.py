@@ -440,6 +440,7 @@ def _flags(schemas: Iterable[Mapping[str, Any]], lang: Lang) -> str:
             toggles=toggles,
             switches=_listed(kinds["switch"]),
         ),
+        message("agent_guide.flags_output", lang=lang),
         message("agent_guide.flags_environment", lang=lang, roots=roots),
     ]
     return "\n".join(lines)
@@ -472,13 +473,15 @@ def _command_line(step: _Step, lang: Lang) -> str:
     """
     The ``obserwator`` line of a step: `format_command` with the symbols put back.
 
-    `format_command` writes the store root absolute, on Windows with the drive
-    of the working directory; the line names it as given, the same everywhere.
+    The agent reads the result of every step, so every line asks for the
+    envelope (``--json``). `format_command` writes the store root absolute, on
+    Windows with the drive of the working directory; the line names it as
+    given, the same everywhere.
     """
     options = cast(
         Mapping[str, object], _substituted(step.options, lambda s: s.stand_in)
     )
-    run = {"check": True} if step.check else None
+    run = {"check": step.check, "json": True}
     line = format_command(cast(str, step.command), options=options, run=run)
     line = line.replace(shlex.quote(str(Path(_STORE).absolute())), _STORE)
     line = _YEAR_RUN.sub(_year_range, line)

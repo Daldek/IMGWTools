@@ -19,19 +19,19 @@ Służy do odczytu archiwalnych i bieżących danych stacji IMGW-PIB i ČHMÚ, l
 | Interfejs | Plan | Wynik | Błąd |
 |---|---|---|---|
 | Python | `check_command(…)` | `CommandResult` (`to_json()`) | `ObserwatorError` (`code`, `detail`, `hint`, `details`); `obserwator.error_report.error_report(exc).to_dict()` = dokument błędu |
-| CLI `obserwator` | `--check` | koperta JSON w jednej linii stdout | ostatnia linia stderr: dokument błędu `obserwator-error/1`; kod wyjścia |
+| CLI `obserwator` | `--check` | `--json`: koperta JSON w jednej linii stdout (bez niego podsumowanie dla człowieka) | ostatnia linia stderr: dokument błędu `obserwator-error/1`; kod wyjścia |
 | REST `/api/v1` | `?check=true` (POST) | 200 + koperta | `application/problem+json` (z `hint`) |
 | MCP | `check: true` | `structuredContent` = koperta | `isError: true` + dokument błędu `obserwator-error/1` |
 
-Ta sama komenda w każdym interfejsie: CLI `obserwator <grupa> <komenda> --opcja wartość` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={...})`; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, POST: ciało JSON); narzędzie MCP `obserwator_<grupa>_<komenda>`.
+Ta sama komenda w każdym interfejsie: CLI `obserwator <grupa> <komenda> --opcja wartość --json` (flaga = `--` + nazwa opcji z `-` zamiast `_`); Python `run_command("<grupa> <komenda>", options={...})`; REST `/api/v1/<grupa>/<komenda>` (GET: parametry zapytania, POST: ciało JSON); narzędzie MCP `obserwator_<grupa>_<komenda>`.
 
 - **REST:** korzeń magazynu ustawia serwer (`OBSERWATOR_ROOT`), `version` jest względna do niego, opcji lokalnych nie ma; zapis (POST bez `?check=true`) wymaga włączenia na serwerze i nagłówka `X-API-Key`.
 - **MCP:** `obserwator mcp` (stdio) startuje bez zapisu — komendy zapisujące zwracają plan (`check` stałe `true`); zapis włącza użytkownik (`--allow-writes`), a i wtedy `check` jest domyślnie `true`. `/mcp` serwera REST (`OBSERWATOR_MCP_ENABLED=true`) tylko czyta i planuje.
-- **Język:** wynik maszynowy jest po angielsku (koperta, linie błędów, MCP, REST, domyślny przewodnik). Polski tylko na prośbę: `--lang pl` (`commands list|schema|guide`), `lang: "pl"` (MCP), `Accept-Language: pl` (REST).
+- **Język:** wynik maszynowy jest po angielsku (koperta `--json`, linie błędów, MCP, REST, domyślny przewodnik). Polski tylko na prośbę: `--lang pl` (`commands list|schema|guide`; w pozostałych komendach język podsumowania CLI bez `--json`), `lang: "pl"` (MCP), `Accept-Language: pl` (REST).
 
 ## Koperta, statusy i błędy
 
-Komenda zwraca kopertę `obserwator-result/1` `{"schema", "tool", "version", "command", "check", "status", "result", "notices"}`; `result` to dokument z własnym `schema` (`obserwator-<rodzaj>/1`), lista takich dokumentów albo null; `notices` to lista `{"level", "code", "message"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają listę elementów jako `result` i w kopercie `page` `{"total", "next_cursor", "truncated"}`: dopóki `truncated` jest prawdą, podaj `next_cursor` jako `cursor` kolejnej strony. Sprawdzenie zwraca plan `obserwator-plan/1`. Komendy strumieniowe bez `output` dają same linie danych: CLI pisze je na stdout, REST odpowiada załącznikiem (status i komunikaty w `X-Obserwator-Status`, `X-Obserwator-Notices`). REST: 200 także dla `partial` i `failed` — decyduje `status`.
+Komenda zwraca kopertę `obserwator-result/1` `{"schema", "tool", "version", "command", "check", "status", "result", "notices"}`; `result` to dokument z własnym `schema` (`obserwator-<rodzaj>/1`), lista takich dokumentów albo null; `notices` to lista `{"level", "code", "message"}` (każdy raz, np. `license_terms`). Komendy listowe zwracają listę elementów jako `result` i w kopercie `page` `{"total", "next_cursor", "truncated"}`: dopóki `truncated` jest prawdą, podaj `next_cursor` jako `cursor` kolejnej strony. Sprawdzenie zwraca plan `obserwator-plan/1`. Komendy strumieniowe bez `output` dają same linie danych: CLI pisze je na stdout (z `--json` i bez), REST odpowiada załącznikiem (status i komunikaty w `X-Obserwator-Status`, `X-Obserwator-Notices`). REST: 200 także dla `partial` i `failed` — decyduje `status`.
 
 <!-- obserwator:statuses -->
 
@@ -48,7 +48,7 @@ Klucz zbioru ma postać `<kraj>.<dostawca>.<zbiór>`; slug (`hydro_daily`) i ali
 
 ## Komendy
 
-Jedna linia na komendę, według skutku; opcje, reguły i skutki opcji: `obserwator commands schema --command "<komenda>"`. Znaczniki: `[output: …]` — opcja zapisuje plik, gdy ją podasz; `[jest sprawdzeniem]` — komenda sama planuje; `[lokalna]` — bez trasy REST.
+Jedna linia na komendę, według skutku; opcje, reguły i skutki opcji: `obserwator commands schema --command "<komenda>" --json`. Znaczniki: `[output: …]` — opcja zapisuje plik, gdy ją podasz; `[jest sprawdzeniem]` — komenda sama planuje; `[lokalna]` — bez trasy REST.
 
 <!-- obserwator:commands -->
 
