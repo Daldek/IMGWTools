@@ -11,11 +11,11 @@
 
 ## Dokumentacja
 
-- [AGENTS.md](https://raw.githubusercontent.com/Daldek/IMGWTools/main/AGENTS.md): przewodnik dla agentów po angielsku (po polsku: `obserwator commands guide --lang pl`) — komendy, zbiory, flagi, kody błędów, przepływy, czego nie robić
-- [README.md](https://raw.githubusercontent.com/Daldek/IMGWTools/main/README.md): instalacja i przykłady Python, CLI, REST, MCP
-- [Architektura](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/ARCHITECTURE.md): moduły, magazyn, przepływ danych
-- [Zmiany](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/CHANGELOG.md): zmiany i migracja z 2.x
+- [AGENTS.md](https://raw.githubusercontent.com/Daldek/Obserwator/main/AGENTS.md): przewodnik dla agentów po angielsku (po polsku: `obserwator commands guide --lang pl`) — komendy, zbiory, flagi, kody błędów, przepływy, czego nie robić
+- [README.md](https://raw.githubusercontent.com/Daldek/Obserwator/main/README.md): instalacja i przykłady Python, CLI, REST, MCP
+- [Architektura](https://raw.githubusercontent.com/Daldek/Obserwator/main/docs/ARCHITECTURE.md): moduły, magazyn, przepływ danych
+- [Zmiany](https://raw.githubusercontent.com/Daldek/Obserwator/main/docs/CHANGELOG.md): zmiany i migracja z 2.x
 
 ## Optional
 
-- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/IMGWTools/main/docs/DECISIONS.md): ADR-001–ADR-009
+- [Rejestr decyzji](https://raw.githubusercontent.com/Daldek/Obserwator/main/docs/DECISIONS.md): ADR-001–ADR-009

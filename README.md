@@ -4,7 +4,7 @@ A Python library and tools for downloading public data from the Institute of Met
 
 It also supports data from the probabilistic models of maximum precipitation (PMAXTP) from the [IMGW Klimat](https://klimat.imgw.pl/opady-maksymalne/) service.
 
-Until release 2.1.1 the tool was called IMGWTools (`pip install imgwtools`, command `imgw`); since 3.0.0 it is Obserwator, because IMGW-PIB is the institute whose data it reads, not the tool ([ADR-009](https://github.com/Daldek/IMGWTools/blob/main/docs/DECISIONS.md#adr-009-the-tool-is-called-obserwator)). The old and new names with the migration: [changelog](https://github.com/Daldek/IMGWTools/blob/main/docs/CHANGELOG.md).
+Until release 2.1.1 the tool was called IMGWTools (`pip install imgwtools`, command `imgw`); since 3.0.0 it is Obserwator, because IMGW-PIB is the institute whose data it reads, not the tool ([ADR-009](https://github.com/Daldek/Obserwator/blob/main/docs/DECISIONS.md#adr-009-the-tool-is-called-obserwator)). The old and new names with the migration: [changelog](https://github.com/Daldek/Obserwator/blob/main/docs/CHANGELOG.md).
 
 ---
 
@@ -16,7 +16,7 @@ Until release 2.1.1 the tool was called IMGWTools (`pip install imgwtools`, comm
 - **MCP server** - `obserwator mcp` (extra `obserwator[mcp]`) and the `/mcp` endpoint of the REST server: the catalog commands as tools for AI agents, read-only by default
 - **Web GUI** - download forms, station search and an interactive map (IMGW-PIB data)
 
-Since 3.0.0 all interfaces use one catalog of 30 commands (`obserwator commands list`, `obserwator commands schema`): the same option name in Python, CLI (`--option-name`), REST (parameter or JSON field) and MCP (tool argument), the same validation, one result envelope `obserwator-result/1` and one error code registry (`ERROR_CODES`). Machine output (envelope, errors, notices, catalog descriptions, the guide for AI agents, the MCP server) is in English; Polish texts are available on request (`--lang pl`, `Accept-Language: pl`), while CLI help and human-readable CLI lines are in Polish (`OBSERWATOR_LANG=en` switches them to English). Guide for AI agents: [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/main/AGENTS.md) and [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/main/llms.txt).
+Since 3.0.0 all interfaces use one catalog of 30 commands (`obserwator commands list`, `obserwator commands schema`): the same option name in Python, CLI (`--option-name`), REST (parameter or JSON field) and MCP (tool argument), the same validation, one result envelope `obserwator-result/1` and one error code registry (`ERROR_CODES`). Machine output (envelope, errors, notices, catalog descriptions, the guide for AI agents, the MCP server) is in English; Polish texts are available on request (`--lang pl`, `Accept-Language: pl`), while CLI help and human-readable CLI lines are in Polish (`OBSERWATOR_LANG=en` switches them to English). Guide for AI agents: [`AGENTS.md`](https://github.com/Daldek/Obserwator/blob/main/AGENTS.md) and [`llms.txt`](https://github.com/Daldek/Obserwator/blob/main/llms.txt).
 
 **Supported data:**
 - Current hydrological, meteorological and synoptic data through the IMGW API
@@ -61,8 +61,8 @@ pip install obserwator[mcp]
 pip install obserwator[full]
 
 # For developers (from the repository; uv, environment from uv.lock)
-git clone https://github.com/Daldek/IMGWTools.git
-cd IMGWTools
+git clone https://github.com/Daldek/Obserwator.git
+cd Obserwator
 uv sync --locked
 ```
 
@@ -72,7 +72,7 @@ Writing to the versioned store requires a file system with hard links — the sa
 
 ## Quick start
 
-Full guides to each interface: [docs/USAGE.md](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md).
+Full guides to each interface: [docs/USAGE.md](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md).
 
 ### Python
 
@@ -131,13 +131,13 @@ Read-only by default (writing commands return a plan); `--allow-writes` enables 
 
 An agent (an editor assistant, a chat application, a script with a language model) learns Obserwator from one source that matches the code:
 
-- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/main/AGENTS.md) — the guide: the "check → run → read" rule, the Python/CLI/REST/MCP mapping, the envelope and statuses, error codes, the datasets of both providers with option rules, command tables with effects, typical flows (e.g. "daily precipitation at the Poznań station", a ČHMÚ station) and a "what not to do" list;
-- [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/main/llms.txt) — a summary following llms.txt v2 with links to the documentation; `GET /llms.txt` serves the same file;
+- [`AGENTS.md`](https://github.com/Daldek/Obserwator/blob/main/AGENTS.md) — the guide: the "check → run → read" rule, the Python/CLI/REST/MCP mapping, the envelope and statuses, error codes, the datasets of both providers with option rules, command tables with effects, typical flows (e.g. "daily precipitation at the Poznań station", a ČHMÚ station) and a "what not to do" list;
+- [`llms.txt`](https://github.com/Daldek/Obserwator/blob/main/llms.txt) — a summary following llms.txt v2 with links to the documentation; `GET /llms.txt` serves the same file;
 - `obserwator commands guide [--format agents|llms] [--lang en|pl] [--output FILE] [--force]` or `agent_guide()` in Python — both files generated on the fly (English by default, `--lang pl` gives Polish); `GET /api/v1/commands/guide`.
 
 `AGENTS.md` and `llms.txt` are derived from the command catalog, the registries and the templates in `src/obserwator/_data/agents/` — they are not edited by hand (rules for working on the code: `CLAUDE.md`).
 
-Language, command effects and MCP server configuration (stdio and `/mcp`): [usage guide](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#ai-agents-language-command-effects-and-the-mcp-server).
+Language, command effects and MCP server configuration (stdio and `/mcp`): [usage guide](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#ai-agents-language-command-effects-and-the-mcp-server).
 
 ---
 
@@ -145,7 +145,7 @@ Language, command effects and MCP server configuration (stdio and `/mcp`): [usag
 
 A setting comes from the first of: the command-line option, the `OBSERWATOR_<KEY>` variable, the `.env` file, the `NOGAT_<KEY>` variable (shared keys `data_dir`, `cache_dir`, `lang`), the `[obserwator]` and `[nogat]` sections of the `nogat.toml` file, the default value. The most important variables: `OBSERWATOR_ROOT` (store root), `OBSERWATOR_LANG` (`pl` or `en`), `OBSERWATOR_DATA_DIR`, `OBSERWATOR_CACHE_DIR`, `OBSERWATOR_REFERENCE_DIR`, `OBSERWATOR_MCP_ENABLED`. `obserwator config show --json` prints every key with its value and source.
 
-Full table of variables, a `nogat.toml` example and store backup: [Configuration](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#configuration).
+Full table of variables, a `nogat.toml` example and store backup: [Configuration](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#configuration).
 
 ---
 
@@ -179,43 +179,43 @@ The only geographic datasets bundled with the package are the border outlines of
 
 ## Documentation
 
-Usage guide ([docs/USAGE.md](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md)), sections:
+Usage guide ([docs/USAGE.md](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md)), sections:
 
-- [Using as a Python library](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#using-as-a-python-library)
-- [Quick start (CLI)](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#quick-start-cli)
-- [REST API](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#rest-api)
-- [Web GUI](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#web-gui)
-- [AI agents: language, command effects and the MCP server](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#ai-agents-language-command-effects-and-the-mcp-server)
-- [Source data structure](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#source-data-structure)
-- [Docker](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#docker)
-- [Configuration](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#configuration)
-- [Versioned store (optional)](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#versioned-store-optional)
-- [Changes in version 3.0.0](https://github.com/Daldek/IMGWTools/blob/main/docs/USAGE.md#changes-in-version-300)
+- [Using as a Python library](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#using-as-a-python-library)
+- [Quick start (CLI)](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#quick-start-cli)
+- [REST API](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#rest-api)
+- [Web GUI](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#web-gui)
+- [AI agents: language, command effects and the MCP server](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#ai-agents-language-command-effects-and-the-mcp-server)
+- [Source data structure](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#source-data-structure)
+- [Docker](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#docker)
+- [Configuration](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#configuration)
+- [Versioned store (optional)](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#versioned-store-optional)
+- [Changes in version 3.0.0](https://github.com/Daldek/Obserwator/blob/main/docs/USAGE.md#changes-in-version-300)
 
 Other documents:
 
-- [`CLAUDE.md`](https://github.com/Daldek/IMGWTools/blob/main/CLAUDE.md) - Instructions for Claude Code
-- [`docs/CODEBASE.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/CODEBASE.md) - Code and module reference (public API, command catalog, data formats; [project structure](https://github.com/Daldek/IMGWTools/blob/main/docs/CODEBASE.md#project-structure-from-readme))
-- [`docs/TESTING.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/TESTING.md) - Tests: layout, markers, running ([test instructions from the README](https://github.com/Daldek/IMGWTools/blob/main/docs/TESTING.md#tests-from-readme))
-- [`docs/CHANGELOG.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/CHANGELOG.md) - Change history (including BREAKING 3.0.0)
-- [`docs/DECISIONS.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/DECISIONS.md) - Decision log (ADR-001: versioned store, ADR-002: one command catalog, ADR-003: ČHMÚ provider, ADR-004: AI agent support, ADR-005: user environment, ADR-006: message catalog, ADR-007: writing data, ADR-008: projects moved to Archiwista, ADR-009: the tool is called Obserwator)
-- [`docs/ARCHITECTURE.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/ARCHITECTURE.md) - System architecture
-- [`docs/PRD.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/PRD.md) - Product requirements
-- [`docs/PROGRESS.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/PROGRESS.md) - Current status, next steps, open questions
-- [`docs/HISTORY.md`](https://github.com/Daldek/IMGWTools/blob/main/docs/HISTORY.md) - Release history and closed work
-- [`AGENTS.md`](https://github.com/Daldek/IMGWTools/blob/main/AGENTS.md), [`llms.txt`](https://github.com/Daldek/IMGWTools/blob/main/llms.txt) - Guide for AI agents (generated: `obserwator commands guide`)
+- [`CLAUDE.md`](https://github.com/Daldek/Obserwator/blob/main/CLAUDE.md) - Instructions for Claude Code
+- [`docs/CODEBASE.md`](https://github.com/Daldek/Obserwator/blob/main/docs/CODEBASE.md) - Code and module reference (public API, command catalog, data formats; [project structure](https://github.com/Daldek/Obserwator/blob/main/docs/CODEBASE.md#project-structure-from-readme))
+- [`docs/TESTING.md`](https://github.com/Daldek/Obserwator/blob/main/docs/TESTING.md) - Tests: layout, markers, running ([test instructions from the README](https://github.com/Daldek/Obserwator/blob/main/docs/TESTING.md#tests-from-readme))
+- [`docs/CHANGELOG.md`](https://github.com/Daldek/Obserwator/blob/main/docs/CHANGELOG.md) - Change history (including BREAKING 3.0.0)
+- [`docs/DECISIONS.md`](https://github.com/Daldek/Obserwator/blob/main/docs/DECISIONS.md) - Decision log (ADR-001: versioned store, ADR-002: one command catalog, ADR-003: ČHMÚ provider, ADR-004: AI agent support, ADR-005: user environment, ADR-006: message catalog, ADR-007: writing data, ADR-008: projects moved to Archiwista, ADR-009: the tool is called Obserwator)
+- [`docs/ARCHITECTURE.md`](https://github.com/Daldek/Obserwator/blob/main/docs/ARCHITECTURE.md) - System architecture
+- [`docs/PRD.md`](https://github.com/Daldek/Obserwator/blob/main/docs/PRD.md) - Product requirements
+- [`docs/PROGRESS.md`](https://github.com/Daldek/Obserwator/blob/main/docs/PROGRESS.md) - Current status, next steps, open questions
+- [`docs/HISTORY.md`](https://github.com/Daldek/Obserwator/blob/main/docs/HISTORY.md) - Release history and closed work
+- [`AGENTS.md`](https://github.com/Daldek/Obserwator/blob/main/AGENTS.md), [`llms.txt`](https://github.com/Daldek/Obserwator/blob/main/llms.txt) - Guide for AI agents (generated: `obserwator commands guide`)
 
 ---
 
 ## Issues and support
 
-Report issues in the [Issues](https://github.com/Daldek/IMGWTools/issues) section.
+Report issues in the [Issues](https://github.com/Daldek/Obserwator/issues) section.
 
 ---
 
 ## License
 
-The project is released under the MIT license. Details in the [`LICENSE`](https://github.com/Daldek/IMGWTools/blob/main/LICENSE) file.
+The project is released under the MIT license. Details in the [`LICENSE`](https://github.com/Daldek/Obserwator/blob/main/LICENSE) file.
 
 ---
 

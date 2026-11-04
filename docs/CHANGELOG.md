@@ -6,6 +6,8 @@ follow [SemVer](https://semver.org/). Every change of the public API and of the 
 
 ## [Unreleased]
 
+- Repository URLs point to `github.com/Daldek/Obserwator` (the repository was renamed from IMGWTools).
+
 Changes since 2.1.1, to be released as 3.0.0. The tool released as IMGWTools 2.1.1 is called
 Obserwator from this release (ADR-009): the distribution, the import package, the command and
 every name derived from the tool change (first entry below). A versioned store of IMGW data
@@ -38,8 +40,8 @@ IMGW-PIB is the institute whose data the tool reads (beside ČHMÚ), not the too
 Obserwator and every name derived from it changes. The institute keeps its names: IMGW-PIB and
 IMGW in texts, the provider id `IMGW-PIB`, the dataset keys `pl.imgw.*`, the provider URLs and
 the identifiers that name the provider (`IMGW_API_URL`, `IMGW_PMAXTP_URL`,
-`IMGW_PUBLIC_DATA_URL`, `IMGW_ENCODING`). The repository stays `github.com/Daldek/IMGWTools`
-until it is renamed. No alias, shim or conversion keeps an old name: the store, its documents
+`IMGW_PUBLIC_DATA_URL`, `IMGW_ENCODING`). The repository is `github.com/Daldek/Obserwator`
+(GitHub redirects the old URL). No alias, shim or conversion keeps an old name: the store, its documents
 and every id below exist only since 3.0.0, which was never released under the old names
 (ECO-056). The other entries of this section use the new names; an old name stays only where an
 entry names what was removed or renamed.
@@ -68,7 +70,7 @@ entry names what was removed or renamed.
 
 Migration:
 
-- Install and pin `obserwator` instead of `imgwtools` (a git pin keeps the repository URL), import
+- Install and pin `obserwator` instead of `imgwtools` (a git pin uses `github.com/Daldek/Obserwator`), import
   `obserwator` and catch `ObserwatorError` and its subclasses.
 - Run `obserwator` instead of `imgw` in scripts and MCP client configurations
   (`"command": "obserwator", "args": ["mcp"]`); MCP clients and OpenAPI generators call the tools
